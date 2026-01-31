@@ -1,0 +1,38 @@
+---
+description: QA agents must add a qa-report to the ticket audit folder
+alwaysApply: true
+---
+
+# QA Audit Report (QA Agents)
+
+When you **QA a ticket** (e.g. user asks to "QA", "verify", or "check" a ticket that is allegedly complete), you **must** add a QA report to that ticket’s audit folder.
+
+## Required artifact
+
+- **Path:** `docs/audit/<task-id>-<short-title>/qa-report.md`
+- **When:** After performing QA (code review and, if possible, UI verification) for a ticket.
+
+## qa-report.md structure
+
+1. **Ticket & deliverable** — One-line goal, deliverable, and acceptance criteria from the ticket.
+2. **Audit artifacts** — Confirm all required audit files are present (plan, worklog, changed-files, decisions, verification, pm-review).
+3. **Code review** — PASS/FAIL with brief evidence (e.g. table of requirement vs implementation; file and line refs if helpful).
+4. **UI verification** — What was run: automated and/or manual steps from `verification.md`. If automated UI was not run (e.g. native dialogs, login, or pickers), state that and list the manual steps the user should run.
+5. **Verdict** — Implementation complete? OK to merge? Any blocking manual verification?
+
+## Example location
+
+For ticket `docs/tickets/0026-kanban-tickets-persist-column-on-refresh.md`, the QA report is:
+
+`docs/audit/0026-kanban-tickets-persist-column-on-refresh/qa-report.md`
+
+## Commit and push before summary
+
+- **You must commit and push** the qa-report (and any rule changes) **before** sending your QA summary to the user.
+- Sequence: write `qa-report.md` → commit all QA artifacts (report + rule updates if any) → push → then give your summary. Do not summarize first and then commit/push.
+- Use a commit subject that includes the ticket ID (e.g. `docs(0026): add QA report and qa-audit-report rule`).
+
+## Scope
+
+- Applies to any QA or verification of a **ticketed** task (ticket under `docs/tickets/` with a matching folder under `docs/audit/`).
+- Keep the report concise; use bullets and tables where appropriate.
