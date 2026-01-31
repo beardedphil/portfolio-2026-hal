@@ -17,6 +17,14 @@ type ToolCallRecord = {
   output: unknown
 }
 
+type TicketCreationResult = {
+  id: string
+  filename: string
+  filePath: string
+  syncSuccess: boolean
+  syncError?: string
+}
+
 type PmAgentResponse = {
   reply: string
   toolCalls: ToolCallRecord[]
@@ -24,6 +32,8 @@ type PmAgentResponse = {
   responseId?: string
   error?: string
   errorPhase?: 'context-pack' | 'openai' | 'tool' | 'not-implemented'
+  /** When create_ticket succeeded: id, file path, sync status (0011). */
+  ticketCreationResult?: TicketCreationResult
 }
 
 type DiagnosticsInfo = {
@@ -39,6 +49,7 @@ type DiagnosticsInfo = {
   connectedProject: string | null
   lastPmOutboundRequest: object | null
   lastPmToolCalls: ToolCallRecord[] | null
+  lastTicketCreationResult: TicketCreationResult | null
   persistenceError: string | null
   pmLastResponseId: string | null
   previousResponseIdInLastRequest: boolean
@@ -133,6 +144,7 @@ function App() {
   const [connectError, setConnectError] = useState<string | null>(null)
   const [lastPmOutboundRequest, setLastPmOutboundRequest] = useState<object | null>(null)
   const [lastPmToolCalls, setLastPmToolCalls] = useState<ToolCallRecord[] | null>(null)
+  const [lastTicketCreationResult, setLastTicketCreationResult] = useState<TicketCreationResult | null>(null)
   const [pmLastResponseId, setPmLastResponseId] = useState<string | null>(null)
   const [supabaseUrl, setSupabaseUrl] = useState<string | null>(null)
   const [supabaseAnonKey, setSupabaseAnonKey] = useState<string | null>(null)
@@ -249,6 +261,7 @@ function App() {
           // Store diagnostics data
           setLastPmOutboundRequest(data.outboundRequest)
           setLastPmToolCalls(data.toolCalls?.length ? data.toolCalls : null)
+          setLastTicketCreationResult(data.ticketCreationResult ?? null)
 
           if (!res.ok || data.error) {
             const errMsg = data.error ?? `HTTP ${res.status}`
@@ -449,6 +462,7 @@ function App() {
     setPersistenceError(null)
     setConnectedProject(null)
     setPmLastResponseId(null)
+    setLastTicketCreationResult(null)
     setSupabaseUrl(null)
     setSupabaseAnonKey(null)
   }, [])
@@ -472,6 +486,7 @@ function App() {
     connectedProject,
     lastPmOutboundRequest,
     lastPmToolCalls,
+    lastTicketCreationResult,
     persistenceError,
     pmLastResponseId,
     previousResponseIdInLastRequest,
@@ -768,6 +783,32 @@ function App() {
                         )}
                       </div>
                     )}
+                  </div>
+                )}
+
+                {/* PM Diagnostics: Ticket creation (0011) */}
+                {selectedChatTarget === 'project-manager' && diagnostics.lastTicketCreationResult && (
+                  <div className="diag-section">
+                    <div className="diag-section-header">Ticket creation</div>
+                    <div className="diag-section-content">
+                      <div className="diag-ticket-creation">
+                        <div><strong>Ticket ID:</strong> {diagnostics.lastTicketCreationResult.id}</div>
+                        <div><strong>File path:</strong> {diagnostics.lastTicketCreationResult.filePath}</div>
+                        <div>
+                          <strong>Sync:</strong>{' '}
+                          {diagnostics.lastTicketCreationResult.syncSuccess ? (
+                            <span className="diag-sync-ok">Success</span>
+                          ) : (
+                            <span className="diag-sync-error">
+                              Failed
+                              {diagnostics.lastTicketCreationResult.syncError && (
+                                <> — {diagnostics.lastTicketCreationResult.syncError}</>
+                              )}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>

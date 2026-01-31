@@ -1,5 +1,6 @@
 import path from 'path'
 import { pathToFileURL } from 'url'
+import { spawn } from 'child_process'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { config as loadEnv } from 'dotenv'
@@ -39,6 +40,14 @@ interface PmAgentResponse {
   responseId?: string
   error?: string
   errorPhase?: 'context-pack' | 'openai' | 'tool' | 'not-implemented'
+  /** When create_ticket succeeded: id, file path, and sync-tickets result (0011). */
+  ticketCreationResult?: {
+    id: string
+    filename: string
+    filePath: string
+    syncSuccess: boolean
+    syncError?: string
+  }
 }
 
 export default defineConfig({
@@ -232,20 +241,65 @@ export default defineConfig({
               return
             }
 
-            // Call the real PM agent
+            // Call the real PM agent (pass Supabase so create_ticket tool is available when project connected)
             const repoRoot = path.resolve(__dirname)
-            const result = await pmAgentModule.runPmAgent(message, {
+            const result = (await pmAgentModule.runPmAgent(message, {
               repoRoot,
               openaiApiKey: key,
               openaiModel: model,
               conversationHistory,
               conversationContextPack,
               previousResponseId,
-            })
+              ...(supabaseUrl && supabaseAnonKey ? { supabaseUrl, supabaseAnonKey } : {}),
+            })) as PmAgentResponse & { toolCalls: Array<{ name: string; input: unknown; output: unknown }> }
+
+            // If create_ticket succeeded, run sync-tickets so the new row is written to docs/tickets/ (0011)
+            let ticketCreationResult: PmAgentResponse['ticketCreationResult']
+            const createTicketCall = result.toolCalls?.find(
+              (c) => c.name === 'create_ticket' && typeof c.output === 'object' && c.output !== null && (c.output as { success?: boolean }).success === true
+            )
+            if (createTicketCall && supabaseUrl && supabaseAnonKey) {
+              const out = createTicketCall.output as { id: string; filename: string; filePath: string }
+              ticketCreationResult = {
+                id: out.id,
+                filename: out.filename,
+                filePath: out.filePath,
+                syncSuccess: false,
+              }
+              const syncScriptPath = path.resolve(repoRoot, 'scripts', 'sync-tickets.js')
+              try {
+                const syncResult = await new Promise<{ success: boolean; stderr?: string }>((resolve) => {
+                  const child = spawn('node', [syncScriptPath], {
+                    cwd: repoRoot,
+                    env: { ...process.env, SUPABASE_URL: supabaseUrl, SUPABASE_ANON_KEY: supabaseAnonKey },
+                    stdio: ['ignore', 'pipe', 'pipe'],
+                  })
+                  let stderr = ''
+                  child.stderr?.on('data', (d) => { stderr += String(d) })
+                  child.on('close', (code) => resolve({ success: code === 0, stderr: stderr || undefined }))
+                })
+                ticketCreationResult.syncSuccess = syncResult.success
+                if (!syncResult.success && syncResult.stderr) {
+                  ticketCreationResult.syncError = syncResult.stderr.trim().slice(0, 500)
+                }
+              } catch (syncErr) {
+                ticketCreationResult.syncError = syncErr instanceof Error ? syncErr.message : String(syncErr)
+              }
+            }
+
+            const response: PmAgentResponse = {
+              reply: result.reply,
+              toolCalls: result.toolCalls ?? [],
+              outboundRequest: result.outboundRequest ?? null,
+              ...(result.responseId != null && { responseId: result.responseId }),
+              ...(result.error != null && { error: result.error }),
+              ...(result.errorPhase != null && { errorPhase: result.errorPhase }),
+              ...(ticketCreationResult != null && { ticketCreationResult }),
+            }
 
             res.statusCode = 200
             res.setHeader('Content-Type', 'application/json')
-            res.end(JSON.stringify(result))
+            res.end(JSON.stringify(response))
           } catch (err) {
             res.statusCode = 500
             res.setHeader('Content-Type', 'application/json')

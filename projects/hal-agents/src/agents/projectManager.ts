@@ -10,6 +10,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { exec } from 'child_process'
 import { promisify } from 'util'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { redact } from '../utils/redact.js'
 import {
   listDirectory,
@@ -19,6 +20,17 @@ import {
 } from './tools.js'
 
 const execAsync = promisify(exec)
+
+/** Slug for ticket filename: lowercase, spaces to hyphens, strip non-alphanumeric except hyphen. */
+function slugFromTitle(title: string): string {
+  return title
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '') || 'ticket'
+}
 
 const SIGNATURE = '[PM@hal-agents]'
 
@@ -85,6 +97,9 @@ export interface PmAgentConfig {
   conversationContextPack?: string
   /** OpenAI Responses API: continue from this response for continuity. */
   previousResponseId?: string
+  /** When set with supabaseAnonKey, enables create_ticket tool (store ticket to Supabase, then sync writes to repo). */
+  supabaseUrl?: string
+  supabaseAnonKey?: string
 }
 
 export interface ToolCallRecord {
@@ -107,7 +122,9 @@ const PM_SYSTEM_INSTRUCTIONS = `You are the Project Manager agent for HAL. Your 
 
 You have access to read-only tools to explore the repository. Use them to answer questions about code, tickets, and project state.
 
-Always cite file paths when referencing specific content.`
+When the user asks to create a ticket (e.g. "create ticket", "create a ticket from this", or clicks a create-ticket action), use the create_ticket tool with a short title and a full markdown body that follows the repo ticket template: ID, Title, Owner, Type, Priority, Linkage, Goal, Human-verifiable deliverable, Acceptance criteria, Constraints, Non-goals, Implementation notes, Audit artifacts. Do not invent an ID—the tool assigns the next ID. Do not write secrets or API keys into the ticket body.
+
+Always cite file paths when referencing specific content. After creating a ticket, report the exact ticket ID and file path (e.g. docs/tickets/NNNN-title-slug.md) that was created.`
 
 const MAX_TOOL_ITERATIONS = 10
 /** Cap on character count for "recent conversation" so long technical messages don't dominate. (~3k tokens) */
@@ -219,6 +236,82 @@ export async function runPmAgent(
 
   const model = openai.responses(config.openaiModel)
 
+  const hasSupabase =
+    typeof config.supabaseUrl === 'string' &&
+    config.supabaseUrl.trim() !== '' &&
+    typeof config.supabaseAnonKey === 'string' &&
+    config.supabaseAnonKey.trim() !== ''
+
+  const createTicketTool = hasSupabase
+    ? (() => {
+        const supabase: SupabaseClient = createClient(
+          config.supabaseUrl!.trim(),
+          config.supabaseAnonKey!.trim()
+        )
+        return tool({
+          description:
+            'Create a new ticket and store it in the Kanban board (Supabase). The ticket appears in Unassigned. Use when the user asks to create a ticket from the conversation. Provide the full markdown body following the repo ticket template; do not include an ID in the body—the tool assigns the next available ID.',
+          parameters: z.object({
+            title: z.string().describe('Short title for the ticket (used in filename slug)'),
+            body_md: z
+              .string()
+              .describe(
+                'Full markdown body of the ticket (template: Title, Owner, Type, Priority, Goal, Acceptance criteria, Constraints, Non-goals). Do not write secrets or API keys.'
+              ),
+          }),
+          execute: async (input: { title: string; body_md: string }) => {
+            type CreateResult = { success: true; id: string; filename: string; filePath: string } | { success: false; error: string }
+            let out: CreateResult
+            try {
+              const { data: existingRows, error: fetchError } = await supabase
+                .from('tickets')
+                .select('id')
+                .order('id', { ascending: true })
+              if (fetchError) {
+                out = { success: false, error: `Supabase fetch ids: ${fetchError.message}` }
+                toolCalls.push({ name: 'create_ticket', input, output: out })
+                return out
+              }
+              const ids = (existingRows ?? []).map((r) => r.id)
+              const numericIds = ids
+                .map((id) => {
+                  const n = parseInt(id, 10)
+                  return Number.isNaN(n) ? 0 : n
+                })
+                .filter((n) => n >= 0)
+              const nextNum = numericIds.length > 0 ? Math.max(...numericIds) + 1 : 1
+              const id = String(nextNum).padStart(4, '0')
+              const slug = slugFromTitle(input.title)
+              const filename = `${id}-${slug}.md`
+              const filePath = `docs/tickets/${filename}`
+              const now = new Date().toISOString()
+              const { error: insertError } = await supabase.from('tickets').insert({
+                id,
+                filename,
+                title: input.title.trim(),
+                body_md: input.body_md.trim(),
+                kanban_column_id: 'col-unassigned',
+                kanban_position: 0,
+                kanban_moved_at: now,
+              })
+              if (insertError) {
+                out = { success: false, error: `Supabase insert: ${insertError.message}` }
+              } else {
+                out = { success: true, id, filename, filePath }
+              }
+            } catch (err) {
+              out = {
+                success: false,
+                error: err instanceof Error ? err.message : String(err),
+              }
+            }
+            toolCalls.push({ name: 'create_ticket', input, output: out })
+            return out
+          },
+        })
+      })()
+    : null
+
   const tools = {
     list_directory: tool({
       description: 'List files in a directory. Path is relative to repo root.',
@@ -259,6 +352,7 @@ export async function runPmAgent(
           : out
       },
     }),
+    ...(createTicketTool ? { create_ticket: createTicketTool } : {}),
   }
 
   const prompt = `${contextPack}\n\n---\n\nRespond to the user message above using the tools as needed.`
