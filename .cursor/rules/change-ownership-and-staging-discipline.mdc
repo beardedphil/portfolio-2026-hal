@@ -16,6 +16,7 @@ alwaysApply: true
 - **FORBIDDEN:** touching, restoring, staging, committing, or deleting files you did not personally change in the current task.
   - Do **not** “clean up” other agents’ work-in-progress.
   - Do **not** run broad commands that can affect unrelated files (examples: `git add .`, `git add -A`, `git restore .`, `git checkout .`, mass-formatting).
+  - Do **not** run `git stash` (or `git stash -u`) on the whole working tree unless you are certain no other agent has uncommitted work there — stashing removes uncommitted changes from the working tree; if another agent was implementing a ticket on a feature branch but had not yet committed, their code would exist only in the stash and can be lost.
 - If you need a clean place to work while the main working tree is dirty, use a **git worktree** so your changes are isolated.
 
 ## Staging discipline (required)
