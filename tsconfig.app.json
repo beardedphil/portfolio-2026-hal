@@ -14,7 +14,11 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    "baseUrl": ".",
+    "paths": {
+      "@hal-agents/*": ["projects/project-1/src/*"]
+    }
   },
-  "include": ["src"]
+  "include": ["src", "projects/project-1/src"]
 }
