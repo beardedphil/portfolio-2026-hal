@@ -9,11 +9,12 @@ alwaysApply: true
 
 ## Start of task: feature branch first (prevents lost work)
 
-- **MANDATORY:** Before making **any** file changes for a ticket, create/checkout the feature branch. This is non-negotiable.
+- **MANDATORY:** Before making **any** file changes for a ticket, create/checkout the feature branch. This is non-negotiable. See also **no-edits-on-main.mdc**.
 - **Required first step** (before the first edit):
   1. Run `git status -sb`. Note the current branch.
-  2. Feature branch name: `ticket/<id>-<short-title-kebab>` (e.g. ticket 0030 → `ticket/0030-ticket-list-add-delete-button-and-sync-deletion-to-filesystem`).
-  3. If not on that branch: `git checkout -b ticket/<id>-<short-title-kebab>` (or `git checkout ticket/<id>-...` if it exists remotely). Do this **before** editing any files.
+  2. If you are on **`main`**: do **not** use StrReplace, Write, or EditNotebook. Run `git checkout -b ticket/<id>-<short-title-kebab>` (or `git checkout ticket/<id>-...` if it exists remotely) first.
+  3. Feature branch name: `ticket/<id>-<short-title-kebab>` (e.g. ticket 0030 → `ticket/0030-ticket-list-add-delete-button-and-sync-deletion-to-filesystem`).
+  4. Only after you are on the feature branch may you edit files.
 - **FORBIDDEN:** Implementing ticket work on `main`. If you realize you edited on `main`: run `git checkout -b ticket/<id>-...` — uncommitted changes move with you; commit on the feature branch.
 - **Why:** Edits on `main` conflate work, can be lost on stash/reset, and violate branching policy. Branch first.
 
