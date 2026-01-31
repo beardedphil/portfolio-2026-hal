@@ -554,9 +554,6 @@ function App() {
                   </button>
                 </div>
               )}
-              <span className="kanban-status" data-loaded={kanbanLoaded}>
-                {kanbanLoaded ? 'Connected' : 'Loading...'}
-              </span>
             </div>
           </div>
           {connectError && (
