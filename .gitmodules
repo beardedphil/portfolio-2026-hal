@@ -1,0 +1,3 @@
+[submodule "projects/kanban"]
+	path = projects/kanban
+	url = https://github.com/beardedphil/portfolio-2026-basic-kanban.git
