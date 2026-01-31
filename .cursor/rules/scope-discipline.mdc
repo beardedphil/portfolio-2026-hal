@@ -1,0 +1,25 @@
+---
+description: Prevent unrequested changes (scope discipline)
+alwaysApply: true
+---
+
+# Scope Discipline (No Unrequested Changes)
+
+- Implement **only** what the ticket requests.
+- Do not change styling/behavior “while you’re here” unless:
+  - it is required to satisfy an acceptance criterion, OR
+  - it fixes a bug introduced by the task, AND it is documented.
+
+## Required documentation when deviations are unavoidable
+
+- If you must make a change not explicitly requested:
+  - add it to `docs/audit/<task-id>-<short-title>/decisions.md` under **Unrequested changes (required)**:
+    - what changed
+    - why it was necessary
+    - how a human can verify it in the UI
+
+## Verification quality bar
+
+- `docs/audit/<task-id>-<short-title>/verification.md` must include checks that confirm:
+  - the requested change works, AND
+  - adjacent UI did **not** regress (basic smoke checks).

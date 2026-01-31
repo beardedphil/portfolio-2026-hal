@@ -1,0 +1,44 @@
+---
+description: "Done" requires commit + push (all agents)
+alwaysApply: true
+---
+
+# “Done” Means Committed + Pushed (All Agents)
+
+- **FORBIDDEN:** Sending a "done" or summary message while the working tree has uncommitted/unpushed changes. Commit and push first; then summarize.
+
+## Sequence: push first, then summarize
+
+- The moment you **think** you're done (implementation complete, audit written, etc.) is when you **commit and push** — not after you've already told the user.
+- **First:** commit all relevant changes and push to the remote.
+- **Then:** tell the user what was done (summary, verification, audit location). Do not give the long "here's what I did" report until after push.
+- If you summarize first and then commit/push (or forget to push), you did it in the wrong order.
+
+## Before you reply: the gate
+
+- **If you are about to send a message** that summarizes completed work, or that includes any of: "done", "complete", "ready", "looks good", "here's what I did", "Implementation complete", "Summary:", or similar — **STOP**.
+- **First** run: `git status -sb`. If there are any `M` (modified) or `??` (untracked) relevant to the task: run `git add`, `git commit -m '...'` (with ticket ID in subject), and `git push`. Then run `git status -sb` again.
+- **Only after** the working tree is clean and pushed may you send that message — and your message **must** start with the exact `git status -sb` output.
+- If you have not yet committed and pushed, do **not** send a "done" or summary message; do the commit and push in this same turn, then reply.
+
+## Requirements
+
+- If any agent believes a task/story is **done**, they must:
+  - **commit** all relevant changes, and
+  - **push** to the remote
+  before telling the user or project manager that it’s done.
+- Agents must not delegate commit/push work to the user/PM (e.g., “after you commit and push…”).
+  - If commit/push hasn’t happened yet, the correct status is **“not ready for verification.”**
+- “Done/ready” messages must include the exact `git status -sb` output showing the branch is synced and the working tree is clean.
+  - “Clean” means: **no modified files** and **no untracked files** (ignored build artifacts are fine).
+
+## Commit message linkage (no commit hashes in docs)
+
+- Every commit that belongs to a ticket must include the ticket ID in the commit subject (e.g. `feat(0010): ...`, `fix(0008): ...`, `docs(0009): ...`).
+- If `git status -sb` is not clean/synced, the agent must say **“not ready for verification”** and keep working until it is.
+  - Do not claim “ready” if `git status` shows any `??` (untracked) or `M` (modified) entries.
+
+## PM verification
+
+- The project manager’s “done” is only **candidate-complete** until the user verifies the acceptance criteria.
+- Do not use language like “done” or “complete” until changes are committed and pushed.
