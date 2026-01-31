@@ -329,6 +329,74 @@ export default defineConfig({
         })
       },
     },
+    {
+      name: 'pm-check-unassigned-endpoint',
+      configureServer(server) {
+        server.middlewares.use(async (req, res, next) => {
+          if (req.url !== '/api/pm/check-unassigned' || req.method !== 'POST') {
+            next()
+            return
+          }
+
+          try {
+            const body = (await readJsonBody(req)) as {
+              supabaseUrl?: string
+              supabaseAnonKey?: string
+            }
+            const supabaseUrl = typeof body.supabaseUrl === 'string' ? body.supabaseUrl.trim() || undefined : undefined
+            const supabaseAnonKey = typeof body.supabaseAnonKey === 'string' ? body.supabaseAnonKey.trim() || undefined : undefined
+
+            if (!supabaseUrl || !supabaseAnonKey) {
+              res.statusCode = 400
+              res.setHeader('Content-Type', 'application/json')
+              res.end(
+                JSON.stringify({
+                  moved: [],
+                  notReady: [],
+                  error: 'supabaseUrl and supabaseAnonKey are required.',
+                })
+              )
+              return
+            }
+
+            const distPath = path.resolve(__dirname, 'projects/hal-agents/dist/agents/projectManager.js')
+            const pmModule = await import(pathToFileURL(distPath).href)
+            const checkUnassignedTickets =
+              typeof pmModule.checkUnassignedTickets === 'function'
+                ? pmModule.checkUnassignedTickets
+                : null
+
+            if (!checkUnassignedTickets) {
+              res.statusCode = 503
+              res.setHeader('Content-Type', 'application/json')
+              res.end(
+                JSON.stringify({
+                  moved: [],
+                  notReady: [],
+                  error: 'checkUnassignedTickets not available (hal-agents build may be missing or outdated).',
+                })
+              )
+              return
+            }
+
+            const result = await checkUnassignedTickets(supabaseUrl, supabaseAnonKey)
+            res.statusCode = 200
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify(result))
+          } catch (err) {
+            res.statusCode = 500
+            res.setHeader('Content-Type', 'application/json')
+            res.end(
+              JSON.stringify({
+                moved: [],
+                notReady: [],
+                error: err instanceof Error ? err.message : String(err),
+              })
+            )
+          }
+        })
+      },
+    },
   ],
   resolve: {
     alias: {

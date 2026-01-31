@@ -1,0 +1,736 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  color: #1a1a1a;
+  background: #f5f5f5;
+}
+
+#root {
+  min-height: 100vh;
+  padding: 2rem;
+}
+
+h1 {
+  font-size: 1.75rem;
+  font-weight: 600;
+  margin: 0 0 0.25rem 0;
+}
+
+.subtitle {
+  font-size: 1rem;
+  color: #555;
+  margin: 0 0 1.5rem 0;
+}
+
+/* App header: project connection + status */
+.app-header-bar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+.connect-project-btn {
+  padding: 0.45rem 0.9rem;
+  font-size: 0.95rem;
+  cursor: pointer;
+  background: #1976d2;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-weight: 500;
+}
+.connect-project-btn:hover {
+  background: #1565c0;
+}
+.embedded-status {
+  font-size: 0.9rem;
+  color: #666;
+  font-style: italic;
+}
+.embedded-status.connected {
+  color: #0a6b0a;
+  font-style: normal;
+  font-weight: 500;
+}
+.project-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  background: #e8f4fd;
+  border: 1px solid #90caf9;
+  border-radius: 6px;
+}
+.project-name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #1565c0;
+}
+.disconnect-btn {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  background: #fff;
+  color: #666;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+.disconnect-btn:hover {
+  background: #f5f5f5;
+  color: #333;
+}
+.connection-status {
+  font-size: 0.9rem;
+  margin: 0;
+}
+.connection-status[data-status="connected"] {
+  color: #0a6b0a;
+}
+.connection-status[data-status="disconnected"] {
+  color: #666;
+}
+.connection-status[data-status="connecting"] {
+  color: #888;
+}
+.new-hal-project-btn {
+  padding: 0.35rem 0.7rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  background: #333;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+}
+.new-hal-project-btn:hover {
+  background: #555;
+}
+.config-missing-error {
+  padding: 0.75rem 1rem;
+  background: #fef3cd;
+  border: 1px solid #e0c040;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+  font-size: 0.95rem;
+  color: #856404;
+}
+
+/* Columns section */
+.columns-section {
+  margin-bottom: 1.5rem;
+}
+.add-column-btn {
+  margin-bottom: 0.75rem;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  background: #333;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+}
+.add-column-btn:hover {
+  background: #555;
+}
+.add-column-btn:focus {
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.add-column-btn:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.8);
+  outline-offset: 2px;
+}
+.add-column-form {
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  max-width: 280px;
+}
+.add-column-form input {
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+.add-column-error {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.875rem;
+  color: #c00;
+}
+.add-column-form .form-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+.add-column-form .form-actions button {
+  padding: 0.35rem 0.7rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #f5f5f5;
+}
+.add-column-form .form-actions button:hover {
+  background: #e8e8e8;
+}
+.columns-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 0.75rem;
+  overflow-x: auto;
+}
+.column-card {
+  min-width: 180px;
+  padding: 0.6rem 0.75rem;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.column-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+.column-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: grab;
+  flex: 1;
+}
+.column-title:active {
+  cursor: grabbing;
+}
+.column-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-height: 2rem;
+}
+.column-cards-over {
+  background: #e8f4fc;
+  border-radius: 4px;
+}
+.ticket-card {
+  padding: 0.5rem 0.6rem;
+  font-size: 0.85rem;
+  background: #f9f9f9;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+}
+.column-remove {
+  align-self: flex-start;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #f5f5f5;
+  color: #c00;
+}
+.column-remove:hover {
+  background: #ffe0e0;
+}
+
+.debug-toggle {
+  margin-bottom: 1rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  background: #333;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+}
+
+.debug-toggle:hover {
+  background: #555;
+}
+
+.debug-panel {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-size: 0.875rem;
+}
+
+.debug-panel h3 {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.95rem;
+}
+
+.debug-panel section {
+  margin-bottom: 1rem;
+}
+
+.debug-panel section:last-child {
+  margin-bottom: 0;
+}
+
+.debug-panel ul {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.debug-panel .build-info,
+.debug-panel .error-section {
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  padding: 0.5rem;
+  background: #f0f0f0;
+  border-radius: 4px;
+}
+
+.error-section.empty {
+  color: #888;
+  font-style: italic;
+}
+
+/* Modal (wizard v0) */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 2rem;
+  z-index: 50;
+}
+.modal {
+  width: min(720px, 100%);
+  background: #fff;
+  border-radius: 10px;
+  border: 1px solid #ddd;
+  padding: 1rem;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+.modal-title {
+  font-size: 1.15rem;
+  margin: 0;
+}
+.modal-close {
+  padding: 0.35rem 0.7rem;
+  cursor: pointer;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: #f5f5f5;
+}
+.modal-close:hover {
+  background: #e8e8e8;
+}
+.modal-subtitle {
+  margin: 0 0 1rem 0;
+  color: #555;
+  font-size: 0.95rem;
+}
+.modal-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+.field {
+  display: grid;
+  gap: 0.25rem;
+}
+.field-label {
+  font-size: 0.85rem;
+  color: #555;
+  font-weight: 600;
+}
+.field-input {
+  padding: 0.45rem 0.55rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 0.95rem;
+}
+.checklist {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+.check {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  font-size: 0.95rem;
+}
+.modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+.modal-actions button {
+  padding: 0.4rem 0.8rem;
+  cursor: pointer;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: #f5f5f5;
+}
+.modal-actions button:hover {
+  background: #e8e8e8;
+}
+.modal-actions .primary {
+  background: #333;
+  color: #fff;
+  border: none;
+}
+.modal-actions .primary:hover {
+  background: #555;
+}
+.report-pre {
+  margin: 0.25rem 0 0 0;
+  padding: 0.75rem;
+  background: #f7f7f7;
+  border: 1px solid #e6e6e6;
+  border-radius: 6px;
+  overflow: auto;
+  font-family: ui-monospace, monospace;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.wizard-v1 {
+  border-top: 1px solid #eee;
+  padding-top: 1rem;
+  margin-top: 1rem;
+}
+.wizard-help {
+  margin: 0.25rem 0 0.75rem 0;
+  font-size: 0.9rem;
+  color: #555;
+}
+.wizard-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+.wizard-status {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #555;
+}
+.wizard-error {
+  margin: 0.5rem 0 0 0;
+  font-size: 0.9rem;
+  color: #c00;
+}
+
+/* Tickets (Docs) section */
+.tickets-docs-section {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+}
+.tickets-docs-section h2 {
+  font-size: 1.1rem;
+  margin: 0 0 0.5rem 0;
+}
+.tickets-status {
+  font-size: 0.9rem;
+  margin: 0 0 0.5rem 0;
+}
+.tickets-status[data-status='connected'] {
+  color: #0a7;
+}
+.tickets-status[data-status='disconnected'] {
+  color: #666;
+}
+.tickets-explanation {
+  font-size: 0.875rem;
+  color: #555;
+  margin: 0 0 0.75rem 0;
+}
+.tickets-explanation code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.85em;
+  background: #f0f0f0;
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+}
+.connect-project-btn,
+.refresh-tickets-btn {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  background: #333;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  margin-bottom: 0.5rem;
+}
+.connect-project-btn:hover,
+.refresh-tickets-btn:hover {
+  background: #555;
+}
+.tickets-message {
+  font-size: 0.875rem;
+  margin: 0.5rem 0 0 0;
+  color: #666;
+}
+.tickets-message.tickets-error {
+  color: #c00;
+}
+.tickets-saved {
+  font-size: 0.875rem;
+  margin: 0.5rem 0 0 0;
+  color: #0a7;
+}
+.tickets-count {
+  font-size: 0.9rem;
+  margin: 0 0 0.5rem 0;
+}
+.tickets-layout {
+  display: flex;
+  gap: 1rem;
+  margin-top: 0.75rem;
+  min-height: 200px;
+}
+.tickets-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  min-width: 200px;
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  background: #f9f9f9;
+}
+.tickets-list li {
+  margin: 0;
+  padding: 0;
+  border-bottom: 1px solid #eee;
+}
+.tickets-list li:last-child {
+  border-bottom: none;
+}
+.ticket-file-btn {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: #1a1a1a;
+}
+.ticket-file-btn:hover {
+  background: #eee;
+}
+.ticket-file-btn[aria-pressed='true'] {
+  background: #e0e8f0;
+  font-weight: 600;
+}
+.ticket-viewer {
+  flex: 1;
+  min-width: 0;
+  padding: 0.75rem;
+  background: #f9f9f9;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.ticket-viewer-path {
+  font-size: 0.85rem;
+  margin: 0 0 0.5rem 0;
+  word-break: break-all;
+}
+.ticket-viewer-placeholder,
+.ticket-viewer-loading {
+  font-size: 0.9rem;
+  color: #888;
+  margin: 0;
+  font-style: italic;
+}
+.ticket-viewer-content {
+  flex: 1;
+  margin: 0;
+  padding: 0.5rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  overflow: auto;
+  background: #fff;
+  border: 1px solid #e8e8e8;
+  border-radius: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Ticket Store mode tabs */
+.ticket-store-mode {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.mode-tab {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: #f5f5f5;
+  color: #555;
+}
+.mode-tab:hover {
+  background: #eee;
+}
+.mode-tab.active {
+  background: #333;
+  color: #fff;
+  border-color: #333;
+}
+
+/* Supabase config */
+.tickets-docs-section h3 {
+  font-size: 1rem;
+  margin: 0.75rem 0 0.5rem 0;
+}
+.tickets-docs-section h3:first-of-type {
+  margin-top: 0;
+}
+.supabase-config {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+  max-width: 400px;
+}
+.supabase-config label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.875rem;
+}
+.supabase-config input {
+  padding: 0.4rem 0.5rem;
+  font-size: 0.9rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+.supabase-setup {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: #fff8f0;
+  border: 1px solid #e0d0c0;
+  border-radius: 6px;
+}
+.supabase-setup h4 {
+  font-size: 0.95rem;
+  margin: 0 0 0.5rem 0;
+}
+.supabase-setup-sql {
+  margin: 0.5rem 0 0 0;
+  padding: 0.75rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  overflow-x: auto;
+  white-space: pre;
+}
+.tickets-status[data-status='connecting'] {
+  color: #f80;
+}
+
+/* Import from Docs (0012) */
+.import-from-docs {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: #f9f9f9;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+}
+.import-from-docs h4 {
+  font-size: 0.95rem;
+  margin: 0 0 0.5rem 0;
+}
+.import-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.import-actions .connect-project-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.import-summary {
+  color: #0a7;
+  font-weight: 500;
+}
+.import-preview {
+  margin-top: 0.75rem;
+}
+.import-totals {
+  font-size: 0.875rem;
+  margin: 0 0 0.5rem 0;
+  font-weight: 500;
+}
+.import-preview-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  background: #fff;
+}
+.import-preview-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.8rem;
+  border-bottom: 1px solid #eee;
+}
+.import-preview-item:last-child {
+  border-bottom: none;
+}
+.import-preview-item[data-action='create'] .import-action { color: #0a7; }
+.import-preview-item[data-action='update'] .import-action { color: #08c; }
+.import-preview-item[data-action='skip'] .import-action { color: #666; }
+.import-preview-item[data-action='fail'] .import-action { color: #c00; }
+.import-filename {
+  font-family: ui-monospace, monospace;
+  min-width: 0;
+}
+.import-action {
+  font-weight: 500;
+}
+.import-reason {
+  color: #666;
+  font-size: 0.75rem;
+}

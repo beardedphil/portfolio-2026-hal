@@ -1,55 +1,31 @@
 ---
-description: Submodule synchronization between HAL and source repos
+description: Submodule synchronization (when HAL has submodules)
 globs:
 alwaysApply: true
 ---
 
 # Submodule Sync Protocol
 
-## Global rules live in the HAL superrepo
+## Global rules live in the HAL repo
 
 - The **only** authoritative global agent rules are in: `portfolio-2026-hal/.cursor/rules/`.
-- `projects/kanban` and `projects/project-1` are designed to be worked on **inside this superrepo workspace** so the rules apply consistently.
-- The source repos intentionally should not carry a full copy of `.cursor/rules/*.mdc` (to prevent drift). They may contain a stub rule that points back here.
+- `projects/kanban` and `projects/hal-agents` are **normal directories** in the HAL repo (monorepo). Edit them directly; no submodule sync needed.
+- If HAL later adds other submodules (e.g. `projects/project-1`), they may contain a stub rule that points back here.
 
-## Context
+## Context (0013)
 
-`portfolio-2026-hal` is a super-repo containing submodules:
-- `projects/kanban` → `portfolio-2026-basic-kanban`
-- `projects/project-1` → `portfolio-2026-hal-agents` (aka `portfolio-2026-project-1`)
+`portfolio-2026-hal` is a **monorepo**. Kanban and hal-agents are vendored under `projects/`:
 
-Git submodules lock to a specific commit. They do NOT auto-update when the source repo changes.
+- `projects/kanban` — vendored (was submodule; now regular tracked files).
+- `projects/hal-agents` — normal directory (agents code; single source of truth).
 
-## After Pushing to a Source Repo
+There are **no git submodules** in HAL after 0013. Running `npm run dev` does not require `git submodule update`.
 
-When you push changes to `portfolio-2026-basic-kanban` or `portfolio-2026-project-1`, you MUST also update the corresponding submodule in HAL:
+## After Pushing to an External Repo (if you mirror)
 
-```bash
-cd portfolio-2026-hal
-git submodule update --remote projects/kanban   # or projects/project-1
-git add projects/kanban
-git commit -m "chore: update kanban submodule to latest"
-git push
-```
-
-Notes:
-
-- If the submodule pointer update belongs to a ticket, include the ticket ID in the commit subject (example: `chore(0005): update kanban submodule to latest`).
-- For a fresh clone, initialize submodules as needed:
-
-```bash
-git submodule update --init --recursive
-```
+If you maintain a separate mirror of kanban or hal-agents and push there, update that repo from HAL when needed. HAL is the source of truth; no submodule pointer to update in HAL.
 
 ## Why This Matters
 
-- The HAL app embeds the kanban board from `projects/kanban`
-- If the submodule is stale, HAL won't see your changes
-- Other developers cloning HAL will get outdated code
-
-## Quick Reference
-
-| Source Repo | Submodule Path |
-|-------------|----------------|
-| `portfolio-2026-basic-kanban` | `projects/kanban` |
-| `portfolio-2026-project-1` | `projects/project-1` |
+- The HAL app embeds the kanban board from `projects/kanban`.
+- All code is in one repo; no sync step. Fresh clone + `npm install` (root and projects/kanban if needed) + `npm run dev` is enough.

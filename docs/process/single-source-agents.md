@@ -31,4 +31,4 @@ For day-to-day work, **edit only in HAL** so there is a single source of truth.
 
 ## Kanban
 
-`projects/kanban` remains a **submodule** (separate repo). Only hal-agents (agents) was converted to a normal directory so agents code is maintained in one place.
+`projects/kanban` is part of the HAL monorepo (0013): it is a normal directory under `projects/kanban`, not a git submodule. Edit kanban code directly in the HAL repo; `npm run dev` runs both HAL and kanban without any submodule init.

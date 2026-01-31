@@ -14,7 +14,7 @@ This file is for future PM agents working in this repo.
   - If you see columns but no tickets, check Supabase schema requirements (e.g. `kanban_columns` may be required by the kanban app).
 - **Supabase schema drift**: `tickets` may exist while `kanban_columns` is missing. The kanban app may disconnect/clear tickets if schema is incomplete.
 - **Superrepo vs project repos**:
-  - HAL is a superrepo; kanban logic lives in the kanban submodule.
+  - HAL is a monorepo; kanban lives under `projects/kanban` (vendored, not a submodule).
   - Bugs in kanban behavior generally belong in the kanban repo, not HAL.
 - **Single source for agents**: `projects/hal-agents` is a **normal directory** in HAL (not a submodule). Edit agents code only here so there is one place to change. See [single-source-agents.md](single-source-agents.md).
 

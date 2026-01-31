@@ -32,6 +32,159 @@ function slugFromTitle(title: string): string {
     .replace(/^-|-$/g, '') || 'ticket'
 }
 
+/** Extract section body after a ## Section Title line (first line after blank line or next ##). */
+function sectionContent(body: string, sectionTitle: string): string {
+  const re = new RegExp(
+    `##\\s+${sectionTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\n([\\s\\S]*?)(?=\\n## |$)`,
+    'i'
+  )
+  const m = body.match(re)
+  return (m?.[1] ?? '').trim()
+}
+
+/** Placeholder-like pattern: angle brackets with content (e.g. <AC 1>, <task-id>). */
+const PLACEHOLDER_RE = /<[A-Za-z0-9\s\-_]+>/g
+
+export interface ReadyCheckResult {
+  ready: boolean
+  missingItems: string[]
+  checklistResults: {
+    goal: boolean
+    deliverable: boolean
+    acceptanceCriteria: boolean
+    constraintsNonGoals: boolean
+    noPlaceholders: boolean
+  }
+}
+
+/**
+ * Evaluate ticket body against the Ready-to-start checklist (Definition of Ready).
+ * See docs/process/ready-to-start-checklist.md.
+ */
+export function evaluateTicketReady(bodyMd: string): ReadyCheckResult {
+  const body = bodyMd.trim()
+  const goal = sectionContent(body, 'Goal (one sentence)')
+  const deliverable = sectionContent(body, 'Human-verifiable deliverable (UI-only)')
+  const ac = sectionContent(body, 'Acceptance criteria (UI-only)')
+  const constraints = sectionContent(body, 'Constraints')
+  const nonGoals = sectionContent(body, 'Non-goals')
+
+  const goalPlaceholders = goal.match(PLACEHOLDER_RE) ?? []
+  const deliverablePlaceholders = deliverable.match(PLACEHOLDER_RE) ?? []
+  const goalOk = goal.length > 0 && goalPlaceholders.length === 0 && !/^<[^>]*>$/.test(goal.trim())
+  const deliverableOk = deliverable.length > 0 && deliverablePlaceholders.length === 0
+  const acOk = /-\s*\[\s*\]/.test(ac)
+  const constraintsOk = constraints.length > 0
+  const nonGoalsOk = nonGoals.length > 0
+  const placeholders = body.match(PLACEHOLDER_RE) ?? []
+  const noPlaceholdersOk = placeholders.length === 0
+
+  const missingItems: string[] = []
+  if (!goalOk) missingItems.push('Goal (one sentence) missing or placeholder')
+  if (!deliverableOk) missingItems.push('Human-verifiable deliverable missing or placeholder')
+  if (!acOk) missingItems.push('Acceptance criteria checkboxes missing')
+  if (!constraintsOk) missingItems.push('Constraints section missing or empty')
+  if (!nonGoalsOk) missingItems.push('Non-goals section missing or empty')
+  if (!noPlaceholdersOk) missingItems.push(`Unresolved placeholders: ${placeholders.join(', ')}`)
+
+  return {
+    ready: goalOk && deliverableOk && acOk && constraintsOk && nonGoalsOk && noPlaceholdersOk,
+    missingItems,
+    checklistResults: {
+      goal: goalOk,
+      deliverable: deliverableOk,
+      acceptanceCriteria: acOk,
+      constraintsNonGoals: constraintsOk && nonGoalsOk,
+      noPlaceholders: noPlaceholdersOk,
+    },
+  }
+}
+
+export interface CheckUnassignedResult {
+  moved: string[]
+  notReady: Array<{ id: string; title?: string; missingItems: string[] }>
+  error?: string
+}
+
+const COL_UNASSIGNED = 'col-unassigned'
+const COL_TODO = 'col-todo'
+
+/**
+ * Check all tickets in Unassigned: evaluate readiness, move ready ones to To Do.
+ * Returns list of moved ticket ids and list of not-ready tickets with missing items.
+ * Used on app load and after sync so the PM can post a summary to chat.
+ */
+export async function checkUnassignedTickets(
+  supabaseUrl: string,
+  supabaseAnonKey: string
+): Promise<CheckUnassignedResult> {
+  const supabase = createClient(supabaseUrl.trim(), supabaseAnonKey.trim())
+  const moved: string[] = []
+  const notReady: Array<{ id: string; title?: string; missingItems: string[] }> = []
+
+  try {
+    const { data: rows, error: fetchError } = await supabase
+      .from('tickets')
+      .select('id, title, body_md, kanban_column_id')
+      .order('id', { ascending: true })
+
+    if (fetchError) {
+      return { moved: [], notReady: [], error: `Supabase fetch: ${fetchError.message}` }
+    }
+
+    const unassigned = (rows ?? []).filter(
+      (r: { kanban_column_id?: string | null }) =>
+        r.kanban_column_id === COL_UNASSIGNED ||
+        r.kanban_column_id == null ||
+        r.kanban_column_id === ''
+    )
+
+    let nextTodoPosition = 0
+    const { data: todoRows } = await supabase
+      .from('tickets')
+      .select('kanban_position')
+      .eq('kanban_column_id', COL_TODO)
+      .order('kanban_position', { ascending: false })
+      .limit(1)
+    if (todoRows?.length) {
+      const max = (todoRows as { kanban_position?: number }[]).reduce(
+        (acc, r) => Math.max(acc, r.kanban_position ?? 0),
+        0
+      )
+      nextTodoPosition = max + 1
+    }
+
+    const now = new Date().toISOString()
+    for (const row of unassigned) {
+      const id = (row as { id: string }).id
+      const title = (row as { title?: string }).title
+      const bodyMd = (row as { body_md?: string }).body_md ?? ''
+      const result = evaluateTicketReady(bodyMd)
+      if (result.ready) {
+        const { error: updateError } = await supabase
+          .from('tickets')
+          .update({
+            kanban_column_id: COL_TODO,
+            kanban_position: nextTodoPosition++,
+            kanban_moved_at: now,
+          })
+          .eq('id', id)
+        if (!updateError) moved.push(id)
+      } else {
+        notReady.push({ id, title, missingItems: result.missingItems })
+      }
+    }
+
+    return { moved, notReady }
+  } catch (err) {
+    return {
+      moved: [],
+      notReady: [],
+      error: err instanceof Error ? err.message : String(err),
+    }
+  }
+}
+
 const SIGNATURE = '[PM@hal-agents]'
 
 // --- Legacy respond (kept for backward compatibility) ---
@@ -126,6 +279,8 @@ You have access to read-only tools to explore the repository. Use them to answer
 
 **Creating tickets:** When the user asks to create a ticket (e.g. "create a ticket", "create ticket for that", "create a new ticket"), you MUST call the create_ticket tool if it is available. Calling the tool is what actually creates the ticket in the Kanban board—do not only write the ticket content in your message. Use create_ticket with a short title and a full markdown body following the repo ticket template (ID, Title, Owner, Type, Priority, Linkage, Goal, Human-verifiable deliverable, Acceptance criteria, Constraints, Non-goals, Implementation notes, Audit artifacts). Do not invent an ID—the tool assigns the next ID. Do not write secrets or API keys into the ticket body. If create_ticket is not in your tool list, tell the user: "I don't have the create-ticket tool for this request. In the HAL app, connect the project folder (with VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in its .env), then try again. Check Diagnostics to confirm 'Create ticket (this request): Available'."
 
+**Moving a ticket to To Do:** When the user asks to move a ticket to To Do (e.g. "move this to To Do", "move ticket 0012 to To Do"), you MUST (1) fetch the ticket content with fetch_ticket_content (by ticket id), (2) evaluate readiness with evaluate_ticket_ready (pass the body_md from the fetch result). If the ticket is NOT ready, do NOT call kanban_move_ticket_to_todo; instead reply with a clear list of what is missing (use the missingItems from the evaluate_ticket_ready result). If the ticket IS ready, call kanban_move_ticket_to_todo with the ticket id. Then confirm in chat that the ticket was moved. The readiness checklist is in docs/process/ready-to-start-checklist.md (Goal, Human-verifiable deliverable, Acceptance criteria checkboxes, Constraints, Non-goals, no unresolved placeholders).
+
 Always cite file paths when referencing specific content. After creating a ticket via the tool, report the exact ticket ID and file path (e.g. docs/tickets/NNNN-title-slug.md) that was created.`
 
 const MAX_TOOL_ITERATIONS = 10
@@ -191,6 +346,15 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
     if (mdcFiles.length === 0) sections.push('(no .mdc files found)')
   } catch {
     sections.push('(rules directory not found or not readable)')
+  }
+
+  sections.push('## Ready-to-start checklist (Definition of Ready)')
+  try {
+    const checklistPath = path.resolve(config.repoRoot, 'docs/process/ready-to-start-checklist.md')
+    const content = await fs.readFile(checklistPath, 'utf8')
+    sections.push(content)
+  } catch {
+    sections.push('(docs/process/ready-to-start-checklist.md not found)')
   }
 
   sections.push('## Git status (git status -sb)')
@@ -322,6 +486,189 @@ export async function runPmAgent(
       })()
     : null
 
+  const fetchTicketContentTool =
+    hasSupabase &&
+    (() => {
+      const supabase: SupabaseClient = createClient(
+        config.supabaseUrl!.trim(),
+        config.supabaseAnonKey!.trim()
+      )
+      return tool({
+        description:
+          'Fetch the full ticket content (body_md, title, id, kanban_column_id) for a ticket by id. Tries Supabase first, then repo docs/tickets/<id>-*.md. Use before evaluating readiness or when the user refers to a ticket by id.',
+        parameters: z.object({
+          ticket_id: z
+            .string()
+            .describe('Ticket id (e.g. "0012" or "12"). Will be normalized to 4-digit id.'),
+        }),
+        execute: async (input: { ticket_id: string }) => {
+          const id = input.ticket_id.replace(/^0+/, '') || '0'
+          const normalizedId = id.padStart(4, '0')
+          type FetchResult =
+            | { success: true; id: string; title: string; body_md: string; kanban_column_id: string | null }
+            | { success: false; error: string }
+          let out: FetchResult
+          try {
+            const { data: row, error } = await supabase
+              .from('tickets')
+              .select('id, title, body_md, kanban_column_id')
+              .eq('id', normalizedId)
+              .maybeSingle()
+            if (!error && row) {
+              out = {
+                success: true,
+                id: row.id,
+                title: (row as { title?: string }).title ?? '',
+                body_md: (row as { body_md?: string }).body_md ?? '',
+                kanban_column_id: (row as { kanban_column_id?: string | null }).kanban_column_id ?? null,
+              }
+              toolCalls.push({ name: 'fetch_ticket_content', input, output: out })
+              return out
+            }
+            const listOut = await listDirectory(ctx, { path: 'docs/tickets' })
+            if ('error' in listOut) {
+              out = { success: false, error: listOut.error }
+              toolCalls.push({ name: 'fetch_ticket_content', input, output: out })
+              return out
+            }
+            const match = (listOut.entries as string[]).find(
+              (e) => e.startsWith(`${normalizedId}-`) && e.endsWith('.md')
+            )
+            if (!match) {
+              out = { success: false, error: `Ticket ${normalizedId} not found in Supabase or docs/tickets.` }
+              toolCalls.push({ name: 'fetch_ticket_content', input, output: out })
+              return out
+            }
+            const readOut = await readFile(ctx, { path: `docs/tickets/${match}` })
+            if ('error' in readOut) {
+              out = { success: false, error: readOut.error }
+              toolCalls.push({ name: 'fetch_ticket_content', input, output: out })
+              return out
+            }
+            const content = (readOut as { content: string }).content
+            const titleMatch = content.match(/\*\*Title\*\*:\s*(.+?)(?:\n|$)/)
+            out = {
+              success: true,
+              id: normalizedId,
+              title: titleMatch ? titleMatch[1].trim() : match.replace(/\.md$/i, ''),
+              body_md: content,
+              kanban_column_id: null,
+            }
+          } catch (err) {
+            out = {
+              success: false,
+              error: err instanceof Error ? err.message : String(err),
+            }
+          }
+          toolCalls.push({ name: 'fetch_ticket_content', input, output: out })
+          return out
+        },
+      })
+    })()
+
+  const evaluateTicketReadyTool = tool({
+    description:
+      'Evaluate ticket body against the Ready-to-start checklist (Definition of Ready). Pass body_md from fetch_ticket_content. Returns ready (boolean), missingItems (list), and checklistResults. Always call this before kanban_move_ticket_to_todo; do not move if not ready.',
+    parameters: z.object({
+      body_md: z.string().describe('Full markdown body of the ticket (e.g. from fetch_ticket_content).'),
+    }),
+    execute: async (input: { body_md: string }) => {
+      const out = evaluateTicketReady(input.body_md)
+      toolCalls.push({ name: 'evaluate_ticket_ready', input: { body_md: input.body_md.slice(0, 500) + (input.body_md.length > 500 ? '...' : '') }, output: out })
+      return out
+    },
+  })
+
+  const kanbanMoveTicketToTodoTool =
+    hasSupabase &&
+    (() => {
+      const supabase: SupabaseClient = createClient(
+        config.supabaseUrl!.trim(),
+        config.supabaseAnonKey!.trim()
+      )
+      const COL_UNASSIGNED = 'col-unassigned'
+      const COL_TODO = 'col-todo'
+      return tool({
+        description:
+          'Move a ticket from Unassigned to To Do on the kanban board. Only call after evaluate_ticket_ready returns ready: true. Fails if the ticket is not in Unassigned.',
+        parameters: z.object({
+          ticket_id: z.string().describe('Ticket id (e.g. "0012").'),
+        }),
+        execute: async (input: { ticket_id: string }) => {
+          const normalizedId = input.ticket_id.replace(/^0+/, '0').padStart(4, '0')
+          type MoveResult =
+            | { success: true; ticketId: string; fromColumn: string; toColumn: string }
+            | { success: false; error: string }
+          let out: MoveResult
+          try {
+            const { data: row, error: fetchError } = await supabase
+              .from('tickets')
+              .select('id, kanban_column_id, kanban_position')
+              .eq('id', normalizedId)
+              .maybeSingle()
+            if (fetchError) {
+              out = { success: false, error: `Supabase fetch: ${fetchError.message}` }
+              toolCalls.push({ name: 'kanban_move_ticket_to_todo', input, output: out })
+              return out
+            }
+            if (!row) {
+              out = { success: false, error: `Ticket ${normalizedId} not found.` }
+              toolCalls.push({ name: 'kanban_move_ticket_to_todo', input, output: out })
+              return out
+            }
+            const currentCol = (row as { kanban_column_id?: string | null }).kanban_column_id ?? null
+            const inUnassigned =
+              currentCol === COL_UNASSIGNED || currentCol === null || currentCol === ''
+            if (!inUnassigned) {
+              out = {
+                success: false,
+                error: `Ticket is not in Unassigned (current column: ${currentCol ?? 'null'}). Only tickets in Unassigned can be moved to To Do.`,
+              }
+              toolCalls.push({ name: 'kanban_move_ticket_to_todo', input, output: out })
+              return out
+            }
+            const { data: todoRows } = await supabase
+              .from('tickets')
+              .select('kanban_position')
+              .eq('kanban_column_id', COL_TODO)
+              .order('kanban_position', { ascending: false })
+              .limit(1)
+            const maxPos = (todoRows ?? []).reduce(
+              (acc, r) => Math.max(acc, (r as { kanban_position?: number }).kanban_position ?? 0),
+              0
+            )
+            const newPosition = maxPos + 1
+            const now = new Date().toISOString()
+            const { error: updateError } = await supabase
+              .from('tickets')
+              .update({
+                kanban_column_id: COL_TODO,
+                kanban_position: newPosition,
+                kanban_moved_at: now,
+              })
+              .eq('id', normalizedId)
+            if (updateError) {
+              out = { success: false, error: `Supabase update: ${updateError.message}` }
+            } else {
+              out = {
+                success: true,
+                ticketId: normalizedId,
+                fromColumn: COL_UNASSIGNED,
+                toColumn: COL_TODO,
+              }
+            }
+          } catch (err) {
+            out = {
+              success: false,
+              error: err instanceof Error ? err.message : String(err),
+            }
+          }
+          toolCalls.push({ name: 'kanban_move_ticket_to_todo', input, output: out })
+          return out
+        },
+      })
+    })()
+
   const tools = {
     list_directory: tool({
       description: 'List files in a directory. Path is relative to repo root.',
@@ -363,6 +710,9 @@ export async function runPmAgent(
       },
     }),
     ...(createTicketTool ? { create_ticket: createTicketTool } : {}),
+    ...(fetchTicketContentTool ? { fetch_ticket_content: fetchTicketContentTool } : {}),
+    evaluate_ticket_ready: evaluateTicketReadyTool,
+    ...(kanbanMoveTicketToTodoTool ? { kanban_move_ticket_to_todo: kanbanMoveTicketToTodoTool } : {}),
   }
 
   const prompt = `${contextPack}\n\n---\n\nRespond to the user message above using the tools as needed.`
@@ -395,6 +745,18 @@ export async function runPmAgent(
       if (createTicketCall) {
         const out = createTicketCall.output as { id: string; filename: string; filePath: string }
         reply = `I created ticket **${out.id}** at \`${out.filePath}\`. It should appear in the Kanban board under Unassigned (sync may run automatically).`
+      } else {
+        const moveCall = toolCalls.find(
+          (c) =>
+            c.name === 'kanban_move_ticket_to_todo' &&
+            typeof c.output === 'object' &&
+            c.output !== null &&
+            (c.output as { success?: boolean }).success === true
+        )
+        if (moveCall) {
+          const out = moveCall.output as { ticketId: string; fromColumn: string; toColumn: string }
+          reply = `I moved ticket **${out.ticketId}** from ${out.fromColumn} to **${out.toColumn}**. It should now appear under To Do on the Kanban board.`
+        }
       }
     }
     const outboundRequest = capturedRequest

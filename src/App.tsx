@@ -158,6 +158,16 @@ function App() {
   const pmMaxSequenceRef = useRef(0)
   const transcriptRef = useRef<HTMLDivElement>(null)
   const kanbanIframeRef = useRef<HTMLIFrameElement>(null)
+  const selectedChatTargetRef = useRef<ChatTarget>(selectedChatTarget)
+  const [unreadByTarget, setUnreadByTarget] = useState<Record<ChatTarget, number>>(() => ({
+    'project-manager': 0,
+    'implementation-agent': 0,
+    standup: 0,
+  }))
+
+  useEffect(() => {
+    selectedChatTargetRef.current = selectedChatTarget
+  }, [selectedChatTarget])
 
   const activeMessages = conversations[selectedChatTarget] ?? []
 
@@ -179,6 +189,19 @@ function App() {
     }
   }, [conversations, connectedProject, supabaseUrl, supabaseAnonKey])
 
+  // When Kanban completes sync, run Unassigned check and post result to PM chat
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      const data = event.data
+      if (data?.type !== 'HAL_SYNC_COMPLETED') return
+      if (supabaseUrl && supabaseAnonKey && connectedProject) {
+        runUnassignedCheck(supabaseUrl, supabaseAnonKey, connectedProject).catch(() => {})
+      }
+    }
+    window.addEventListener('message', handler)
+    return () => window.removeEventListener('message', handler)
+  }, [supabaseUrl, supabaseAnonKey, connectedProject, runUnassignedCheck])
+
   const addMessage = useCallback((target: ChatTarget, agent: Message['agent'], content: string, id?: number) => {
     const nextId = id ?? ++messageIdRef.current
     if (id != null) messageIdRef.current = Math.max(messageIdRef.current, nextId)
@@ -186,7 +209,66 @@ function App() {
       ...prev,
       [target]: [...(prev[target] ?? []), { id: nextId, agent, content, timestamp: new Date() }],
     }))
+    if (agent !== 'user' && target !== selectedChatTargetRef.current) {
+      setUnreadByTarget((prev) => ({ ...prev, [target]: (prev[target] ?? 0) + 1 }))
+    }
   }, [])
+
+  type CheckUnassignedResult = {
+    moved: string[]
+    notReady: Array<{ id: string; title?: string; missingItems: string[] }>
+    error?: string
+  }
+
+  const formatUnassignedCheckMessage = useCallback((result: CheckUnassignedResult): string => {
+    if (result.error) {
+      return `[PM] Unassigned check failed: ${result.error}`
+    }
+    const movedStr = result.moved.length ? `Moved to To Do: ${result.moved.join(', ')}.` : ''
+    const notReadyParts = result.notReady.map(
+      (n) => `${n.id}${n.title ? ` (${n.title})` : ''} — ${n.missingItems.join('; ')}`
+    )
+    const notReadyStr =
+      result.notReady.length > 0
+        ? `Not ready (not moved): ${notReadyParts.join('. ')}`
+        : result.moved.length === 0
+          ? 'No tickets in Unassigned, or all were already ready.'
+          : ''
+    return `[PM] Unassigned check: ${movedStr} ${notReadyStr}`.trim()
+  }, [])
+
+  const runUnassignedCheck = useCallback(
+    async (url: string, key: string, projectId?: string | null) => {
+      try {
+        const res = await fetch('/api/pm/check-unassigned', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ supabaseUrl: url, supabaseAnonKey: key }),
+        })
+        const result = (await res.json()) as CheckUnassignedResult
+        const msg = formatUnassignedCheckMessage(result)
+        if (projectId) {
+          const supabase = createClient(url, key)
+          const nextSeq = pmMaxSequenceRef.current + 1
+          await supabase.from('hal_conversation_messages').insert({
+            project_id: projectId,
+            agent: PM_AGENT_ID,
+            role: 'assistant',
+            content: msg,
+            sequence: nextSeq,
+          })
+          pmMaxSequenceRef.current = nextSeq
+          addMessage('project-manager', 'project-manager', msg, nextSeq)
+        } else {
+          addMessage('project-manager', 'project-manager', msg)
+        }
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err)
+        addMessage('project-manager', 'project-manager', `[PM] Unassigned check failed: ${errMsg}`)
+      }
+    },
+    [formatUnassignedCheckMessage, addMessage]
+  )
 
   const handleSend = useCallback(() => {
     const content = inputValue.trim()
@@ -447,22 +529,23 @@ function App() {
           }
         } catch {
           const loadResult = loadConversationsFromStorage(projectName)
-          if (loadResult.error) setPersistenceError(loadResult.error)
-          else setPersistenceError(null)
-          if (loadResult.data) {
-            setConversations(loadResult.data)
-            let maxId = 0
-            for (const msgs of Object.values(loadResult.data)) {
-              for (const msg of msgs) {
-                if (msg.id > maxId) maxId = msg.id
-              }
+        if (loadResult.error) setPersistenceError(loadResult.error)
+        else setPersistenceError(null)
+        if (loadResult.data) {
+          setConversations(loadResult.data)
+          let maxId = 0
+          for (const msgs of Object.values(loadResult.data)) {
+            for (const msg of msgs) {
+              if (msg.id > maxId) maxId = msg.id
             }
-            messageIdRef.current = maxId
-          } else {
-            setConversations(getEmptyConversations())
-            messageIdRef.current = 0
           }
+          messageIdRef.current = maxId
+        } else {
+          setConversations(getEmptyConversations())
+          messageIdRef.current = 0
         }
+      }
+        runUnassignedCheck(url, key, projectName).catch(() => {})
       } else {
         setConnectError('Kanban iframe not ready.')
       }
@@ -474,7 +557,7 @@ function App() {
       }
       setConnectError(err instanceof Error ? err.message : 'Failed to connect to project folder.')
     }
-  }, [])
+  }, [runUnassignedCheck])
 
   const handleDisconnect = useCallback(() => {
     if (kanbanIframeRef.current?.contentWindow) {
@@ -493,6 +576,7 @@ function App() {
     setLastCreateTicketAvailable(null)
     setSupabaseUrl(null)
     setSupabaseAnonKey(null)
+    setUnreadByTarget({ 'project-manager': 0, 'implementation-agent': 0, standup: 0 })
   }, [])
 
   const previousResponseIdInLastRequest =
@@ -596,12 +680,17 @@ function App() {
               <select
                 id="agent-select"
                 value={selectedChatTarget}
-                onChange={(e) => setSelectedChatTarget(e.target.value as ChatTarget)}
+                onChange={(e) => {
+                  const target = e.target.value as ChatTarget
+                  setSelectedChatTarget(target)
+                  setUnreadByTarget((prev) => ({ ...prev, [target]: 0 }))
+                }}
                 disabled={!connectedProject}
               >
                 {CHAT_OPTIONS.map((opt) => (
                   <option key={opt.id} value={opt.id}>
                     {opt.label}
+                    {unreadByTarget[opt.id] > 0 ? ` (${unreadByTarget[opt.id]})` : ''}
                   </option>
                 ))}
               </select>
