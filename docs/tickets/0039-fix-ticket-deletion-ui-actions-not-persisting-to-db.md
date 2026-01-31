@@ -1,3 +1,8 @@
+---
+kanbanColumnId: col-human-in-the-loop
+kanbanPosition: 0
+kanbanMovedAt: 2026-01-31T22:46:05.141Z
+---
 ## Ticket
 
 - **ID**: 0039
