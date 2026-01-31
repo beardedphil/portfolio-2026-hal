@@ -54,6 +54,7 @@ Create a task folder under `docs/audit/`:
 - “Ready for verification” additionally requires a **clean + synced repo**:
   - working tree is clean (no uncommitted changes, no untracked files created by the task)
   - branch is synced with remote (not ahead/behind)
+- “Ready for verification” must happen on a **feature branch** (not `main`) for ticketed work.
 - If any untracked/modified files remain, the agent must either:
   - commit them (if they belong to the ticket), or
   - delete/ignore/revert them (if they are accidental/generated), before claiming “ready.”
@@ -71,9 +72,20 @@ Create a task folder under `docs/audit/`:
   - `docs/audit/<task-id>-<short-title>/` must be committed and pushed before claiming “ready.”
   - `worklog.md` must not contain “handoff chores” (e.g. “after you commit…”).
 
+## PM Review is required before “ready”
+
+- Before claiming “ready for verification,” the agent must ensure:
+  - `docs/audit/<task-id>-<short-title>/pm-review.md` exists,
+  - it is committed and pushed, and
+  - it reflects the actual implementation state (no placeholders).
+
 ## Commit message linkage (no commit hashes in docs)
 
 - Every commit that belongs to a ticket must include the ticket ID in the commit subject (e.g. `feat(0010): ...`, `fix(0008): ...`, `docs(0009): ...`).
+- This includes “supporting” commits that are still part of delivering the ticket (examples: `chore`, `docs(rules)`, submodule pointer updates, dependency updates).
+- If a commit is **not** part of the ticket, it must be:
+  - separated (not bundled into the ticket’s commits), and
+  - documented in the ticket’s `decisions.md` under **Unrequested changes (required)** if it was unavoidable.
  
 Note: Workspace-wide, the definition of “done” for **all agents** is enforced by `.cursor/rules/done-means-pushed.mdc`.
 

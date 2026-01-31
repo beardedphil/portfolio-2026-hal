@@ -1,0 +1,30 @@
+---
+description: Prevent committing unrelated changes; staging and ownership discipline
+alwaysApply: true
+---
+
+# Change Ownership + Staging Discipline
+
+## Only commit what your ticket changes
+
+- An agent must only commit changes that belong to the **current ticket** they are implementing.
+- **FORBIDDEN:** bundling unrelated file changes into the ticket commit (including stray edits, formatting passes, or leftover untracked files).
+
+## Staging discipline (required)
+
+Before committing ticket work:
+
+- Review `git diff` and `git status` and ensure every changed file is expected.
+- Stage only the intended files (explicit `git add <paths>`).
+- If any unrelated changes exist:
+  - revert them, delete them, or move them into a **separate ticket/branch**.
+
+## Do not “fix someone else’s work” inside a ticket
+
+- If you discover a problem outside the ticket scope (including process cleanup), do **not** fold it into the ticket.
+- Create a new ticket (preferred) and fix it on its own branch.
+
+## Branching requirement (ties to done-means-pushed)
+
+- Ticket work must be performed on `ticket/<id>-<short-title-kebab>` branches.
+- Do not commit ticket work directly on `main`.

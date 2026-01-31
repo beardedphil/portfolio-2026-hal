@@ -7,6 +7,15 @@ alwaysApply: true
 
 - **FORBIDDEN:** Sending a "done" or summary message while the working tree has uncommitted/unpushed changes. Commit and push first; then summarize.
 
+## Branching policy (feature branches required)
+
+- For any ticketed work, agents must work on a **feature branch**, not directly on `main`.
+  - Branch naming: `ticket/<id>-<short-title-kebab>` (example: `ticket/0003-hal-chat-hal-agents`).
+- “Ready / done” requires:
+  - the feature branch is **pushed** to remote, and
+  - `git status -sb` shows the branch is **synced** and the working tree is **clean**.
+- Do not commit directly on `main` except for **explicitly-requested** process/rules-only changes.
+
 ## Sequence: push first, then summarize
 
 - The moment you **think** you're done (implementation complete, audit written, etc.) is when you **commit and push** — not after you've already told the user.
@@ -35,6 +44,8 @@ alwaysApply: true
 ## Commit message linkage (no commit hashes in docs)
 
 - Every commit that belongs to a ticket must include the ticket ID in the commit subject (e.g. `feat(0010): ...`, `fix(0008): ...`, `docs(0009): ...`).
+- If a ticket requires follow-up commits after an initial “feat/fix” commit, those follow-up commits must also include the same ticket ID in the subject.
+  - Do not “sneak in” ticket work under unlabeled commits like `chore: ...` if it still belongs to the ticket.
 - If `git status -sb` is not clean/synced, the agent must say **“not ready for verification”** and keep working until it is.
   - Do not claim “ready” if `git status` shows any `??` (untracked) or `M` (modified) entries.
 
