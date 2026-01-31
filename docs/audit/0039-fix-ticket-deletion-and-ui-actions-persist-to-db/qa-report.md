@@ -1,45 +1,80 @@
-# QA Report: 0039 - Fix ticket deletion + UI actions persist to Supabase
+# QA Report: 0039 - Fix ticket deletion + UI actions to persist to Supabase
 
 ## 1. Ticket & deliverable
 
-- **Goal:** Ensure that ticket actions performed in the Kanban UI (especially delete) are persisted to Supabase and reliably propagate out (no "deleted tickets reappear").
-- **Deliverable:** In the embedded Kanban UI, a human can delete a ticket, wait up to ~10 seconds, and confirm the ticket does not reappear after refresh/reopen, and the UI shows a clear "Deleted"/success confirmation in-app.
-- **Acceptance criteria:** (1) Delete removes ticket immediately and shows in-app confirmation. (2) After ~10s poll, deleted ticket does not reappear. (3) After page refresh, ticket still does not reappear. (4) Delete failure shows in-app error. (5) Move column and other ticket actions persist after refresh.
+- **Goal:** Ensure that ticket actions performed in the Kanban UI (especially delete) are persisted to Supabase and reliably propagate (no “deleted tickets reappear”).
+- **Human-verifiable deliverable:** In the embedded Kanban UI, a human can delete a ticket, wait up to ~10 seconds, and confirm the ticket does not reappear after refresh/reopen; the UI shows a clear “Deleted”/success confirmation in-app.
+- **Acceptance criteria (from ticket):**
+  - Deleting a ticket from the embedded Kanban UI removes it immediately from the ticket list and shows an in-app confirmation.
+  - After waiting up to ~10 seconds (poll interval), the deleted ticket does not reappear without a manual refresh.
+  - After a manual page refresh (Cmd/Ctrl+R), the deleted ticket still does not reappear.
+  - If deletion fails (permission, network, Supabase error), the UI shows an in-app error message explaining that the delete did not persist.
+  - All other ticket actions in the UI that change state (move column, edit body/title) persist after refresh/reopen.
 
-## 2. Definition of Done
+## 2. Audit artifacts
 
-| DoD item | Status |
-|----------|--------|
-| Ticket exists | Yes — `docs/tickets/0039-fix-ticket-deletion-ui-actions-not-persisting-to-db.md` |
-| Ticket committed on branch | Yes — on `ticket/0039-fix-ticket-deletion-and-ui-actions-persist-to-db` |
-| Audit folder exists | Yes — `docs/audit/0039-fix-ticket-deletion-and-ui-actions-persist-to-db/` |
-| Required audit artifacts | Yes — plan.md, worklog.md, changed-files.md, decisions.md, verification.md |
-| Work committed + pushed | Yes — feat(0039) and docs(0039) commits; branch pushed |
-| Build | Pass — `npm run build` (tsc -b && vite build) succeeds |
-| Lint | N/A — no `lint` script in root package.json |
-| verification.md maps to acceptance criteria | Yes — Test Cases 1–6 cover delete success/error, move, reorder, create, rapid deletes |
+All required artifacts are present in `docs/audit/0039-fix-ticket-deletion-and-ui-actions-persist-to-db/`:
+
+- `plan.md`
+- `worklog.md`
+- `changed-files.md`
+- `decisions.md`
+- `verification.md`
+
+No `pm-review.md` is required by the ticket; other artifacts match the DoD.
 
 ## 3. Code review — PASS
 
-Implementation matches the ticket and plan.
+Implementation matches the ticket and `changed-files.md`.
 
 | Requirement | Implementation |
 |-------------|----------------|
-| Delete file before DB | `vite.config.ts` lines 418–431: file removed first; then DB delete (431); comment "CRITICAL: Remove the file BEFORE deleting from DB so sync (Docs→DB first) cannot re-insert the ticket". |
-| In-app success confirmation | `App.tsx`: `deleteSuccessMessage` state; green success banner; auto-dismiss 5s (lines 764, 1319–1320, 2194–2196). |
-| In-app error on delete failure | `App.tsx`: `setSupabaseLastDeleteError`; error banner; auto-dismiss 10s; addLog for Debug (1299–1302, 1331–1333, 1337–1339). |
-| Delay before refetch | `App.tsx` lines 1322–1324: `setTimeout(..., 1500)` before `refetchSupabaseTickets()` to avoid race with file deletion/sync. |
-| Error visibility (file + DB) | `vite.config.ts`: `fileDeleteError` captured; response includes both Supabase and file errors (422, 427, 439–440). |
-| Success styling | `projects/kanban/src/index.css`: `.success-message` (green background/text/border). |
+| Delete removes ticket immediately + in-app confirmation | `handleDeleteTicket` optimistically filters out ticket from `supabaseTickets`; sets `deleteSuccessMessage` with ticket label; green banner shows “✓ Deleted ticket …” (App.tsx 1318–1320, 2194–2197). |
+| Success banner auto-dismiss | `setTimeout(() => setDeleteSuccessMessage(null), 5000)` (1320). |
+| Deleted ticket does not reappear (poll/refresh) | Backend deletes **file first** then DB (vite.config.ts 418–431), so sync (Docs→DB) cannot re-import. Frontend delays refetch by 1.5s after success (1322–1324) to avoid race with file deletion. |
+| Error message if delete fails | `setSupabaseLastDeleteError(err)`; banner “Delete failed: {error}” (2188–2191); auto-dismiss 10s (1331, 1338); addLog for Debug panel (1333, 1339). |
+| Unconfigured Supabase | Early return with “Supabase not configured. Connect first.” (1298–1302). |
+| Other actions persist | Move column / reorder already call Supabase + refetch (existing code); no change required; verification.md covers move/reorder/create. |
 
-Constraints satisfied: Supabase as source of truth; in-app diagnostics (success/error banners, Action Log); verification UI-only per verification.md.
+Backend (vite.config.ts):
 
-## 4. Automated verification
+- **File-before-DB order:** Lines 418–429 delete file first (`fs.unlinkSync`), then 431 deletes from Supabase. Comment: “CRITICAL: Remove the file BEFORE deleting from DB so sync (Docs→DB first) cannot re-insert the ticket.”
+- File delete failure is logged and stored in `fileDeleteError`; DB delete still runs; response includes both errors if applicable (438–440).
+- Sync runs after DB delete (444–464).
 
-- **Build:** `npm run build` — PASS (tsc -b && vite build completed successfully).
-- **Lint:** Not run (no `lint` script in root).
+Frontend (App.tsx):
 
-## 5. Verdict
+- Confirmation: `window.confirm(\`Delete ticket ${label}? This cannot be undone.\`)` (1305).
+- Success: optimistic update, success message, 1.5s delay then `refetchSupabaseTickets()`, addLog, postMessage HAL_SYNC_COMPLETED (1316–1328).
+- Error: set error state, 10s auto-dismiss, addLog (1329–1339).
 
-- **Implementation:** Complete and matches the ticket, plan, and constraints.
-- **Merge:** OK to merge. Build passed. Manual UI verification (delete ticket → confirm no reappear after ~10s and after refresh; move column → persist after refresh) should be run by the user when testing in Human in the Loop per `verification.md`.
+Styles (index.css): `.success-message` (123–131) — green background #d4edda, border #c3e6cb, text #155724; matches error styling pattern.
+
+Constraints verified:
+
+- UI-only verification: no terminal/devtools required; success and error are in-app (banner + Debug panel).
+- Supabase is source of truth; file deletion before DB prevents sync from resurrecting the ticket.
+- In-app diagnostics: success banner, error banner, Action Log entries.
+
+## 4. Build
+
+- `npm run build` (repo root, branch `ticket/0039-fix-ticket-deletion-and-ui-actions-persist-to-db`): **Pass** (tsc + vite build complete).
+
+## 5. UI verification
+
+- **Automated:** Not run; full flow requires “Connect Project Folder” (native picker) and Supabase-connected board.
+- **Manual:** Per `verification.md`, Human in the Loop runs at http://localhost:5173 **after** QA merges to `main` (dev server serves main only). QA did not execute manual test cases on the ticket branch because `npm run dev` is blocked off-main.
+
+Recommended manual steps after merge (from verification.md):
+
+1. **Test Case 1 – Delete (success):** Connect project → delete a ticket → confirm green “✓ Deleted ticket …” → wait ~10s → ticket stays gone → refresh → ticket still gone.
+2. **Test Case 2 – Delete (error):** With Supabase disconnected or invalid, try delete → confirm “Delete failed: …” and ticket remains.
+3. **Test Case 3–4 – Move/reorder:** Drag ticket to another column / reorder in column → wait ~10s → refresh → position persisted.
+4. **Test Case 6 (optional):** Multiple rapid deletes → all show success → none reappear after wait + refresh.
+
+## 6. Verdict
+
+- **Implementation:** Complete and aligned with the ticket and plan. File-before-DB delete order, success/error banners, 1.5s refetch delay, and auto-dismiss are implemented as specified.
+- **Merge:** **OK to merge** to `main`. After merge, move the ticket to **Human in the Loop** and run the manual verification steps above at http://localhost:5173.
+
+**QA sign-off:** Code review and build pass. Manual UI verification is for Human in the Loop post-merge.
