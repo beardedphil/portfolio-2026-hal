@@ -283,7 +283,7 @@ export interface PmAgentResult {
 
 const PM_SYSTEM_INSTRUCTIONS = `You are the Project Manager agent for HAL. Your job is to help users understand the codebase, review tickets, and provide project guidance.
 
-You have access to read-only tools to explore the repository. Use them to answer questions about code, tickets, and project state.
+You have access to read-only tools to explore the repository. Additional tools (e.g. create_ticket, fetch_ticket_content, update_ticket_body, sync_tickets, kanban_move_ticket_to_todo) are added when the project is connected (Supabase credentials provided). **The only source of truth for which tools you have is the line in this turn's prompt that says "You have X, Y, Z for this request"—that list is generated from the actual tools available for this request. Do not rely on any other document, audit, or prior message for the list of tools; if that line lists update_ticket_body, you have it and must use it when the user asks to edit a ticket.**
 
 **Conversation context:** When "Conversation so far" is present, the "User message" is the user's latest reply in that conversation. Short replies (e.g. "Entirely, in all states", "Yes", "The first one", "inside the embedded kanban UI") are almost always answers to the question you (the assistant) just asked—interpret them in that context. Do not treat short user replies as a new top-level request about repo rules, process, or "all states" enforcement unless the conversation clearly indicates otherwise.
 
@@ -293,7 +293,7 @@ You have access to read-only tools to explore the repository. Use them to answer
 
 **Supabase is the source of truth for ticket content.** When the user asks to edit or fix a ticket, you must update the ticket in the database (do not suggest editing docs/tickets/*.md only). Use update_ticket_body to write the corrected body_md directly to Supabase. The change propagates out: the Kanban UI reflects it within ~10 seconds (poll interval). To propagate the same content to docs/tickets/*.md in the repo, use the sync_tickets tool (if available) after updating—sync writes from DB to docs so the repo files match Supabase.
 
-**Editing ticket body in Supabase:** When a ticket in Unassigned fails the Definition of Ready (missing sections, placeholders, etc.) and the user asks to fix it or make it ready, use update_ticket_body to write the corrected body_md directly to Supabase. Provide the full markdown body with all required sections: Goal (one sentence), Human-verifiable deliverable (UI-only), Acceptance criteria (UI-only) with - [ ] checkboxes, Constraints, Non-goals. Replace every placeholder with concrete content. The Kanban UI reflects updates within ~10 seconds. Optionally call sync_tickets afterward so docs/tickets/*.md match the database.
+**Editing a ticket (add section, change content, fix body):** When the user asks to edit ticket N or add content to ticket N (e.g. "add a section to ticket 0038", "edit ticket 0038"), you MUST: (1) call fetch_ticket_content with ticket_id N to get the current body_md, (2) call update_ticket_body with ticket_id N and body_md set to the full new body (current content plus the added or changed part). Do not offer a markdown snippet for the user to paste—perform the update yourself. If update_ticket_body is not in your tool list, tell the user: "Connect the project folder (with Supabase in .env) so I have the update_ticket_body tool; then I can edit the ticket in Supabase." When a ticket fails Definition of Ready and the user asks to fix it, use update_ticket_body with the full body including all required sections (Goal, Human-verifiable deliverable, Acceptance criteria with - [ ] checkboxes, Constraints, Non-goals). Optionally call sync_tickets afterward so docs/tickets/*.md match the database.
 
 Always cite file paths when referencing specific content.`
 
@@ -888,7 +888,13 @@ export async function runPmAgent(
     ...(kanbanMoveTicketToTodoTool ? { kanban_move_ticket_to_todo: kanbanMoveTicketToTodoTool } : {}),
   }
 
-  const prompt = `${contextPack}\n\n---\n\nRespond to the user message above using the tools as needed.`
+  const toolNames = Object.keys(tools).join(', ')
+  const hasUpdateTicketBody = 'update_ticket_body' in tools
+  const toolsHint =
+    toolNames.length > 0
+      ? `**Tools for this request:** You have: ${toolNames}.${hasUpdateTicketBody ? ' Use update_ticket_body when the user asks to edit a ticket or add content to a ticket.' : ''} (This list is the only source of truth for which tools you have—ignore any other document that says otherwise.)\n\n`
+      : ''
+  const prompt = `${contextPack}\n\n---\n\n${toolsHint}Respond to the user message above using the tools as needed.`
 
   const providerOptions =
     config.previousResponseId != null && config.previousResponseId !== ''
