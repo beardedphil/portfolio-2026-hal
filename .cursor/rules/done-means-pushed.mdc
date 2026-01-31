@@ -9,12 +9,13 @@ alwaysApply: true
 
 ## Start of task: feature branch first (prevents lost work)
 
-- **Before making any file changes** for a ticket, the agent must ensure the work will live on the correct feature branch. Otherwise uncommitted edits may sit on `main` (or another branch) and can be lost if another agent stashes or the working tree is reset.
-- **Required first step** when implementing a ticket:
-  1. Run `git status -sb` and note the current branch.
-  2. The feature branch name is `ticket/<id>-<short-title-kebab>` (e.g. for ticket 0029: `ticket/0029-chat-ui-make-user-vs-assistant-messages-clearly-distinguishable`).
-  3. If the current branch is **not** that feature branch: create and switch to it now: `git checkout -b ticket/<id>-<short-title-kebab>` (or `git checkout ticket/<id>-...` if it already exists remotely). Do this **before** editing any files.
-- **Why:** If you never switch to the feature branch, all your edits are on whatever branch was checked out (e.g. `main`). When you eventually commit, those commits would go to the wrong branch; if you never commit and another agent runs `git stash`, your code exists only locally and can be lost. Starting on the feature branch from the first edit ensures (a) commits go to the right branch, and (b) once you push, the code is on the remote and cannot be lost by a local stash.
+- **MANDATORY:** Before making **any** file changes for a ticket, create/checkout the feature branch. This is non-negotiable.
+- **Required first step** (before the first edit):
+  1. Run `git status -sb`. Note the current branch.
+  2. Feature branch name: `ticket/<id>-<short-title-kebab>` (e.g. ticket 0030 → `ticket/0030-ticket-list-add-delete-button-and-sync-deletion-to-filesystem`).
+  3. If not on that branch: `git checkout -b ticket/<id>-<short-title-kebab>` (or `git checkout ticket/<id>-...` if it exists remotely). Do this **before** editing any files.
+- **FORBIDDEN:** Implementing ticket work on `main`. If you realize you edited on `main`: run `git checkout -b ticket/<id>-...` — uncommitted changes move with you; commit on the feature branch.
+- **Why:** Edits on `main` conflate work, can be lost on stash/reset, and violate branching policy. Branch first.
 
 ## Branching policy (feature branches required)
 

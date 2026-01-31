@@ -10,5 +10,5 @@ alwaysApply: true
 - Do not bundle multiple questions; spread them across messages.
 - When the user provides a new agent rule, record it in `.cursor/rules/` at the workspace root (not inside individual project folders).
 - After updating any rule file(s), explicitly state **which** `.cursor/rules/*.mdc` file(s) were updated.
-- **When starting a ticket:** ensure you are on the feature branch (`ticket/<id>-<short-title-kebab>`) before making any file changes; create/checkout it first if needed (see **done-means-pushed**: Start of task).
+- **When starting a ticket:** your **first action** (before any file edits) is to run `git status -sb` and create/checkout `ticket/<id>-<short-title-kebab>` if not already on it. FORBIDDEN: editing files on `main`. See **change-ownership-and-staging-discipline**: FIRST.
 - **When you have finished a feature/task** (implementation + audit): before sending any summary or "done" message, follow **done-means-pushed**: run `git add`, `git commit`, `git push`, then include `git status -sb` in your reply. Do not delegate commit/push to the user.

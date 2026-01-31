@@ -5,6 +5,18 @@ alwaysApply: true
 
 # Change Ownership + Staging Discipline
 
+## FIRST: Create feature branch before any edits (mandatory)
+
+- **BEFORE making your first edit** for a ticket, you MUST be on the correct feature branch.
+- **Required first action** when implementing a ticket (before touching any file):
+  1. Run `git status -sb`. Note the current branch.
+  2. Derive the feature branch name: `ticket/<id>-<short-title-kebab>` (e.g. ticket 0030 → `ticket/0030-ticket-list-add-delete-button-and-sync-deletion-to-filesystem`).
+  3. If the current branch is **not** that feature branch:
+     - Run `git checkout -b ticket/<id>-<short-title-kebab>` (or `git checkout ticket/<id>-...` if it already exists).
+     - Do this **before** any file edits.
+- **FORBIDDEN:** Implementing ticket work on `main` or any branch other than the ticket's feature branch.
+- **Why:** Edits on `main` conflate your work with others'; they can be lost if the tree is reset; they violate the branching policy. Branch first, then edit.
+
 ## Only commit what your ticket changes
 
 - An agent must only commit changes that belong to the **current ticket** they are implementing.
@@ -37,3 +49,4 @@ Before committing ticket work:
 
 - Ticket work must be performed on `ticket/<id>-<short-title-kebab>` branches.
 - Do not commit ticket work directly on `main`.
+- If you discover you implemented on `main`: create the feature branch, then `git checkout -b ticket/<id>-...` — uncommitted changes will move with you. Commit on the feature branch.
