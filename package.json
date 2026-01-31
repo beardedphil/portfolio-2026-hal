@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "predev": "git submodule sync --recursive && git submodule update --init --recursive",
     "dev": "concurrently -n hal,kanban -c blue,yellow \"npm run dev:hal\" \"npm run dev:kanban\"",
     "dev:hal": "vite --port 5173 --strictPort",
     "dev:kanban": "npm --prefix projects/kanban run dev -- --port 5174 --strictPort",
