@@ -5,3 +5,5 @@ dist
 *.tsbuildinfo
 nul
 .env
+# Isolated worktree used by repo-write-runner (0022)
+.hal-agent-write*/

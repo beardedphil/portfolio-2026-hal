@@ -15,7 +15,10 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const projectRoot = path.resolve(__dirname, '..')
+/** When set (e.g. by repo-write-runner for an isolated worktree), use this as project root. */
+const projectRoot = process.env.PROJECT_ROOT
+  ? path.resolve(process.env.PROJECT_ROOT)
+  : path.resolve(__dirname, '..')
 const ticketsDir = path.join(projectRoot, 'docs', 'tickets')
 
 function parseFrontmatter(content) {
