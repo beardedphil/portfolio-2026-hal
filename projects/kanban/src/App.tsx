@@ -33,6 +33,11 @@ import {
   type KanbanFrontmatter,
 } from './frontmatter'
 import { createClient } from '@supabase/supabase-js'
+import {
+  getStoredProjectFolderHandle,
+  setStoredProjectFolderHandle,
+  clearStoredProjectFolderHandle,
+} from './projectFolderStorage'
 
 type LogEntry = { id: number; message: string; at: string }
 type Card = { id: string; title: string }
@@ -104,6 +109,8 @@ type SyncPreviewResult = {
 const SUPABASE_CONFIG_KEY = 'supabase-ticketstore-config'
 /** Polling interval when Supabase board is active (0013); 10s */
 const SUPABASE_POLL_INTERVAL_MS = 10_000
+/** Delay before refetch after a move so DB write is visible; avoids stale read overwriting last moves */
+const REFETCH_AFTER_MOVE_MS = 1500
 const _SUPABASE_SETUP_SQL = `create table if not exists public.tickets (
   id text primary key,
   filename text not null,
@@ -680,7 +687,7 @@ function App() {
       return
     }
     try {
-      const folderHandle = await window.showDirectoryPicker({ mode: 'read' })
+      const folderHandle = await window.showDirectoryPicker({ id: 'kanban-project-folder', mode: 'read' })
       setProjectFolderHandle(folderHandle)
       setProjectName(folderHandle.name)
       
@@ -710,6 +717,7 @@ function App() {
       
       // Connect to Supabase with credentials from .env
       await connectSupabase(url, key)
+      await setStoredProjectFolderHandle(folderHandle)
       
     } catch (e) {
       const err = e as { name?: string }
@@ -743,6 +751,54 @@ function App() {
     
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
+  }, [isEmbedded, connectSupabase])
+
+  // Restore project folder from IndexedDB on load (0025); re-run connect logic if permission still granted
+  useEffect(() => {
+    if (isEmbedded) return
+    let cancelled = false
+    if (typeof window.showDirectoryPicker !== 'function') return
+    ;(async () => {
+      const handle = await getStoredProjectFolderHandle()
+      if (!handle || cancelled) return
+      const h = handle as FileSystemDirectoryHandle & {
+        queryPermission?(opts: { mode: 'read' }): Promise<string>
+        requestPermission?(opts: { mode: 'read' }): Promise<string>
+      }
+      let perm = await h.queryPermission?.({ mode: 'read' })
+      if (cancelled) return
+      if (perm === 'denied') {
+        await clearStoredProjectFolderHandle()
+        return
+      }
+      if (perm === 'prompt') {
+        perm = await h.requestPermission?.({ mode: 'read' }) ?? 'denied'
+        if (perm !== 'granted') {
+          await clearStoredProjectFolderHandle()
+          return
+        }
+      }
+      if (cancelled) return
+      try {
+        const envFile = await handle.getFileHandle('.env')
+        const file = await envFile.getFile()
+        const envText = await file.text()
+        const urlMatch = envText.match(/^VITE_SUPABASE_URL\s*=\s*(.+)$/m)
+        const keyMatch = envText.match(/^VITE_SUPABASE_ANON_KEY\s*=\s*(.+)$/m)
+        if (!urlMatch || !keyMatch || cancelled) return
+        const url = urlMatch[1].trim()
+        const key = keyMatch[1].trim()
+        if (!url || !key) return
+        setProjectFolderHandle(handle)
+        setProjectName(handle.name)
+        await connectSupabase(url, key)
+      } catch {
+        await clearStoredProjectFolderHandle()
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [isEmbedded, connectSupabase])
 
   const columnsForDisplay = supabaseBoardActive
@@ -1501,15 +1557,24 @@ function App() {
         const ticketId = String(active.id)
         let overIndex = overColumn.cardIds.indexOf(String(effectiveOverId))
         if (overIndex < 0) overIndex = overColumn.cardIds.length
+        const movedAt = new Date().toISOString()
+        setSupabaseTickets((prev) =>
+          prev.map((t) =>
+            t.id === ticketId
+              ? { ...t, kanban_column_id: overColumn.id, kanban_position: overIndex, kanban_moved_at: movedAt }
+              : t
+          )
+        )
         const ok = await updateSupabaseTicketKanban(ticketId, {
           kanban_column_id: overColumn.id,
           kanban_position: overIndex,
-          kanban_moved_at: new Date().toISOString(),
+          kanban_moved_at: movedAt,
         })
         if (ok) {
-          await refetchSupabaseTickets()
           addLog(`Supabase ticket ${ticketId} dropped into ${overColumn.title}`)
+          setTimeout(() => refetchSupabaseTickets(), REFETCH_AFTER_MOVE_MS)
         } else {
+          refetchSupabaseTickets()
           addLog(`Supabase update failed for ${ticketId}`)
         }
         return
@@ -1529,6 +1594,17 @@ function App() {
           if (activeIndex === overIndex) return
           const newOrder = arrayMove(sourceCardIds, activeIndex, overIndex)
           const movedAt = new Date().toISOString()
+          setSupabaseTickets((prev) =>
+            prev.map((t) => {
+              const i = newOrder.indexOf(t.id)
+              if (i < 0) return t
+              return {
+                ...t,
+                kanban_position: i,
+                ...(t.id === active.id ? { kanban_moved_at: movedAt } : {}),
+              }
+            })
+          )
           for (let i = 0; i < newOrder.length; i++) {
             const id = newOrder[i]
             const result = await updateSupabaseTicketKanban(id, {
@@ -1537,22 +1613,31 @@ function App() {
             })
             if (!result.ok) {
               addLog(`Supabase reorder failed for ${id}: ${result.error}`)
-              await refetchSupabaseTickets()
+              refetchSupabaseTickets()
               return
             }
           }
-          await refetchSupabaseTickets()
           addLog(`Supabase ticket ${active.id} reordered in ${sourceColumn.title}`)
+          setTimeout(() => refetchSupabaseTickets(), REFETCH_AFTER_MOVE_MS)
         } else {
+          const movedAt = new Date().toISOString()
+          setSupabaseTickets((prev) =>
+            prev.map((t) =>
+              t.id === active.id
+                ? { ...t, kanban_column_id: overColumn.id, kanban_position: overIndex, kanban_moved_at: movedAt }
+                : t
+            )
+          )
           const result = await updateSupabaseTicketKanban(String(active.id), {
             kanban_column_id: overColumn.id,
             kanban_position: overIndex,
-            kanban_moved_at: new Date().toISOString(),
+            kanban_moved_at: movedAt,
           })
           if (result.ok) {
-            await refetchSupabaseTickets()
             addLog(`Supabase ticket ${active.id} moved to ${overColumn.title}`)
+            setTimeout(() => refetchSupabaseTickets(), REFETCH_AFTER_MOVE_MS)
           } else {
+            refetchSupabaseTickets()
             addLog(`Supabase ticket ${active.id} move failed: ${result.error}`)
           }
         }
@@ -1729,6 +1814,7 @@ function App() {
                   type="button"
                   className="disconnect-btn"
                   onClick={() => {
+                    clearStoredProjectFolderHandle().catch(() => {})
                     setProjectFolderHandle(null)
                     setProjectName(null)
                     setSupabaseConnectionStatus('disconnected')
