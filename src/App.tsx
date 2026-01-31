@@ -418,6 +418,11 @@ function App() {
               {connectError}
             </div>
           )}
+          {lastError && (
+            <div className="connect-error" role="alert">
+              {lastError}
+            </div>
+          )}
           <div className="kanban-frame-container">
             <iframe
               ref={kanbanIframeRef}
@@ -433,6 +438,7 @@ function App() {
                 <p className="kanban-hint">
                   Run <code>npm run dev</code> from the repo root to start HAL and Kanban together.
                 </p>
+                {lastError && <p className="kanban-hint">{lastError}</p>}
               </div>
             )}
           </div>

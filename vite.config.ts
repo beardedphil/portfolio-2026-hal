@@ -1,4 +1,5 @@
 import path from 'path'
+import { pathToFileURL } from 'url'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { config as loadEnv } from 'dotenv'
@@ -127,12 +128,15 @@ export default defineConfig({
             }
 
             // Import runPmAgent from hal-agents built dist (hal-agents must be built first; dev:hal runs build)
+            // Node ESM requires file:// URL for dynamic import with absolute path (especially on Windows)
             let pmAgentModule: { runPmAgent?: (msg: string, config: object) => Promise<object> } | null = null
             const distPath = path.resolve(__dirname, 'projects/hal-agents/dist/agents/projectManager.js')
             try {
-              pmAgentModule = await import(distPath)
-            } catch {
-              // Dist missing or import failed - return stub so UI still works
+              const moduleUrl = pathToFileURL(distPath).href
+              pmAgentModule = await import(moduleUrl)
+            } catch (err) {
+              // Dist missing or import failed - log so devs can see why, then return stub
+              console.error('[HAL PM] Failed to load hal-agents dist:', err)
             }
 
             if (!pmAgentModule?.runPmAgent) {
