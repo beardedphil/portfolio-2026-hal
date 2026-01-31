@@ -1,0 +1,21 @@
+---
+description: This repo uses HAL superrepo rules only
+alwaysApply: true
+---
+
+# Authoritative Cursor Rules Live in the HAL Superrepo
+
+This repository is designed to be used as a **submodule** inside:
+
+- `portfolio-2026-hal/` (superrepo)
+
+## What to do
+
+- Open your workspace at the **HAL superrepo root**: `portfolio-2026-hal/`.
+- The authoritative global agent rules live at: `portfolio-2026-hal/.cursor/rules/`.
+
+## Do not edit rules here
+
+- This repo intentionally does **not** carry a full copy of `.cursor/rules/*.mdc` to prevent drift.
+- If you need to change rules, edit them in the HAL superrepo.
+

@@ -61,7 +61,7 @@ A human can run HAL and see:
 
 - `portfolio-2026-hal` is a superrepo with submodules:
   - `projects/kanban` (Project 0 board UI)
-  - `projects/project-1` (HAL Agents project)
+  - `projects/hal-agents` (HAL Agents project)
 - Preferred approach is to **reuse** the kanban code rather than copy/paste it.
 - If you need a small adapter layer to embed the kanban board cleanly, keep it minimal and document it.
 

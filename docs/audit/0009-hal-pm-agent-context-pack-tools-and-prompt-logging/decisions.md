@@ -34,3 +34,9 @@
 **Decision**: The endpoint will check if `runPmAgent` is available. If not (or if it throws), return a clear error message.
 
 **Rationale**: Allows HAL-side work to be completed and tested structurally before hal-agents is ready.
+
+## D5: Load PM agent from built dist (not .ts)
+
+**Decision**: HAL imports `runPmAgent` from `projects/hal-agents/dist/agents/projectManager.js`. hal-agents has a `build` script that emits JS to `dist/`. HAL’s `dev:hal` runs `build:agents` (which runs hal-agents’s build) before starting Vite.
+
+**Rationale**: Node cannot natively import TypeScript. Building hal-agents to JS avoids adding a TS loader to the Vite server and keeps the integration simple. Building before dev ensures the first PM request gets the real agent.

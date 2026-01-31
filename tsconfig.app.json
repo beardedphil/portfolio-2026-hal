@@ -17,8 +17,8 @@
     "noFallthroughCasesInSwitch": true,
     "baseUrl": ".",
     "paths": {
-      "@hal-agents/*": ["projects/project-1/src/*"]
+      "@hal-agents/*": ["projects/hal-agents/src/*"]
     }
   },
-  "include": ["src", "projects/project-1/src"]
+  "include": ["src", "projects/hal-agents/src"]
 }

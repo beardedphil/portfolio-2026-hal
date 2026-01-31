@@ -54,12 +54,12 @@
 
 ## Verification Status
 
-- [x] TC1: PM endpoint responds (stub response shown, waiting for hal-agents#0003)
-- [x] TC2: Outbound request in Diagnostics (stub data shown with model and message)
-- [x] TC3: Tool calls in Diagnostics (shows "No tool calls" for stub - will show actual calls when hal-agents#0003 ready)
-- [x] TC4: Error handling (error shown in chat and diagnostics panel)
+- [x] TC1: PM endpoint responds (real PM agent when hal-agents built; stub if dist missing)
+- [x] TC2: Outbound request in Diagnostics (redacted JSON with context pack, tools, model)
+- [x] TC3: Tool calls in Diagnostics (lists list_directory, read_file, search_files when used)
+- [x] TC4: Error handling (error shown in chat and Diagnostics; context-pack/openai errors surfaced)
 - [x] TC5: No regression (Implementation Agent and Standup still work, Kanban loads)
 
 **Verified on**: 2026-01-31
 
-**Notes**: Full functionality requires hal-agents#0003 to be implemented. HAL-side integration is complete and ready.
+**Notes**: Run `npm run dev` from HAL repo root (or `npm run dev:hal`). First run builds hal-agents to `dist/` then starts Vite. Send e.g. “Summarize ticket 0007 and cite where it lives” to PM; expand Diagnostics to see outbound request JSON (redacted) and tool calls.

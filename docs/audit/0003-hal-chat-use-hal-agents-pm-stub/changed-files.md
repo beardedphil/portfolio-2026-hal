@@ -2,9 +2,9 @@
 
 ## New Files
 
-### Submodule (projects/project-1 — portfolio-2026-hal-agents)
+### Submodule (projects/hal-agents — portfolio-2026-hal-agents)
 
-- `projects/project-1/src/agents/projectManager.ts` — PM agent stub: `respond({ message, context })` returning `{ replyText, meta }` with `[PM@hal-agents]` signature.
+- `projects/hal-agents/src/agents/projectManager.ts` — PM agent stub: `respond({ message, context })` returning `{ replyText, meta }` with `[PM@hal-agents]` signature.
 
 ### Audit Artifacts
 
@@ -18,6 +18,6 @@
 
 ### HAL Application
 
-- `vite.config.ts` — Added `path` import and `resolve.alias` for `@hal-agents` → `projects/project-1/src`.
-- `tsconfig.app.json` — Added `baseUrl`, `paths` for `@hal-agents/*`, and `include` of `projects/project-1/src`.
+- `vite.config.ts` — Added `path` import and `resolve.alias` for `@hal-agents` → `projects/hal-agents/src`.
+- `tsconfig.app.json` — Added `baseUrl`, `paths` for `@hal-agents/*`, and `include` of `projects/hal-agents/src`.
 - `src/App.tsx` — Import PM from hal-agents; extended diagnostics type and state; Project Manager branch in `handleSend` calls PM module and shows reply/error; diagnostics panel shows PM implementation source and last agent error.

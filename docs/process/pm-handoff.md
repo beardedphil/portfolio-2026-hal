@@ -16,6 +16,7 @@ This file is for future PM agents working in this repo.
 - **Superrepo vs project repos**:
   - HAL is a superrepo; kanban logic lives in the kanban submodule.
   - Bugs in kanban behavior generally belong in the kanban repo, not HAL.
+- **Single source for agents**: `projects/hal-agents` is a **normal directory** in HAL (not a submodule). Edit agents code only here so there is one place to change. See [single-source-agents.md](single-source-agents.md).
 
 ## Cross-repo work
 

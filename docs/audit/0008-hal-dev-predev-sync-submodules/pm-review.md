@@ -35,4 +35,4 @@
 
 ## Follow-ups (optional)
 
-- Optional: add `npm install` in projects/kanban (and project-1 if needed) from root predev or a post-submodule hook if we want true one-command fresh clone to run (currently user may need one-time `npm install` in submodules).
+- Optional: add `npm install` in projects/kanban (and hal-agents if needed) from root predev or a post-submodule hook if we want true one-command fresh clone to run (currently user may need one-time `npm install` in submodules).

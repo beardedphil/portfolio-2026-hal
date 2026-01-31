@@ -126,15 +126,13 @@ export default defineConfig({
               return
             }
 
-            // Try to import and call runPmAgent from hal-agents
-            // If not available yet (hal-agents#0003 not implemented), return stub response
-            let pmAgentModule: { runPmAgent?: Function } | null = null
+            // Import runPmAgent from hal-agents built dist (hal-agents must be built first; dev:hal runs build)
+            let pmAgentModule: { runPmAgent?: (msg: string, config: object) => Promise<object> } | null = null
+            const distPath = path.resolve(__dirname, 'projects/hal-agents/dist/agents/projectManager.js')
             try {
-              pmAgentModule = await import(
-                path.resolve(__dirname, 'projects/project-1/src/agents/projectManager.ts')
-              )
+              pmAgentModule = await import(distPath)
             } catch {
-              // Module import failed - hal-agents may not have runPmAgent yet
+              // Dist missing or import failed - return stub so UI still works
             }
 
             if (!pmAgentModule?.runPmAgent) {
@@ -187,7 +185,7 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '@hal-agents': path.resolve(__dirname, 'projects/project-1/src'),
+      '@hal-agents': path.resolve(__dirname, 'projects/hal-agents/src'),
     },
   },
   server: {

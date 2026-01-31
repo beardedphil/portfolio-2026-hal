@@ -6,20 +6,20 @@
 
 - Read ticket 0003 and hal-agents ticket 0001 (PM stub API).
 - Confirmed HAL chat currently uses a single inline stub for both agents in `handleSend`.
-- Confirmed submodule `projects/project-1` (portfolio-2026-hal-agents) exists; no `src` or TS files present yet.
+- Confirmed submodule `projects/hal-agents` (portfolio-2026-hal-agents) exists; no `src` or TS files present yet.
 
 ### Implementation
 
 1. **PM module in submodule**
-   - Created `projects/project-1/src/agents/projectManager.ts` with:
+   - Created `projects/hal-agents/src/agents/projectManager.ts` with:
      - Types: `PMContext`, `PMRequest`, `PMResponse`.
      - `respond({ message, context })` returning `{ replyText, meta }`.
      - Signature `[PM@hal-agents]` in all replies.
      - Standup/status vs generic message handling.
 
 2. **HAL build config**
-   - `vite.config.ts`: added `path` import and `resolve.alias` mapping `@hal-agents` to `projects/project-1/src`.
-   - `tsconfig.app.json`: added `baseUrl`, `paths` for `@hal-agents/*`, and `include` of `projects/project-1/src`.
+   - `vite.config.ts`: added `path` import and `resolve.alias` mapping `@hal-agents` to `projects/hal-agents/src`.
+   - `tsconfig.app.json`: added `baseUrl`, `paths` for `@hal-agents/*`, and `include` of `projects/hal-agents/src`.
 
 3. **HAL App.tsx**
    - Import `respond as pmRespond` from `@hal-agents/agents/projectManager`.

@@ -11,7 +11,7 @@ All checks are done in the browser and terminal (UI-only where possible).
 
 ### 1) Fresh clone / uninitialized submodules — single command works
 
-- **Setup:** State where submodules are not initialized (e.g. clone without `--recurse-submodules`, or remove `projects/kanban` and `projects/project-1` and reset .git/modules if needed for a clean test).
+- **Setup:** State where submodules are not initialized (e.g. clone without `--recurse-submodules`, or remove `projects/kanban` and `projects/hal-agents` and reset .git/modules if needed for a clean test).
 - **Action:** Run **only** `npm run dev` from HAL repo root. Do not run any git submodule commands first.
 - **Pass:** predev runs (sync + update --init), then dev servers start. Open http://localhost:5173 in browser.
 - **Pass:** HAL UI loads; kanban area (iframe) loads — no "localhost refused to connect". Kanban content is visible.

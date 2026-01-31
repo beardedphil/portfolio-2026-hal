@@ -57,7 +57,7 @@ A human can open the HAL app and:
 
 - The HAL superrepo contains submodules:
   - `projects/kanban` (Project 0 board)
-  - `projects/project-1` (HAL Agents project repo)
+  - `projects/hal-agents` (HAL Agents project repo)
 - Prefer a small adapter interface like:
   - `getTickets(projectId) -> { tickets, lastRefresh, error }`
   - so we can swap storage later.

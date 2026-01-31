@@ -9,10 +9,10 @@
 
 1. In the same workspace, browse to:
    - `projects/kanban/.cursor/rules/`
-   - `projects/project-1/.cursor/rules/`
+   - `projects/hal-agents/.cursor/rules/`
 2. Confirm each contains only `SUPERREPO_RULES_ONLY.mdc` (no full ruleset copies).
 
 ## Submodule pointers updated
 
-1. In the HAL superrepo workspace, confirm `projects/kanban` and `projects/project-1` reflect the latest commits that introduced the stub rule (you should see the stub file present).
+1. In the HAL superrepo workspace, confirm `projects/kanban` and `projects/hal-agents` reflect the latest commits that introduced the stub rule (you should see the stub file present).
 

@@ -21,7 +21,7 @@ In the HAL app chat UI, selecting **Project Manager** and sending a message prod
 
 ## Acceptance criteria (UI-only)
 
-- [ ] HAL uses the `projects/project-1` submodule (repo: `portfolio-2026-hal-agents`) as the source of PM agent logic.
+- [ ] HAL uses the `projects/hal-agents` submodule (repo: `portfolio-2026-hal-agents`) as the source of PM agent logic.
 - [ ] When the user sends a message with agent = **Project Manager**, HAL calls the PM module function from hal-agents and displays the returned `replyText`.
 - [ ] The reply is visibly different from the old inline stub and includes a clear signature like `[PM@hal-agents]`.
 - [ ] The “Implementation Agent (stub)” option can remain as the existing inline stub (out of scope to move it).

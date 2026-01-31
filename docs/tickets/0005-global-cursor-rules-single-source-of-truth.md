@@ -19,14 +19,14 @@ Make `portfolio-2026-hal/.cursor/rules/` the **only** authoritative ruleset for 
 
 - In the file explorer:
   - `portfolio-2026-hal/.cursor/rules/` contains the full ruleset.
-  - `projects/kanban/.cursor/rules/` and `projects/project-1/.cursor/rules/` contain only a stub rule telling you to open the HAL superrepo root for authoritative rules.
+  - `projects/kanban/.cursor/rules/` and `projects/hal-agents/.cursor/rules/` contain only a stub rule telling you to open the HAL superrepo root for authoritative rules.
 
 ## Acceptance criteria (UI-only)
 
 - [ ] HAL superrepo has the full ruleset at `.cursor/rules/`.
 - [ ] The kanban repo (`portfolio-2026-basic-kanban`) no longer contains a full copy of `.cursor/rules/*.mdc` (only a stub rule remains).
 - [ ] The agents repo (`portfolio-2026-hal-agents`) no longer contains a full copy of `.cursor/rules/*.mdc` (only a stub rule remains).
-- [ ] HAL submodule pointers are updated so `projects/kanban` and `projects/project-1` reflect the stub-rule changes.
+- [ ] HAL submodule pointers are updated so `projects/kanban` and `projects/hal-agents` reflect the stub-rule changes.
 
 ## Constraints
 

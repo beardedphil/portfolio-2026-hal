@@ -2,11 +2,11 @@
 
 ## D1: Direct Import from Submodule via Alias
 
-**Context**: HAL must call the PM module living in the `projects/project-1` submodule (portfolio-2026-hal-agents). TypeScript/Vite do not resolve outside the app by default.
+**Context**: HAL must call the PM module living in the `projects/hal-agents` submodule (portfolio-2026-hal-agents). TypeScript/Vite do not resolve outside the app by default.
 
 **Options Considered**:
-1. **Path alias** — Map `@hal-agents` to `projects/project-1/src` in Vite and TS so HAL can `import { respond } from '@hal-agents/agents/projectManager'`.
-2. **Wrapper module in HAL** — A file under `src/` that re-exports from a relative path like `../../projects/project-1/src/agents/projectManager` (may still require TS include).
+1. **Path alias** — Map `@hal-agents` to `projects/hal-agents/src` in Vite and TS so HAL can `import { respond } from '@hal-agents/agents/projectManager'`.
+2. **Wrapper module in HAL** — A file under `src/` that re-exports from a relative path like `../../projects/hal-agents/src/agents/projectManager` (may still require TS include).
 3. **Publish hal-agents as npm package** — Would add release and versioning overhead; ticket says "direct import from submodule is fine."
 
 **Decision**: Path alias (Option 1)
@@ -17,14 +17,14 @@
 - Ticket allows "direct import from submodule" and suggests a wrapper only "if TypeScript/Vite cannot import TS directly"; alias satisfies direct import.
 
 **Config**:
-- Vite: `resolve.alias['@hal-agents'] = path.resolve(__dirname, 'projects/project-1/src')`.
-- TS: `paths: { "@hal-agents/*": ["projects/project-1/src/*"] }`, `include` extended with `projects/project-1/src`.
+- Vite: `resolve.alias['@hal-agents'] = path.resolve(__dirname, 'projects/hal-agents/src')`.
+- TS: `paths: { "@hal-agents/*": ["projects/hal-agents/src/*"] }`, `include` extended with `projects/hal-agents/src`.
 
 ## D2: PM Stub Implemented Inside HAL Repo Submodule
 
-**Context**: Ticket 0003 says "HAL uses the projects/project-1 submodule as the source of PM agent logic." The submodule had no TypeScript yet.
+**Context**: Ticket 0003 says "HAL uses the projects/hal-agents submodule as the source of PM agent logic." The submodule had no TypeScript yet.
 
-**Decision**: Implement the minimal PM stub in `projects/project-1/src/agents/projectManager.ts` as part of this ticket.
+**Decision**: Implement the minimal PM stub in `projects/hal-agents/src/agents/projectManager.ts` as part of this ticket.
 
 **Rationale**:
 - Delivers the required "human-verifiable" behavior: PM replies from hal-agents with `[PM@hal-agents]`.
