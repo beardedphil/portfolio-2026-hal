@@ -1,0 +1,40 @@
+---
+description: Submodule synchronization between HAL and source repos
+globs:
+alwaysApply: true
+---
+
+# Submodule Sync Protocol
+
+## Context
+
+`portfolio-2026-hal` is a super-repo containing submodules:
+- `projects/kanban` → `portfolio-2026-basic-kanban`
+- `projects/project-1` → `portfolio-2026-hal-agents` (aka `portfolio-2026-project-1`)
+
+Git submodules lock to a specific commit. They do NOT auto-update when the source repo changes.
+
+## After Pushing to a Source Repo
+
+When you push changes to `portfolio-2026-basic-kanban` or `portfolio-2026-project-1`, you MUST also update the corresponding submodule in HAL:
+
+```bash
+cd portfolio-2026-hal
+git submodule update --remote projects/kanban   # or projects/project-1
+git add projects/kanban
+git commit -m "chore: update kanban submodule to latest"
+git push
+```
+
+## Why This Matters
+
+- The HAL app embeds the kanban board from `projects/kanban`
+- If the submodule is stale, HAL won't see your changes
+- Other developers cloning HAL will get outdated code
+
+## Quick Reference
+
+| Source Repo | Submodule Path |
+|-------------|----------------|
+| `portfolio-2026-basic-kanban` | `projects/kanban` |
+| `portfolio-2026-project-1` | `projects/project-1` |
