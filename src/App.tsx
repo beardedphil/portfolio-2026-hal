@@ -1,5 +1,4 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { respond as pmRespond } from '@hal-agents/agents/projectManager'
 
 type Agent = 'project-manager' | 'implementation-agent'
 type ChatTarget = Agent | 'standup'
@@ -17,6 +16,8 @@ type DiagnosticsInfo = {
   pmImplementationSource: 'hal-agents' | 'inline'
   lastAgentError: string | null
   lastError: string | null
+  openaiLastStatus: string | null
+  openaiLastError: string | null
   kanbanLoaded: boolean
   kanbanUrl: string
   connectedProject: string | null
@@ -44,6 +45,8 @@ function App() {
   const [inputValue, setInputValue] = useState('')
   const [lastError, setLastError] = useState<string | null>(null)
   const [lastAgentError, setLastAgentError] = useState<string | null>(null)
+  const [openaiLastStatus, setOpenaiLastStatus] = useState<string | null>(null)
+  const [openaiLastError, setOpenaiLastError] = useState<string | null>(null)
   const [kanbanLoaded, setKanbanLoaded] = useState(false)
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const [connectedProject, setConnectedProject] = useState<string | null>(null)
@@ -78,19 +81,46 @@ function App() {
     setLastAgentError(null)
 
     if (selectedChatTarget === 'project-manager') {
-      setTimeout(() => {
+      setLastAgentError(null)
+      setOpenaiLastError(null)
+      ;(async () => {
         try {
-          const { replyText } = pmRespond({
-            message: content,
-            context: { standup: /standup|status/i.test(content) },
+          const res = await fetch('/api/openai/responses', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ input: content }),
           })
-          addMessage('project-manager', 'project-manager', replyText)
+          setOpenaiLastStatus(String(res.status))
+          const text = await res.text()
+          if (!res.ok) {
+            let errMsg = text
+            try {
+              const j = JSON.parse(text) as { error?: string }
+              errMsg = j.error ?? text
+            } catch {
+              // use raw text
+            }
+            setOpenaiLastError(errMsg)
+            setLastAgentError(errMsg)
+            addMessage(
+              'project-manager',
+              'project-manager',
+              `[PM] Error (${res.status}): ${errMsg}`
+            )
+            return
+          }
+          setOpenaiLastError(null)
+          setLastAgentError(null)
+          const data = JSON.parse(text) as object
+          addMessage('project-manager', 'project-manager', JSON.stringify(data, null, 2))
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
+          setOpenaiLastStatus(null)
+          setOpenaiLastError(msg)
           setLastAgentError(msg)
-          addMessage('project-manager', 'project-manager', `[PM@hal-agents] Error: ${msg}`)
+          addMessage('project-manager', 'project-manager', `[PM] Error: ${msg}`)
         }
-      }, 500)
+      })()
     } else if (selectedChatTarget === 'implementation-agent') {
       setTimeout(() => {
         const agentLabel = CHAT_OPTIONS.find((a) => a.id === selectedChatTarget)?.label ?? selectedChatTarget
@@ -207,6 +237,8 @@ function App() {
     pmImplementationSource: selectedChatTarget === 'project-manager' ? 'hal-agents' : 'inline',
     lastAgentError,
     lastError,
+    openaiLastStatus,
+    openaiLastError,
     kanbanLoaded,
     kanbanUrl: KANBAN_URL,
     connectedProject,
@@ -306,7 +338,11 @@ function App() {
                   data-agent={msg.agent}
                 >
                   <span className="message-time">[{formatTime(msg.timestamp)}]</span>
-                  <span className="message-content">{msg.content}</span>
+                  {msg.content.trimStart().startsWith('{') ? (
+                    <pre className="message-content message-json">{msg.content}</pre>
+                  ) : (
+                    <span className="message-content">{msg.content}</span>
+                  )}
                 </div>
               ))
             )}
@@ -367,6 +403,18 @@ function App() {
                   <span className="diag-label">Last agent error:</span>
                   <span className="diag-value" data-status={diagnostics.lastAgentError ? 'error' : 'ok'}>
                     {diagnostics.lastAgentError ?? 'none'}
+                  </span>
+                </div>
+                <div className="diag-row">
+                  <span className="diag-label">Last OpenAI HTTP status:</span>
+                  <span className="diag-value">
+                    {diagnostics.openaiLastStatus ?? 'no request yet'}
+                  </span>
+                </div>
+                <div className="diag-row">
+                  <span className="diag-label">Last OpenAI error:</span>
+                  <span className="diag-value" data-status={diagnostics.openaiLastError ? 'error' : 'ok'}>
+                    {diagnostics.openaiLastError ?? 'none'}
                   </span>
                 </div>
                 <div className="diag-row">

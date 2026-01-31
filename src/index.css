@@ -273,6 +273,14 @@ body {
   word-break: break-word;
 }
 
+.message-json {
+  margin: 0;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+  overflow-x: auto;
+  white-space: pre;
+}
+
 .message-user {
   background: #e3f2fd;
   border-color: #90caf9;
