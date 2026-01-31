@@ -358,6 +358,18 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
     sections.push('(rules directory not found or not readable)')
   }
 
+  sections.push('## Ticket template (required structure for create_ticket)')
+  try {
+    const templatePath = path.resolve(config.repoRoot, 'docs/templates/ticket.template.md')
+    const templateContent = await fs.readFile(templatePath, 'utf8')
+    sections.push(
+      templateContent +
+        '\n\nWhen creating a ticket, use this exact section structure. Replace every placeholder in angle brackets (e.g. `<what we want to achieve>`, `<AC 1>`) with concrete content—the resulting ticket must pass the Ready-to-start checklist (no unresolved placeholders, all required sections filled).'
+    )
+  } catch {
+    sections.push('(docs/templates/ticket.template.md not found)')
+  }
+
   sections.push('## Ready-to-start checklist (Definition of Ready)')
   try {
     const checklistPath = path.resolve(config.repoRoot, 'docs/process/ready-to-start-checklist.md')
@@ -433,18 +445,27 @@ export async function runPmAgent(
         )
         return tool({
           description:
-            'Create a new ticket and store it in the Kanban board (Supabase). The ticket appears in Unassigned. Use when the user asks to create a ticket from the conversation. Provide the full markdown body following the repo ticket template; do not include an ID in the body—the tool assigns the next available ID.',
+            'Create a new ticket and store it in the Kanban board (Supabase). The ticket appears in Unassigned. Use when the user asks to create a ticket from the conversation. Provide the full markdown body using the exact structure from the Ticket template section in context: include Goal, Human-verifiable deliverable, Acceptance criteria (with - [ ] checkboxes), Constraints, and Non-goals. Replace every angle-bracket placeholder with concrete content so the ticket passes the Ready-to-start checklist (no <placeholders> left). Do not include an ID in the body—the tool assigns the next available ID. Do not write secrets or API keys.',
           parameters: z.object({
             title: z.string().describe('Short title for the ticket (used in filename slug)'),
             body_md: z
               .string()
               .describe(
-                'Full markdown body of the ticket (template: Title, Owner, Type, Priority, Goal, Acceptance criteria, Constraints, Non-goals). Do not write secrets or API keys.'
+                'Full markdown body with all required sections filled with concrete content. No angle-bracket placeholders (e.g. no <what we want to achieve>, <AC 1>). Must include: Goal (one sentence), Human-verifiable deliverable (UI-only), Acceptance criteria (UI-only) with - [ ] lines, Constraints, Non-goals. Must pass Ready-to-start checklist.'
               ),
           }),
           execute: async (input: { title: string; body_md: string }) => {
             type CreateResult =
-              | { success: true; id: string; filename: string; filePath: string; retried?: boolean; attempts?: number }
+              | {
+                  success: true
+                  id: string
+                  filename: string
+                  filePath: string
+                  retried?: boolean
+                  attempts?: number
+                  ready: boolean
+                  missingItems?: string[]
+                }
               | { success: false; error: string }
             let out: CreateResult
             try {
@@ -484,12 +505,15 @@ export async function runPmAgent(
                   kanban_moved_at: now,
                 })
                 if (!insertError) {
+                  const readiness = evaluateTicketReady(input.body_md.trim())
                   out = {
                     success: true,
                     id,
                     filename,
                     filePath,
                     ...(attempt > 1 && { retried: true, attempts: attempt }),
+                    ready: readiness.ready,
+                    ...(readiness.missingItems.length > 0 && { missingItems: readiness.missingItems }),
                   }
                   toolCalls.push({ name: 'create_ticket', input, output: out })
                   return out
@@ -775,8 +799,17 @@ export async function runPmAgent(
           (c.output as { success?: boolean }).success === true
       )
       if (createTicketCall) {
-        const out = createTicketCall.output as { id: string; filename: string; filePath: string }
+        const out = createTicketCall.output as {
+          id: string
+          filename: string
+          filePath: string
+          ready?: boolean
+          missingItems?: string[]
+        }
         reply = `I created ticket **${out.id}** at \`${out.filePath}\`. It should appear in the Kanban board under Unassigned (sync may run automatically).`
+        if (out.ready === false && out.missingItems?.length) {
+          reply += ` The ticket is not yet ready for To Do: ${out.missingItems.join('; ')}. Update the ticket or ask me to move it once it passes the Ready-to-start checklist.`
+        }
       } else {
         const moveCall = toolCalls.find(
           (c) =>
