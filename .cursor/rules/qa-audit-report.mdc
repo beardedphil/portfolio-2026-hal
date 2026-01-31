@@ -26,11 +26,28 @@ For ticket `docs/tickets/0026-kanban-tickets-persist-column-on-refresh.md`, the 
 
 `docs/audit/0026-kanban-tickets-persist-column-on-refresh/qa-report.md`
 
-## Commit and push before summary
+## QA completion: do not hand off to the user
 
-- **You must commit and push** the qa-report (and any rule changes) **before** sending your QA summary to the user.
-- Sequence: write `qa-report.md` → commit all QA artifacts (report + rule updates if any) → push → then give your summary. Do not summarize first and then commit/push.
-- Use a commit subject that includes the ticket ID (e.g. `docs(0026): add QA report and qa-audit-report rule`).
+When the verdict is **PASS (OK to merge)**, QA must **complete the full workflow** — do not stop at a summary or "next steps for the user."
+
+1. **Commit and push** the qa-report (and any rule changes) to the feature branch.
+2. **Move ticket to Human in the Loop** — add YAML frontmatter to the ticket file:
+   ```yaml
+   ---
+   kanbanColumnId: col-human-in-the-loop
+   kanbanPosition: 0
+   kanbanMovedAt: <ISO timestamp>
+   ---
+   ```
+   Include this in the same commit as the qa-report.
+3. **Merge to main** — checkout `main`, merge the feature branch, push `main`.
+4. **Delete the feature branch** — local and remote (see `delete-branch-after-merge.mdc`).
+5. **Then** give your summary to the user.
+
+Do not give a summary with "next steps" or "run these commands" — QA performs the merge and branch deletion. The user receives the completed result.
+
+- Use a commit subject that includes the ticket ID (e.g. `qa(0033): add QA report, move to Human in the Loop`).
+- **If verdict is FAIL:** Do not merge. Commit and push the qa-report only; summarize findings and recommend a bugfix ticket (see `bugfix-tracking.mdc`).
 
 ## Scope
 
