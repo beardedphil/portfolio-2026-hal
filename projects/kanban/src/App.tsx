@@ -33,6 +33,7 @@ import {
   type KanbanFrontmatter,
 } from './frontmatter'
 import { createClient } from '@supabase/supabase-js'
+import ReactMarkdown from 'react-markdown'
 
 type LogEntry = { id: number; message: string; at: string }
 type Card = { id: string; title: string }
@@ -329,16 +330,163 @@ function normalizeTitle(title: string): string {
 
 const HAL_API_BASE = (import.meta.env.VITE_HAL_API_URL as string) || 'http://localhost:5173'
 
+/** Best-effort priority from frontmatter or body (e.g. **Priority**: P1 or # Priority) */
+function extractPriority(frontmatter: Record<string, string>, body: string): string | null {
+  const p = frontmatter.Priority ?? frontmatter.priority
+  if (p && p.trim()) return p.trim()
+  const m = body.match(/\*\*Priority\*\*:\s*(\S+)/)
+  if (m) return m[1]
+  const m2 = body.match(/# Priority\s*\n\s*(\S+)/)
+  if (m2) return m2[1]
+  return null
+}
+
+/** Ticket detail modal (0033): title, metadata, markdown body, close/escape/backdrop, scroll lock, focus trap */
+function TicketDetailModal({
+  open,
+  onClose,
+  ticketId,
+  title,
+  body,
+  loading,
+  error,
+  onRetry,
+}: {
+  open: boolean
+  onClose: () => void
+  ticketId: string
+  title: string
+  body: string | null
+  loading: boolean
+  error: string | null
+  onRetry?: () => void
+}) {
+  const modalRef = useRef<HTMLDivElement>(null)
+  const closeBtnRef = useRef<HTMLButtonElement>(null)
+
+  // Scroll lock when open
+  useEffect(() => {
+    if (!open) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [open])
+
+  // Focus first focusable (close button) when open; focus trap
+  useEffect(() => {
+    if (!open || !modalRef.current) return
+    const el = closeBtnRef.current ?? modalRef.current.querySelector<HTMLElement>('button, [href], input, select, textarea')
+    el?.focus()
+  }, [open])
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+        return
+      }
+      if (e.key !== 'Tab' || !modalRef.current) return
+      const focusable = modalRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )
+      const list = Array.from(focusable)
+      const first = list[0]
+      const last = list[list.length - 1]
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault()
+          last?.focus()
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault()
+          first?.focus()
+        }
+      }
+    },
+    [onClose]
+  )
+
+  if (!open) return null
+
+  const { frontmatter, body: bodyOnly } = body ? parseFrontmatter(body) : { frontmatter: {}, body: '' }
+  const priority = body ? extractPriority(frontmatter, body) : null
+  const markdownBody = body ? bodyOnly : ''
+
+  return (
+    <div
+      className="ticket-detail-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="ticket-detail-title"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+      onKeyDown={handleKeyDown}
+    >
+      <div className="ticket-detail-modal" ref={modalRef}>
+        <div className="ticket-detail-header">
+          <h2 id="ticket-detail-title" className="ticket-detail-title">
+            {title}
+          </h2>
+          <button
+            type="button"
+            className="ticket-detail-close"
+            onClick={onClose}
+            ref={closeBtnRef}
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+        <div className="ticket-detail-meta">
+          <span className="ticket-detail-id">ID: {ticketId}</span>
+          {priority != null && <span className="ticket-detail-priority">Priority: {priority}</span>}
+        </div>
+        <div className="ticket-detail-body-wrap">
+          {loading && <p className="ticket-detail-loading">Loading…</p>}
+          {error && (
+            <div className="ticket-detail-error" role="alert">
+              <p>{error}</p>
+              <div className="ticket-detail-error-actions">
+                {onRetry && (
+                  <button type="button" onClick={onRetry}>
+                    Retry
+                  </button>
+                )}
+                <button type="button" onClick={onClose}>
+                  Close
+                </button>
+              </div>
+            </div>
+          )}
+          {!loading && !error && (
+            <div className="ticket-detail-body">
+              {markdownBody ? (
+                <ReactMarkdown>{markdownBody}</ReactMarkdown>
+              ) : (
+                <p className="ticket-detail-empty">No content.</p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function SortableCard({
   card,
   columnId,
   onDelete,
   showDelete = false,
+  onOpenDetail,
 }: {
   card: Card
   columnId: string
   onDelete?: (cardId: string) => void
   showDelete?: boolean
+  onOpenDetail?: (cardId: string) => void
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
@@ -357,16 +505,26 @@ function SortableCard({
   const handleDeletePointerDown = (e: React.PointerEvent) => {
     e.stopPropagation()
   }
+  const handleCardClick = () => {
+    if (onOpenDetail) onOpenDetail(card.id)
+  }
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className="ticket-card"
-      data-card-id={card.id}
-      {...attributes}
-      {...listeners}
-    >
-      <span className="ticket-card-title">{card.title}</span>
+    <div ref={setNodeRef} style={style} className="ticket-card" data-card-id={card.id}>
+      <span
+        className="ticket-card-drag-handle"
+        {...attributes}
+        {...listeners}
+        aria-label="Drag to move"
+        title="Drag to move"
+      />
+      <button
+        type="button"
+        className="ticket-card-click-area"
+        onClick={handleCardClick}
+        aria-label={`Open ticket ${card.id}: ${card.title}`}
+      >
+        <span className="ticket-card-title">{card.title}</span>
+      </button>
       {showDelete && onDelete && (
         <button
           type="button"
@@ -390,6 +548,7 @@ function SortableColumn({
   hideRemove = false,
   onDeleteTicket,
   showDelete = false,
+  onOpenDetail,
 }: {
   col: Column
   cards: Record<string, Card>
@@ -397,6 +556,7 @@ function SortableColumn({
   hideRemove?: boolean
   onDeleteTicket?: (cardId: string) => void
   showDelete?: boolean
+  onOpenDetail?: (cardId: string) => void
 }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
     id: col.id,
@@ -447,6 +607,7 @@ function SortableColumn({
                 columnId={col.id}
                 onDelete={onDeleteTicket}
                 showDelete={showDelete}
+                onOpenDetail={onOpenDetail}
               />
             )
           })}
@@ -600,6 +761,13 @@ function App() {
   const [_syncProgressText, setSyncProgressText] = useState<string | null>(null)
   const [supabaseLastSyncError, setSupabaseLastSyncError] = useState<string | null>(null)
   const [supabaseLastDeleteError, setSupabaseLastDeleteError] = useState<string | null>(null)
+
+  // Ticket detail modal (0033): click card opens modal; content from Supabase or docs
+  const [detailModal, setDetailModal] = useState<{ ticketId: string; title: string } | null>(null)
+  const [detailModalBody, setDetailModalBody] = useState<string | null>(null)
+  const [detailModalError, setDetailModalError] = useState<string | null>(null)
+  const [detailModalLoading, setDetailModalLoading] = useState(false)
+  const [detailModalRetryTrigger, setDetailModalRetryTrigger] = useState(0)
 
   // Supabase board: when connected, board is driven by supabaseTickets + supabaseColumnsRows (0020)
   const supabaseBoardActive = supabaseConnectionStatus === 'connected'
@@ -864,6 +1032,59 @@ function App() {
     : ticketStoreConnected
       ? ticketCards
       : cards
+
+  // Resolve ticket detail modal content when modal opens (0033)
+  useEffect(() => {
+    if (!detailModal) {
+      setDetailModalBody(null)
+      setDetailModalError(null)
+      setDetailModalLoading(false)
+      return
+    }
+    const { ticketId } = detailModal
+    if (supabaseBoardActive) {
+      const row = supabaseTickets.find((t) => t.id === ticketId)
+      setDetailModalBody(row?.body_md ?? '')
+      setDetailModalError(null)
+      setDetailModalLoading(false)
+      return
+    }
+    if (ticketStoreConnected && ticketStoreRootHandle && (ticketId.startsWith('docs/') || ticketId.includes('tickets'))) {
+      setDetailModalLoading(true)
+      setDetailModalError(null)
+      const filename = ticketId.split('/').pop() ?? ticketId
+      ;(async () => {
+        try {
+          const docs = await ticketStoreRootHandle.getDirectoryHandle('docs')
+          const tickets = await docs.getDirectoryHandle('tickets')
+          const fileHandle = await tickets.getFileHandle(filename)
+          const file = await fileHandle.getFile()
+          const text = await file.text()
+          setDetailModalBody(text)
+          setDetailModalError(null)
+        } catch (e) {
+          setDetailModalError(e instanceof Error ? e.message : String(e))
+          setDetailModalBody(null)
+        } finally {
+          setDetailModalLoading(false)
+        }
+      })()
+      return
+    }
+    setDetailModalBody('')
+    setDetailModalError(null)
+    setDetailModalLoading(false)
+  }, [detailModal, supabaseBoardActive, supabaseTickets, ticketStoreConnected, ticketStoreRootHandle, detailModalRetryTrigger])
+
+  const handleOpenTicketDetail = useCallback(
+    (cardId: string) => {
+      const card = cardsForDisplay[cardId]
+      if (card) setDetailModal({ ticketId: cardId, title: card.title })
+    },
+    [cardsForDisplay]
+  )
+  const handleCloseTicketDetail = useCallback(() => setDetailModal(null), [])
+  const handleRetryTicketDetail = useCallback(() => setDetailModalRetryTrigger((n) => n + 1), [])
 
   useEffect(() => {
     if (!lastSavedTicketPath) return
@@ -2118,6 +2339,19 @@ function App() {
         </div>
       )}
 
+      {detailModal && (
+        <TicketDetailModal
+          open
+          onClose={handleCloseTicketDetail}
+          ticketId={detailModal.ticketId}
+          title={detailModal.title}
+          body={detailModalBody}
+          loading={detailModalLoading}
+          error={detailModalError}
+          onRetry={detailModalError ? handleRetryTicketDetail : undefined}
+        />
+      )}
+
       <DndContext
         sensors={sensors}
         collisionDetection={collisionDetection}
@@ -2181,6 +2415,7 @@ function App() {
                   hideRemove={ticketStoreConnected || supabaseBoardActive}
                   onDeleteTicket={handleDeleteTicket}
                   showDelete={supabaseBoardActive}
+                  onOpenDetail={handleOpenTicketDetail}
                 />
               ))}
             </div>
@@ -2190,7 +2425,8 @@ function App() {
         <DragOverlay>
           {activeCardId && cardsForDisplay[String(activeCardId)] ? (
             <div className="ticket-card" data-card-id={activeCardId}>
-              {cardsForDisplay[String(activeCardId)].title}
+              <span className="ticket-card-drag-handle" aria-hidden />
+              <span className="ticket-card-title">{cardsForDisplay[String(activeCardId)].title}</span>
             </div>
           ) : null}
         </DragOverlay>

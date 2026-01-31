@@ -251,6 +251,213 @@ h1 {
 .ticket-card-delete:hover {
   background: #ffe0e0;
 }
+
+/* 0033: drag handle only for DnD; rest of card opens detail modal */
+.ticket-card-drag-handle {
+  flex-shrink: 0;
+  width: 1rem;
+  height: 1.25rem;
+  cursor: grab;
+  background: transparent;
+  border: none;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #888;
+  font-size: 0.75rem;
+  line-height: 1;
+  user-select: none;
+}
+.ticket-card-drag-handle::before {
+  content: '⋮⋮';
+  letter-spacing: -0.2em;
+}
+.ticket-card-drag-handle:active {
+  cursor: grabbing;
+}
+.ticket-card-click-area {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+}
+.ticket-card-click-area:hover {
+  text-decoration: underline;
+}
+.ticket-card-click-area:focus {
+  outline: none;
+}
+.ticket-card-click-area:focus-visible {
+  outline: 2px solid #1976d2;
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+
+/* 0033: ticket detail modal */
+.ticket-detail-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  z-index: 100;
+}
+.ticket-detail-modal {
+  width: min(640px, 100%);
+  max-height: 90vh;
+  background: #fff;
+  border-radius: 10px;
+  border: 1px solid #ddd;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.ticket-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1rem 0.5rem 1rem;
+  flex-shrink: 0;
+}
+.ticket-detail-title {
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin: 0;
+  line-height: 1.3;
+  flex: 1;
+  min-width: 0;
+}
+.ticket-detail-close {
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: #f5f5f5;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  color: #555;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ticket-detail-close:hover {
+  background: #e8e8e8;
+  color: #333;
+}
+.ticket-detail-close:focus {
+  outline: none;
+}
+.ticket-detail-close:focus-visible {
+  outline: 2px solid #1976d2;
+  outline-offset: 2px;
+}
+.ticket-detail-meta {
+  display: flex;
+  gap: 1rem;
+  padding: 0 1rem 0.75rem;
+  font-size: 0.85rem;
+  color: #666;
+  flex-shrink: 0;
+}
+.ticket-detail-id {
+  font-family: ui-monospace, monospace;
+}
+.ticket-detail-body-wrap {
+  flex: 1;
+  min-height: 0;
+  padding: 0 1rem 1rem;
+  overflow: auto;
+}
+.ticket-detail-body {
+  padding: 0.5rem 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  overflow-wrap: break-word;
+}
+.ticket-detail-body h1,
+.ticket-detail-body h2,
+.ticket-detail-body h3 {
+  margin: 1rem 0 0.5rem;
+  font-weight: 600;
+}
+.ticket-detail-body h1 { font-size: 1.1rem; }
+.ticket-detail-body h2 { font-size: 1.05rem; }
+.ticket-detail-body h3 { font-size: 1rem; }
+.ticket-detail-body ul,
+.ticket-detail-body ol {
+  margin: 0.5rem 0;
+  padding-left: 1.5rem;
+}
+.ticket-detail-body p {
+  margin: 0.5rem 0;
+}
+.ticket-detail-body a {
+  color: #1976d2;
+  text-decoration: none;
+}
+.ticket-detail-body a:hover {
+  text-decoration: underline;
+}
+.ticket-detail-body code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.9em;
+  background: #f0f0f0;
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+}
+.ticket-detail-loading {
+  margin: 0.5rem 0;
+  color: #666;
+  font-style: italic;
+}
+.ticket-detail-error {
+  padding: 0.75rem;
+  background: #fef3cd;
+  border: 1px solid #e0c040;
+  border-radius: 6px;
+  margin: 0.5rem 0;
+}
+.ticket-detail-error p {
+  margin: 0 0 0.5rem 0;
+  color: #856404;
+}
+.ticket-detail-error-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+.ticket-detail-error-actions button {
+  padding: 0.35rem 0.7rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: #f5f5f5;
+}
+.ticket-detail-error-actions button:hover {
+  background: #e8e8e8;
+}
+.ticket-detail-empty {
+  margin: 0.5rem 0;
+  color: #888;
+  font-style: italic;
+}
+
 .column-remove {
   align-self: flex-start;
   padding: 0.25rem 0.5rem;
