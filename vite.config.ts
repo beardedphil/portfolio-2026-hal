@@ -429,6 +429,17 @@ export default defineConfig({
               return
             }
 
+            // Remove the file immediately so sync (Docs→DB first) cannot re-insert the ticket from it
+            const rootForDocs = projectRoot ? path.resolve(projectRoot) : repoRoot
+            const filePath = path.join(rootForDocs, 'docs', 'tickets', filename)
+            if (fs.existsSync(filePath)) {
+              try {
+                fs.unlinkSync(filePath)
+              } catch (_unlinkErr) {
+                // Continue; sync will try to remove it in its delete-orphans step
+              }
+            }
+
             const syncScriptPath = path.resolve(repoRoot, 'scripts', 'sync-tickets.js')
             const syncEnv = {
               ...process.env,
@@ -436,7 +447,7 @@ export default defineConfig({
               SUPABASE_ANON_KEY: supabaseAnonKey,
               ...(projectRoot ? { PROJECT_ROOT: projectRoot } : {}),
             }
-            const syncResult = await new Promise<{ success: boolean; stderr?: string }>((resolve) => {
+            await new Promise<{ success: boolean; stderr?: string }>((resolve) => {
               const child = spawn('node', [syncScriptPath], {
                 cwd: repoRoot,
                 env: syncEnv,
@@ -448,19 +459,6 @@ export default defineConfig({
               })
               child.on('close', (code) => resolve({ success: code === 0, stderr: stderr || undefined }))
             })
-
-            // If sync failed, remove the file directly so it cannot repopulate from docs on next sync
-            if (!syncResult.success) {
-              const rootForDocs = projectRoot ? path.resolve(projectRoot) : repoRoot
-              const filePath = path.join(rootForDocs, 'docs', 'tickets', filename)
-              if (fs.existsSync(filePath)) {
-                try {
-                  fs.unlinkSync(filePath)
-                } catch (_unlinkErr) {
-                  // Still return success so client updates; ticket is already gone from DB
-                }
-              }
-            }
 
             res.statusCode = 200
             res.setHeader('Content-Type', 'application/json')
