@@ -60,6 +60,16 @@ export interface ReadyCheckResult {
 /**
  * Evaluate ticket body against the Ready-to-start checklist (Definition of Ready).
  * See docs/process/ready-to-start-checklist.md.
+ *
+ * **Formatting/parsing requirements (exact heading text):**
+ * The readiness evaluation expects these exact H2 section titles in the body:
+ * - "Goal (one sentence)" — non-empty, no placeholders
+ * - "Human-verifiable deliverable (UI-only)" — non-empty, no placeholders
+ * - "Acceptance criteria (UI-only)" — must contain at least one `- [ ]` checkbox line
+ * - "Constraints" — non-empty
+ * - "Non-goals" — non-empty
+ * No unresolved placeholders like `<AC 1>`, `<task-id>`, `<short-title>`, etc.
+ * Future ticket edits must preserve these headings and structure to avoid breaking readiness.
  */
 export function evaluateTicketReady(bodyMd: string): ReadyCheckResult {
   const body = bodyMd.trim()
@@ -280,6 +290,8 @@ You have access to read-only tools to explore the repository. Use them to answer
 **Creating tickets:** When the user **explicitly** asks to create a ticket (e.g. "create a ticket", "create ticket for that", "create a new ticket for X"), you MUST call the create_ticket tool if it is available. Do NOT call create_ticket for short, non-actionable messages such as: "test", "ok", "hi", "hello", "thanks", "cool", "checking", "asdf", or similar—these are usually the user testing the UI, acknowledging, or typing casually. Do not infer a ticket-creation request from context alone (e.g. if the user sends "Test" while testing the chat UI, that does NOT mean create the chat UI ticket). Calling the tool is what actually creates the ticket—do not only write the ticket content in your message. Use create_ticket with a short title and a full markdown body following the repo ticket template. Do not invent an ID—the tool assigns the next ID. Do not write secrets or API keys into the ticket body. If create_ticket is not in your tool list, tell the user: "I don't have the create-ticket tool for this request. In the HAL app, connect the project folder (with VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in its .env), then try again. Check Diagnostics to confirm 'Create ticket (this request): Available'." After creating a ticket via the tool, report the exact ticket ID and file path (e.g. docs/tickets/NNNN-title-slug.md) that was created.
 
 **Moving a ticket to To Do:** When the user asks to move a ticket to To Do (e.g. "move this to To Do", "move ticket 0012 to To Do"), you MUST (1) fetch the ticket content with fetch_ticket_content (by ticket id), (2) evaluate readiness with evaluate_ticket_ready (pass the body_md from the fetch result). If the ticket is NOT ready, do NOT call kanban_move_ticket_to_todo; instead reply with a clear list of what is missing (use the missingItems from the evaluate_ticket_ready result). If the ticket IS ready, call kanban_move_ticket_to_todo with the ticket id. Then confirm in chat that the ticket was moved. The readiness checklist is in docs/process/ready-to-start-checklist.md (Goal, Human-verifiable deliverable, Acceptance criteria checkboxes, Constraints, Non-goals, no unresolved placeholders).
+
+**Editing ticket body in Supabase:** When a ticket in Unassigned fails the Definition of Ready (missing sections, placeholders, etc.) and the user asks to fix it or make it ready, use update_ticket_body to write the corrected body_md directly to Supabase. Provide the full markdown body with all required sections: Goal (one sentence), Human-verifiable deliverable (UI-only), Acceptance criteria (UI-only) with - [ ] checkboxes, Constraints, Non-goals. Replace every placeholder with concrete content. The Kanban UI reflects updates within ~10 seconds (poll interval).
 
 Always cite file paths when referencing specific content.`
 
@@ -635,6 +647,73 @@ export async function runPmAgent(
     },
   })
 
+  const updateTicketBodyTool =
+    hasSupabase &&
+    (() => {
+      const supabase: SupabaseClient = createClient(
+        config.supabaseUrl!.trim(),
+        config.supabaseAnonKey!.trim()
+      )
+      return tool({
+        description:
+          'Update a ticket\'s body_md in Supabase directly. Use when a ticket fails Definition of Ready (missing sections, placeholders) and the user asks to fix it. Provide the full markdown body with all required sections: Goal (one sentence), Human-verifiable deliverable (UI-only), Acceptance criteria (UI-only) with - [ ] checkboxes, Constraints, Non-goals. No angle-bracket placeholders. The Kanban UI shows updates within ~10 seconds.',
+        parameters: z.object({
+          ticket_id: z.string().describe('Ticket id (e.g. "0037").'),
+          body_md: z
+            .string()
+            .describe(
+              'Full markdown body with all required sections filled. No placeholders. Must pass Ready-to-start checklist.'
+            ),
+        }),
+        execute: async (input: { ticket_id: string; body_md: string }) => {
+          const normalizedId = input.ticket_id.replace(/^0+/, '0').padStart(4, '0')
+          type UpdateResult =
+            | { success: true; ticketId: string; ready: boolean; missingItems?: string[] }
+            | { success: false; error: string }
+          let out: UpdateResult
+          try {
+            const { data: row, error: fetchError } = await supabase
+              .from('tickets')
+              .select('id')
+              .eq('id', normalizedId)
+              .maybeSingle()
+            if (fetchError) {
+              out = { success: false, error: `Supabase fetch: ${fetchError.message}` }
+              toolCalls.push({ name: 'update_ticket_body', input, output: out })
+              return out
+            }
+            if (!row) {
+              out = { success: false, error: `Ticket ${normalizedId} not found.` }
+              toolCalls.push({ name: 'update_ticket_body', input, output: out })
+              return out
+            }
+            const { error: updateError } = await supabase
+              .from('tickets')
+              .update({ body_md: input.body_md.trim() })
+              .eq('id', normalizedId)
+            if (updateError) {
+              out = { success: false, error: `Supabase update: ${updateError.message}` }
+            } else {
+              const readiness = evaluateTicketReady(input.body_md.trim())
+              out = {
+                success: true,
+                ticketId: normalizedId,
+                ready: readiness.ready,
+                ...(readiness.missingItems.length > 0 && { missingItems: readiness.missingItems }),
+              }
+            }
+          } catch (err) {
+            out = {
+              success: false,
+              error: err instanceof Error ? err.message : String(err),
+            }
+          }
+          toolCalls.push({ name: 'update_ticket_body', input, output: out })
+          return out
+        },
+      })
+    })()
+
   const kanbanMoveTicketToTodoTool =
     hasSupabase &&
     (() => {
@@ -768,6 +847,7 @@ export async function runPmAgent(
     ...(createTicketTool ? { create_ticket: createTicketTool } : {}),
     ...(fetchTicketContentTool ? { fetch_ticket_content: fetchTicketContentTool } : {}),
     evaluate_ticket_ready: evaluateTicketReadyTool,
+    ...(updateTicketBodyTool ? { update_ticket_body: updateTicketBodyTool } : {}),
     ...(kanbanMoveTicketToTodoTool ? { kanban_move_ticket_to_todo: kanbanMoveTicketToTodoTool } : {}),
   }
 
@@ -821,6 +901,25 @@ export async function runPmAgent(
         if (moveCall) {
           const out = moveCall.output as { ticketId: string; fromColumn: string; toColumn: string }
           reply = `I moved ticket **${out.ticketId}** from ${out.fromColumn} to **${out.toColumn}**. It should now appear under To Do on the Kanban board.`
+        } else {
+          const updateBodyCall = toolCalls.find(
+            (c) =>
+              c.name === 'update_ticket_body' &&
+              typeof c.output === 'object' &&
+              c.output !== null &&
+              (c.output as { success?: boolean }).success === true
+          )
+          if (updateBodyCall) {
+            const out = updateBodyCall.output as {
+              ticketId: string
+              ready?: boolean
+              missingItems?: string[]
+            }
+            reply = `I updated the body of ticket **${out.ticketId}** in Supabase. The Kanban UI will reflect the change within ~10 seconds.`
+            if (out.ready === false && out.missingItems?.length) {
+              reply += ` Note: the ticket may still not pass readiness: ${out.missingItems.join('; ')}.`
+            }
+          }
         }
       }
     }
