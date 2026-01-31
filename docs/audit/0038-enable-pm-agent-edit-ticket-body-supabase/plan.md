@@ -1,5 +1,7 @@
 # Plan: 0038 - Enable PM/agent to edit ticket body in Supabase
 
+**Implementation note:** This ticket is done. As of implementation, the PM agent has update_ticket_body and sync_tickets (when Supabase is connected). The "Current State" below describes the state *before* implementation.
+
 ## Goal
 
 Allow a Cursor implementation agent to update ticket 0037 directly in the Supabase/kanban database so the PM "Unassigned check" (Definition of Ready) stops failing for 0037.
