@@ -9,16 +9,16 @@ alwaysApply: true
 
 ## Branching policy (feature branches required)
 
-- For any ticketed work, agents must work on a **feature branch**, not directly on `main`.
+- **Implementation agents only:** For ticketed code work, implementation agents must work on a **feature branch**, not directly on `main`.
   - Branch naming: `ticket/<id>-<short-title-kebab>` (example: `ticket/0003-hal-chat-hal-agents`).
 - “Ready / done” requires:
   - the feature branch is **pushed** to remote, and
   - `git status -sb` shows the branch is **synced** and the working tree is **clean**.
-- Do not commit directly on `main` except for **explicitly-requested** process/rules-only changes.
+- **PM agent exception:** The project manager may commit **tickets + docs + rules** directly to `main` (no feature branch required).
 
 ## Merge to main (for now)
 
-- For now, when an agent believes a ticket is ready, they must **merge their feature branch into `main`** and push `main` before claiming “ready/done.”
+- **Implementation agents only:** For now, when an implementation agent believes a ticket is ready, they must **merge their feature branch into `main`** and push `main` before claiming “ready/done.”
 - Sequence:
   - verify feature branch is clean and pushed
   - checkout `main` and ensure it is up to date
