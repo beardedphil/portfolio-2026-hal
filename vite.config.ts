@@ -35,6 +35,8 @@ interface PmAgentResponse {
     output: unknown
   }>
   outboundRequest: object | null
+  /** OpenAI Responses API response id for continuity (send as previous_response_id on next turn). */
+  responseId?: string
   error?: string
   errorPhase?: 'context-pack' | 'openai' | 'tool' | 'not-implemented'
 }
@@ -99,8 +101,20 @@ export default defineConfig({
           }
 
           try {
-            const body = (await readJsonBody(req)) as { message?: string }
+            const body = (await readJsonBody(req)) as {
+              message?: string
+              conversationHistory?: Array<{ role: string; content: string }>
+              previous_response_id?: string
+              projectId?: string
+              supabaseUrl?: string
+              supabaseAnonKey?: string
+            }
             const message = body.message ?? ''
+            let conversationHistory = Array.isArray(body.conversationHistory) ? body.conversationHistory : undefined
+            const previousResponseId = typeof body.previous_response_id === 'string' ? body.previous_response_id : undefined
+            const projectId = typeof body.projectId === 'string' ? body.projectId : undefined
+            const supabaseUrl = typeof body.supabaseUrl === 'string' ? body.supabaseUrl : undefined
+            const supabaseAnonKey = typeof body.supabaseAnonKey === 'string' ? body.supabaseAnonKey : undefined
 
             if (!message.trim()) {
               res.statusCode = 400
@@ -127,16 +141,75 @@ export default defineConfig({
               return
             }
 
-            // Import runPmAgent from hal-agents built dist (hal-agents must be built first; dev:hal runs build)
-            // Node ESM requires file:// URL for dynamic import with absolute path (especially on Windows)
-            let pmAgentModule: { runPmAgent?: (msg: string, config: object) => Promise<object> } | null = null
+            // Import runPmAgent (and summarizeForContext) from hal-agents built dist
+            let pmAgentModule: { runPmAgent?: (msg: string, config: object) => Promise<object>; summarizeForContext?: (msgs: unknown[], key: string, model: string) => Promise<string> } | null = null
             const distPath = path.resolve(__dirname, 'projects/hal-agents/dist/agents/projectManager.js')
             try {
-              const moduleUrl = pathToFileURL(distPath).href
-              pmAgentModule = await import(moduleUrl)
+              pmAgentModule = await import(pathToFileURL(distPath).href)
             } catch (err) {
-              // Dist missing or import failed - log so devs can see why, then return stub
               console.error('[HAL PM] Failed to load hal-agents dist:', err)
+            }
+
+            // When project DB (Supabase) is provided, fetch full history and build bounded context pack (summary + recent by content size)
+            const RECENT_MAX_CHARS = 12_000
+            let conversationContextPack: string | undefined
+            if (projectId && supabaseUrl && supabaseAnonKey && pmAgentModule) {
+              try {
+                const { createClient } = await import('@supabase/supabase-js')
+                const supabase = createClient(supabaseUrl, supabaseAnonKey)
+                const { data: rows } = await supabase
+                  .from('hal_conversation_messages')
+                  .select('role, content, sequence')
+                  .eq('project_id', projectId)
+                  .eq('agent', 'project-manager')
+                  .order('sequence', { ascending: true })
+                const messages = (rows ?? []).map((r) => ({ role: r.role as 'user' | 'assistant', content: r.content ?? '' }))
+                const recentFromEnd: typeof messages = []
+                let recentLen = 0
+                for (let i = messages.length - 1; i >= 0; i--) {
+                  const t = messages[i]
+                  const lineLen = (t.role?.length ?? 0) + (t.content?.length ?? 0) + 12
+                  if (recentLen + lineLen > RECENT_MAX_CHARS && recentFromEnd.length > 0) break
+                  recentFromEnd.unshift(t)
+                  recentLen += lineLen
+                }
+                const olderCount = messages.length - recentFromEnd.length
+                if (olderCount > 0) {
+                  const older = messages.slice(0, olderCount)
+                  const { data: summaryRow } = await supabase
+                    .from('hal_conversation_summaries')
+                    .select('summary_text, through_sequence')
+                    .eq('project_id', projectId)
+                    .eq('agent', 'project-manager')
+                    .single()
+                  const needNewSummary = !summaryRow || (summaryRow.through_sequence ?? 0) < olderCount
+                  let summaryText: string
+                  // HAL uses the external LLM (OpenAI) to summarize older turns when building the context pack
+                  if (needNewSummary && typeof pmAgentModule.summarizeForContext === 'function') {
+                    summaryText = await pmAgentModule.summarizeForContext(older, key, model)
+                    await supabase.from('hal_conversation_summaries').upsert(
+                      {
+                        project_id: projectId,
+                        agent: 'project-manager',
+                        summary_text: summaryText,
+                        through_sequence: olderCount,
+                        updated_at: new Date().toISOString(),
+                      },
+                      { onConflict: 'project_id,agent' }
+                    )
+                  } else if (summaryRow?.summary_text) {
+                    summaryText = summaryRow.summary_text
+                  } else {
+                    summaryText = `(${older.length} older messages)`
+                  }
+                  conversationContextPack = `Summary of earlier conversation:\n\n${summaryText}\n\nRecent conversation (within ${RECENT_MAX_CHARS.toLocaleString()} characters):\n\n${recentFromEnd.map((t) => `**${t.role}**: ${t.content}`).join('\n\n')}`
+                } else if (messages.length > 0) {
+                  conversationContextPack = messages.map((t) => `**${t.role}**: ${t.content}`).join('\n\n')
+                }
+                conversationHistory = undefined
+              } catch (dbErr) {
+                console.error('[HAL PM] DB context pack failed, falling back to client history:', dbErr)
+              }
             }
 
             if (!pmAgentModule?.runPmAgent) {
@@ -165,6 +238,9 @@ export default defineConfig({
               repoRoot,
               openaiApiKey: key,
               openaiModel: model,
+              conversationHistory,
+              conversationContextPack,
+              previousResponseId,
             })
 
             res.statusCode = 200

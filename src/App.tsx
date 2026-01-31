@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
+import { createClient } from '@supabase/supabase-js'
 
 type Agent = 'project-manager' | 'implementation-agent'
 type ChatTarget = Agent | 'standup'
@@ -20,6 +21,7 @@ type PmAgentResponse = {
   reply: string
   toolCalls: ToolCallRecord[]
   outboundRequest: object | null
+  responseId?: string
   error?: string
   errorPhase?: 'context-pack' | 'openai' | 'tool' | 'not-implemented'
 }
@@ -38,10 +40,16 @@ type DiagnosticsInfo = {
   lastPmOutboundRequest: object | null
   lastPmToolCalls: ToolCallRecord[] | null
   persistenceError: string | null
+  pmLastResponseId: string | null
+  previousResponseIdInLastRequest: boolean
 }
 
-// localStorage helpers for conversation persistence
+// localStorage helpers for conversation persistence (fallback when no project DB)
 const CONVERSATION_STORAGE_PREFIX = 'hal-chat-conversations-'
+/** Cap on character count for recent conversation so long technical messages don't dominate (~3k tokens). */
+const CONVERSATION_RECENT_MAX_CHARS = 12_000
+
+const PM_AGENT_ID = 'project-manager'
 
 function getStorageKey(projectName: string): string {
   return `${CONVERSATION_STORAGE_PREFIX}${projectName}`
@@ -125,9 +133,13 @@ function App() {
   const [connectError, setConnectError] = useState<string | null>(null)
   const [lastPmOutboundRequest, setLastPmOutboundRequest] = useState<object | null>(null)
   const [lastPmToolCalls, setLastPmToolCalls] = useState<ToolCallRecord[] | null>(null)
+  const [pmLastResponseId, setPmLastResponseId] = useState<string | null>(null)
+  const [supabaseUrl, setSupabaseUrl] = useState<string | null>(null)
+  const [supabaseAnonKey, setSupabaseAnonKey] = useState<string | null>(null)
   const [outboundRequestExpanded, setOutboundRequestExpanded] = useState(false)
   const [toolCallsExpanded, setToolCallsExpanded] = useState(false)
   const messageIdRef = useRef(0)
+  const pmMaxSequenceRef = useRef(0)
   const transcriptRef = useRef<HTMLDivElement>(null)
   const kanbanIframeRef = useRef<HTMLIFrameElement>(null)
 
@@ -140,22 +152,23 @@ function App() {
     }
   }, [activeMessages])
 
-  // Persist conversations to localStorage whenever they change (if project connected)
+  // Persist conversations to localStorage only when project connected and not using Supabase (DB is source of truth when attached)
   useEffect(() => {
-    if (!connectedProject) return
+    if (!connectedProject || (supabaseUrl != null && supabaseAnonKey != null)) return
     const result = saveConversationsToStorage(connectedProject, conversations)
     if (!result.success && result.error) {
       setPersistenceError(result.error)
     } else {
       setPersistenceError(null)
     }
-  }, [conversations, connectedProject])
+  }, [conversations, connectedProject, supabaseUrl, supabaseAnonKey])
 
-  const addMessage = useCallback((target: ChatTarget, agent: Message['agent'], content: string) => {
-    const id = ++messageIdRef.current
+  const addMessage = useCallback((target: ChatTarget, agent: Message['agent'], content: string, id?: number) => {
+    const nextId = id ?? ++messageIdRef.current
+    if (id != null) messageIdRef.current = Math.max(messageIdRef.current, nextId)
     setConversations((prev) => ({
       ...prev,
-      [target]: [...(prev[target] ?? []), { id, agent, content, timestamp: new Date() }],
+      [target]: [...(prev[target] ?? []), { id: nextId, agent, content, timestamp: new Date() }],
     }))
   }, [])
 
@@ -163,7 +176,8 @@ function App() {
     const content = inputValue.trim()
     if (!content) return
 
-    addMessage(selectedChatTarget, 'user', content)
+    const useDb = selectedChatTarget === 'project-manager' && supabaseUrl != null && supabaseAnonKey != null && connectedProject != null
+    if (!useDb) addMessage(selectedChatTarget, 'user', content)
     setInputValue('')
     setLastAgentError(null)
 
@@ -174,10 +188,50 @@ function App() {
       setLastPmToolCalls(null)
       ;(async () => {
         try {
+          let body: { message: string; conversationHistory?: Array<{ role: string; content: string }>; previous_response_id?: string; projectId?: string; supabaseUrl?: string; supabaseAnonKey?: string }
+          if (useDb && supabaseUrl && supabaseAnonKey && connectedProject) {
+            const nextSeq = pmMaxSequenceRef.current + 1
+            const supabase = createClient(supabaseUrl, supabaseAnonKey)
+            const { error: insertErr } = await supabase.from('hal_conversation_messages').insert({
+              project_id: connectedProject,
+              agent: PM_AGENT_ID,
+              role: 'user',
+              content,
+              sequence: nextSeq,
+            })
+            if (insertErr) {
+              setPersistenceError(`DB: ${insertErr.message}`)
+              addMessage('project-manager', 'user', content)
+            } else {
+              pmMaxSequenceRef.current = nextSeq
+              addMessage('project-manager', 'user', content, nextSeq)
+            }
+            body = { message: content, projectId: connectedProject, supabaseUrl, supabaseAnonKey }
+            if (pmLastResponseId) body.previous_response_id = pmLastResponseId
+          } else {
+            const pmMessages = conversations['project-manager'] ?? []
+            const turns = pmMessages.map((msg) => ({
+              role: msg.agent === 'user' ? ('user' as const) : ('assistant' as const),
+              content: msg.content,
+            }))
+            let recentLen = 0
+            const recentTurns: typeof turns = []
+            for (let i = turns.length - 1; i >= 0; i--) {
+              const t = turns[i]
+              const lineLen = (t.role?.length ?? 0) + (t.content?.length ?? 0) + 12
+              if (recentLen + lineLen > CONVERSATION_RECENT_MAX_CHARS && recentTurns.length > 0) break
+              recentTurns.unshift(t)
+              recentLen += lineLen
+            }
+            const conversationHistory = recentTurns
+            body = { message: content, conversationHistory }
+            if (pmLastResponseId) body.previous_response_id = pmLastResponseId
+          }
+
           const res = await fetch('/api/pm/respond', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: content }),
+            body: JSON.stringify(body),
           })
           setOpenaiLastStatus(String(res.status))
           const text = await res.text()
@@ -208,10 +262,24 @@ function App() {
 
           setOpenaiLastError(null)
           setLastAgentError(null)
-          
-          // Display the PM's reply
+          if (data.responseId != null) setPmLastResponseId(data.responseId)
+
           const reply = data.reply || '[PM] (No response)'
-          addMessage('project-manager', 'project-manager', reply)
+          if (useDb && supabaseUrl && supabaseAnonKey && connectedProject) {
+            const nextSeq = pmMaxSequenceRef.current + 1
+            const supabase = createClient(supabaseUrl, supabaseAnonKey)
+            await supabase.from('hal_conversation_messages').insert({
+              project_id: connectedProject,
+              agent: PM_AGENT_ID,
+              role: 'assistant',
+              content: reply,
+              sequence: nextSeq,
+            })
+            pmMaxSequenceRef.current = nextSeq
+            addMessage('project-manager', 'project-manager', reply, nextSeq)
+          } else {
+            addMessage('project-manager', 'project-manager', reply)
+          }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           setOpenaiLastStatus(null)
@@ -246,7 +314,7 @@ function App() {
         addMessage('standup', 'system', '--- End of Standup ---')
       }, 900)
     }
-  }, [inputValue, selectedChatTarget, addMessage])
+  }, [inputValue, selectedChatTarget, addMessage, conversations, pmLastResponseId, supabaseUrl, supabaseAnonKey, connectedProject])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -306,32 +374,55 @@ function App() {
           KANBAN_URL
         )
         
-        // Load saved conversations for this project
         const projectName = folderHandle.name
-        const loadResult = loadConversationsFromStorage(projectName)
-        if (loadResult.error) {
-          setPersistenceError(loadResult.error)
-        } else {
-          setPersistenceError(null)
-        }
-        if (loadResult.data) {
-          setConversations(loadResult.data)
-          // Find the max message ID from loaded conversations to avoid ID collisions
-          let maxId = 0
-          for (const msgs of Object.values(loadResult.data)) {
-            for (const msg of msgs) {
-              if (msg.id > maxId) maxId = msg.id
-            }
-          }
-          messageIdRef.current = maxId
-        } else {
-          // No saved conversations, start fresh
-          setConversations(getEmptyConversations())
-          messageIdRef.current = 0
-        }
-        
+        setSupabaseUrl(url)
+        setSupabaseAnonKey(key)
         setConnectedProject(projectName)
         setConnectError(null)
+        setPmLastResponseId(null)
+
+        // Load conversations: prefer project DB (Supabase), fallback to localStorage
+        try {
+          const supabase = createClient(url, key)
+          const { data: rows, error } = await supabase
+            .from('hal_conversation_messages')
+            .select('role, content, sequence, created_at')
+            .eq('project_id', projectName)
+            .eq('agent', PM_AGENT_ID)
+            .order('sequence', { ascending: true })
+          if (!error && rows && rows.length > 0) {
+            const msgs: Message[] = rows.map((r) => ({
+              id: r.sequence as number,
+              agent: r.role === 'user' ? 'user' : 'project-manager',
+              content: r.content ?? '',
+              timestamp: r.created_at ? new Date(r.created_at) : new Date(),
+            }))
+            const maxSeq = Math.max(...msgs.map((m) => m.id))
+            pmMaxSequenceRef.current = maxSeq
+            messageIdRef.current = maxSeq
+            setConversations({ ...getEmptyConversations(), [PM_AGENT_ID]: msgs })
+            setPersistenceError(null)
+          } else {
+            throw new Error(error?.message ?? 'no rows')
+          }
+        } catch {
+          const loadResult = loadConversationsFromStorage(projectName)
+          if (loadResult.error) setPersistenceError(loadResult.error)
+          else setPersistenceError(null)
+          if (loadResult.data) {
+            setConversations(loadResult.data)
+            let maxId = 0
+            for (const msgs of Object.values(loadResult.data)) {
+              for (const msg of msgs) {
+                if (msg.id > maxId) maxId = msg.id
+              }
+            }
+            messageIdRef.current = maxId
+          } else {
+            setConversations(getEmptyConversations())
+            messageIdRef.current = 0
+          }
+        }
       } else {
         setConnectError('Kanban iframe not ready.')
       }
@@ -352,12 +443,21 @@ function App() {
         KANBAN_URL
       )
     }
-    // Clear conversations when disconnecting (they're already persisted)
     setConversations(getEmptyConversations())
     messageIdRef.current = 0
+    pmMaxSequenceRef.current = 0
     setPersistenceError(null)
     setConnectedProject(null)
+    setPmLastResponseId(null)
+    setSupabaseUrl(null)
+    setSupabaseAnonKey(null)
   }, [])
+
+  const previousResponseIdInLastRequest =
+    lastPmOutboundRequest != null &&
+    typeof lastPmOutboundRequest === 'object' &&
+    'previous_response_id' in lastPmOutboundRequest &&
+    (lastPmOutboundRequest as { previous_response_id?: string }).previous_response_id != null
 
   const diagnostics: DiagnosticsInfo = {
     kanbanRenderMode: 'iframe (fallback)',
@@ -373,6 +473,8 @@ function App() {
     lastPmOutboundRequest,
     lastPmToolCalls,
     persistenceError,
+    pmLastResponseId,
+    previousResponseIdInLastRequest,
   }
 
   return (
@@ -584,6 +686,22 @@ function App() {
                     {diagnostics.persistenceError ?? 'none'}
                   </span>
                 </div>
+                {selectedChatTarget === 'project-manager' && (
+                  <>
+                    <div className="diag-row">
+                      <span className="diag-label">PM last response ID:</span>
+                      <span className="diag-value">
+                        {diagnostics.pmLastResponseId ?? 'none (continuity not used yet)'}
+                      </span>
+                    </div>
+                    <div className="diag-row">
+                      <span className="diag-label">previous_response_id in last request:</span>
+                      <span className="diag-value" data-status={diagnostics.previousResponseIdInLastRequest ? 'ok' : undefined}>
+                        {diagnostics.previousResponseIdInLastRequest ? 'yes' : 'no'}
+                      </span>
+                    </div>
+                  </>
+                )}
 
                 {/* PM Diagnostics: Outbound Request */}
                 {selectedChatTarget === 'project-manager' && (
