@@ -189,19 +189,6 @@ function App() {
     }
   }, [conversations, connectedProject, supabaseUrl, supabaseAnonKey])
 
-  // When Kanban completes sync, run Unassigned check and post result to PM chat
-  useEffect(() => {
-    const handler = (event: MessageEvent) => {
-      const data = event.data
-      if (data?.type !== 'HAL_SYNC_COMPLETED') return
-      if (supabaseUrl && supabaseAnonKey && connectedProject) {
-        runUnassignedCheck(supabaseUrl, supabaseAnonKey, connectedProject).catch(() => {})
-      }
-    }
-    window.addEventListener('message', handler)
-    return () => window.removeEventListener('message', handler)
-  }, [supabaseUrl, supabaseAnonKey, connectedProject, runUnassignedCheck])
-
   const addMessage = useCallback((target: ChatTarget, agent: Message['agent'], content: string, id?: number) => {
     const nextId = id ?? ++messageIdRef.current
     if (id != null) messageIdRef.current = Math.max(messageIdRef.current, nextId)
@@ -269,6 +256,19 @@ function App() {
     },
     [formatUnassignedCheckMessage, addMessage]
   )
+
+  // When Kanban completes sync, run Unassigned check and post result to PM chat
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      const data = event.data
+      if (data?.type !== 'HAL_SYNC_COMPLETED') return
+      if (supabaseUrl && supabaseAnonKey && connectedProject) {
+        runUnassignedCheck(supabaseUrl, supabaseAnonKey, connectedProject).catch(() => {})
+      }
+    }
+    window.addEventListener('message', handler)
+    return () => window.removeEventListener('message', handler)
+  }, [supabaseUrl, supabaseAnonKey, connectedProject, runUnassignedCheck])
 
   const handleSend = useCallback(() => {
     const content = inputValue.trim()
