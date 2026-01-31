@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
+import { respond as pmRespond } from '@hal-agents/agents/projectManager'
 
 type Agent = 'project-manager' | 'implementation-agent'
 
@@ -12,6 +13,8 @@ type Message = {
 type DiagnosticsInfo = {
   kanbanRenderMode: string
   selectedAgent: Agent
+  pmImplementationSource: 'hal-agents' | 'inline'
+  lastAgentError: string | null
   lastError: string | null
   kanbanLoaded: boolean
   kanbanUrl: string
@@ -34,6 +37,7 @@ function App() {
   const [messages, setMessages] = useState<Message[]>([])
   const [inputValue, setInputValue] = useState('')
   const [lastError, setLastError] = useState<string | null>(null)
+  const [lastAgentError, setLastAgentError] = useState<string | null>(null)
   const [kanbanLoaded, setKanbanLoaded] = useState(false)
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const [connectedProject, setConnectedProject] = useState<string | null>(null)
@@ -60,15 +64,31 @@ function App() {
   const handleSend = useCallback(() => {
     const content = inputValue.trim()
     if (!content) return
-    
+
     addMessage('user', content)
     setInputValue('')
-    
-    // Stub agent response (no real LLM integration yet)
-    setTimeout(() => {
-      const agentLabel = AGENT_OPTIONS.find((a) => a.id === selectedAgent)?.label ?? selectedAgent
-      addMessage(selectedAgent, `[${agentLabel}] This is a stub response. Real agent infrastructure is not implemented yet.`)
-    }, 500)
+    setLastAgentError(null)
+
+    if (selectedAgent === 'project-manager') {
+      setTimeout(() => {
+        try {
+          const { replyText } = pmRespond({
+            message: content,
+            context: { standup: /standup|status/i.test(content) },
+          })
+          addMessage('project-manager', replyText)
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          setLastAgentError(msg)
+          addMessage('project-manager', `[PM@hal-agents] Error: ${msg}`)
+        }
+      }, 500)
+    } else {
+      setTimeout(() => {
+        const agentLabel = AGENT_OPTIONS.find((a) => a.id === selectedAgent)?.label ?? selectedAgent
+        addMessage(selectedAgent, `[${agentLabel}] This is a stub response. Real agent infrastructure is not implemented yet.`)
+      }, 500)
+    }
   }, [inputValue, selectedAgent, addMessage])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -179,6 +199,8 @@ function App() {
   const diagnostics: DiagnosticsInfo = {
     kanbanRenderMode: 'iframe (fallback)',
     selectedAgent,
+    pmImplementationSource: selectedAgent === 'project-manager' ? 'hal-agents' : 'inline',
+    lastAgentError,
     lastError,
     kanbanLoaded,
     kanbanUrl: KANBAN_URL,
@@ -334,6 +356,16 @@ function App() {
                 <div className="diag-row">
                   <span className="diag-label">Selected agent:</span>
                   <span className="diag-value">{diagnostics.selectedAgent}</span>
+                </div>
+                <div className="diag-row">
+                  <span className="diag-label">PM implementation source:</span>
+                  <span className="diag-value">{diagnostics.pmImplementationSource}</span>
+                </div>
+                <div className="diag-row">
+                  <span className="diag-label">Last agent error:</span>
+                  <span className="diag-value" data-status={diagnostics.lastAgentError ? 'error' : 'ok'}>
+                    {diagnostics.lastAgentError ?? 'none'}
+                  </span>
                 </div>
                 <div className="diag-row">
                   <span className="diag-label">Last error:</span>
