@@ -132,6 +132,7 @@ const DEFAULT_KANBAN_COLUMNS_SEED = [
   { id: 'col-todo', title: 'To-do', position: 1 },
   { id: 'col-doing', title: 'Doing', position: 2 },
   { id: 'col-done', title: 'Done', position: 3 },
+  { id: 'col-wont-implement', title: 'Will Not Implement', position: 4 },
 ] as const
 
 /** First 4 digits from filename (e.g. 0009-...md → 0009). Invalid → null. */
@@ -254,13 +255,14 @@ const DEFAULT_COLUMNS: Column[] = [
   { id: 'col-done', title: 'Done', cardIds: ['c-7', 'c-8', 'c-9'] },
 ]
 
-/** Unassigned + To-do/Doing/Done; tickets with null or col-unassigned go in Unassigned */
-const KANBAN_COLUMN_IDS = ['col-unassigned', 'col-todo', 'col-doing', 'col-done'] as const
+/** Unassigned + To-do/Doing/Done/Will Not Implement; tickets with null or col-unassigned go in Unassigned */
+const KANBAN_COLUMN_IDS = ['col-unassigned', 'col-todo', 'col-doing', 'col-done', 'col-wont-implement'] as const
 const EMPTY_KANBAN_COLUMNS: Column[] = [
   { id: 'col-unassigned', title: 'Unassigned', cardIds: [] },
   { id: 'col-todo', title: 'To-do', cardIds: [] },
   { id: 'col-doing', title: 'Doing', cardIds: [] },
   { id: 'col-done', title: 'Done', cardIds: [] },
+  { id: 'col-wont-implement', title: 'Will Not Implement', cardIds: [] },
 ]
 
 const INITIAL_CARDS: Record<string, Card> = {
@@ -657,6 +659,24 @@ function App() {
           .order('position', { ascending: true })
         finalColRows = (afterRows ?? []) as SupabaseKanbanColumnRow[]
         setSupabaseColumnsJustInitialized(true)
+      } else {
+        // Migration: add Will Not Implement column if missing (e.g. existing DBs from before 0032)
+        const hasWontImplement = finalColRows.some((c) => c.id === 'col-wont-implement')
+        if (!hasWontImplement) {
+          const maxPosition = Math.max(...finalColRows.map((c) => c.position), -1)
+          const { error: insErr } = await client.from('kanban_columns').insert({
+            id: 'col-wont-implement',
+            title: 'Will Not Implement',
+            position: maxPosition + 1,
+          })
+          if (!insErr) {
+            const { data: afterRows } = await client
+              .from('kanban_columns')
+              .select('id, title, position, created_at, updated_at')
+              .order('position', { ascending: true })
+            finalColRows = (afterRows ?? []) as SupabaseKanbanColumnRow[]
+          }
+        }
       }
 
       setSupabaseColumnsRows(finalColRows)
@@ -788,6 +808,7 @@ function App() {
         'col-todo': [],
         'col-doing': [],
         'col-done': [],
+        'col-wont-implement': [],
       }
       for (const f of files) {
         ticketCardsMap[f.path] = { id: f.path, title: f.name.replace(/\.md$/, '') }
@@ -815,6 +836,7 @@ function App() {
         { id: 'col-todo', title: 'To-do', cardIds: byColumn['col-todo'].map((x) => x.path) },
         { id: 'col-doing', title: 'Doing', cardIds: byColumn['col-doing'].map((x) => x.path) },
         { id: 'col-done', title: 'Done', cardIds: byColumn['col-done'].map((x) => x.path) },
+        { id: 'col-wont-implement', title: 'Will Not Implement', cardIds: byColumn['col-wont-implement'].map((x) => x.path) },
       ])
       setTicketStoreLastRefresh(new Date())
     } catch {
