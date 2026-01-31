@@ -5,5 +5,9 @@
   "type": "module",
   "scripts": {
     "sync-tickets": "node scripts/sync-tickets.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.93.3",
+    "dotenv": "^16.6.1"
   }
 }
