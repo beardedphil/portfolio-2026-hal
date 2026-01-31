@@ -416,6 +416,20 @@ export default defineConfig({
             }
             const filename = ticketRow.filename
 
+            // CRITICAL: Remove the file BEFORE deleting from DB so sync (Docs→DB first) cannot re-insert the ticket
+            const rootForDocs = projectRoot ? path.resolve(projectRoot) : repoRoot
+            const filePath = path.join(rootForDocs, 'docs', 'tickets', filename)
+            let fileDeleteError: string | null = null
+            if (fs.existsSync(filePath)) {
+              try {
+                fs.unlinkSync(filePath)
+              } catch (unlinkErr) {
+                fileDeleteError = unlinkErr instanceof Error ? unlinkErr.message : String(unlinkErr)
+                // Log but continue to DB delete - better to have orphaned file than inconsistent state
+                console.error(`[DELETE] Failed to delete file ${filePath}:`, fileDeleteError)
+              }
+            }
+
             const { error: deleteError } = await supabase.from('tickets').delete().eq('id', ticketId)
             if (deleteError) {
               res.statusCode = 200
@@ -423,21 +437,10 @@ export default defineConfig({
               res.end(
                 JSON.stringify({
                   success: false,
-                  error: `Supabase delete failed: ${deleteError.message}`,
+                  error: `Supabase delete failed: ${deleteError.message}${fileDeleteError ? `. File delete also failed: ${fileDeleteError}` : ''}`,
                 })
               )
               return
-            }
-
-            // Remove the file immediately so sync (Docs→DB first) cannot re-insert the ticket from it
-            const rootForDocs = projectRoot ? path.resolve(projectRoot) : repoRoot
-            const filePath = path.join(rootForDocs, 'docs', 'tickets', filename)
-            if (fs.existsSync(filePath)) {
-              try {
-                fs.unlinkSync(filePath)
-              } catch (_unlinkErr) {
-                // Continue; sync will try to remove it in its delete-orphans step
-              }
             }
 
             const syncScriptPath = path.resolve(repoRoot, 'scripts', 'sync-tickets.js')

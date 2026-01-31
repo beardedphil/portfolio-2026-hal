@@ -761,6 +761,7 @@ function App() {
   const [_syncProgressText, setSyncProgressText] = useState<string | null>(null)
   const [supabaseLastSyncError, setSupabaseLastSyncError] = useState<string | null>(null)
   const [supabaseLastDeleteError, setSupabaseLastDeleteError] = useState<string | null>(null)
+  const [deleteSuccessMessage, setDeleteSuccessMessage] = useState<string | null>(null)
 
   // Ticket detail modal (0033): click card opens modal; content from Supabase or docs
   const [detailModal, setDetailModal] = useState<{ ticketId: string; title: string } | null>(null)
@@ -1290,13 +1291,14 @@ function App() {
     setActionLog((prev) => [...prev.slice(-19), { id, message, at }])
   }, [])
 
-  /** Delete a ticket from Supabase and run sync to remove local file (0030). */
+  /** Delete a ticket from Supabase and run sync to remove local file (0030, 0039). */
   const handleDeleteTicket = useCallback(
     async (ticketId: string) => {
       const url = supabaseProjectUrl.trim()
       const key = supabaseAnonKey.trim()
       if (!url || !key) {
         setSupabaseLastDeleteError('Supabase not configured. Connect first.')
+        setTimeout(() => setSupabaseLastDeleteError(null), 5000)
         return
       }
       const card = supabaseCards[ticketId]
@@ -1304,6 +1306,7 @@ function App() {
       if (!window.confirm(`Delete ticket ${label}? This cannot be undone.`)) return
 
       setSupabaseLastDeleteError(null)
+      setDeleteSuccessMessage(null)
       try {
         const res = await fetch(`${HAL_API_BASE}/api/tickets/delete`, {
           method: 'POST',
@@ -1314,7 +1317,12 @@ function App() {
         if (data.success) {
           // Optimistically remove from state so the board updates immediately
           setSupabaseTickets((prev) => prev.filter((t) => t.id !== ticketId))
-          await refetchSupabaseTickets()
+          setDeleteSuccessMessage(`Deleted ticket ${label}`)
+          setTimeout(() => setDeleteSuccessMessage(null), 5000)
+          // Wait 1.5s for file deletion to complete before refetch
+          setTimeout(async () => {
+            await refetchSupabaseTickets()
+          }, 1500)
           addLog(`Deleted ticket ${ticketId}`)
           if (typeof window !== 'undefined' && window.parent !== window) {
             window.parent.postMessage({ type: 'HAL_SYNC_COMPLETED' }, '*')
@@ -1322,11 +1330,13 @@ function App() {
         } else {
           const err = data.error ?? `HTTP ${res.status}`
           setSupabaseLastDeleteError(err)
+          setTimeout(() => setSupabaseLastDeleteError(null), 10000)
           addLog(`Delete failed: ${err}`)
         }
       } catch (e) {
         const err = e instanceof Error ? e.message : String(e)
         setSupabaseLastDeleteError(err)
+        setTimeout(() => setSupabaseLastDeleteError(null), 10000)
         addLog(`Delete failed: ${err}`)
       }
     },
@@ -2178,6 +2188,12 @@ function App() {
       {supabaseLastDeleteError && (
         <div className="config-missing-error" role="alert">
           Delete failed: {supabaseLastDeleteError}
+        </div>
+      )}
+
+      {deleteSuccessMessage && (
+        <div className="success-message" role="status">
+          ✓ {deleteSuccessMessage}
         </div>
       )}
 
