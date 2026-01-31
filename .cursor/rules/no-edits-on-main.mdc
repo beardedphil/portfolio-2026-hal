@@ -1,0 +1,28 @@
+---
+description: Hard gate — never make file edits while on main; branch first
+alwaysApply: true
+---
+
+# No Edits on Main (Hard Gate)
+
+## You MUST NOT edit files when on `main`
+
+- **FORBIDDEN:** Using `StrReplace`, `Write`, `EditNotebook`, or any tool that modifies files when the current Git branch is `main`.
+- **Before any file-modifying action** for a ticket or implementation task:
+  1. Run `git status -sb` (or equivalent) and note the **current branch**.
+  2. If the current branch is **`main`** (or `master`):
+     - **STOP.** Do **not** run `StrReplace`, `Write`, or `EditNotebook`.
+     - Create or checkout the feature branch first:  
+       `git checkout -b ticket/<id>-<short-title-kebab>`  
+       (or `git checkout ticket/<id>-...` if it already exists).
+     - Only **after** you are on the feature branch may you make edits.
+  3. If the user did **not** give a ticket ID, ask for it or infer it from context (e.g. from the ticket file they referenced). The branch name is `ticket/<id>-<short-title-kebab>`.
+
+## Why this rule exists
+
+- Edits on `main` conflate work with other changes, get lost on reset/rebase, and violate the repo’s branching policy.
+- QA merges from feature branches; work on `main` bypasses that flow and cannot happen.
+
+## Summary
+
+- **On `main` → no file edits.** Branch first, then edit.
