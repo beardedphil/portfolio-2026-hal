@@ -22,6 +22,22 @@ function readJsonBody(req: import('http').IncomingMessage): Promise<unknown> {
   })
 }
 
+/**
+ * Response type from PM agent endpoint.
+ * Matches the interface expected from hal-agents runPmAgent().
+ */
+interface PmAgentResponse {
+  reply: string
+  toolCalls: Array<{
+    name: string
+    input: unknown
+    output: unknown
+  }>
+  outboundRequest: object | null
+  error?: string
+  errorPhase?: 'context-pack' | 'openai' | 'tool' | 'not-implemented'
+}
+
 export default defineConfig({
   plugins: [
     react(),
@@ -67,6 +83,102 @@ export default defineConfig({
               JSON.stringify({
                 error: err instanceof Error ? err.message : String(err),
               })
+            )
+          }
+        })
+      },
+    },
+    {
+      name: 'pm-agent-endpoint',
+      configureServer(server) {
+        server.middlewares.use(async (req, res, next) => {
+          if (req.url !== '/api/pm/respond' || req.method !== 'POST') {
+            next()
+            return
+          }
+
+          try {
+            const body = (await readJsonBody(req)) as { message?: string }
+            const message = body.message ?? ''
+
+            if (!message.trim()) {
+              res.statusCode = 400
+              res.setHeader('Content-Type', 'application/json')
+              res.end(JSON.stringify({ error: 'Message is required' }))
+              return
+            }
+
+            const key = process.env.OPENAI_API_KEY
+            const model = process.env.OPENAI_MODEL
+
+            if (!key || !model) {
+              res.statusCode = 503
+              res.setHeader('Content-Type', 'application/json')
+              res.end(
+                JSON.stringify({
+                  reply: '',
+                  toolCalls: [],
+                  outboundRequest: null,
+                  error: 'OpenAI API is not configured. Set OPENAI_API_KEY and OPENAI_MODEL in .env.',
+                  errorPhase: 'openai',
+                } satisfies PmAgentResponse)
+              )
+              return
+            }
+
+            // Try to import and call runPmAgent from hal-agents
+            // If not available yet (hal-agents#0003 not implemented), return stub response
+            let pmAgentModule: { runPmAgent?: Function } | null = null
+            try {
+              pmAgentModule = await import(
+                path.resolve(__dirname, 'projects/project-1/src/agents/projectManager.ts')
+              )
+            } catch {
+              // Module import failed - hal-agents may not have runPmAgent yet
+            }
+
+            if (!pmAgentModule?.runPmAgent) {
+              // hal-agents#0003 not implemented yet - return stub response
+              const stubResponse: PmAgentResponse = {
+                reply: '[PM Agent] The PM agent core is not yet implemented. Waiting for hal-agents#0003 to be completed.\n\nYour message was: "' + message + '"',
+                toolCalls: [],
+                outboundRequest: {
+                  _stub: true,
+                  _note: 'hal-agents runPmAgent() not available yet',
+                  model,
+                  message,
+                },
+                error: 'PM agent core not implemented (hal-agents#0003 pending)',
+                errorPhase: 'not-implemented',
+              }
+              res.statusCode = 200
+              res.setHeader('Content-Type', 'application/json')
+              res.end(JSON.stringify(stubResponse))
+              return
+            }
+
+            // Call the real PM agent
+            const repoRoot = path.resolve(__dirname)
+            const result = await pmAgentModule.runPmAgent(message, {
+              repoRoot,
+              openaiApiKey: key,
+              openaiModel: model,
+            })
+
+            res.statusCode = 200
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify(result))
+          } catch (err) {
+            res.statusCode = 500
+            res.setHeader('Content-Type', 'application/json')
+            res.end(
+              JSON.stringify({
+                reply: '',
+                toolCalls: [],
+                outboundRequest: null,
+                error: err instanceof Error ? err.message : String(err),
+                errorPhase: 'openai',
+              } satisfies PmAgentResponse)
             )
           }
         })

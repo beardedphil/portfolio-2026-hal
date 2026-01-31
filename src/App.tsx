@@ -10,6 +10,20 @@ type Message = {
   timestamp: Date
 }
 
+type ToolCallRecord = {
+  name: string
+  input: unknown
+  output: unknown
+}
+
+type PmAgentResponse = {
+  reply: string
+  toolCalls: ToolCallRecord[]
+  outboundRequest: object | null
+  error?: string
+  errorPhase?: 'context-pack' | 'openai' | 'tool' | 'not-implemented'
+}
+
 type DiagnosticsInfo = {
   kanbanRenderMode: string
   selectedChatTarget: ChatTarget
@@ -21,6 +35,8 @@ type DiagnosticsInfo = {
   kanbanLoaded: boolean
   kanbanUrl: string
   connectedProject: string | null
+  lastPmOutboundRequest: object | null
+  lastPmToolCalls: ToolCallRecord[] | null
 }
 
 const CHAT_OPTIONS: { id: ChatTarget; label: string }[] = [
@@ -51,6 +67,10 @@ function App() {
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const [connectedProject, setConnectedProject] = useState<string | null>(null)
   const [connectError, setConnectError] = useState<string | null>(null)
+  const [lastPmOutboundRequest, setLastPmOutboundRequest] = useState<object | null>(null)
+  const [lastPmToolCalls, setLastPmToolCalls] = useState<ToolCallRecord[] | null>(null)
+  const [outboundRequestExpanded, setOutboundRequestExpanded] = useState(false)
+  const [toolCallsExpanded, setToolCallsExpanded] = useState(false)
   const messageIdRef = useRef(0)
   const transcriptRef = useRef<HTMLDivElement>(null)
   const kanbanIframeRef = useRef<HTMLIFrameElement>(null)
@@ -83,36 +103,48 @@ function App() {
     if (selectedChatTarget === 'project-manager') {
       setLastAgentError(null)
       setOpenaiLastError(null)
+      setLastPmOutboundRequest(null)
+      setLastPmToolCalls(null)
       ;(async () => {
         try {
-          const res = await fetch('/api/openai/responses', {
+          const res = await fetch('/api/pm/respond', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ input: content }),
+            body: JSON.stringify({ message: content }),
           })
           setOpenaiLastStatus(String(res.status))
           const text = await res.text()
-          if (!res.ok) {
-            let errMsg = text
-            try {
-              const j = JSON.parse(text) as { error?: string }
-              errMsg = j.error ?? text
-            } catch {
-              // use raw text
-            }
-            setOpenaiLastError(errMsg)
-            setLastAgentError(errMsg)
-            addMessage(
-              'project-manager',
-              'project-manager',
-              `[PM] Error (${res.status}): ${errMsg}`
-            )
+          
+          let data: PmAgentResponse
+          try {
+            data = JSON.parse(text) as PmAgentResponse
+          } catch {
+            setOpenaiLastError('Invalid JSON response from PM endpoint')
+            setLastAgentError('Invalid JSON response')
+            addMessage('project-manager', 'project-manager', `[PM] Error: Invalid response format`)
             return
           }
+
+          // Store diagnostics data
+          setLastPmOutboundRequest(data.outboundRequest)
+          setLastPmToolCalls(data.toolCalls?.length ? data.toolCalls : null)
+
+          if (!res.ok || data.error) {
+            const errMsg = data.error ?? `HTTP ${res.status}`
+            setOpenaiLastError(errMsg)
+            setLastAgentError(errMsg)
+            // Still show reply if available, otherwise show error
+            const displayMsg = data.reply || `[PM] Error: ${errMsg}`
+            addMessage('project-manager', 'project-manager', displayMsg)
+            return
+          }
+
           setOpenaiLastError(null)
           setLastAgentError(null)
-          const data = JSON.parse(text) as object
-          addMessage('project-manager', 'project-manager', JSON.stringify(data, null, 2))
+          
+          // Display the PM's reply
+          const reply = data.reply || '[PM] (No response)'
+          addMessage('project-manager', 'project-manager', reply)
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           setOpenaiLastStatus(null)
@@ -242,6 +274,8 @@ function App() {
     kanbanLoaded,
     kanbanUrl: KANBAN_URL,
     connectedProject,
+    lastPmOutboundRequest,
+    lastPmToolCalls,
   }
 
   return (
@@ -429,6 +463,74 @@ function App() {
                     {diagnostics.connectedProject ?? 'none'}
                   </span>
                 </div>
+
+                {/* PM Diagnostics: Outbound Request */}
+                {selectedChatTarget === 'project-manager' && (
+                  <div className="diag-section">
+                    <button
+                      type="button"
+                      className="diag-section-toggle"
+                      onClick={() => setOutboundRequestExpanded(!outboundRequestExpanded)}
+                      aria-expanded={outboundRequestExpanded}
+                    >
+                      Outbound Request JSON {outboundRequestExpanded ? '▼' : '▶'}
+                    </button>
+                    {outboundRequestExpanded && (
+                      <div className="diag-section-content">
+                        {diagnostics.lastPmOutboundRequest ? (
+                          <pre className="diag-json">
+                            {JSON.stringify(diagnostics.lastPmOutboundRequest, null, 2)}
+                          </pre>
+                        ) : (
+                          <span className="diag-empty">No request yet</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* PM Diagnostics: Tool Calls */}
+                {selectedChatTarget === 'project-manager' && (
+                  <div className="diag-section">
+                    <button
+                      type="button"
+                      className="diag-section-toggle"
+                      onClick={() => setToolCallsExpanded(!toolCallsExpanded)}
+                      aria-expanded={toolCallsExpanded}
+                    >
+                      Tool Calls {toolCallsExpanded ? '▼' : '▶'}
+                    </button>
+                    {toolCallsExpanded && (
+                      <div className="diag-section-content">
+                        {diagnostics.lastPmToolCalls && diagnostics.lastPmToolCalls.length > 0 ? (
+                          <ul className="diag-tool-calls">
+                            {diagnostics.lastPmToolCalls.map((call, idx) => (
+                              <li key={idx} className="diag-tool-call">
+                                <strong>{call.name}</strong>
+                                <div className="tool-call-detail">
+                                  <span className="tool-call-label">Input:</span>
+                                  <code>{JSON.stringify(call.input)}</code>
+                                </div>
+                                <div className="tool-call-detail">
+                                  <span className="tool-call-label">Output:</span>
+                                  <code className="tool-call-output">
+                                    {typeof call.output === 'string'
+                                      ? call.output.length > 200
+                                        ? call.output.slice(0, 200) + '...'
+                                        : call.output
+                                      : JSON.stringify(call.output).slice(0, 200)}
+                                  </code>
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <span className="diag-empty">No tool calls</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>

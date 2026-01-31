@@ -10,6 +10,7 @@
 
 - **Fixes**: (n/a)
 - **Category**: (n/a)
+- **Depends on**: `hal-agents#0003` (PM agent core: context pack, tools, tool loop)
 
 ## Goal (one sentence)
 
