@@ -10,6 +10,14 @@ alwaysApply: true
 - An agent must only commit changes that belong to the **current ticket** they are implementing.
 - **FORBIDDEN:** bundling unrelated file changes into the ticket commit (including stray edits, formatting passes, or leftover untracked files).
 
+## Concurrency safety (assume other agents may be running)
+
+- Always assume **another agent might be editing files in parallel** in the same repo.
+- **FORBIDDEN:** touching, restoring, staging, committing, or deleting files you did not personally change in the current task.
+  - Do **not** “clean up” other agents’ work-in-progress.
+  - Do **not** run broad commands that can affect unrelated files (examples: `git add .`, `git add -A`, `git restore .`, `git checkout .`, mass-formatting).
+- If you need a clean place to work while the main working tree is dirty, use a **git worktree** so your changes are isolated.
+
 ## Staging discipline (required)
 
 Before committing ticket work:

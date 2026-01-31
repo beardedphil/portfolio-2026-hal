@@ -9,16 +9,15 @@ alwaysApply: true
 
 ## Branching policy (feature branches required)
 
-- **Implementation agents only:** For ticketed code work, implementation agents must work on a **feature branch**, not directly on `main`.
+- For ticketed work, agents must work on a **feature branch**, not directly on `main`.
   - Branch naming: `ticket/<id>-<short-title-kebab>` (example: `ticket/0003-hal-chat-hal-agents`).
 - “Ready / done” requires:
   - the feature branch is **pushed** to remote, and
   - `git status -sb` shows the branch is **synced** and the working tree is **clean**.
-- **PM agent exception:** The project manager may commit **tickets + docs + rules** directly to `main` (no feature branch required).
 
 ## Merge to main (for now)
 
-- **Implementation agents only:** For now, when an implementation agent believes a ticket is ready, they must **merge their feature branch into `main`** and push `main` before claiming “ready/done.”
+- For now, when an agent believes a ticket is ready, they must **merge their feature branch into `main`** and push `main` before claiming “ready/done.”
 - Sequence:
   - verify feature branch is clean and pushed
   - checkout `main` and ensure it is up to date
@@ -30,8 +29,8 @@ alwaysApply: true
 ## Sequence: push first, then summarize
 
 - The moment you **think** you're done (implementation complete, audit written, etc.) is when you **commit and push** — not after you've already told the user.
-- **First:** commit all relevant changes and push to the remote.
-- **Then:** tell the user what was done (summary, verification, audit location). Do not give the long "here's what I did" report until after push.
+- **First:** commit all relevant changes, **merge to `main`**, and push.
+- **Then:** tell the user what was done (summary, verification, audit location). Do not give the long "here's what I did" report until after merge + push.
 - If you summarize first and then commit/push (or forget to push), you did it in the wrong order.
 
 ## Before you reply: the gate
