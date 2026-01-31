@@ -300,7 +300,7 @@ function App() {
               <div className="kanban-loading-overlay">
                 <p>Loading kanban board...</p>
                 <p className="kanban-hint">
-                  Start the kanban app: <code>cd projects/kanban && npm run dev</code>
+                  Run <code>npm run dev</code> from the repo root to start HAL and Kanban together.
                 </p>
               </div>
             )}
