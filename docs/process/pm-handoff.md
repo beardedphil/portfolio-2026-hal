@@ -5,7 +5,14 @@ This file is for future PM agents working in this repo.
 ## Role boundaries
 
 - PM agent work: write tickets, run `npm run sync-tickets` after editing `docs/tickets/`, review artifacts, and update `.cursor/rules/`.
-- Implementation agents: implement code, create audit artifacts, and handle feature branches + merges.
+- Implementation agents: implement code, create audit artifacts, and handle feature branches. QA merges to main; implementation agents do not merge.
+- QA: code review + automated verification only (no manual UI testing). When satisfied, merge to `main` and move ticket to **Human in the Loop**.
+- Human in the Loop: user tests merged work at http://localhost:5173. The dev server serves `main` only — `npm run dev` enforces this.
+
+## Kanban workflow columns
+
+- Unassigned → To-do → Doing → QA → Human in the Loop → Done
+- Will Not Implement: for tickets that will not be implemented.
 
 ## Common gotchas we hit
 

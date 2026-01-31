@@ -35,7 +35,7 @@ Create a task folder under `docs/audit/`:
 - `docs/audit/<task-id>-<short-title>/decisions.md`
   - Any trade-offs/assumptions + why.
 - `docs/audit/<task-id>-<short-title>/verification.md`
-  - Human-verifiable steps **inside the app UI** (no console/devtools).
+  - QA verification steps: code review + automated checks (build, lint). No manual UI testing at QA stage — user tests in Human in the Loop after merge.
   - If verification involves visuals, include screenshot filenames.
 
 ## Artifact Format: Source of Truth (No “Copy From Old Audits”)
@@ -48,7 +48,7 @@ Create a task folder under `docs/audit/`:
   - You may reference older audits only as **examples** after you have already checked the rules/templates.
   - Avoid narration like “Checking an existing audit folder for format”; instead confirm you are following the rules/templates above.
 
-## Ready-for-Verification (Commit + Push)
+## QA (Commit + Push → Human in the Loop)
 
 - An implementation agent must **commit** all work for the ticket and **push** it to the remote before claiming the ticket is “done” or “ready for verification.”
 - “Ready for verification” additionally requires a **clean + synced repo**:
@@ -66,9 +66,9 @@ Create a task folder under `docs/audit/`:
   - If the agent still needs to commit/push or update audit artifacts, the task is **not** ready.
 
 - The completion message to the user/PM must include:
-  - the **feature branch name** (so QA can check out and verify), and
+  - the **feature branch name** (so QA can review and merge), and
   - the exact `git status -sb` output.
-- The implementation agent **must add the branch name to the ticket** when claiming "ready for verification" (see ticket template: Ready for verification → Branch).
+- The implementation agent **must add the branch name to the ticket** when claiming "ready for QA" (see ticket template: QA → Branch).
 
 - Audit artifacts must be **in git**:
   - `docs/audit/<task-id>-<short-title>/` must be committed and pushed before claiming “ready.”

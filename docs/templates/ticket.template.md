@@ -15,9 +15,13 @@ Create a new file at `docs/tickets/<task-id>-<short-title>.md` using this templa
 - **Fixes**: `<ticket-id>` (required for bugfix tickets)
 - **Category**: DnD / State / CSS / Build / Process / Other (required for bugfix tickets)
 
-## Ready for verification (implementation agent fills when work is pushed)
+## QA (implementation agent fills when work is pushed)
 
-- **Branch**: `ticket/<id>-<short-title-kebab>` — QA (or the user) checks out this branch to verify, then merges to `main`.
+- **Branch**: `ticket/<id>-<short-title-kebab>` — QA performs code review + automated verification (no manual UI testing). When satisfied, QA merges to `main` and moves the ticket to **Human in the Loop**.
+
+## Human in the Loop
+
+- After QA merges, the ticket moves to **Human in the Loop**. The user tests at http://localhost:5173 — the dev server always serves `main`, so merged work is immediately testable.
 
 ## Goal (one sentence)
 

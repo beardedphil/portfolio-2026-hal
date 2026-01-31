@@ -162,7 +162,15 @@ async function main() {
     .order('id')
 
   if (!refetchError && afterRows) {
-    const KANBAN_COLUMN_IDS = ['col-unassigned', 'col-todo', 'col-doing', 'col-done', 'col-wont-implement']
+    const KANBAN_COLUMN_IDS = [
+  'col-unassigned',
+  'col-todo',
+  'col-doing',
+  'col-qa',
+  'col-human-in-the-loop',
+  'col-done',
+  'col-wont-implement',
+]
     const unassigned = afterRows.filter(
       (r) =>
         r.kanban_column_id == null ||

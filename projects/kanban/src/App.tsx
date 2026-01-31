@@ -131,8 +131,10 @@ const DEFAULT_KANBAN_COLUMNS_SEED = [
   { id: 'col-unassigned', title: 'Unassigned', position: 0 },
   { id: 'col-todo', title: 'To-do', position: 1 },
   { id: 'col-doing', title: 'Doing', position: 2 },
-  { id: 'col-done', title: 'Done', position: 3 },
-  { id: 'col-wont-implement', title: 'Will Not Implement', position: 4 },
+  { id: 'col-qa', title: 'QA', position: 3 },
+  { id: 'col-human-in-the-loop', title: 'Human in the Loop', position: 4 },
+  { id: 'col-done', title: 'Done', position: 5 },
+  { id: 'col-wont-implement', title: 'Will Not Implement', position: 6 },
 ] as const
 
 /** First 4 digits from filename (e.g. 0009-...md → 0009). Invalid → null. */
@@ -252,15 +254,28 @@ const DEFAULT_COLUMNS: Column[] = [
   { id: 'col-unassigned', title: 'Unassigned', cardIds: [] },
   { id: 'col-todo', title: 'To-do', cardIds: ['c-1', 'c-2', 'c-3'] },
   { id: 'col-doing', title: 'Doing', cardIds: ['c-4', 'c-5', 'c-6'] },
+  { id: 'col-qa', title: 'QA', cardIds: [] },
+  { id: 'col-human-in-the-loop', title: 'Human in the Loop', cardIds: [] },
   { id: 'col-done', title: 'Done', cardIds: ['c-7', 'c-8', 'c-9'] },
+  { id: 'col-wont-implement', title: 'Will Not Implement', cardIds: [] },
 ]
 
-/** Unassigned + To-do/Doing/Done/Will Not Implement; tickets with null or col-unassigned go in Unassigned */
-const KANBAN_COLUMN_IDS = ['col-unassigned', 'col-todo', 'col-doing', 'col-done', 'col-wont-implement'] as const
+/** Unassigned, To-do, Doing, QA, Human in the Loop, Done, Will Not Implement; tickets with null or col-unassigned go in Unassigned */
+const KANBAN_COLUMN_IDS = [
+  'col-unassigned',
+  'col-todo',
+  'col-doing',
+  'col-qa',
+  'col-human-in-the-loop',
+  'col-done',
+  'col-wont-implement',
+] as const
 const EMPTY_KANBAN_COLUMNS: Column[] = [
   { id: 'col-unassigned', title: 'Unassigned', cardIds: [] },
   { id: 'col-todo', title: 'To-do', cardIds: [] },
   { id: 'col-doing', title: 'Doing', cardIds: [] },
+  { id: 'col-qa', title: 'QA', cardIds: [] },
+  { id: 'col-human-in-the-loop', title: 'Human in the Loop', cardIds: [] },
   { id: 'col-done', title: 'Done', cardIds: [] },
   { id: 'col-wont-implement', title: 'Will Not Implement', cardIds: [] },
 ]
@@ -660,24 +675,45 @@ function App() {
         finalColRows = (afterRows ?? []) as SupabaseKanbanColumnRow[]
         setSupabaseColumnsJustInitialized(true)
       } else {
-        // Migration: add Will Not Implement column if missing (e.g. existing DBs from before 0032)
-        const hasWontImplement = finalColRows.some((c) => c.id === 'col-wont-implement')
-        if (!hasWontImplement) {
+        // Migration: add missing columns for existing DBs (col-qa, col-human-in-the-loop, col-wont-implement)
+        const ids = new Set(finalColRows.map((c) => c.id))
+        const toInsert: { id: string; title: string; position: number }[] = []
+        if (!ids.has('col-qa')) {
+          toInsert.push({ id: 'col-qa', title: 'QA', position: -1 })
+        }
+        if (!ids.has('col-human-in-the-loop')) {
+          toInsert.push({ id: 'col-human-in-the-loop', title: 'Human in the Loop', position: -1 })
+        }
+        if (!ids.has('col-wont-implement')) {
+          toInsert.push({ id: 'col-wont-implement', title: 'Will Not Implement', position: -1 })
+        }
+        if (toInsert.length > 0) {
           const maxPosition = Math.max(...finalColRows.map((c) => c.position), -1)
-          const { error: insErr } = await client.from('kanban_columns').insert({
-            id: 'col-wont-implement',
-            title: 'Will Not Implement',
-            position: maxPosition + 1,
-          })
-          if (!insErr) {
-            const { data: afterRows } = await client
-              .from('kanban_columns')
-              .select('id, title, position, created_at, updated_at')
-              .order('position', { ascending: true })
-            finalColRows = (afterRows ?? []) as SupabaseKanbanColumnRow[]
+          for (let i = 0; i < toInsert.length; i++) {
+            toInsert[i].position = maxPosition + 1 + i
           }
+          for (const row of toInsert) {
+            const { error: insErr } = await client.from('kanban_columns').insert(row)
+            if (!insErr) {
+              finalColRows = [...finalColRows, row as SupabaseKanbanColumnRow]
+            }
+          }
+          finalColRows.sort((a, b) => a.position - b.position)
+          const { data: afterRows } = await client
+            .from('kanban_columns')
+            .select('id, title, position, created_at, updated_at')
+            .order('position', { ascending: true })
+          if (afterRows?.length) finalColRows = afterRows as SupabaseKanbanColumnRow[]
         }
       }
+
+      // Only show canonical 7 columns (Unassigned, To-do, Doing, QA, Human in the Loop, Done, Will Not Implement); dedupes DB extras
+      const canonicalOrder = KANBAN_COLUMN_IDS as unknown as string[]
+      const filtered = finalColRows.filter((c) => canonicalOrder.includes(c.id))
+      finalColRows = canonicalOrder.map((id, i) => {
+        const row = filtered.find((c) => c.id === id)
+        return row ?? { id, title: id.replace('col-', '').replace(/-/g, ' '), position: i, created_at: '', updated_at: '' }
+      }) as SupabaseKanbanColumnRow[]
 
       setSupabaseColumnsRows(finalColRows)
       setSupabaseColumnsLastRefresh(new Date())
@@ -807,6 +843,8 @@ function App() {
         'col-unassigned': [],
         'col-todo': [],
         'col-doing': [],
+        'col-qa': [],
+        'col-human-in-the-loop': [],
         'col-done': [],
         'col-wont-implement': [],
       }
@@ -835,6 +873,8 @@ function App() {
         { id: 'col-unassigned', title: 'Unassigned', cardIds: byColumn['col-unassigned'].map((x) => x.path) },
         { id: 'col-todo', title: 'To-do', cardIds: byColumn['col-todo'].map((x) => x.path) },
         { id: 'col-doing', title: 'Doing', cardIds: byColumn['col-doing'].map((x) => x.path) },
+        { id: 'col-qa', title: 'QA', cardIds: byColumn['col-qa'].map((x) => x.path) },
+        { id: 'col-human-in-the-loop', title: 'Human in the Loop', cardIds: byColumn['col-human-in-the-loop'].map((x) => x.path) },
         { id: 'col-done', title: 'Done', cardIds: byColumn['col-done'].map((x) => x.path) },
         { id: 'col-wont-implement', title: 'Will Not Implement', cardIds: byColumn['col-wont-implement'].map((x) => x.path) },
       ])

@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/check-main-branch.js",
     "dev": "concurrently -n hal,kanban -c blue,yellow \"npm run dev:hal\" \"npm run dev:kanban\"",
     "dev:hal": "npm run build:agents && vite --port 5173 --strictPort",
     "build:agents": "npm run build --prefix projects/hal-agents",

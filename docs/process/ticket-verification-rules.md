@@ -1,7 +1,12 @@
-# Ticket Verification Rules (Initial)
+# Ticket Verification Rules
 
 This document defines how we decide a ticket is **properly completed**.
-We will expand these rules as we learn.
+
+## QA and Human in the Loop
+
+- **QA** (formerly "Ready for verification"): Code review + automated verification only. No manual UI testing. When QA is satisfied, QA merges to `main` and moves the ticket to **Human in the Loop**.
+- **Human in the Loop**: The user tests merged work at http://localhost:5173. The dev server always serves `main` — `npm run dev` enforces this (`scripts/check-main-branch.js`).
+- Kanban columns: Unassigned → To-do → Doing → **QA** → **Human in the Loop** → Done (and Will Not Implement).
 
 ## Definition of Done (DoD) — for every ticket
 
@@ -9,7 +14,7 @@ We will expand these rules as we learn.
 - **Ticket is committed**: the ticket file exists in git history on the branch being verified (not only on someone’s disk).
 - **Audit folder exists**: `docs/audit/<id>-<short-title>/`
 - **Work is committed + pushed**:
-  - the implementation agent has committed all changes and pushed them to the remote before declaring “ready for verification”
+  - the implementation agent has committed all changes and pushed them to the remote before declaring “ready for QA”
   - all commits for the ticket include the ticket ID in the commit subject (e.g. `feat(0010): ...`)
   - the agent’s completion message includes `git status -sb` output showing the branch is not ahead/behind and the working tree is clean
 - **Repo cleanliness**:
@@ -20,11 +25,11 @@ We will expand these rules as we learn.
   - `changed-files.md`
   - `decisions.md`
   - `verification.md`
-- **UI-only verification steps**:
-  - `verification.md` must be written so a non-technical human can follow it
-  - no devtools / console / logs required for verification
+- **Verification steps**:
+  - `verification.md` defines QA steps (code review + automated: build, lint) and, when relevant, Human-in-the-Loop steps (manual UI verification after merge)
+  - no devtools / console / logs required for human verification
 - **No “handoff chores”**:
-  - a ticket cannot be considered “ready for verification” if the agent tells the user/PM to perform git steps (commit/push) or to update audit artifacts
+  - a ticket cannot be considered “ready for QA” if the agent tells the user/PM to perform git steps (commit/push) or to update audit artifacts
   - the only allowed prerequisites are “open the app” (and, if unavoidable, starting the dev server)
 - **Acceptance criteria satisfied**:
   - each checkbox in the ticket maps to one or more explicit steps in `verification.md`

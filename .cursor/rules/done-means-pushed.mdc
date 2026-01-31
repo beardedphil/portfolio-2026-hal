@@ -26,12 +26,12 @@ alwaysApply: true
 
 ## Do not merge to main (implementation agent)
 
-- When an agent believes a ticket is ready, they must **commit and push their feature branch to GitHub** — and **must not merge to `main`**. QA (or the user) will check out the branch, verify, and merge to main after verification. The implementation agent must add the branch name to the ticket (see ticket template), then may claim “ready/done.”
+- When an agent believes a ticket is ready, they must **commit and push their feature branch to GitHub** — and **must not merge to `main`**. QA performs code review + automated verification (no manual UI testing), then merges to main and moves the ticket to Human in the Loop for user testing. The implementation agent must add the branch name to the ticket (see ticket template), then may claim “ready/done.”
 - Sequence:
   - verify feature branch is clean and pushed to remote
-  - **add the branch name to the ticket** (see ticket template: Ready for verification → Branch)
+  - **add the branch name to the ticket** (see ticket template: QA → Branch)
   - then send the completion/summary message including the branch name and `git status -sb`
-- The implementation agent **must** add the branch name to the ticket so QA (or the user) knows which branch to check out.
+- The implementation agent **must** add the branch name to the ticket so QA knows which branch to review and merge.
 
 ## Sequence: push first, then summarize
 
@@ -43,7 +43,7 @@ alwaysApply: true
 ## Before you reply: the gate
 
 - **If you are about to send a message** that summarizes completed work, or that includes any of: "done", "complete", "ready", "looks good", "here's what I did", "Implementation complete", "Summary:", or similar — **STOP**.
-- **First** run: `git status -sb`. If there are any `M` (modified) or `??` (untracked) relevant to the task: run `git add`, `git commit -m '...'` (with ticket ID in subject), and `git push` (feature branch only; do not merge to main). **Add the branch name to the ticket** (Ready for verification → Branch). Then run `git status -sb` again.
+- **First** run: `git status -sb`. If there are any `M` (modified) or `??` (untracked) relevant to the task: run `git add`, `git commit -m '...'` (with ticket ID in subject), and `git push` (feature branch only; do not merge to main). **Add the branch name to the ticket** (QA → Branch). Then run `git status -sb` again.
 - **Only after** the working tree is clean, the feature branch is pushed, and the **branch name is added to the ticket** may you send that message — and your message **must** include the **branch name** and the exact `git status -sb` output.
 - If you have not yet committed and pushed, do **not** send a "done" or summary message; do the commit and push in this same turn, then reply.
 
