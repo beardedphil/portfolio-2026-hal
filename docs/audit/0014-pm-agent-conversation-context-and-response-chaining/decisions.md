@@ -29,3 +29,16 @@
 
 - **Decision**: Show "previous_response_id in last request: yes/no" by checking whether `lastPmOutboundRequest` has a non-null `previous_response_id` (redact does not strip this key).
 - **Why**: Single source of truth (what we actually sent); no extra client state needed.
+
+## Unrequested changes (required)
+
+Ticket `0014` explicitly listed “summarization/memory compression” as a non-goal, but implementation included additional scope:
+
+- **Added Supabase conversation persistence + summarization**
+  - `hal_conversation_messages` and `hal_conversation_summaries` tables
+  - server-side bounded context pack built from (summary of older turns + recent turns within a character budget)
+  - optional external LLM summarization of older turns
+- **Why it happened**: This improves “infinite conversation” durability and avoids runaway prompt growth, but it should have been tracked as a separate ticket.
+- **How to verify in UI**:
+  - With a project connected, have a multi-turn PM conversation.
+  - Confirm Diagnostics “Outbound Request JSON” contains a bounded conversation context (and, if applicable, summary+recent wording).

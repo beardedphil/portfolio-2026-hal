@@ -16,27 +16,31 @@
 
 - Added `ConversationTurn` type and `conversationHistory?`, `previousResponseId?` to `PmAgentConfig`.
 - Added `responseId?: string` to `PmAgentResult`.
-- Added `CONVERSATION_HISTORY_MAX_MESSAGES = 20`.
-- In `buildContextPack`: prepend "Conversation so far" section when `config.conversationHistory` is present; use last 20 messages; add truncation note when truncated.
+- Added a bounded “Conversation so far” section to the context pack when conversation context is provided; truncation note when truncated.
 - In `runPmAgent`: build `providerOptions = { openai: { previousResponseId } }` when `previousResponseId` set; pass to `generateText`.
 - Extract `responseId` from `result.providerMetadata?.openai?.responseId` and include in return.
 
 #### vite.config.ts
 
-- Extended body type: `message`, `conversationHistory?`, `previous_response_id?`.
-- Pass `conversationHistory` and `previousResponseId` to `runPmAgent`.
+- Extended body type: `message`, `conversationHistory?`, `previous_response_id?`, plus optional DB identifiers (`projectId`, `supabaseUrl`, `supabaseAnonKey`) to enable server-side history fetch when available.
+- When project DB info is provided, fetch the full transcript from Supabase `hal_conversation_messages` and build a bounded context pack:
+  - summarize older turns (stored in `hal_conversation_summaries`, generated via external LLM when needed)
+  - include recent turns within a character budget
+- Pass conversation context (`conversationHistory` or server-built `conversationContextPack`) and `previousResponseId` to `runPmAgent`.
 - Added `responseId?: string` to `PmAgentResponse`; result is passed through so responseId is returned when present.
 
 #### App.tsx
 
-- Added `CONVERSATION_HISTORY_MAX_MESSAGES = 20`.
-- Build `conversationHistory` from prior PM turns only: `conversations['project-manager'].slice(0, -1).slice(-20)` mapped to `{ role, content }` (user → 'user', project-manager → 'assistant').
+- Build bounded conversation context in one of two ways:
+  - DB path (preferred when Supabase is connected): write each PM message to `hal_conversation_messages` with a sequence number, and send `{ projectId, supabaseUrl, supabaseAnonKey }` to server so it can build a summary+recent context pack.
+  - fallback path: build `conversationHistory` from prior PM turns and bound it by a character budget (to avoid runaway prompt growth).
 - Request body: `{ message, conversationHistory, previous_response_id? }` (include `previous_response_id` when `pmLastResponseId` is set).
 - State: `pmLastResponseId`; set from `data.responseId` on successful PM response.
 - Reset `pmLastResponseId` in `handleDisconnect` and in `handleConnectProjectFolder` (when setting connected project).
 - Extended `DiagnosticsInfo` with `pmLastResponseId` and `previousResponseIdInLastRequest` (derived from `lastPmOutboundRequest?.previous_response_id`).
 - Diagnostics panel: two new rows when PM selected — "PM last response ID" and "previous_response_id in last request: yes/no".
 - Added `conversations` and `pmLastResponseId` to `handleSend` dependency array.
+- Added a schema doc describing the Supabase conversation tables and summarization behavior: `docs/hal-conversation-schema.md`.
 
 ### Verification
 
