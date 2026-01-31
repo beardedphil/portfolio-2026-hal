@@ -3,9 +3,11 @@
  * Run from project root after writing a ticket: npm run sync-tickets
  *
  * Requires .env (or env) with SUPABASE_URL and SUPABASE_ANON_KEY.
+ * Optional: HAL_PROJECT_ID (project id for PM conversation; defaults to repo folder name to match "Connect Project Folder"); HAL_CHECK_UNASSIGNED_URL (default http://localhost:5173/api/pm/check-unassigned).
  * - Docs → DB: upsert each doc ticket (create or update by id).
  * - DB → Docs: write docs/tickets/{filename} for each DB row not in docs.
  * - Then: set kanban_column_id = 'col-unassigned' for tickets with null.
+ * - After sync: POST to HAL check-unassigned so PM chat gets the result (ignored if HAL dev server not running).
  */
 
 import 'dotenv/config'
@@ -194,6 +196,28 @@ async function main() {
     writtenToDocs,
     'written.'
   )
+
+  // Trigger HAL Unassigned check so PM chat gets the result (e.g. when sync runs from CLI)
+  const halCheckUrl = process.env.HAL_CHECK_UNASSIGNED_URL || 'http://localhost:5173/api/pm/check-unassigned'
+  // Default projectId to repo folder name so it matches "Connect Project Folder" (folderHandle.name)
+  const projectId = process.env.HAL_PROJECT_ID || path.basename(projectRoot)
+  try {
+    const res = await fetch(halCheckUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        supabaseUrl: url,
+        supabaseAnonKey: key,
+        projectId,
+      }),
+    })
+    if (!res.ok) {
+      console.warn('HAL Unassigned check returned', res.status, '(HAL dev server may not be running)')
+    }
+  } catch (e) {
+    // HAL dev server not running or unreachable — sync-tickets still succeeded
+    console.warn('HAL Unassigned check skipped:', e instanceof Error ? e.message : String(e))
+  }
 }
 
 main().catch((e) => {

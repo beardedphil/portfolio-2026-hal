@@ -9,3 +9,10 @@ alwaysApply: true
 - **Do not ask the user** to run terminal commands that the agent can run (e.g. "Please run `npm run dev`", "Restart the HAL dev server", "Run `npm run sync-tickets` from the repo root").
 - Only suggest the user run a command when the action truly requires user context (e.g. picking a folder, approving a destructive operation, or when the agent environment cannot execute the command).
 - When instructing verification or follow-up, prefer steps the agent can perform (run the command, then report the result) over steps that delegate to the user.
+
+## Keep the dev server current
+
+- **After changes that affect the HAL app or hal-agents**, run whatever is needed so the user can test immediately:
+  - Run `npm run build --prefix projects/hal-agents` if hal-agents or its consumers changed.
+  - If the dev server is not running or must be restarted: kill anything on ports 5173 and 5174 (e.g. `npx --yes kill-port 5173 5174`), then run `npm run dev` (in the background so the server stays up).
+- **Goal:** The dev server should always be current after an agent session—no "please run npm run dev" handoff. Start or restart dev when it makes sense so the user can open the app and test right away.

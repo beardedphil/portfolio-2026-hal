@@ -226,12 +226,27 @@ function App() {
 
   const runUnassignedCheck = useCallback(
     async (url: string, key: string, projectId?: string | null) => {
-      try {
-        const res = await fetch('/api/pm/check-unassigned', {
+      const doFetch = async (): Promise<Response> => {
+        return fetch('/api/pm/check-unassigned', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ supabaseUrl: url, supabaseAnonKey: key }),
         })
+      }
+      try {
+        let res = await doFetch()
+        if (!res.ok && res.type === 'basic') {
+          const text = await res.text()
+          try {
+            const data = JSON.parse(text) as CheckUnassignedResult & { error?: string }
+            if (data.error?.includes('not available') || data.error?.includes('missing or outdated')) {
+              await new Promise((r) => setTimeout(r, 3000))
+              res = await doFetch()
+            }
+          } catch {
+            // use original res
+          }
+        }
         const result = (await res.json()) as CheckUnassignedResult
         const msg = formatUnassignedCheckMessage(result)
         if (projectId) {
@@ -251,7 +266,37 @@ function App() {
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
-        addMessage('project-manager', 'project-manager', `[PM] Unassigned check failed: ${errMsg}`)
+        const isFetchError = /failed to fetch|network error/i.test(errMsg)
+        if (isFetchError) {
+          await new Promise((r) => setTimeout(r, 3000))
+          try {
+            const res = await doFetch()
+            const result = (await res.json()) as CheckUnassignedResult
+            const msg = formatUnassignedCheckMessage(result)
+            if (projectId) {
+              const supabase = createClient(url, key)
+              const nextSeq = pmMaxSequenceRef.current + 1
+              await supabase.from('hal_conversation_messages').insert({
+                project_id: projectId,
+                agent: PM_AGENT_ID,
+                role: 'assistant',
+                content: msg,
+                sequence: nextSeq,
+              })
+              pmMaxSequenceRef.current = nextSeq
+              addMessage('project-manager', 'project-manager', msg, nextSeq)
+            } else {
+              addMessage('project-manager', 'project-manager', msg)
+            }
+            return
+          } catch {
+            // fall through to friendly message
+          }
+        }
+        const friendlyMsg = isFetchError
+          ? '[PM] Unassigned check couldn’t run (server may be busy or building). Try connecting again in a moment.'
+          : `[PM] Unassigned check failed: ${errMsg}`
+        addMessage('project-manager', 'project-manager', friendlyMsg)
       }
     },
     [formatUnassignedCheckMessage, addMessage]

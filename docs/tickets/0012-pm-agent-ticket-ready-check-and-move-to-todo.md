@@ -50,6 +50,7 @@ A human can pick a ticket currently in **Unassigned**, ask the PM to “move thi
 
 ## Implementation notes (optional)
 
+- **Post-merge (sync-tickets flow):** When `npm run sync-tickets` runs (e.g. from CLI), it POSTs to `/api/pm/check-unassigned`. If the HAL dev server is running, the Unassigned check runs (tickets may move to To Do). The API accepts optional `projectId`; when provided, it inserts the check result into `hal_conversation_messages` for that project so it can appear in PM chat. The script defaults `projectId` to the repo folder name (to match “Connect Project Folder”); override with `HAL_PROJECT_ID`.
 - Define Ready-to-start as a minimal, auditable checklist derived from the ticket template:
   - Goal present
   - Human-verifiable deliverable present
