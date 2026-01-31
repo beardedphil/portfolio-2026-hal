@@ -75,6 +75,66 @@ body {
   font-weight: 600;
 }
 
+.kanban-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.connect-project-btn {
+  padding: 0.4rem 0.9rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  background: #1976d2;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+.connect-project-btn:hover {
+  background: #1565c0;
+}
+
+.project-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.75rem;
+  background: #e8f4fd;
+  border: 1px solid #90caf9;
+  border-radius: 6px;
+}
+
+.project-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #1565c0;
+}
+
+.disconnect-btn {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  background: #fff;
+  color: #666;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.disconnect-btn:hover {
+  background: #f5f5f5;
+  color: #333;
+}
+
+.connect-error {
+  padding: 0.6rem 1rem;
+  background: #fef3cd;
+  border-bottom: 1px solid #e0c040;
+  font-size: 0.9rem;
+  color: #856404;
+}
+
 .kanban-status {
   font-size: 0.85rem;
   padding: 0.2rem 0.5rem;

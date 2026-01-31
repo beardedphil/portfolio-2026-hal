@@ -15,6 +15,7 @@ type DiagnosticsInfo = {
   lastError: string | null
   kanbanLoaded: boolean
   kanbanUrl: string
+  connectedProject: string | null
 }
 
 const AGENT_OPTIONS: { id: Agent; label: string }[] = [
@@ -35,8 +36,11 @@ function App() {
   const [lastError, setLastError] = useState<string | null>(null)
   const [kanbanLoaded, setKanbanLoaded] = useState(false)
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
+  const [connectedProject, setConnectedProject] = useState<string | null>(null)
+  const [connectError, setConnectError] = useState<string | null>(null)
   const messageIdRef = useRef(0)
   const transcriptRef = useRef<HTMLDivElement>(null)
+  const kanbanIframeRef = useRef<HTMLIFrameElement>(null)
 
   // Auto-scroll transcript to bottom when messages change
   useEffect(() => {
@@ -107,12 +111,78 @@ function App() {
     setLastError('Failed to load kanban board. Make sure the kanban app is running on ' + KANBAN_URL)
   }, [])
 
+  /** Connect to project folder: pick folder, read .env, send credentials to kanban iframe */
+  const handleConnectProjectFolder = useCallback(async () => {
+    setConnectError(null)
+    if (typeof window.showDirectoryPicker !== 'function') {
+      setConnectError('Folder picker not supported in this browser.')
+      return
+    }
+    try {
+      const folderHandle = await window.showDirectoryPicker({ mode: 'read' })
+      
+      // Read .env file
+      let envFile: FileSystemFileHandle
+      try {
+        envFile = await folderHandle.getFileHandle('.env')
+      } catch {
+        setConnectError('No .env file found in selected folder.')
+        return
+      }
+      
+      const file = await envFile.getFile()
+      const envText = await file.text()
+      
+      // Parse .env for VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY
+      const urlMatch = envText.match(/^VITE_SUPABASE_URL\s*=\s*(.+)$/m)
+      const keyMatch = envText.match(/^VITE_SUPABASE_ANON_KEY\s*=\s*(.+)$/m)
+      
+      if (!urlMatch || !keyMatch) {
+        setConnectError('Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY in .env file.')
+        return
+      }
+      
+      const url = urlMatch[1].trim()
+      const key = keyMatch[1].trim()
+      
+      // Send credentials to kanban iframe via postMessage
+      if (kanbanIframeRef.current?.contentWindow) {
+        kanbanIframeRef.current.contentWindow.postMessage(
+          { type: 'HAL_CONNECT_SUPABASE', url, key },
+          KANBAN_URL
+        )
+        setConnectedProject(folderHandle.name)
+        setConnectError(null)
+      } else {
+        setConnectError('Kanban iframe not ready.')
+      }
+      
+    } catch (e) {
+      const err = e as { name?: string }
+      if (err.name === 'AbortError') {
+        return
+      }
+      setConnectError(err instanceof Error ? err.message : 'Failed to connect to project folder.')
+    }
+  }, [])
+
+  const handleDisconnect = useCallback(() => {
+    if (kanbanIframeRef.current?.contentWindow) {
+      kanbanIframeRef.current.contentWindow.postMessage(
+        { type: 'HAL_DISCONNECT' },
+        KANBAN_URL
+      )
+    }
+    setConnectedProject(null)
+  }, [])
+
   const diagnostics: DiagnosticsInfo = {
     kanbanRenderMode: 'iframe (fallback)',
     selectedAgent,
     lastError,
     kanbanLoaded,
     kanbanUrl: KANBAN_URL,
+    connectedProject,
   }
 
   return (
@@ -127,12 +197,40 @@ function App() {
         <section className="hal-kanban-region" aria-label="Kanban board">
           <div className="kanban-header">
             <h2>Kanban Board</h2>
-            <span className="kanban-status" data-loaded={kanbanLoaded}>
-              {kanbanLoaded ? 'Connected' : 'Loading...'}
-            </span>
+            <div className="kanban-header-actions">
+              {!connectedProject ? (
+                <button
+                  type="button"
+                  className="connect-project-btn"
+                  onClick={handleConnectProjectFolder}
+                >
+                  Connect Project Folder
+                </button>
+              ) : (
+                <div className="project-info">
+                  <span className="project-name">{connectedProject}</span>
+                  <button
+                    type="button"
+                    className="disconnect-btn"
+                    onClick={handleDisconnect}
+                  >
+                    Disconnect
+                  </button>
+                </div>
+              )}
+              <span className="kanban-status" data-loaded={kanbanLoaded}>
+                {kanbanLoaded ? 'Connected' : 'Loading...'}
+              </span>
+            </div>
           </div>
+          {connectError && (
+            <div className="connect-error" role="alert">
+              {connectError}
+            </div>
+          )}
           <div className="kanban-frame-container">
             <iframe
+              ref={kanbanIframeRef}
               src={KANBAN_URL}
               title="Kanban Board"
               className="kanban-iframe"
@@ -241,6 +339,12 @@ function App() {
                   <span className="diag-label">Last error:</span>
                   <span className="diag-value" data-status={diagnostics.lastError ? 'error' : 'ok'}>
                     {diagnostics.lastError ?? 'none'}
+                  </span>
+                </div>
+                <div className="diag-row">
+                  <span className="diag-label">Connected project:</span>
+                  <span className="diag-value">
+                    {diagnostics.connectedProject ?? 'none'}
                   </span>
                 </div>
               </div>
