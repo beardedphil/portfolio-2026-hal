@@ -23,6 +23,9 @@ type TicketCreationResult = {
   filePath: string
   syncSuccess: boolean
   syncError?: string
+  /** True when create_ticket retried due to id/filename collision (0023). */
+  retried?: boolean
+  attempts?: number
 }
 
 type PmAgentResponse = {
@@ -992,6 +995,9 @@ function App() {
                       <div className="diag-ticket-creation">
                         <div><strong>Ticket ID:</strong> {diagnostics.lastTicketCreationResult.id}</div>
                         <div><strong>File path:</strong> {diagnostics.lastTicketCreationResult.filePath}</div>
+                        {diagnostics.lastTicketCreationResult.retried && diagnostics.lastTicketCreationResult.attempts != null && (
+                          <div><strong>Retry:</strong> Collision resolved after {diagnostics.lastTicketCreationResult.attempts} attempt(s)</div>
+                        )}
                         <div>
                           <strong>Sync:</strong>{' '}
                           {diagnostics.lastTicketCreationResult.syncSuccess ? (

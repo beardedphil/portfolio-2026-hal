@@ -11,6 +11,10 @@
 - **Fixes**: `0011`
 - **Category**: `State`
 
+## Ready for verification (implementation agent fills when work is pushed)
+
+- **Branch**: `ticket/0023-pm-create-ticket-retry-on-id-collision` — QA (or the user) checks out this branch to verify, then merges to `main`.
+
 ## Goal (one sentence)
 
 Make concurrent ticket creation robust by detecting `id`/`filename` collisions and automatically retrying with the next ID until an insert succeeds.

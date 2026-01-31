@@ -277,13 +277,23 @@ You have access to read-only tools to explore the repository. Use them to answer
 
 **Conversation context:** When "Conversation so far" is present, the "User message" is the user's latest reply in that conversation. Short replies (e.g. "Entirely, in all states", "Yes", "The first one", "inside the embedded kanban UI") are almost always answers to the question you (the assistant) just asked—interpret them in that context. Do not treat short user replies as a new top-level request about repo rules, process, or "all states" enforcement unless the conversation clearly indicates otherwise.
 
-**Creating tickets:** When the user asks to create a ticket (e.g. "create a ticket", "create ticket for that", "create a new ticket"), you MUST call the create_ticket tool if it is available. Calling the tool is what actually creates the ticket in the Kanban board—do not only write the ticket content in your message. Use create_ticket with a short title and a full markdown body following the repo ticket template (ID, Title, Owner, Type, Priority, Linkage, Goal, Human-verifiable deliverable, Acceptance criteria, Constraints, Non-goals, Implementation notes, Audit artifacts). Do not invent an ID—the tool assigns the next ID. Do not write secrets or API keys into the ticket body. If create_ticket is not in your tool list, tell the user: "I don't have the create-ticket tool for this request. In the HAL app, connect the project folder (with VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in its .env), then try again. Check Diagnostics to confirm 'Create ticket (this request): Available'."
+**Creating tickets:** When the user **explicitly** asks to create a ticket (e.g. "create a ticket", "create ticket for that", "create a new ticket for X"), you MUST call the create_ticket tool if it is available. Do NOT call create_ticket for short, non-actionable messages such as: "test", "ok", "hi", "hello", "thanks", "cool", "checking", "asdf", or similar—these are usually the user testing the UI, acknowledging, or typing casually. Do not infer a ticket-creation request from context alone (e.g. if the user sends "Test" while testing the chat UI, that does NOT mean create the chat UI ticket). Calling the tool is what actually creates the ticket—do not only write the ticket content in your message. Use create_ticket with a short title and a full markdown body following the repo ticket template. Do not invent an ID—the tool assigns the next ID. Do not write secrets or API keys into the ticket body. If create_ticket is not in your tool list, tell the user: "I don't have the create-ticket tool for this request. In the HAL app, connect the project folder (with VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in its .env), then try again. Check Diagnostics to confirm 'Create ticket (this request): Available'." After creating a ticket via the tool, report the exact ticket ID and file path (e.g. docs/tickets/NNNN-title-slug.md) that was created.
 
 **Moving a ticket to To Do:** When the user asks to move a ticket to To Do (e.g. "move this to To Do", "move ticket 0012 to To Do"), you MUST (1) fetch the ticket content with fetch_ticket_content (by ticket id), (2) evaluate readiness with evaluate_ticket_ready (pass the body_md from the fetch result). If the ticket is NOT ready, do NOT call kanban_move_ticket_to_todo; instead reply with a clear list of what is missing (use the missingItems from the evaluate_ticket_ready result). If the ticket IS ready, call kanban_move_ticket_to_todo with the ticket id. Then confirm in chat that the ticket was moved. The readiness checklist is in docs/process/ready-to-start-checklist.md (Goal, Human-verifiable deliverable, Acceptance criteria checkboxes, Constraints, Non-goals, no unresolved placeholders).
 
-Always cite file paths when referencing specific content. After creating a ticket via the tool, report the exact ticket ID and file path (e.g. docs/tickets/NNNN-title-slug.md) that was created.`
+Always cite file paths when referencing specific content.`
 
 const MAX_TOOL_ITERATIONS = 10
+/** Cap on create_ticket retries when insert fails with unique/duplicate (id or filename). */
+const MAX_CREATE_TICKET_RETRIES = 10
+
+/** True if the error is a Postgres unique constraint violation (id or filename collision). */
+function isUniqueViolation(err: { code?: string; message?: string } | null): boolean {
+  if (!err) return false
+  if (err.code === '23505') return true
+  const msg = (err.message ?? '').toLowerCase()
+  return msg.includes('duplicate key') || msg.includes('unique constraint')
+}
 /** Cap on character count for "recent conversation" so long technical messages don't dominate. (~3k tokens) */
 const CONVERSATION_RECENT_MAX_CHARS = 12_000
 
@@ -433,7 +443,9 @@ export async function runPmAgent(
               ),
           }),
           execute: async (input: { title: string; body_md: string }) => {
-            type CreateResult = { success: true; id: string; filename: string; filePath: string } | { success: false; error: string }
+            type CreateResult =
+              | { success: true; id: string; filename: string; filePath: string; retried?: boolean; attempts?: number }
+              | { success: false; error: string }
             let out: CreateResult
             try {
               const { data: existingRows, error: fetchError } = await supabase
@@ -452,26 +464,46 @@ export async function runPmAgent(
                   return Number.isNaN(n) ? 0 : n
                 })
                 .filter((n) => n >= 0)
-              const nextNum = numericIds.length > 0 ? Math.max(...numericIds) + 1 : 1
-              const id = String(nextNum).padStart(4, '0')
+              const startNum = numericIds.length > 0 ? Math.max(...numericIds) + 1 : 1
               const slug = slugFromTitle(input.title)
-              const filename = `${id}-${slug}.md`
-              const filePath = `docs/tickets/${filename}`
               const now = new Date().toISOString()
-              const titleWithId = `${id} - ${input.title.trim()}`
-              const { error: insertError } = await supabase.from('tickets').insert({
-                id,
-                filename,
-                title: titleWithId,
-                body_md: input.body_md.trim(),
-                kanban_column_id: 'col-unassigned',
-                kanban_position: 0,
-                kanban_moved_at: now,
-              })
-              if (insertError) {
-                out = { success: false, error: `Supabase insert: ${insertError.message}` }
-              } else {
-                out = { success: true, id, filename, filePath }
+              let lastInsertError: { code?: string; message?: string } | null = null
+              for (let attempt = 1; attempt <= MAX_CREATE_TICKET_RETRIES; attempt++) {
+                const candidateNum = startNum + attempt - 1
+                const id = String(candidateNum).padStart(4, '0')
+                const filename = `${id}-${slug}.md`
+                const filePath = `docs/tickets/${filename}`
+                const titleWithId = `${id} - ${input.title.trim()}`
+                const { error: insertError } = await supabase.from('tickets').insert({
+                  id,
+                  filename,
+                  title: titleWithId,
+                  body_md: input.body_md.trim(),
+                  kanban_column_id: 'col-unassigned',
+                  kanban_position: 0,
+                  kanban_moved_at: now,
+                })
+                if (!insertError) {
+                  out = {
+                    success: true,
+                    id,
+                    filename,
+                    filePath,
+                    ...(attempt > 1 && { retried: true, attempts: attempt }),
+                  }
+                  toolCalls.push({ name: 'create_ticket', input, output: out })
+                  return out
+                }
+                lastInsertError = insertError
+                if (!isUniqueViolation(insertError)) {
+                  out = { success: false, error: `Supabase insert: ${insertError.message}` }
+                  toolCalls.push({ name: 'create_ticket', input, output: out })
+                  return out
+                }
+              }
+              out = {
+                success: false,
+                error: `Could not reserve a ticket ID after ${MAX_CREATE_TICKET_RETRIES} attempts (id/filename collision). Last: ${lastInsertError?.message ?? 'unknown'}`,
               }
             } catch (err) {
               out = {

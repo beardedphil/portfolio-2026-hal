@@ -40,13 +40,15 @@ interface PmAgentResponse {
   responseId?: string
   error?: string
   errorPhase?: 'context-pack' | 'openai' | 'tool' | 'not-implemented'
-  /** When create_ticket succeeded: id, file path, and sync-tickets result (0011). */
+  /** When create_ticket succeeded: id, file path, sync result; retried/attempts when collision retry (0023). */
   ticketCreationResult?: {
     id: string
     filename: string
     filePath: string
     syncSuccess: boolean
     syncError?: string
+    retried?: boolean
+    attempts?: number
   }
   /** True when Supabase creds were sent so create_ticket was available (for Diagnostics). */
   createTicketAvailable?: boolean
@@ -282,12 +284,19 @@ export default defineConfig({
               (c) => c.name === 'create_ticket' && typeof c.output === 'object' && c.output !== null && (c.output as { success?: boolean }).success === true
             )
             if (createTicketCall && supabaseUrl && supabaseAnonKey) {
-              const out = createTicketCall.output as { id: string; filename: string; filePath: string }
+              const out = createTicketCall.output as {
+                id: string
+                filename: string
+                filePath: string
+                retried?: boolean
+                attempts?: number
+              }
               ticketCreationResult = {
                 id: out.id,
                 filename: out.filename,
                 filePath: out.filePath,
                 syncSuccess: false,
+                ...(out.retried && out.attempts != null && { retried: true, attempts: out.attempts }),
               }
               const syncScriptPath = path.resolve(repoRoot, 'scripts', 'sync-tickets.js')
               try {
