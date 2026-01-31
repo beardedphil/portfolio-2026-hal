@@ -16,6 +16,17 @@ alwaysApply: true
   - `git status -sb` shows the branch is **synced** and the working tree is **clean**.
 - Do not commit directly on `main` except for **explicitly-requested** process/rules-only changes.
 
+## Merge to main (for now)
+
+- For now, when an agent believes a ticket is ready, they must **merge their feature branch into `main`** and push `main` before claiming “ready/done.”
+- Sequence:
+  - verify feature branch is clean and pushed
+  - checkout `main` and ensure it is up to date
+  - merge the feature branch into `main` (resolve conflicts if any)
+  - push `main`
+  - `git status -sb` must show `main` is synced and the working tree is clean
+- The merge commit (if any) must include the ticket ID in the subject (e.g. `merge(0003): ...`).
+
 ## Sequence: push first, then summarize
 
 - The moment you **think** you're done (implementation complete, audit written, etc.) is when you **commit and push** — not after you've already told the user.
