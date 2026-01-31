@@ -270,6 +270,26 @@ const KANBAN_COLUMN_IDS = [
   'col-done',
   'col-wont-implement',
 ] as const
+
+/** Filter raw DB columns to canonical 7, in order; create fallbacks for missing. Use in connectSupabase and refetchSupabaseTickets. */
+function canonicalizeColumnRows(
+  rows: SupabaseKanbanColumnRow[]
+): SupabaseKanbanColumnRow[] {
+  const canonicalOrder = KANBAN_COLUMN_IDS as unknown as string[]
+  const filtered = rows.filter((c) => canonicalOrder.includes(c.id))
+  return canonicalOrder.map((id, i) => {
+    const row = filtered.find((c) => c.id === id)
+    return (
+      row ?? {
+        id,
+        title: id.replace('col-', '').replace(/-/g, ' '),
+        position: i,
+        created_at: '',
+        updated_at: '',
+      }
+    )
+  }) as SupabaseKanbanColumnRow[]
+}
 const EMPTY_KANBAN_COLUMNS: Column[] = [
   { id: 'col-unassigned', title: 'Unassigned', cardIds: [] },
   { id: 'col-todo', title: 'To-do', cardIds: [] },
@@ -307,12 +327,18 @@ function normalizeTitle(title: string): string {
   return title.trim().toLowerCase()
 }
 
+const HAL_API_BASE = (import.meta.env.VITE_HAL_API_URL as string) || 'http://localhost:5173'
+
 function SortableCard({
   card,
   columnId,
+  onDelete,
+  showDelete = false,
 }: {
   card: Card
   columnId: string
+  onDelete?: (cardId: string) => void
+  showDelete?: boolean
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
@@ -323,6 +349,14 @@ function SortableCard({
     transition,
     opacity: isDragging ? 0.5 : 1,
   }
+  const handleDeleteClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    e.preventDefault()
+    if (onDelete) onDelete(card.id)
+  }
+  const handleDeletePointerDown = (e: React.PointerEvent) => {
+    e.stopPropagation()
+  }
   return (
     <div
       ref={setNodeRef}
@@ -332,7 +366,19 @@ function SortableCard({
       {...attributes}
       {...listeners}
     >
-      {card.title}
+      <span className="ticket-card-title">{card.title}</span>
+      {showDelete && onDelete && (
+        <button
+          type="button"
+          className="ticket-card-delete"
+          onClick={handleDeleteClick}
+          onPointerDown={handleDeletePointerDown}
+          aria-label={`Delete ticket ${card.id}`}
+          title="Delete"
+        >
+          Delete
+        </button>
+      )}
     </div>
   )
 }
@@ -342,11 +388,15 @@ function SortableColumn({
   cards,
   onRemove,
   hideRemove = false,
+  onDeleteTicket,
+  showDelete = false,
 }: {
   col: Column
   cards: Record<string, Card>
   onRemove: (id: string) => void
   hideRemove?: boolean
+  onDeleteTicket?: (cardId: string) => void
+  showDelete?: boolean
 }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
     id: col.id,
@@ -390,7 +440,15 @@ function SortableColumn({
           {col.cardIds.map((cardId) => {
             const card = cards[cardId]
             if (!card) return null
-            return <SortableCard key={card.id} card={card} columnId={col.id} />
+            return (
+              <SortableCard
+                key={card.id}
+                card={card}
+                columnId={col.id}
+                onDelete={onDeleteTicket}
+                showDelete={showDelete}
+              />
+            )
           })}
         </SortableContext>
       </div>
@@ -541,6 +599,7 @@ function App() {
   const [_syncSummary, setSyncSummary] = useState<string | null>(null)
   const [_syncProgressText, setSyncProgressText] = useState<string | null>(null)
   const [supabaseLastSyncError, setSupabaseLastSyncError] = useState<string | null>(null)
+  const [supabaseLastDeleteError, setSupabaseLastDeleteError] = useState<string | null>(null)
 
   // Supabase board: when connected, board is driven by supabaseTickets + supabaseColumnsRows (0020)
   const supabaseBoardActive = supabaseConnectionStatus === 'connected'
@@ -707,15 +766,7 @@ function App() {
         }
       }
 
-      // Only show canonical 7 columns (Unassigned, To-do, Doing, QA, Human in the Loop, Done, Will Not Implement); dedupes DB extras
-      const canonicalOrder = KANBAN_COLUMN_IDS as unknown as string[]
-      const filtered = finalColRows.filter((c) => canonicalOrder.includes(c.id))
-      finalColRows = canonicalOrder.map((id, i) => {
-        const row = filtered.find((c) => c.id === id)
-        return row ?? { id, title: id.replace('col-', '').replace(/-/g, ' '), position: i, created_at: '', updated_at: '' }
-      }) as SupabaseKanbanColumnRow[]
-
-      setSupabaseColumnsRows(finalColRows)
+      setSupabaseColumnsRows(canonicalizeColumnRows(finalColRows))
       setSupabaseColumnsLastRefresh(new Date())
       setSupabaseLastRefresh(new Date())
       setSupabaseConnectionStatus('connected')
@@ -971,7 +1022,7 @@ function App() {
       if (colError) {
         setSupabaseColumnsLastError(colError.message ?? String(colError))
       } else {
-        setSupabaseColumnsRows((colRows ?? []) as SupabaseKanbanColumnRow[])
+        setSupabaseColumnsRows(canonicalizeColumnRows((colRows ?? []) as SupabaseKanbanColumnRow[]))
         setSupabaseColumnsLastRefresh(new Date())
         setSupabaseColumnsLastError(null)
       }
@@ -1010,6 +1061,53 @@ function App() {
       }
     },
     [supabaseProjectUrl, supabaseAnonKey]
+  )
+
+  const addLog = useCallback((message: string) => {
+    const at = formatTime()
+    const id = Date.now()
+    setActionLog((prev) => [...prev.slice(-19), { id, message, at }])
+  }, [])
+
+  /** Delete a ticket from Supabase and run sync to remove local file (0030). */
+  const handleDeleteTicket = useCallback(
+    async (ticketId: string) => {
+      const url = supabaseProjectUrl.trim()
+      const key = supabaseAnonKey.trim()
+      if (!url || !key) {
+        setSupabaseLastDeleteError('Supabase not configured. Connect first.')
+        return
+      }
+      const card = supabaseCards[ticketId]
+      const label = card ? `"${card.title}" (${ticketId})` : ticketId
+      if (!window.confirm(`Delete ticket ${label}? This cannot be undone.`)) return
+
+      setSupabaseLastDeleteError(null)
+      try {
+        const res = await fetch(`${HAL_API_BASE}/api/tickets/delete`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ticketId, supabaseUrl: url, supabaseAnonKey: key }),
+        })
+        const data = (await res.json()) as { success?: boolean; error?: string }
+        if (data.success) {
+          await refetchSupabaseTickets()
+          addLog(`Deleted ticket ${ticketId}`)
+          if (typeof window !== 'undefined' && window.parent !== window) {
+            window.parent.postMessage({ type: 'HAL_SYNC_COMPLETED' }, '*')
+          }
+        } else {
+          const err = data.error ?? `HTTP ${res.status}`
+          setSupabaseLastDeleteError(err)
+          addLog(`Delete failed: ${err}`)
+        }
+      } catch (e) {
+        const err = e instanceof Error ? e.message : String(e)
+        setSupabaseLastDeleteError(err)
+        addLog(`Delete failed: ${err}`)
+      }
+    },
+    [supabaseProjectUrl, supabaseAnonKey, supabaseCards, refetchSupabaseTickets, addLog]
   )
 
   // Polling when Supabase board is active (0013)
@@ -1225,12 +1323,6 @@ function App() {
     },
     []
   )
-
-  const addLog = useCallback((message: string) => {
-    const at = formatTime()
-    const id = Date.now()
-    setActionLog((prev) => [...prev.slice(-19), { id, message, at }])
-  }, [])
 
   const toggleDebug = useCallback(() => {
     const next = !debugOpen
@@ -1860,6 +1952,12 @@ function App() {
         </div>
       )}
 
+      {supabaseLastDeleteError && (
+        <div className="config-missing-error" role="alert">
+          Delete failed: {supabaseLastDeleteError}
+        </div>
+      )}
+
       {newHalWizardOpen && (
         <div className="modal-backdrop" role="dialog" aria-label="New HAL project wizard">
           <div className="modal">
@@ -2079,6 +2177,8 @@ function App() {
                   cards={cardsForDisplay}
                   onRemove={handleRemoveColumn}
                   hideRemove={ticketStoreConnected || supabaseBoardActive}
+                  onDeleteTicket={handleDeleteTicket}
+                  showDelete={supabaseBoardActive}
                 />
               ))}
             </div>
@@ -2148,6 +2248,7 @@ function App() {
               <p>Last poll time: {supabaseLastRefresh ? supabaseLastRefresh.toISOString() : 'never'}</p>
               <p>Last poll error: {supabaseLastError ?? 'none'}</p>
               <p>Last sync error: {supabaseLastSyncError ?? 'none'}</p>
+              <p>Last delete error: {supabaseLastDeleteError ?? 'none'}</p>
               {supabaseBoardActive && (
                 <>
                   <p>Columns source: Supabase</p>

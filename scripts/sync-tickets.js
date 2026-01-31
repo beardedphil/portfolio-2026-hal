@@ -6,6 +6,7 @@
  * Optional: HAL_PROJECT_ID (project id for PM conversation; defaults to repo folder name to match "Connect Project Folder"); HAL_CHECK_UNASSIGNED_URL (default http://localhost:5173/api/pm/check-unassigned).
  * - Docs → DB: upsert each doc ticket (create or update by id).
  * - DB → Docs: write docs/tickets/{filename} for each DB row not in docs.
+ * - DB → Docs (deletions): remove local files for ticket IDs in docs but no longer in Supabase (0030).
  * - Then: set kanban_column_id = 'col-unassigned' for tickets with null.
  * - After sync: POST to HAL check-unassigned so PM chat gets the result (ignored if HAL dev server not running).
  */
@@ -156,6 +157,19 @@ async function main() {
     console.log('Wrote docs/tickets/' + row.filename)
   }
 
+  // Delete local files for ticket IDs in docs but no longer in Supabase (0030)
+  const existingIds = new Set(existing.map((r) => r.id))
+  let deletedFromDocs = 0
+  for (const d of docTickets) {
+    if (existingIds.has(d.id)) continue
+    const filePath = path.join(ticketsDir, d.filename)
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath)
+      deletedFromDocs++
+      console.log('Removed docs/tickets/' + d.filename)
+    }
+  }
+
   const { data: afterRows, error: refetchError } = await client
     .from('tickets')
     .select('id, kanban_column_id, kanban_position')
@@ -202,7 +216,8 @@ async function main() {
     skipped,
     'skipped. DB→Docs:',
     writtenToDocs,
-    'written.'
+    'written.',
+    deletedFromDocs > 0 ? ` Deleted: ${deletedFromDocs}.` : ''
   )
 
   // Trigger HAL Unassigned check so PM chat gets the result (e.g. when sync runs from CLI)

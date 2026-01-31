@@ -350,6 +350,114 @@ export default defineConfig({
       },
     },
     {
+      name: 'tickets-delete-endpoint',
+      configureServer(server) {
+        server.middlewares.use(async (req, res, next) => {
+          if (req.url !== '/api/tickets/delete' || (req.method !== 'POST' && req.method !== 'OPTIONS')) {
+            next()
+            return
+          }
+
+          // CORS for kanban iframe (port 5174) calling HAL (port 5173)
+          res.setHeader('Access-Control-Allow-Origin', '*')
+          res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+          res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+          if (req.method === 'OPTIONS') {
+            res.statusCode = 204
+            res.end()
+            return
+          }
+
+          try {
+            const body = (await readJsonBody(req)) as {
+              ticketId?: string
+              supabaseUrl?: string
+              supabaseAnonKey?: string
+              projectRoot?: string
+            }
+            const ticketId = typeof body.ticketId === 'string' ? body.ticketId.trim() || undefined : undefined
+            const supabaseUrl = typeof body.supabaseUrl === 'string' ? body.supabaseUrl.trim() || undefined : undefined
+            const supabaseAnonKey = typeof body.supabaseAnonKey === 'string' ? body.supabaseAnonKey.trim() || undefined : undefined
+            const projectRoot = typeof body.projectRoot === 'string' ? body.projectRoot.trim() || undefined : undefined
+
+            if (!ticketId || !supabaseUrl || !supabaseAnonKey) {
+              res.statusCode = 400
+              res.setHeader('Content-Type', 'application/json')
+              res.end(
+                JSON.stringify({
+                  success: false,
+                  error: 'ticketId, supabaseUrl, and supabaseAnonKey are required.',
+                })
+              )
+              return
+            }
+
+            const repoRoot = path.resolve(__dirname)
+            const { createClient } = await import('@supabase/supabase-js')
+            const supabase = createClient(supabaseUrl, supabaseAnonKey)
+
+            const { error: deleteError } = await supabase.from('tickets').delete().eq('id', ticketId)
+            if (deleteError) {
+              res.statusCode = 200
+              res.setHeader('Content-Type', 'application/json')
+              res.end(
+                JSON.stringify({
+                  success: false,
+                  error: `Supabase delete failed: ${deleteError.message}`,
+                })
+              )
+              return
+            }
+
+            const syncScriptPath = path.resolve(repoRoot, 'scripts', 'sync-tickets.js')
+            const syncEnv = {
+              ...process.env,
+              SUPABASE_URL: supabaseUrl,
+              SUPABASE_ANON_KEY: supabaseAnonKey,
+              ...(projectRoot ? { PROJECT_ROOT: projectRoot } : {}),
+            }
+            const syncResult = await new Promise<{ success: boolean; stderr?: string }>((resolve) => {
+              const child = spawn('node', [syncScriptPath], {
+                cwd: repoRoot,
+                env: syncEnv,
+                stdio: ['ignore', 'pipe', 'pipe'],
+              })
+              let stderr = ''
+              child.stderr?.on('data', (d) => {
+                stderr += String(d)
+              })
+              child.on('close', (code) => resolve({ success: code === 0, stderr: stderr || undefined }))
+            })
+
+            if (!syncResult.success) {
+              res.statusCode = 200
+              res.setHeader('Content-Type', 'application/json')
+              res.end(
+                JSON.stringify({
+                  success: false,
+                  error: `Sync failed: ${syncResult.stderr?.trim().slice(0, 500) ?? 'unknown'}`,
+                })
+              )
+              return
+            }
+
+            res.statusCode = 200
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ success: true }))
+          } catch (err) {
+            res.statusCode = 500
+            res.setHeader('Content-Type', 'application/json')
+            res.end(
+              JSON.stringify({
+                success: false,
+                error: err instanceof Error ? err.message : String(err),
+              })
+            )
+          }
+        })
+      },
+    },
+    {
       name: 'pm-check-unassigned-endpoint',
       configureServer(server) {
         server.middlewares.use(async (req, res, next) => {
