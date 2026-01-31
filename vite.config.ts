@@ -1,4 +1,5 @@
 import path from 'path'
+import fs from 'fs'
 import { pathToFileURL } from 'url'
 import { spawn } from 'child_process'
 import { defineConfig } from 'vite'
@@ -396,6 +397,25 @@ export default defineConfig({
             const { createClient } = await import('@supabase/supabase-js')
             const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
+            // Fetch filename before delete so we can remove the file if sync fails
+            const { data: ticketRow, error: fetchErr } = await supabase
+              .from('tickets')
+              .select('filename')
+              .eq('id', ticketId)
+              .single()
+            if (fetchErr || !ticketRow?.filename) {
+              res.statusCode = 200
+              res.setHeader('Content-Type', 'application/json')
+              res.end(
+                JSON.stringify({
+                  success: false,
+                  error: `Ticket not found: ${fetchErr?.message ?? 'no row'}`,
+                })
+              )
+              return
+            }
+            const filename = ticketRow.filename
+
             const { error: deleteError } = await supabase.from('tickets').delete().eq('id', ticketId)
             if (deleteError) {
               res.statusCode = 200
@@ -429,16 +449,17 @@ export default defineConfig({
               child.on('close', (code) => resolve({ success: code === 0, stderr: stderr || undefined }))
             })
 
+            // If sync failed, remove the file directly so it cannot repopulate from docs on next sync
             if (!syncResult.success) {
-              res.statusCode = 200
-              res.setHeader('Content-Type', 'application/json')
-              res.end(
-                JSON.stringify({
-                  success: false,
-                  error: `Sync failed: ${syncResult.stderr?.trim().slice(0, 500) ?? 'unknown'}`,
-                })
-              )
-              return
+              const rootForDocs = projectRoot ? path.resolve(projectRoot) : repoRoot
+              const filePath = path.join(rootForDocs, 'docs', 'tickets', filename)
+              if (fs.existsSync(filePath)) {
+                try {
+                  fs.unlinkSync(filePath)
+                } catch (_unlinkErr) {
+                  // Still return success so client updates; ticket is already gone from DB
+                }
+              }
             }
 
             res.statusCode = 200

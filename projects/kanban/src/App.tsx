@@ -1091,6 +1091,8 @@ function App() {
         })
         const data = (await res.json()) as { success?: boolean; error?: string }
         if (data.success) {
+          // Optimistically remove from state so the board updates immediately
+          setSupabaseTickets((prev) => prev.filter((t) => t.id !== ticketId))
           await refetchSupabaseTickets()
           addLog(`Deleted ticket ${ticketId}`)
           if (typeof window !== 'undefined' && window.parent !== window) {
