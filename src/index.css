@@ -309,10 +309,131 @@ body {
   margin: 0;
 }
 
-/* Typing/thinking indicator */
+/* Message rows: alignment for user (right) vs assistant (left) */
+.message-row {
+  display: flex;
+  margin-bottom: 0.75rem;
+}
+
+.message-row-user {
+  justify-content: flex-end;
+}
+
+.message-row-project-manager,
+.message-row-implementation-agent,
+.message-row-typing {
+  justify-content: flex-start;
+}
+
+.message-row-system {
+  justify-content: center;
+}
+
+/* Message bubble (inner container) */
+.message {
+  max-width: 90%;
+  padding: 0.5rem 0.75rem;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  background: var(--hal-surface);
+  border: 1px solid var(--hal-border);
+}
+
+.message-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.message-author {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--hal-text);
+}
+
+.message-time {
+  font-size: 0.7rem;
+  color: var(--hal-text-muted);
+  font-family: ui-monospace, monospace;
+}
+
+.message-content {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.message-json {
+  margin: 0;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+  overflow-x: auto;
+  white-space: pre;
+  background: var(--hal-surface-alt);
+  padding: 0.5rem;
+  border-radius: 4px;
+  border: 1px solid var(--hal-border-muted);
+}
+
+/* User: right-aligned, accent bubble */
+.message-user {
+  background: linear-gradient(135deg, #7c5ee8 0%, #6b4ce6 100%);
+  border-color: var(--hal-primary);
+  color: #fff;
+}
+
+.message-user .message-author {
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.message-user .message-time {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.message-user .message-content {
+  color: #fff;
+}
+
+.message-user .message-json {
+  background: rgba(0, 0, 0, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #fff;
+}
+
+/* Assistant: left-aligned, neutral bubble */
+.message-project-manager,
+.message-implementation-agent {
+  background: var(--hal-surface);
+  border-color: var(--hal-border);
+}
+
+.message-project-manager .message-author,
+.message-implementation-agent .message-author {
+  color: var(--hal-primary);
+}
+
+/* System: centered, muted */
+.message-system {
+  background: var(--hal-surface-alt);
+  border-color: var(--hal-border);
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--hal-text-muted);
+}
+
+.message-system .message-header {
+  justify-content: center;
+}
+
+/* Typing indicator: matches assistant (left-aligned) */
 .message-typing {
-  background: var(--hal-typing-bg) !important;
-  border-color: var(--hal-typing-border) !important;
+  background: var(--hal-surface) !important;
+  border-color: var(--hal-border) !important;
+}
+
+.message-typing .message-author {
+  color: var(--hal-primary);
 }
 
 .typing-bubble {
@@ -347,58 +468,6 @@ body {
 @keyframes typing-bounce {
   0%, 60%, 100% { transform: translateY(0); opacity: 0.6; }
   30% { transform: translateY(-4px); opacity: 1; }
-}
-
-.message {
-  margin-bottom: 0.75rem;
-  padding: 0.5rem 0.75rem;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  background: var(--hal-surface);
-  border: 1px solid var(--hal-border);
-}
-
-.message-time {
-  font-size: 0.75rem;
-  color: var(--hal-text-muted);
-  margin-right: 0.5rem;
-  font-family: ui-monospace, monospace;
-}
-
-.message-content {
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.message-json {
-  margin: 0;
-  font-family: ui-monospace, monospace;
-  font-size: 0.85rem;
-  overflow-x: auto;
-  white-space: pre;
-}
-
-.message-user {
-  background: var(--hal-typing-bg);
-  border-color: var(--hal-accent);
-}
-
-.message-system {
-  background: var(--hal-surface-alt);
-  border-color: var(--hal-border);
-  text-align: center;
-  font-size: 0.85rem;
-  color: var(--hal-text-muted);
-}
-
-.message-project-manager {
-  background: var(--hal-typing-bg);
-  border-color: var(--hal-typing-border);
-}
-
-.message-implementation-agent {
-  background: var(--hal-typing-bg);
-  border-color: var(--hal-accent);
 }
 
 /* Chat composer */
@@ -618,5 +687,9 @@ body {
 
   .chat-transcript {
     max-height: 30vh;
+  }
+
+  .message {
+    max-width: 95%;
   }
 }

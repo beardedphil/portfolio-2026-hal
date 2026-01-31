@@ -135,6 +135,12 @@ function formatTime(date: Date): string {
   return date.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
+function getMessageAuthorLabel(agent: Message['agent']): string {
+  if (agent === 'user') return 'You'
+  if (agent === 'project-manager' || agent === 'implementation-agent') return 'HAL'
+  return 'System'
+}
+
 function App() {
   const [selectedChatTarget, setSelectedChatTarget] = useState<ChatTarget>('project-manager')
   const [conversations, setConversations] = useState<Record<ChatTarget, Message[]>>(getEmptyConversations)
@@ -772,27 +778,37 @@ function App() {
                     {activeMessages.map((msg) => (
                       <div
                         key={msg.id}
-                        className={`message message-${msg.agent}`}
+                        className={`message-row message-row-${msg.agent}`}
                         data-agent={msg.agent}
                       >
-                        <span className="message-time">[{formatTime(msg.timestamp)}]</span>
-                        {msg.content.trimStart().startsWith('{') ? (
-                          <pre className="message-content message-json">{msg.content}</pre>
-                        ) : (
-                          <span className="message-content">{msg.content}</span>
-                        )}
+                        <div className={`message message-${msg.agent}`}>
+                          <div className="message-header">
+                            <span className="message-author">{getMessageAuthorLabel(msg.agent)}</span>
+                            <span className="message-time">[{formatTime(msg.timestamp)}]</span>
+                          </div>
+                          {msg.content.trimStart().startsWith('{') ? (
+                            <pre className="message-content message-json">{msg.content}</pre>
+                          ) : (
+                            <span className="message-content">{msg.content}</span>
+                          )}
+                        </div>
                       </div>
                     ))}
                     {agentTypingTarget === selectedChatTarget && (
-                      <div className="message message-typing" data-agent="typing" aria-live="polite">
-                        <span className="typing-bubble">
-                          <span className="typing-label">Thinking</span>
-                          <span className="typing-dots">
-                            <span className="typing-dot" />
-                            <span className="typing-dot" />
-                            <span className="typing-dot" />
+                      <div className="message-row message-row-typing" data-agent="typing" aria-live="polite">
+                        <div className="message message-typing">
+                          <div className="message-header">
+                            <span className="message-author">HAL</span>
+                          </div>
+                          <span className="typing-bubble">
+                            <span className="typing-label">Thinking</span>
+                            <span className="typing-dots">
+                              <span className="typing-dot" />
+                              <span className="typing-dot" />
+                              <span className="typing-dot" />
+                            </span>
                           </span>
-                        </span>
+                        </div>
                       </div>
                     )}
                   </>
