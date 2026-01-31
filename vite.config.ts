@@ -48,6 +48,8 @@ interface PmAgentResponse {
     syncSuccess: boolean
     syncError?: string
   }
+  /** True when Supabase creds were sent so create_ticket was available (for Diagnostics). */
+  createTicketAvailable?: boolean
 }
 
 export default defineConfig({
@@ -121,9 +123,13 @@ export default defineConfig({
             const message = body.message ?? ''
             let conversationHistory = Array.isArray(body.conversationHistory) ? body.conversationHistory : undefined
             const previousResponseId = typeof body.previous_response_id === 'string' ? body.previous_response_id : undefined
-            const projectId = typeof body.projectId === 'string' ? body.projectId : undefined
-            const supabaseUrl = typeof body.supabaseUrl === 'string' ? body.supabaseUrl : undefined
-            const supabaseAnonKey = typeof body.supabaseAnonKey === 'string' ? body.supabaseAnonKey : undefined
+            const projectId = typeof body.projectId === 'string' ? body.projectId.trim() || undefined : undefined
+            const supabaseUrl = typeof body.supabaseUrl === 'string' ? body.supabaseUrl.trim() || undefined : undefined
+            const supabaseAnonKey = typeof body.supabaseAnonKey === 'string' ? body.supabaseAnonKey.trim() || undefined : undefined
+
+            if (projectId && (!supabaseUrl || !supabaseAnonKey)) {
+              console.warn('[HAL PM] projectId received but Supabase creds missing or empty — create_ticket will not be available')
+            }
 
             if (!message.trim()) {
               res.statusCode = 400
@@ -243,6 +249,12 @@ export default defineConfig({
 
             // Call the real PM agent (pass Supabase so create_ticket tool is available when project connected)
             const repoRoot = path.resolve(__dirname)
+            const createTicketAvailable = !!(supabaseUrl && supabaseAnonKey)
+            if (createTicketAvailable) {
+              console.log('[HAL PM] create_ticket available for this request (Supabase creds provided)')
+            } else {
+              console.log('[HAL PM] create_ticket NOT available (no Supabase creds; connect project with .env)')
+            }
             const result = (await pmAgentModule.runPmAgent(message, {
               repoRoot,
               openaiApiKey: key,
@@ -250,7 +262,7 @@ export default defineConfig({
               conversationHistory,
               conversationContextPack,
               previousResponseId,
-              ...(supabaseUrl && supabaseAnonKey ? { supabaseUrl, supabaseAnonKey } : {}),
+              ...(createTicketAvailable ? { supabaseUrl: supabaseUrl!, supabaseAnonKey: supabaseAnonKey! } : {}),
             })) as PmAgentResponse & { toolCalls: Array<{ name: string; input: unknown; output: unknown }> }
 
             // If create_ticket succeeded, run sync-tickets so the new row is written to docs/tickets/ (0011)
@@ -295,6 +307,7 @@ export default defineConfig({
               ...(result.error != null && { error: result.error }),
               ...(result.errorPhase != null && { errorPhase: result.errorPhase }),
               ...(ticketCreationResult != null && { ticketCreationResult }),
+              createTicketAvailable,
             }
 
             res.statusCode = 200

@@ -1,0 +1,11 @@
+---
+description: Agents run terminal commands themselves; do not ask the user to run them
+alwaysApply: true
+---
+
+# Agent Runs Terminal Commands
+
+- When a task requires running a terminal command (e.g. `npm run dev`, `npm run build`, `npm run sync-tickets`, restarting a dev server, `git status`, `git add`, `git commit`, `git push`), the **agent must run the command itself** when it has the ability to do so.
+- **Do not ask the user** to run terminal commands that the agent can run (e.g. "Please run `npm run dev`", "Restart the HAL dev server", "Run `npm run sync-tickets` from the repo root").
+- Only suggest the user run a command when the action truly requires user context (e.g. picking a folder, approving a destructive operation, or when the agent environment cannot execute the command).
+- When instructing verification or follow-up, prefer steps the agent can perform (run the command, then report the result) over steps that delegate to the user.

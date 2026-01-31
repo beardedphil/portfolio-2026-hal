@@ -122,9 +122,11 @@ const PM_SYSTEM_INSTRUCTIONS = `You are the Project Manager agent for HAL. Your 
 
 You have access to read-only tools to explore the repository. Use them to answer questions about code, tickets, and project state.
 
-When the user asks to create a ticket (e.g. "create ticket", "create a ticket from this", or clicks a create-ticket action), use the create_ticket tool with a short title and a full markdown body that follows the repo ticket template: ID, Title, Owner, Type, Priority, Linkage, Goal, Human-verifiable deliverable, Acceptance criteria, Constraints, Non-goals, Implementation notes, Audit artifacts. Do not invent an ID—the tool assigns the next ID. Do not write secrets or API keys into the ticket body.
+**Conversation context:** When "Conversation so far" is present, the "User message" is the user's latest reply in that conversation. Short replies (e.g. "Entirely, in all states", "Yes", "The first one", "inside the embedded kanban UI") are almost always answers to the question you (the assistant) just asked—interpret them in that context. Do not treat short user replies as a new top-level request about repo rules, process, or "all states" enforcement unless the conversation clearly indicates otherwise.
 
-Always cite file paths when referencing specific content. After creating a ticket, report the exact ticket ID and file path (e.g. docs/tickets/NNNN-title-slug.md) that was created.`
+**Creating tickets:** When the user asks to create a ticket (e.g. "create a ticket", "create ticket for that", "create a new ticket"), you MUST call the create_ticket tool if it is available. Calling the tool is what actually creates the ticket in the Kanban board—do not only write the ticket content in your message. Use create_ticket with a short title and a full markdown body following the repo ticket template (ID, Title, Owner, Type, Priority, Linkage, Goal, Human-verifiable deliverable, Acceptance criteria, Constraints, Non-goals, Implementation notes, Audit artifacts). Do not invent an ID—the tool assigns the next ID. Do not write secrets or API keys into the ticket body. If create_ticket is not in your tool list, tell the user: "I don't have the create-ticket tool for this request. In the HAL app, connect the project folder (with VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in its .env), then try again. Check Diagnostics to confirm 'Create ticket (this request): Available'."
+
+Always cite file paths when referencing specific content. After creating a ticket via the tool, report the exact ticket ID and file path (e.g. docs/tickets/NNNN-title-slug.md) that was created.`
 
 const MAX_TOOL_ITERATIONS = 10
 /** Cap on character count for "recent conversation" so long technical messages don't dominate. (~3k tokens) */
@@ -154,8 +156,10 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
   const sections: string[] = []
 
   // Conversation so far: pre-built context pack (e.g. summary + recent from DB) or bounded history
+  let hasConversation = false
   if (config.conversationContextPack && config.conversationContextPack.trim() !== '') {
     sections.push('## Conversation so far\n\n' + config.conversationContextPack.trim())
+    hasConversation = true
   } else {
     const history = config.conversationHistory
     if (history && history.length > 0) {
@@ -166,10 +170,15 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
           : '\n\n'
       const lines = recent.map((t) => `**${t.role}**: ${t.content}`)
       sections.push('## Conversation so far' + truncNote + lines.join('\n\n'))
+      hasConversation = true
     }
   }
 
-  sections.push('## User message\n\n' + userMessage)
+  if (hasConversation) {
+    sections.push('## User message (latest reply in the conversation above)\n\n' + userMessage)
+  } else {
+    sections.push('## User message\n\n' + userMessage)
+  }
 
   sections.push('## Repo rules (from .cursor/rules/)')
   try {
@@ -285,10 +294,11 @@ export async function runPmAgent(
               const filename = `${id}-${slug}.md`
               const filePath = `docs/tickets/${filename}`
               const now = new Date().toISOString()
+              const titleWithId = `${id} - ${input.title.trim()}`
               const { error: insertError } = await supabase.from('tickets').insert({
                 id,
                 filename,
-                title: input.title.trim(),
+                title: titleWithId,
                 body_md: input.body_md.trim(),
                 kanban_column_id: 'col-unassigned',
                 kanban_position: 0,
@@ -372,7 +382,21 @@ export async function runPmAgent(
       ...(providerOptions && { providerOptions }),
     })
 
-    const reply = result.text ?? ''
+    let reply = result.text ?? ''
+    // If the model returned no text but create_ticket succeeded, provide a fallback so the user sees a clear outcome (0011/0020)
+    if (!reply.trim()) {
+      const createTicketCall = toolCalls.find(
+        (c) =>
+          c.name === 'create_ticket' &&
+          typeof c.output === 'object' &&
+          c.output !== null &&
+          (c.output as { success?: boolean }).success === true
+      )
+      if (createTicketCall) {
+        const out = createTicketCall.output as { id: string; filename: string; filePath: string }
+        reply = `I created ticket **${out.id}** at \`${out.filePath}\`. It should appear in the Kanban board under Unassigned (sync may run automatically).`
+      }
+    }
     const outboundRequest = capturedRequest
       ? (redact(capturedRequest) as object)
       : {}

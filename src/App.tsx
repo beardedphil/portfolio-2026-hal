@@ -34,6 +34,8 @@ type PmAgentResponse = {
   errorPhase?: 'context-pack' | 'openai' | 'tool' | 'not-implemented'
   /** When create_ticket succeeded: id, file path, sync status (0011). */
   ticketCreationResult?: TicketCreationResult
+  /** True when create_ticket was available for this request (Supabase creds sent). */
+  createTicketAvailable?: boolean
 }
 
 type DiagnosticsInfo = {
@@ -50,6 +52,7 @@ type DiagnosticsInfo = {
   lastPmOutboundRequest: object | null
   lastPmToolCalls: ToolCallRecord[] | null
   lastTicketCreationResult: TicketCreationResult | null
+  lastCreateTicketAvailable: boolean | null
   persistenceError: string | null
   pmLastResponseId: string | null
   previousResponseIdInLastRequest: boolean
@@ -145,6 +148,7 @@ function App() {
   const [lastPmOutboundRequest, setLastPmOutboundRequest] = useState<object | null>(null)
   const [lastPmToolCalls, setLastPmToolCalls] = useState<ToolCallRecord[] | null>(null)
   const [lastTicketCreationResult, setLastTicketCreationResult] = useState<TicketCreationResult | null>(null)
+  const [lastCreateTicketAvailable, setLastCreateTicketAvailable] = useState<boolean | null>(null)
   const [pmLastResponseId, setPmLastResponseId] = useState<string | null>(null)
   const [supabaseUrl, setSupabaseUrl] = useState<string | null>(null)
   const [supabaseAnonKey, setSupabaseAnonKey] = useState<string | null>(null)
@@ -200,7 +204,15 @@ function App() {
       setLastPmToolCalls(null)
       ;(async () => {
         try {
-          let body: { message: string; conversationHistory?: Array<{ role: string; content: string }>; previous_response_id?: string; projectId?: string; supabaseUrl?: string; supabaseAnonKey?: string }
+          let body: { message: string; conversationHistory?: Array<{ role: string; content: string }>; previous_response_id?: string; projectId?: string; supabaseUrl?: string; supabaseAnonKey?: string } = { message: content }
+          if (pmLastResponseId) body.previous_response_id = pmLastResponseId
+          if (connectedProject) body.projectId = connectedProject
+          // Always send Supabase creds when we have them so create_ticket is available (0011)
+          if (supabaseUrl && supabaseAnonKey) {
+            body.supabaseUrl = supabaseUrl
+            body.supabaseAnonKey = supabaseAnonKey
+          }
+
           if (useDb && supabaseUrl && supabaseAnonKey && connectedProject) {
             const nextSeq = pmMaxSequenceRef.current + 1
             const supabase = createClient(supabaseUrl, supabaseAnonKey)
@@ -218,8 +230,6 @@ function App() {
               pmMaxSequenceRef.current = nextSeq
               addMessage('project-manager', 'user', content, nextSeq)
             }
-            body = { message: content, projectId: connectedProject, supabaseUrl, supabaseAnonKey }
-            if (pmLastResponseId) body.previous_response_id = pmLastResponseId
           } else {
             const pmMessages = conversations['project-manager'] ?? []
             const turns = pmMessages.map((msg) => ({
@@ -235,9 +245,7 @@ function App() {
               recentTurns.unshift(t)
               recentLen += lineLen
             }
-            const conversationHistory = recentTurns
-            body = { message: content, conversationHistory }
-            if (pmLastResponseId) body.previous_response_id = pmLastResponseId
+            body.conversationHistory = recentTurns
           }
 
           const res = await fetch('/api/pm/respond', {
@@ -262,6 +270,7 @@ function App() {
           setLastPmOutboundRequest(data.outboundRequest)
           setLastPmToolCalls(data.toolCalls?.length ? data.toolCalls : null)
           setLastTicketCreationResult(data.ticketCreationResult ?? null)
+          setLastCreateTicketAvailable(data.createTicketAvailable ?? null)
 
           if (!res.ok || data.error) {
             const errMsg = data.error ?? `HTTP ${res.status}`
@@ -277,7 +286,20 @@ function App() {
           setLastAgentError(null)
           if (data.responseId != null) setPmLastResponseId(data.responseId)
 
-          const reply = data.reply || '[PM] (No response)'
+          // When reply is empty but a ticket was just created, show ticket creation summary (0011)
+          let reply = data.reply || ''
+          if (!reply.trim() && data.ticketCreationResult) {
+            const t = data.ticketCreationResult
+            reply = t.syncSuccess
+              ? `Created ticket **${t.id}** at \`${t.filePath}\`. It should appear in Unassigned.`
+              : `Created ticket **${t.id}** at \`${t.filePath}\`. Sync to repo failed: ${t.syncError ?? 'unknown'}. You can run \`npm run sync-tickets\` from the repo root.`
+          }
+          if (!reply.trim()) {
+            reply =
+              data.createTicketAvailable === false
+                ? '[PM] (No response). Create ticket was not available for this request—ensure the project is connected and .env has VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY, then try again.'
+                : '[PM] (No response). Open Diagnostics to see whether create_ticket was available and any tool calls.'
+          }
           if (useDb && supabaseUrl && supabaseAnonKey && connectedProject) {
             const nextSeq = pmMaxSequenceRef.current + 1
             const supabase = createClient(supabaseUrl, supabaseAnonKey)
@@ -376,9 +398,14 @@ function App() {
         setConnectError('Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY in .env file.')
         return
       }
-      
-      const url = urlMatch[1].trim()
-      const key = keyMatch[1].trim()
+      // Strip optional surrounding single/double quotes (common in .env files)
+      const stripQuotes = (s: string) => s.trim().replace(/^["']|["']$/g, '')
+      const url = stripQuotes(urlMatch[1])
+      const key = stripQuotes(keyMatch[1])
+      if (!url || !key) {
+        setConnectError('VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY must not be empty.')
+        return
+      }
       
       // Send credentials to kanban iframe via postMessage
       if (kanbanIframeRef.current?.contentWindow) {
@@ -463,6 +490,7 @@ function App() {
     setConnectedProject(null)
     setPmLastResponseId(null)
     setLastTicketCreationResult(null)
+    setLastCreateTicketAvailable(null)
     setSupabaseUrl(null)
     setSupabaseAnonKey(null)
   }, [])
@@ -487,6 +515,7 @@ function App() {
     lastPmOutboundRequest,
     lastPmToolCalls,
     lastTicketCreationResult,
+    lastCreateTicketAvailable,
     persistenceError,
     pmLastResponseId,
     previousResponseIdInLastRequest,
@@ -783,6 +812,20 @@ function App() {
                         )}
                       </div>
                     )}
+                  </div>
+                )}
+
+                {/* PM Diagnostics: Create ticket availability (0011) */}
+                {selectedChatTarget === 'project-manager' && diagnostics.lastCreateTicketAvailable != null && (
+                  <div className="diag-section">
+                    <div className="diag-section-header">Create ticket (this request)</div>
+                    <div className="diag-section-content">
+                      {diagnostics.lastCreateTicketAvailable ? (
+                        <span className="diag-sync-ok">Available (Supabase creds were sent)</span>
+                      ) : (
+                        <span className="diag-sync-error">Not available — connect project folder with .env (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY)</span>
+                      )}
+                    </div>
                   </div>
                 )}
 
