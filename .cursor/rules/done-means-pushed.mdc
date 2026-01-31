@@ -15,29 +15,27 @@ alwaysApply: true
   - the feature branch is **pushed** to remote, and
   - `git status -sb` shows the branch is **synced** and the working tree is **clean**.
 
-## Merge to main (for now)
+## Do not merge to main (implementation agent)
 
-- For now, when an agent believes a ticket is ready, they must **merge their feature branch into `main`** and push `main` before claiming “ready/done.”
+- When an agent believes a ticket is ready, they must **commit and push their feature branch to GitHub** — and **must not merge to `main`**. QA (or the user) will check out the branch, verify, and merge to main after verification. The implementation agent must add the branch name to the ticket (see ticket template), then may claim “ready/done.”
 - Sequence:
-  - verify feature branch is clean and pushed
-  - checkout `main` and ensure it is up to date
-  - merge the feature branch into `main` (resolve conflicts if any)
-  - push `main`
-  - `git status -sb` must show `main` is synced and the working tree is clean
-- The merge commit (if any) must include the ticket ID in the subject (e.g. `merge(0003): ...`).
+  - verify feature branch is clean and pushed to remote
+  - **add the branch name to the ticket** (see ticket template: Ready for verification → Branch)
+  - then send the completion/summary message including the branch name and `git status -sb`
+- The implementation agent **must** add the branch name to the ticket so QA (or the user) knows which branch to check out.
 
 ## Sequence: push first, then summarize
 
 - The moment you **think** you're done (implementation complete, audit written, etc.) is when you **commit and push** — not after you've already told the user.
-- **First:** commit all relevant changes, **merge to `main`**, and push.
-- **Then:** tell the user what was done (summary, verification, audit location). Do not give the long "here's what I did" report until after merge + push.
-- If you summarize first and then commit/push (or forget to push), you did it in the wrong order.
+- **First:** commit all relevant changes, **push the feature branch** to GitHub (do not merge to `main`), and **add the branch name to the ticket**.
+- **Then:** tell the user what was done (summary, verification, audit location, **branch name**). Do not give the long "here's what I did" report until after push + ticket update.
+- If you summarize first and then commit/push (or forget to add the branch to the ticket), you did it in the wrong order.
 
 ## Before you reply: the gate
 
 - **If you are about to send a message** that summarizes completed work, or that includes any of: "done", "complete", "ready", "looks good", "here's what I did", "Implementation complete", "Summary:", or similar — **STOP**.
-- **First** run: `git status -sb`. If there are any `M` (modified) or `??` (untracked) relevant to the task: run `git add`, `git commit -m '...'` (with ticket ID in subject), and `git push`. Then run `git status -sb` again.
-- **Only after** the working tree is clean and pushed may you send that message — and your message **must** start with the exact `git status -sb` output.
+- **First** run: `git status -sb`. If there are any `M` (modified) or `??` (untracked) relevant to the task: run `git add`, `git commit -m '...'` (with ticket ID in subject), and `git push` (feature branch only; do not merge to main). **Add the branch name to the ticket** (Ready for verification → Branch). Then run `git status -sb` again.
+- **Only after** the working tree is clean, the feature branch is pushed, and the **branch name is added to the ticket** may you send that message — and your message **must** include the **branch name** and the exact `git status -sb` output.
 - If you have not yet committed and pushed, do **not** send a "done" or summary message; do the commit and push in this same turn, then reply.
 
 ## Requirements
@@ -48,7 +46,7 @@ alwaysApply: true
   before telling the user or project manager that it’s done.
 - Agents must not delegate commit/push work to the user/PM (e.g., “after you commit and push…”).
   - If commit/push hasn’t happened yet, the correct status is **“not ready for verification.”**
-- “Done/ready” messages must include the exact `git status -sb` output showing the branch is synced and the working tree is clean.
+- “Done/ready” messages must include the **feature branch name** (so QA can check out and verify) and the exact `git status -sb` output showing the branch is synced and the working tree is clean.
   - “Clean” means: **no modified files** and **no untracked files** (ignored build artifacts are fine).
 
 ## Commit message linkage (no commit hashes in docs)

@@ -15,6 +15,10 @@ Create a new file at `docs/tickets/<task-id>-<short-title>.md` using this templa
 - **Fixes**: `<ticket-id>` (required for bugfix tickets)
 - **Category**: DnD / State / CSS / Build / Process / Other (required for bugfix tickets)
 
+## Ready for verification (implementation agent fills when work is pushed)
+
+- **Branch**: `ticket/<id>-<short-title-kebab>` — QA (or the user) checks out this branch to verify, then merges to `main`.
+
 ## Goal (one sentence)
 
 <what we want to achieve>

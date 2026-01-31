@@ -66,7 +66,9 @@ Create a task folder under `docs/audit/`:
   - If the agent still needs to commit/push or update audit artifacts, the task is **not** ready.
 
 - The completion message to the user/PM must include:
+  - the **feature branch name** (so QA can check out and verify), and
   - the exact `git status -sb` output.
+- The implementation agent **must add the branch name to the ticket** when claiming "ready for verification" (see ticket template: Ready for verification → Branch).
 
 - Audit artifacts must be **in git**:
   - `docs/audit/<task-id>-<short-title>/` must be committed and pushed before claiming “ready.”
