@@ -164,6 +164,7 @@ function App() {
     'implementation-agent': 0,
     standup: 0,
   }))
+  const [agentTypingTarget, setAgentTypingTarget] = useState<ChatTarget | null>(null)
 
   useEffect(() => {
     selectedChatTargetRef.current = selectedChatTarget
@@ -171,12 +172,12 @@ function App() {
 
   const activeMessages = conversations[selectedChatTarget] ?? []
 
-  // Auto-scroll transcript to bottom when messages change
+  // Auto-scroll transcript to bottom when messages or typing indicator change
   useEffect(() => {
     if (transcriptRef.current) {
       transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight
     }
-  }, [activeMessages])
+  }, [activeMessages, agentTypingTarget, selectedChatTarget])
 
   // Persist conversations to localStorage only when project connected and not using Supabase (DB is source of truth when attached)
   useEffect(() => {
@@ -329,6 +330,7 @@ function App() {
       setOpenaiLastError(null)
       setLastPmOutboundRequest(null)
       setLastPmToolCalls(null)
+      setAgentTypingTarget('project-manager')
       ;(async () => {
         try {
           let body: { message: string; conversationHistory?: Array<{ role: string; content: string }>; previous_response_id?: string; projectId?: string; supabaseUrl?: string; supabaseAnonKey?: string } = { message: content }
@@ -387,6 +389,7 @@ function App() {
           try {
             data = JSON.parse(text) as PmAgentResponse
           } catch {
+            setAgentTypingTarget(null)
             setOpenaiLastError('Invalid JSON response from PM endpoint')
             setLastAgentError('Invalid JSON response')
             addMessage('project-manager', 'project-manager', `[PM] Error: Invalid response format`)
@@ -400,6 +403,7 @@ function App() {
           setLastCreateTicketAvailable(data.createTicketAvailable ?? null)
 
           if (!res.ok || data.error) {
+            setAgentTypingTarget(null)
             const errMsg = data.error ?? `HTTP ${res.status}`
             setOpenaiLastError(errMsg)
             setLastAgentError(errMsg)
@@ -427,6 +431,7 @@ function App() {
                 ? '[PM] (No response). Create ticket was not available for this request—ensure the project is connected and .env has VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY, then try again.'
                 : '[PM] (No response). Open Diagnostics to see whether create_ticket was available and any tool calls.'
           }
+          setAgentTypingTarget(null)
           if (useDb && supabaseUrl && supabaseAnonKey && connectedProject) {
             const nextSeq = pmMaxSequenceRef.current + 1
             const supabase = createClient(supabaseUrl, supabaseAnonKey)
@@ -443,6 +448,7 @@ function App() {
             addMessage('project-manager', 'project-manager', reply)
           }
         } catch (err) {
+          setAgentTypingTarget(null)
           const msg = err instanceof Error ? err.message : String(err)
           setOpenaiLastStatus(null)
           setOpenaiLastError(msg)
@@ -451,12 +457,15 @@ function App() {
         }
       })()
     } else if (selectedChatTarget === 'implementation-agent') {
+      setAgentTypingTarget('implementation-agent')
       setTimeout(() => {
+        setAgentTypingTarget(null)
         const agentLabel = CHAT_OPTIONS.find((a) => a.id === selectedChatTarget)?.label ?? selectedChatTarget
         addMessage('implementation-agent', 'implementation-agent', `[${agentLabel}] This is a stub response. Real agent infrastructure is not implemented yet.`)
       }, 500)
     } else {
       // Standup: shared transcript across all agents
+      setAgentTypingTarget('standup')
       setTimeout(() => {
         addMessage('standup', 'system', '--- Standup (all agents) ---')
       }, 100)
@@ -474,6 +483,7 @@ function App() {
       }, 600)
       setTimeout(() => {
         addMessage('standup', 'system', '--- End of Standup ---')
+        setAgentTypingTarget(null)
       }, 900)
     }
   }, [inputValue, selectedChatTarget, addMessage, conversations, pmLastResponseId, supabaseUrl, supabaseAnonKey, connectedProject])
@@ -752,23 +762,37 @@ function App() {
           ) : (
             <>
               <div className="chat-transcript" ref={transcriptRef}>
-                {activeMessages.length === 0 ? (
+                {activeMessages.length === 0 && !agentTypingTarget ? (
                   <p className="transcript-empty">No messages yet. Start a conversation.</p>
                 ) : (
-                  activeMessages.map((msg) => (
-                    <div
-                      key={msg.id}
-                      className={`message message-${msg.agent}`}
-                      data-agent={msg.agent}
-                    >
-                      <span className="message-time">[{formatTime(msg.timestamp)}]</span>
-                      {msg.content.trimStart().startsWith('{') ? (
-                        <pre className="message-content message-json">{msg.content}</pre>
-                      ) : (
-                        <span className="message-content">{msg.content}</span>
-                      )}
-                    </div>
-                  ))
+                  <>
+                    {activeMessages.map((msg) => (
+                      <div
+                        key={msg.id}
+                        className={`message message-${msg.agent}`}
+                        data-agent={msg.agent}
+                      >
+                        <span className="message-time">[{formatTime(msg.timestamp)}]</span>
+                        {msg.content.trimStart().startsWith('{') ? (
+                          <pre className="message-content message-json">{msg.content}</pre>
+                        ) : (
+                          <span className="message-content">{msg.content}</span>
+                        )}
+                      </div>
+                    ))}
+                    {agentTypingTarget === selectedChatTarget && (
+                      <div className="message message-typing" data-agent="typing" aria-live="polite">
+                        <span className="typing-bubble">
+                          <span className="typing-label">Thinking</span>
+                          <span className="typing-dots">
+                            <span className="typing-dot" />
+                            <span className="typing-dot" />
+                            <span className="typing-dot" />
+                          </span>
+                        </span>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 
