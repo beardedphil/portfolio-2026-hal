@@ -235,6 +235,39 @@ body {
   background: #fff;
 }
 
+.agent-selector select:disabled {
+  background: #f0f0f0;
+  color: #999;
+  cursor: not-allowed;
+}
+
+/* Chat placeholder (when no project connected) */
+.chat-placeholder {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.5rem;
+  background: #fafafa;
+  text-align: center;
+}
+
+.chat-placeholder-text {
+  margin: 0 0 0.75rem 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #555;
+}
+
+.chat-placeholder-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #888;
+  max-width: 280px;
+  line-height: 1.5;
+}
+
 /* Chat transcript */
 .chat-transcript {
   flex: 1;

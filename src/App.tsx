@@ -37,6 +37,65 @@ type DiagnosticsInfo = {
   connectedProject: string | null
   lastPmOutboundRequest: object | null
   lastPmToolCalls: ToolCallRecord[] | null
+  persistenceError: string | null
+}
+
+// localStorage helpers for conversation persistence
+const CONVERSATION_STORAGE_PREFIX = 'hal-chat-conversations-'
+
+function getStorageKey(projectName: string): string {
+  return `${CONVERSATION_STORAGE_PREFIX}${projectName}`
+}
+
+type SerializedMessage = Omit<Message, 'timestamp'> & { timestamp: string }
+
+function saveConversationsToStorage(
+  projectName: string,
+  conversations: Record<ChatTarget, Message[]>
+): { success: boolean; error?: string } {
+  try {
+    const serialized: Record<ChatTarget, SerializedMessage[]> = {} as Record<ChatTarget, SerializedMessage[]>
+    for (const key of Object.keys(conversations) as ChatTarget[]) {
+      serialized[key] = conversations[key].map((msg) => ({
+        ...msg,
+        timestamp: msg.timestamp.toISOString(),
+      }))
+    }
+    localStorage.setItem(getStorageKey(projectName), JSON.stringify(serialized))
+    return { success: true }
+  } catch (e) {
+    const errMsg = e instanceof Error ? e.message : String(e)
+    return { success: false, error: `Failed to save conversations: ${errMsg}` }
+  }
+}
+
+function loadConversationsFromStorage(
+  projectName: string
+): { data: Record<ChatTarget, Message[]> | null; error?: string } {
+  try {
+    const raw = localStorage.getItem(getStorageKey(projectName))
+    if (!raw) return { data: null }
+    const parsed = JSON.parse(raw) as Record<ChatTarget, SerializedMessage[]>
+    const result: Record<ChatTarget, Message[]> = {} as Record<ChatTarget, Message[]>
+    for (const key of Object.keys(parsed) as ChatTarget[]) {
+      result[key] = parsed[key].map((msg) => ({
+        ...msg,
+        timestamp: new Date(msg.timestamp),
+      }))
+    }
+    return { data: result }
+  } catch (e) {
+    const errMsg = e instanceof Error ? e.message : String(e)
+    return { data: null, error: `Failed to load conversations: ${errMsg}` }
+  }
+}
+
+function getEmptyConversations(): Record<ChatTarget, Message[]> {
+  return {
+    'project-manager': [],
+    'implementation-agent': [],
+    standup: [],
+  }
 }
 
 const CHAT_OPTIONS: { id: ChatTarget; label: string }[] = [
@@ -53,14 +112,11 @@ function formatTime(date: Date): string {
 
 function App() {
   const [selectedChatTarget, setSelectedChatTarget] = useState<ChatTarget>('project-manager')
-  const [conversations, setConversations] = useState<Record<ChatTarget, Message[]>>(() => ({
-    'project-manager': [],
-    'implementation-agent': [],
-    standup: [],
-  }))
+  const [conversations, setConversations] = useState<Record<ChatTarget, Message[]>>(getEmptyConversations)
   const [inputValue, setInputValue] = useState('')
   const [lastError, setLastError] = useState<string | null>(null)
   const [lastAgentError, setLastAgentError] = useState<string | null>(null)
+  const [persistenceError, setPersistenceError] = useState<string | null>(null)
   const [openaiLastStatus, setOpenaiLastStatus] = useState<string | null>(null)
   const [openaiLastError, setOpenaiLastError] = useState<string | null>(null)
   const [kanbanLoaded, setKanbanLoaded] = useState(false)
@@ -83,6 +139,17 @@ function App() {
       transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight
     }
   }, [activeMessages])
+
+  // Persist conversations to localStorage whenever they change (if project connected)
+  useEffect(() => {
+    if (!connectedProject) return
+    const result = saveConversationsToStorage(connectedProject, conversations)
+    if (!result.success && result.error) {
+      setPersistenceError(result.error)
+    } else {
+      setPersistenceError(null)
+    }
+  }, [conversations, connectedProject])
 
   const addMessage = useCallback((target: ChatTarget, agent: Message['agent'], content: string) => {
     const id = ++messageIdRef.current
@@ -238,7 +305,32 @@ function App() {
           { type: 'HAL_CONNECT_SUPABASE', url, key },
           KANBAN_URL
         )
-        setConnectedProject(folderHandle.name)
+        
+        // Load saved conversations for this project
+        const projectName = folderHandle.name
+        const loadResult = loadConversationsFromStorage(projectName)
+        if (loadResult.error) {
+          setPersistenceError(loadResult.error)
+        } else {
+          setPersistenceError(null)
+        }
+        if (loadResult.data) {
+          setConversations(loadResult.data)
+          // Find the max message ID from loaded conversations to avoid ID collisions
+          let maxId = 0
+          for (const msgs of Object.values(loadResult.data)) {
+            for (const msg of msgs) {
+              if (msg.id > maxId) maxId = msg.id
+            }
+          }
+          messageIdRef.current = maxId
+        } else {
+          // No saved conversations, start fresh
+          setConversations(getEmptyConversations())
+          messageIdRef.current = 0
+        }
+        
+        setConnectedProject(projectName)
         setConnectError(null)
       } else {
         setConnectError('Kanban iframe not ready.')
@@ -260,6 +352,10 @@ function App() {
         KANBAN_URL
       )
     }
+    // Clear conversations when disconnecting (they're already persisted)
+    setConversations(getEmptyConversations())
+    messageIdRef.current = 0
+    setPersistenceError(null)
     setConnectedProject(null)
   }, [])
 
@@ -276,6 +372,7 @@ function App() {
     connectedProject,
     lastPmOutboundRequest,
     lastPmToolCalls,
+    persistenceError,
   }
 
   return (
@@ -351,6 +448,7 @@ function App() {
                 id="agent-select"
                 value={selectedChatTarget}
                 onChange={(e) => setSelectedChatTarget(e.target.value as ChatTarget)}
+                disabled={!connectedProject}
               >
                 {CHAT_OPTIONS.map((opt) => (
                   <option key={opt.id} value={opt.id}>
@@ -361,42 +459,53 @@ function App() {
             </div>
           </div>
 
-          <div className="chat-transcript" ref={transcriptRef}>
-            {activeMessages.length === 0 ? (
-              <p className="transcript-empty">No messages yet. Start a conversation.</p>
-            ) : (
-              activeMessages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={`message message-${msg.agent}`}
-                  data-agent={msg.agent}
-                >
-                  <span className="message-time">[{formatTime(msg.timestamp)}]</span>
-                  {msg.content.trimStart().startsWith('{') ? (
-                    <pre className="message-content message-json">{msg.content}</pre>
-                  ) : (
-                    <span className="message-content">{msg.content}</span>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-
-          <div className="chat-composer">
-            <textarea
-              className="message-input"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Type a message... (Enter to send)"
-              rows={2}
-            />
-            <div className="composer-actions">
-              <button type="button" className="send-btn" onClick={handleSend}>
-                Send
-              </button>
+          {!connectedProject ? (
+            <div className="chat-placeholder">
+              <p className="chat-placeholder-text">Connect a project to enable chat</p>
+              <p className="chat-placeholder-hint">
+                Use the "Connect Project Folder" button above to connect a project and start chatting with agents.
+              </p>
             </div>
-          </div>
+          ) : (
+            <>
+              <div className="chat-transcript" ref={transcriptRef}>
+                {activeMessages.length === 0 ? (
+                  <p className="transcript-empty">No messages yet. Start a conversation.</p>
+                ) : (
+                  activeMessages.map((msg) => (
+                    <div
+                      key={msg.id}
+                      className={`message message-${msg.agent}`}
+                      data-agent={msg.agent}
+                    >
+                      <span className="message-time">[{formatTime(msg.timestamp)}]</span>
+                      {msg.content.trimStart().startsWith('{') ? (
+                        <pre className="message-content message-json">{msg.content}</pre>
+                      ) : (
+                        <span className="message-content">{msg.content}</span>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="chat-composer">
+                <textarea
+                  className="message-input"
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Type a message... (Enter to send)"
+                  rows={2}
+                />
+                <div className="composer-actions">
+                  <button type="button" className="send-btn" onClick={handleSend}>
+                    Send
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
 
           {/* Diagnostics panel */}
           <div className="diagnostics-section">
@@ -461,6 +570,12 @@ function App() {
                   <span className="diag-label">Connected project:</span>
                   <span className="diag-value">
                     {diagnostics.connectedProject ?? 'none'}
+                  </span>
+                </div>
+                <div className="diag-row">
+                  <span className="diag-label">Persistence error:</span>
+                  <span className="diag-value" data-status={diagnostics.persistenceError ? 'error' : 'ok'}>
+                    {diagnostics.persistenceError ?? 'none'}
                   </span>
                 </div>
 
