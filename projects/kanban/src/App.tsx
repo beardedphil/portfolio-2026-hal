@@ -33,11 +33,6 @@ import {
   type KanbanFrontmatter,
 } from './frontmatter'
 import { createClient } from '@supabase/supabase-js'
-import {
-  getStoredProjectFolderHandle,
-  setStoredProjectFolderHandle,
-  clearStoredProjectFolderHandle,
-} from './projectFolderStorage'
 
 type LogEntry = { id: number; message: string; at: string }
 type Card = { id: string; title: string }
@@ -717,7 +712,6 @@ function App() {
       
       // Connect to Supabase with credentials from .env
       await connectSupabase(url, key)
-      await setStoredProjectFolderHandle(folderHandle)
       
     } catch (e) {
       const err = e as { name?: string }
@@ -751,54 +745,6 @@ function App() {
     
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
-  }, [isEmbedded, connectSupabase])
-
-  // Restore project folder from IndexedDB on load (0025); re-run connect logic if permission still granted
-  useEffect(() => {
-    if (isEmbedded) return
-    let cancelled = false
-    if (typeof window.showDirectoryPicker !== 'function') return
-    ;(async () => {
-      const handle = await getStoredProjectFolderHandle()
-      if (!handle || cancelled) return
-      const h = handle as FileSystemDirectoryHandle & {
-        queryPermission?(opts: { mode: 'read' }): Promise<string>
-        requestPermission?(opts: { mode: 'read' }): Promise<string>
-      }
-      let perm = await h.queryPermission?.({ mode: 'read' })
-      if (cancelled) return
-      if (perm === 'denied') {
-        await clearStoredProjectFolderHandle()
-        return
-      }
-      if (perm === 'prompt') {
-        perm = await h.requestPermission?.({ mode: 'read' }) ?? 'denied'
-        if (perm !== 'granted') {
-          await clearStoredProjectFolderHandle()
-          return
-        }
-      }
-      if (cancelled) return
-      try {
-        const envFile = await handle.getFileHandle('.env')
-        const file = await envFile.getFile()
-        const envText = await file.text()
-        const urlMatch = envText.match(/^VITE_SUPABASE_URL\s*=\s*(.+)$/m)
-        const keyMatch = envText.match(/^VITE_SUPABASE_ANON_KEY\s*=\s*(.+)$/m)
-        if (!urlMatch || !keyMatch || cancelled) return
-        const url = urlMatch[1].trim()
-        const key = keyMatch[1].trim()
-        if (!url || !key) return
-        setProjectFolderHandle(handle)
-        setProjectName(handle.name)
-        await connectSupabase(url, key)
-      } catch {
-        await clearStoredProjectFolderHandle()
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
   }, [isEmbedded, connectSupabase])
 
   const columnsForDisplay = supabaseBoardActive
@@ -1814,7 +1760,6 @@ function App() {
                   type="button"
                   className="disconnect-btn"
                   onClick={() => {
-                    clearStoredProjectFolderHandle().catch(() => {})
                     setProjectFolderHandle(null)
                     setProjectName(null)
                     setSupabaseConnectionStatus('disconnected')
