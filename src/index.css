@@ -325,8 +325,7 @@ body {
   gap: 0.5rem;
 }
 
-.send-btn,
-.standup-btn {
+.send-btn {
   padding: 0.45rem 0.9rem;
   font-size: 0.85rem;
   cursor: pointer;
@@ -341,15 +340,6 @@ body {
 
 .send-btn:hover {
   background: #1565c0;
-}
-
-.standup-btn {
-  background: #424242;
-  color: #fff;
-}
-
-.standup-btn:hover {
-  background: #333;
 }
 
 /* Diagnostics */
