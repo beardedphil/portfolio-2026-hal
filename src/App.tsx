@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { respond as pmRespond } from '@hal-agents/agents/projectManager'
 
 type Agent = 'project-manager' | 'implementation-agent'
+type ChatTarget = Agent | 'standup'
 
 type Message = {
   id: number
@@ -12,7 +13,7 @@ type Message = {
 
 type DiagnosticsInfo = {
   kanbanRenderMode: string
-  selectedAgent: Agent
+  selectedChatTarget: ChatTarget
   pmImplementationSource: 'hal-agents' | 'inline'
   lastAgentError: string | null
   lastError: string | null
@@ -21,9 +22,10 @@ type DiagnosticsInfo = {
   connectedProject: string | null
 }
 
-const AGENT_OPTIONS: { id: Agent; label: string }[] = [
+const CHAT_OPTIONS: { id: ChatTarget; label: string }[] = [
   { id: 'project-manager', label: 'Project Manager' },
   { id: 'implementation-agent', label: 'Implementation Agent (stub)' },
+  { id: 'standup', label: 'Standup (all agents)' },
 ]
 
 const KANBAN_URL = 'http://localhost:5174'
@@ -33,8 +35,12 @@ function formatTime(date: Date): string {
 }
 
 function App() {
-  const [selectedAgent, setSelectedAgent] = useState<Agent>('project-manager')
-  const [messages, setMessages] = useState<Message[]>([])
+  const [selectedChatTarget, setSelectedChatTarget] = useState<ChatTarget>('project-manager')
+  const [conversations, setConversations] = useState<Record<ChatTarget, Message[]>>(() => ({
+    'project-manager': [],
+    'implementation-agent': [],
+    standup: [],
+  }))
   const [inputValue, setInputValue] = useState('')
   const [lastError, setLastError] = useState<string | null>(null)
   const [lastAgentError, setLastAgentError] = useState<string | null>(null)
@@ -46,50 +52,72 @@ function App() {
   const transcriptRef = useRef<HTMLDivElement>(null)
   const kanbanIframeRef = useRef<HTMLIFrameElement>(null)
 
+  const activeMessages = conversations[selectedChatTarget] ?? []
+
   // Auto-scroll transcript to bottom when messages change
   useEffect(() => {
     if (transcriptRef.current) {
       transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight
     }
-  }, [messages])
+  }, [activeMessages])
 
-  const addMessage = useCallback((agent: Message['agent'], content: string) => {
+  const addMessage = useCallback((target: ChatTarget, agent: Message['agent'], content: string) => {
     const id = ++messageIdRef.current
-    setMessages((prev) => [
+    setConversations((prev) => ({
       ...prev,
-      { id, agent, content, timestamp: new Date() },
-    ])
+      [target]: [...(prev[target] ?? []), { id, agent, content, timestamp: new Date() }],
+    }))
   }, [])
 
   const handleSend = useCallback(() => {
     const content = inputValue.trim()
     if (!content) return
 
-    addMessage('user', content)
+    addMessage(selectedChatTarget, 'user', content)
     setInputValue('')
     setLastAgentError(null)
 
-    if (selectedAgent === 'project-manager') {
+    if (selectedChatTarget === 'project-manager') {
       setTimeout(() => {
         try {
           const { replyText } = pmRespond({
             message: content,
             context: { standup: /standup|status/i.test(content) },
           })
-          addMessage('project-manager', replyText)
+          addMessage('project-manager', 'project-manager', replyText)
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           setLastAgentError(msg)
-          addMessage('project-manager', `[PM@hal-agents] Error: ${msg}`)
+          addMessage('project-manager', 'project-manager', `[PM@hal-agents] Error: ${msg}`)
         }
       }, 500)
-    } else {
+    } else if (selectedChatTarget === 'implementation-agent') {
       setTimeout(() => {
-        const agentLabel = AGENT_OPTIONS.find((a) => a.id === selectedAgent)?.label ?? selectedAgent
-        addMessage(selectedAgent, `[${agentLabel}] This is a stub response. Real agent infrastructure is not implemented yet.`)
+        const agentLabel = CHAT_OPTIONS.find((a) => a.id === selectedChatTarget)?.label ?? selectedChatTarget
+        addMessage('implementation-agent', 'implementation-agent', `[${agentLabel}] This is a stub response. Real agent infrastructure is not implemented yet.`)
       }, 500)
+    } else {
+      // Standup: shared transcript across all agents
+      setTimeout(() => {
+        addMessage('standup', 'system', '--- Standup (all agents) ---')
+      }, 100)
+      setTimeout(() => {
+        addMessage('standup', 'project-manager', `[Standup] Project Manager:
+• Reviewed ticket backlog
+• No blockers identified
+• Ready to assist with prioritization`)
+      }, 300)
+      setTimeout(() => {
+        addMessage('standup', 'implementation-agent', `[Standup] Implementation Agent (stub):
+• Awaiting task assignment
+• Development environment ready
+• No active work in progress`)
+      }, 600)
+      setTimeout(() => {
+        addMessage('standup', 'system', '--- End of Standup ---')
+      }, 900)
     }
-  }, [inputValue, selectedAgent, addMessage])
+  }, [inputValue, selectedChatTarget, addMessage])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -97,29 +125,6 @@ function App() {
       handleSend()
     }
   }, [handleSend])
-
-  const handleStandup = useCallback(() => {
-    addMessage('system', '--- Standup (all agents) ---')
-    
-    // Placeholder standup updates from each agent
-    setTimeout(() => {
-      addMessage('project-manager', `[Standup] Project Manager:
-• Reviewed ticket backlog
-• No blockers identified
-• Ready to assist with prioritization`)
-    }, 300)
-    
-    setTimeout(() => {
-      addMessage('implementation-agent', `[Standup] Implementation Agent (stub):
-• Awaiting task assignment
-• Development environment ready
-• No active work in progress`)
-    }, 600)
-    
-    setTimeout(() => {
-      addMessage('system', '--- End of Standup ---')
-    }, 900)
-  }, [addMessage])
 
   const handleIframeLoad = useCallback(() => {
     setKanbanLoaded(true)
@@ -198,8 +203,8 @@ function App() {
 
   const diagnostics: DiagnosticsInfo = {
     kanbanRenderMode: 'iframe (fallback)',
-    selectedAgent,
-    pmImplementationSource: selectedAgent === 'project-manager' ? 'hal-agents' : 'inline',
+    selectedChatTarget,
+    pmImplementationSource: selectedChatTarget === 'project-manager' ? 'hal-agents' : 'inline',
     lastAgentError,
     lastError,
     kanbanLoaded,
@@ -278,10 +283,10 @@ function App() {
               <label htmlFor="agent-select">Agent:</label>
               <select
                 id="agent-select"
-                value={selectedAgent}
-                onChange={(e) => setSelectedAgent(e.target.value as Agent)}
+                value={selectedChatTarget}
+                onChange={(e) => setSelectedChatTarget(e.target.value as ChatTarget)}
               >
-                {AGENT_OPTIONS.map((opt) => (
+                {CHAT_OPTIONS.map((opt) => (
                   <option key={opt.id} value={opt.id}>
                     {opt.label}
                   </option>
@@ -291,10 +296,10 @@ function App() {
           </div>
 
           <div className="chat-transcript" ref={transcriptRef}>
-            {messages.length === 0 ? (
-              <p className="transcript-empty">No messages yet. Start a conversation or run a standup.</p>
+            {activeMessages.length === 0 ? (
+              <p className="transcript-empty">No messages yet. Start a conversation.</p>
             ) : (
-              messages.map((msg) => (
+              activeMessages.map((msg) => (
                 <div
                   key={msg.id}
                   className={`message message-${msg.agent}`}
@@ -319,9 +324,6 @@ function App() {
             <div className="composer-actions">
               <button type="button" className="send-btn" onClick={handleSend}>
                 Send
-              </button>
-              <button type="button" className="standup-btn" onClick={handleStandup}>
-                Standup (all agents)
               </button>
             </div>
           </div>
@@ -354,8 +356,8 @@ function App() {
                   </span>
                 </div>
                 <div className="diag-row">
-                  <span className="diag-label">Selected agent:</span>
-                  <span className="diag-value">{diagnostics.selectedAgent}</span>
+                  <span className="diag-label">Chat target:</span>
+                  <span className="diag-value">{diagnostics.selectedChatTarget}</span>
                 </div>
                 <div className="diag-row">
                   <span className="diag-label">PM implementation source:</span>
