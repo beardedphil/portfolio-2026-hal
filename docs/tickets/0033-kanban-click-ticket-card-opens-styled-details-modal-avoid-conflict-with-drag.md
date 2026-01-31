@@ -1,3 +1,8 @@
+---
+kanbanColumnId: col-human-in-the-loop
+kanbanPosition: 0
+kanbanMovedAt: 2026-01-31T22:00:00.000Z
+---
 # Title
 Kanban: click ticket card opens styled details modal (avoid conflict with drag)
 
