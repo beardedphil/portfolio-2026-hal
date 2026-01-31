@@ -47,7 +47,7 @@ Before committing ticket work:
 ## Do not “fix someone else’s work” inside a ticket
 
 - If you discover a problem outside the ticket scope (including process cleanup), do **not** fold it into the ticket.
-- Create a new ticket (preferred) and fix it on its own branch.
+- Create a new ticket via the **HAL app** (PM agent) or a **script that writes to Supabase** (preferred), then fix it on its own branch. Do not write a ticket file in `docs/tickets/`; tickets are created only in Supabase and propagate to docs via sync.
 
 ## Branching requirement (ties to done-means-pushed)
 

@@ -7,7 +7,7 @@ alwaysApply: true
 
 ## When QA fails
 
-- If a ticket is “done” but fails QA, create a **new bugfix ticket** (next sequential ID).
+- If a ticket is “done” but fails QA, create a **new bugfix ticket** (next sequential ID) **in Supabase** (via the HAL app PM agent or a script that inserts into the `tickets` table). Do not write a new ticket file in `docs/tickets/`; run `npm run sync-tickets` after creating in Supabase so the change propagates to docs.
 - The bugfix ticket must include:
   - **Fixes**: the original ticket ID (e.g. `Fixes: 0007`)
   - **QA failure summary**: what failed, in human terms

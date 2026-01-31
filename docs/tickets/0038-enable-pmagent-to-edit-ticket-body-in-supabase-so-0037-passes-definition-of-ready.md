@@ -36,3 +36,6 @@ A human can open the embedded Kanban UI, view ticket **0037**, and see that its 
 ## Non-goals
 - Fixing the underlying feature request in 0037 (removing “Add column” and “Debug OFF”) is out of scope here.
 - Refactoring the whole ticket system or changing the ticket template is out of scope unless required to make the DB update path reliable.
+
+## Motto
+Project Managers rule, implementers drool.

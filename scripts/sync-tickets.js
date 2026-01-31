@@ -1,11 +1,11 @@
 /**
- * Sync tickets: docs/tickets/*.md ↔ Supabase tickets table.
- * Run from project root after writing a ticket: npm run sync-tickets
+ * Sync tickets: Supabase is the source of truth. docs/tickets/*.md ↔ Supabase tickets table.
+ * Run from project root: npm run sync-tickets
  *
  * Requires .env (or env) with SUPABASE_URL and SUPABASE_ANON_KEY.
  * Optional: HAL_PROJECT_ID (project id for PM conversation; defaults to repo folder name to match "Connect Project Folder"); HAL_CHECK_UNASSIGNED_URL (default http://localhost:5173/api/pm/check-unassigned).
- * - Docs → DB: upsert each doc ticket (create or update by id).
- * - DB → Docs: write docs/tickets/{filename} for each DB row not in docs.
+ * - Docs → DB: upsert each doc ticket (create or update by id) so any local edits are in DB.
+ * - DB → Docs: write docs/tickets/{filename} for every ticket in Supabase so docs match DB (Supabase wins).
  * - DB → Docs (deletions): remove local files for ticket IDs in docs but no longer in Supabase (0030).
  * - Then: set kanban_column_id = 'col-unassigned' for tickets with null.
  * - After sync: POST to HAL check-unassigned so PM chat gets the result (ignored if HAL dev server not running).
@@ -148,9 +148,19 @@ async function main() {
     }
   }
 
+  // Refetch all from DB so we write the current state (Supabase source of truth)
+  const { data: refetchedRows, error: refetchError } = await client
+    .from('tickets')
+    .select('id, filename, title, body_md, kanban_column_id, kanban_position, kanban_moved_at')
+    .order('id')
+  if (refetchError) {
+    console.error('Supabase refetch after upsert:', refetchError.message)
+    process.exit(1)
+  }
+  const refetched = refetchedRows ?? []
+
   let writtenToDocs = 0
-  for (const row of existing) {
-    if (docIds.has(row.id)) continue
+  for (const row of refetched) {
     const filePath = path.join(ticketsDir, row.filename)
     fs.writeFileSync(filePath, row.body_md ?? '', 'utf8')
     writtenToDocs++
@@ -158,10 +168,10 @@ async function main() {
   }
 
   // Delete local files for ticket IDs in docs but no longer in Supabase (0030)
-  const existingIds = new Set(existing.map((r) => r.id))
+  const refetchedIds = new Set(refetched.map((r) => r.id))
   let deletedFromDocs = 0
   for (const d of docTickets) {
-    if (existingIds.has(d.id)) continue
+    if (refetchedIds.has(d.id)) continue
     const filePath = path.join(ticketsDir, d.filename)
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath)
@@ -170,12 +180,7 @@ async function main() {
     }
   }
 
-  const { data: afterRows, error: refetchError } = await client
-    .from('tickets')
-    .select('id, kanban_column_id, kanban_position')
-    .order('id')
-
-  if (!refetchError && afterRows) {
+  if (refetched.length > 0) {
     const KANBAN_COLUMN_IDS = [
   'col-unassigned',
   'col-todo',
@@ -185,7 +190,7 @@ async function main() {
   'col-done',
   'col-wont-implement',
 ]
-    const unassigned = afterRows.filter(
+    const unassigned = refetched.filter(
       (r) =>
         r.kanban_column_id == null ||
         r.kanban_column_id === '' ||

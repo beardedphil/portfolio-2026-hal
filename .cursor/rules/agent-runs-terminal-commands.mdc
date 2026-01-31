@@ -5,6 +5,7 @@ alwaysApply: true
 
 # Agent Runs Terminal Commands
 
+- **Tickets:** Tickets are created only in Supabase (HAL app or a script that writes to the DB). Do not create or edit ticket files under `docs/tickets/` directly. Run `npm run sync-tickets` after Supabase ticket changes so docs match the database.
 - When a task requires running a terminal command (e.g. `npm run dev`, `npm run build`, `npm run sync-tickets`, restarting a dev server, `git status`, `git add`, `git commit`, `git push`), the **agent must run the command itself** when it has the ability to do so.
 - **Do not ask the user** to run terminal commands that the agent can run (e.g. "Please run `npm run dev`", "Restart the HAL dev server", "Run `npm run sync-tickets` from the repo root").
 - Only suggest the user run a command when the action truly requires user context (e.g. picking a folder, approving a destructive operation, or when the agent environment cannot execute the command).

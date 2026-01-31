@@ -7,13 +7,12 @@ alwaysApply: true
 
 For any coding task assigned to an implementation agent, the work must be **fully auditable**.
 
-## Standard Prompt Format
+## Standard Prompt Format (Supabase source of truth)
 
-- All new stories/tasks must be written as **tickets** at:
-  - `docs/tickets/<task-id>-<short-title>.md`
-- Use the workspace template:
+- All new stories/tasks must be **tickets** stored in **Supabase** (source of truth). **Do not create or edit ticket files** under `docs/tickets/` directly; tickets are created via the HAL app (PM agent) or a script that writes to the Supabase `tickets` table. Run `npm run sync-tickets` so `docs/tickets/*.md` are written from the database.
+- Use the workspace template for **content structure** when creating a ticket (in-app or via script):
   - `docs/templates/ticket.template.md`
-- The ticket itself is the canonical “prompt” (we do **not** create a `prompt.md` artifact).
+- The ticket in Supabase (and, after sync, in `docs/tickets/<task-id>-<short-title>.md`) is the canonical “prompt” (we do **not** create a `prompt.md` artifact).
 
 ## Task ID Convention (Uniqueness)
 
@@ -58,8 +57,8 @@ Create a task folder under `docs/audit/`:
 - If any untracked/modified files remain, the agent must either:
   - commit them (if they belong to the ticket), or
   - delete/ignore/revert them (if they are accidental/generated), before claiming “ready.”
-- The ticket file itself must be **committed to the repo**:
-  - `docs/tickets/<task-id>-<short-title>.md` must exist on the branch being verified.
+- The ticket must exist in **Supabase** and, after `npm run sync-tickets`, in the repo:
+  - `docs/tickets/<task-id>-<short-title>.md` must exist on the branch being verified (written from DB by sync; do not add ticket files by hand).
 
 - “Ready for verification” instructions must be **UI-only**:
   - Do not ask the user/PM to commit, push, or otherwise “finish” the task.

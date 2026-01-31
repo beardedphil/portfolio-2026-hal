@@ -291,7 +291,9 @@ You have access to read-only tools to explore the repository. Use them to answer
 
 **Moving a ticket to To Do:** When the user asks to move a ticket to To Do (e.g. "move this to To Do", "move ticket 0012 to To Do"), you MUST (1) fetch the ticket content with fetch_ticket_content (by ticket id), (2) evaluate readiness with evaluate_ticket_ready (pass the body_md from the fetch result). If the ticket is NOT ready, do NOT call kanban_move_ticket_to_todo; instead reply with a clear list of what is missing (use the missingItems from the evaluate_ticket_ready result). If the ticket IS ready, call kanban_move_ticket_to_todo with the ticket id. Then confirm in chat that the ticket was moved. The readiness checklist is in docs/process/ready-to-start-checklist.md (Goal, Human-verifiable deliverable, Acceptance criteria checkboxes, Constraints, Non-goals, no unresolved placeholders).
 
-**Editing ticket body in Supabase:** When a ticket in Unassigned fails the Definition of Ready (missing sections, placeholders, etc.) and the user asks to fix it or make it ready, use update_ticket_body to write the corrected body_md directly to Supabase. Provide the full markdown body with all required sections: Goal (one sentence), Human-verifiable deliverable (UI-only), Acceptance criteria (UI-only) with - [ ] checkboxes, Constraints, Non-goals. Replace every placeholder with concrete content. The Kanban UI reflects updates within ~10 seconds (poll interval).
+**Supabase is the source of truth for ticket content.** When the user asks to edit or fix a ticket, you must update the ticket in the database (do not suggest editing docs/tickets/*.md only). Use update_ticket_body to write the corrected body_md directly to Supabase. The change propagates out: the Kanban UI reflects it within ~10 seconds (poll interval). To propagate the same content to docs/tickets/*.md in the repo, use the sync_tickets tool (if available) after updating—sync writes from DB to docs so the repo files match Supabase.
+
+**Editing ticket body in Supabase:** When a ticket in Unassigned fails the Definition of Ready (missing sections, placeholders, etc.) and the user asks to fix it or make it ready, use update_ticket_body to write the corrected body_md directly to Supabase. Provide the full markdown body with all required sections: Goal (one sentence), Human-verifiable deliverable (UI-only), Acceptance criteria (UI-only) with - [ ] checkboxes, Constraints, Non-goals. Replace every placeholder with concrete content. The Kanban UI reflects updates within ~10 seconds. Optionally call sync_tickets afterward so docs/tickets/*.md match the database.
 
 Always cite file paths when referencing specific content.`
 
@@ -656,7 +658,7 @@ export async function runPmAgent(
       )
       return tool({
         description:
-          'Update a ticket\'s body_md in Supabase directly. Use when a ticket fails Definition of Ready (missing sections, placeholders) and the user asks to fix it. Provide the full markdown body with all required sections: Goal (one sentence), Human-verifiable deliverable (UI-only), Acceptance criteria (UI-only) with - [ ] checkboxes, Constraints, Non-goals. No angle-bracket placeholders. The Kanban UI shows updates within ~10 seconds.',
+          'Update a ticket\'s body_md in Supabase directly. Supabase is the source of truth—this is how you edit a ticket; the Kanban UI reflects the change within ~10 seconds. Use when a ticket fails Definition of Ready or the user asks to edit/fix a ticket. Provide the full markdown body with all required sections: Goal (one sentence), Human-verifiable deliverable (UI-only), Acceptance criteria (UI-only) with - [ ] checkboxes, Constraints, Non-goals. No angle-bracket placeholders. After updating, use sync_tickets (if available) to propagate the change to docs/tickets/*.md.',
         parameters: z.object({
           ticket_id: z.string().describe('Ticket id (e.g. "0037").'),
           body_md: z
@@ -709,6 +711,40 @@ export async function runPmAgent(
             }
           }
           toolCalls.push({ name: 'update_ticket_body', input, output: out })
+          return out
+        },
+      })
+    })()
+
+  const syncTicketsTool =
+    hasSupabase &&
+    (() => {
+      const scriptPath = path.resolve(config.repoRoot, 'scripts', 'sync-tickets.js')
+      const env = {
+        ...process.env,
+        SUPABASE_URL: config.supabaseUrl!.trim(),
+        SUPABASE_ANON_KEY: config.supabaseAnonKey!.trim(),
+      }
+      return tool({
+        description:
+          'Run the sync-tickets script so docs/tickets/*.md match Supabase (DB → docs). Use after update_ticket_body or create_ticket so the repo files reflect the database. Supabase is the source of truth.',
+        parameters: z.object({}),
+        execute: async () => {
+          type SyncResult = { success: true; message?: string } | { success: false; error: string }
+          let out: SyncResult
+          try {
+            const { stdout, stderr } = await execAsync(`node ${JSON.stringify(scriptPath)}`, {
+              cwd: config.repoRoot,
+              env,
+              maxBuffer: 100 * 1024,
+            })
+            const combined = [stdout, stderr].filter(Boolean).join('\n').trim()
+            out = { success: true, ...(combined && { message: combined.slice(0, 500) }) }
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err)
+            out = { success: false, error: msg.slice(0, 500) }
+          }
+          toolCalls.push({ name: 'sync_tickets', input: {}, output: out })
           return out
         },
       })
@@ -848,6 +884,7 @@ export async function runPmAgent(
     ...(fetchTicketContentTool ? { fetch_ticket_content: fetchTicketContentTool } : {}),
     evaluate_ticket_ready: evaluateTicketReadyTool,
     ...(updateTicketBodyTool ? { update_ticket_body: updateTicketBodyTool } : {}),
+    ...(syncTicketsTool ? { sync_tickets: syncTicketsTool } : {}),
     ...(kanbanMoveTicketToTodoTool ? { kanban_move_ticket_to_todo: kanbanMoveTicketToTodoTool } : {}),
   }
 
@@ -918,6 +955,18 @@ export async function runPmAgent(
             reply = `I updated the body of ticket **${out.ticketId}** in Supabase. The Kanban UI will reflect the change within ~10 seconds.`
             if (out.ready === false && out.missingItems?.length) {
               reply += ` Note: the ticket may still not pass readiness: ${out.missingItems.join('; ')}.`
+            }
+          } else {
+            const syncTicketsCall = toolCalls.find(
+              (c) =>
+                c.name === 'sync_tickets' &&
+                typeof c.output === 'object' &&
+                c.output !== null &&
+                (c.output as { success?: boolean }).success === true
+            )
+            if (syncTicketsCall) {
+              reply =
+                'I ran sync-tickets. docs/tickets/*.md now match Supabase (Supabase is the source of truth).'
             }
           }
         }

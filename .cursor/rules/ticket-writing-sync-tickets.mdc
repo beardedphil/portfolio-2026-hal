@@ -1,16 +1,14 @@
 ---
-description: After writing tickets, run sync-tickets
+description: Tickets are created only in Supabase; no writing tickets directly in the repo
 alwaysApply: true
 ---
 
-# Ticket Writing: Always Run `sync-tickets`
+# Ticket Source of Truth: Supabase Only
 
-When a Cursor agent creates or edits ticket files under `docs/tickets/`:
-
-- Run `npm run sync-tickets` immediately after the change.
-- Commit and push any resulting repo changes.
-
-## Notes
-
-- The script reads Supabase credentials from `.env` (`SUPABASE_URL`, `SUPABASE_ANON_KEY`).
+- **No tickets can be created from outside the app** by writing files in the repo.
+- **Do not create or edit ticket files** under `docs/tickets/` directly. Those files are **derived from Supabase** (DB → docs).
+- **To create or change a ticket:** write it **directly into Supabase**:
+  - **In-app:** Use the HAL PM agent (create_ticket / update_ticket_body). The change propagates: Kanban UI within ~10s; run sync_tickets (or `npm run sync-tickets`) to propagate to `docs/tickets/*.md`.
+  - **Outside the app:** Use a script that inserts/updates the `tickets` table in Supabase (e.g. a one-off script with Supabase client). Then run `npm run sync-tickets` from the repo root so `docs/tickets/` match the database.
+- **After any Supabase ticket change**, run `npm run sync-tickets` (from repo root, with `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `.env`) so `docs/tickets/*.md` are updated from the database. Commit and push any resulting repo changes if appropriate.
 - **Never commit `.env`** (it must remain ignored).
