@@ -15,7 +15,8 @@ alwaysApply: true
      - Create or checkout the feature branch first:  
        `git checkout -b ticket/<id>-<short-title-kebab>`  
        (or `git checkout ticket/<id>-...` if it already exists).
-     - Only **after** you are on the feature branch may you make edits.
+     - If **branch creation or checkout fails** (e.g. in a cloud or restricted workspace), follow **cloud-and-restricted-agent-workflow.mdc** instead: you may proceed on current HEAD and must report a change summary so the user can create the branch and push elsewhere.
+     - Only **after** you are on the feature branch (or following the restricted workflow) may you make edits.
   3. If the user did **not** give a ticket ID, ask for it or infer it from context (e.g. from the ticket file they referenced). The branch name is `ticket/<id>-<short-title-kebab>`.
 
 ## Why this rule exists

@@ -1031,6 +1031,14 @@ function App() {
                     </div>
                   </div>
                 )}
+
+                {/* Cloud agent troubleshooting (0040): in-app pointer to actionable root cause */}
+                <div className="diag-row diag-help">
+                  <span className="diag-label">Cloud agent:</span>
+                  <span className="diag-value">
+                    Not starting? See <code>docs/process/cloud-agent-and-branch-rules.md</code> for root cause and fix.
+                  </span>
+                </div>
               </div>
             )}
           </div>

@@ -7,8 +7,8 @@ alwaysApply: true
 
 ## GATE: No edits on main (see also no-edits-on-main.mdc)
 
-- **Before using StrReplace, Write, or EditNotebook** for a ticket: run `git status -sb`. If the current branch is **`main`**, you **must not** make any file edits. Create or checkout the feature branch first, then edit.
-- **FORBIDDEN:** Implementing ticket work on `main` or any branch other than the ticket's feature branch. This is non-negotiable.
+- **Before using StrReplace, Write, or EditNotebook** for a ticket: run `git status -sb`. If the current branch is **`main`**, you **must not** make any file edits. Create or checkout the feature branch first, then edit. If branch creation or checkout fails, follow **cloud-and-restricted-agent-workflow.mdc**.
+- **FORBIDDEN:** Implementing ticket work on `main` or any branch other than the ticket's feature branch when you **can** create/use the feature branch. In restricted environments, see **cloud-and-restricted-agent-workflow.mdc**.
 
 ## FIRST: Create feature branch before any edits (mandatory)
 
@@ -18,8 +18,9 @@ alwaysApply: true
   2. Derive the feature branch name: `ticket/<id>-<short-title-kebab>` (e.g. ticket 0030 → `ticket/0030-ticket-list-add-delete-button-and-sync-deletion-to-filesystem`).
   3. If the current branch is **not** that feature branch (including if it is `main`):
      - Run `git checkout -b ticket/<id>-<short-title-kebab>` (or `git checkout ticket/<id>-...` if it already exists).
-     - Do this **before** any file edits.
-- **Why:** Edits on `main` conflate your work with others'; they can be lost if the tree is reset; they violate the branching policy. Branch first, then edit.
+     - If **branch creation or checkout fails** (e.g. cloud or restricted workspace), follow **cloud-and-restricted-agent-workflow.mdc**: you may proceed on current HEAD and must report a change summary so the user can create the branch and push elsewhere.
+     - Do this **before** any file edits (or proceed under the restricted workflow).
+- **Why:** Edits on `main` conflate your work with others'; they can be lost if the tree is reset; they violate the branching policy. Branch first when possible, then edit.
 
 ## Only commit what your ticket changes
 

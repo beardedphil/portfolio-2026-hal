@@ -13,10 +13,11 @@ alwaysApply: true
 - **Required first step** (before the first edit):
   1. Run `git status -sb`. Note the current branch.
   2. If you are on **`main`**: do **not** use StrReplace, Write, or EditNotebook. Run `git checkout -b ticket/<id>-<short-title-kebab>` (or `git checkout ticket/<id>-...` if it exists remotely) first.
-  3. Feature branch name: `ticket/<id>-<short-title-kebab>` (e.g. ticket 0030 → `ticket/0030-ticket-list-add-delete-button-and-sync-deletion-to-filesystem`).
-  4. Only after you are on the feature branch may you edit files.
-- **FORBIDDEN:** Implementing ticket work on `main`. If you realize you edited on `main`: run `git checkout -b ticket/<id>-...` — uncommitted changes move with you; commit on the feature branch.
-- **Why:** Edits on `main` conflate work, can be lost on stash/reset, and violate branching policy. Branch first.
+  3. If **branch creation or checkout fails** (e.g. cloud or restricted workspace), follow **cloud-and-restricted-agent-workflow.mdc**: you may proceed on current HEAD and must not claim "done" or "ready for QA"; report a change summary so the user can create the branch and push elsewhere.
+  4. Feature branch name: `ticket/<id>-<short-title-kebab>` (e.g. ticket 0030 → `ticket/0030-ticket-list-add-delete-button-and-sync-deletion-to-filesystem`).
+  5. Only after you are on the feature branch (or following the restricted workflow) may you edit files.
+- **FORBIDDEN:** Implementing ticket work on `main` when you **can** create a feature branch. If you realize you edited on `main`: run `git checkout -b ticket/<id>-...` — uncommitted changes move with you; commit on the feature branch. If branch creation failed, see **cloud-and-restricted-agent-workflow.mdc**.
+- **Why:** Edits on `main` conflate work, can be lost on stash/reset, and violate branching policy. Branch first when possible.
 
 ## Branching policy (feature branches required)
 

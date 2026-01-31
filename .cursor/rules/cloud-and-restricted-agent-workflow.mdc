@@ -1,0 +1,45 @@
+---
+description: Allow cloud/restricted agents to proceed when git branch or push is not possible
+alwaysApply: true
+---
+
+# Cloud and Restricted Agent Workflow
+
+## When this rule applies
+
+Cursor **cloud agents** (and some restricted/local environments) run in workspaces where:
+
+- `git checkout -b` may fail (read-only git, no ref write, or ephemeral clone).
+- `git push` may be unavailable (no credentials, no network to origin).
+
+Our other rules require **create feature branch first** and **push before done**. In those environments, strict enforcement would block the agent from starting or completing any work.
+
+## Definition: restricted environment
+
+You are in a **restricted environment** if:
+
+1. You attempted to create or checkout a feature branch and the command **failed** (e.g. permission denied, read-only filesystem, or git reported an error), or
+2. You attempted to push and **push failed** (e.g. authentication failed, remote not configured, or network error), or
+3. The workspace is explicitly described as cloud, ephemeral, or read-only (e.g. in the user message or in Cursor’s context).
+
+When in doubt, **try** the normal flow first (create branch, then edit). Only switch to this workflow when branch creation or push fails or is known to be unavailable.
+
+## What to do in a restricted environment
+
+1. **You may make edits** on the current HEAD (even if it is `main`) so that the agent can still deliver value. Prefer creating a feature branch if it succeeds; if it does not, proceed on current HEAD.
+2. **Do not claim "done" or "ready for verification" or "ready for QA".** Work is not on a feature branch and not pushed; QA cannot review it in the usual way.
+3. **At the end of the task**, provide a clear **summary of changes**:
+   - List every file created, modified, or deleted (paths and brief purpose).
+   - State explicitly: **"Restricted environment: branch creation or push was not possible. Work is not pushed. To finish: create branch `ticket/<id>-<short-title-kebab>`, apply or pull these changes, commit, and push from a machine with git write and push access."**
+4. **Preserve traceability**: Include the ticket ID in the summary and in any commit message if you do commit locally. If the platform creates a PR from your workspace, the branch name should still follow `ticket/<id>-<short-title-kebab>` when the user or platform creates it.
+
+## What stays the same
+
+- **No edits on main** when you **can** create and use a feature branch. This rule relaxes that only when branch creation fails or is unavailable.
+- **Traceable work**: All changes are documented; the user (or platform) can create the branch and push, or open a PR from the workspace branch.
+- **User-verifiable outcomes**: Acceptance criteria and verification steps are unchanged; the user still verifies in Human in the Loop after changes are merged.
+
+## Summary
+
+- **Normal environment**: Create feature branch first, edit only on that branch, push before saying done. See **no-edits-on-main.mdc** and **done-means-pushed.mdc**.
+- **Restricted environment**: If branch creation or push fails, you may work on current HEAD and must report a change summary and state that the user must create the branch and push (or use the platform’s PR flow).
