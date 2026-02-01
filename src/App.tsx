@@ -184,7 +184,7 @@ function App() {
     standup: 0,
   }))
   const [agentTypingTarget, setAgentTypingTarget] = useState<ChatTarget | null>(null)
-  /** Implementation Agent run status for on-screen timeline (0044, 0046). */
+  /** Implementation Agent run status for on-screen timeline (0044, 0046, 0050). */
   const [implAgentRunStatus, setImplAgentRunStatus] = useState<
     | 'idle'
     | 'preparing'
@@ -209,10 +209,86 @@ function App() {
     | 'completed'
     | 'failed'
   >('idle')
+  /** Progress messages for Implementation Agent (0050). */
+  const [implAgentProgress, setImplAgentProgress] = useState<Array<{ timestamp: Date; message: string }>>([])
+  /** Last error message for Implementation Agent (0050). */
+  const [implAgentError, setImplAgentError] = useState<string | null>(null)
 
   useEffect(() => {
     selectedChatTargetRef.current = selectedChatTarget
   }, [selectedChatTarget])
+
+  // Persist Implementation Agent status to localStorage (0050)
+  const IMPL_AGENT_STATUS_KEY = 'hal-impl-agent-status'
+  const IMPL_AGENT_PROGRESS_KEY = 'hal-impl-agent-progress'
+  const IMPL_AGENT_ERROR_KEY = 'hal-impl-agent-error'
+
+  // Load persisted status on mount (0050)
+  useEffect(() => {
+    try {
+      const savedStatus = localStorage.getItem(IMPL_AGENT_STATUS_KEY)
+      if (savedStatus && ['preparing', 'fetching_ticket', 'resolving_repo', 'launching', 'polling', 'completed', 'failed'].includes(savedStatus)) {
+        setImplAgentRunStatus(savedStatus as typeof implAgentRunStatus)
+      }
+      const savedProgress = localStorage.getItem(IMPL_AGENT_PROGRESS_KEY)
+      if (savedProgress) {
+        try {
+          const parsed = JSON.parse(savedProgress) as Array<{ timestamp: string; message: string }>
+          setImplAgentProgress(parsed.map((p) => ({ timestamp: new Date(p.timestamp), message: p.message })))
+        } catch {
+          // ignore parse errors
+        }
+      }
+      const savedError = localStorage.getItem(IMPL_AGENT_ERROR_KEY)
+      if (savedError) {
+        setImplAgentError(savedError)
+      }
+    } catch {
+      // ignore localStorage errors
+    }
+  }, [])
+
+  // Save status to localStorage whenever it changes (0050)
+  useEffect(() => {
+    try {
+      if (implAgentRunStatus === 'idle') {
+        localStorage.removeItem(IMPL_AGENT_STATUS_KEY)
+      } else {
+        localStorage.setItem(IMPL_AGENT_STATUS_KEY, implAgentRunStatus)
+      }
+    } catch {
+      // ignore localStorage errors
+    }
+  }, [implAgentRunStatus])
+
+  // Save progress to localStorage whenever it changes (0050)
+  useEffect(() => {
+    try {
+      if (implAgentProgress.length === 0) {
+        localStorage.removeItem(IMPL_AGENT_PROGRESS_KEY)
+      } else {
+        localStorage.setItem(
+          IMPL_AGENT_PROGRESS_KEY,
+          JSON.stringify(implAgentProgress.map((p) => ({ timestamp: p.timestamp.toISOString(), message: p.message })))
+        )
+      }
+    } catch {
+      // ignore localStorage errors
+    }
+  }, [implAgentProgress])
+
+  // Save error to localStorage whenever it changes (0050)
+  useEffect(() => {
+    try {
+      if (!implAgentError) {
+        localStorage.removeItem(IMPL_AGENT_ERROR_KEY)
+      } else {
+        localStorage.setItem(IMPL_AGENT_ERROR_KEY, implAgentError)
+      }
+    } catch {
+      // ignore localStorage errors
+    }
+  }, [implAgentError])
 
   const activeMessages = conversations[selectedChatTarget] ?? []
 
@@ -221,7 +297,7 @@ function App() {
     if (transcriptRef.current) {
       transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight
     }
-  }, [activeMessages, agentTypingTarget, selectedChatTarget, implAgentRunStatus, qaAgentRunStatus])
+  }, [activeMessages, agentTypingTarget, selectedChatTarget, implAgentRunStatus, qaAgentRunStatus, implAgentProgress])
 
   // Persist conversations to localStorage only when project connected and not using Supabase (DB is source of truth when attached)
   useEffect(() => {
@@ -516,9 +592,18 @@ function App() {
 
       setAgentTypingTarget('implementation-agent')
       setImplAgentRunStatus('preparing')
+      setImplAgentProgress([])
+      setImplAgentError(null)
 
       ;(async () => {
         setImplAgentRunStatus(isImplementTicket ? 'fetching_ticket' : 'preparing')
+        const addProgress = (message: string) => {
+          const progressEntry = { timestamp: new Date(), message }
+          setImplAgentProgress((prev) => [...prev, progressEntry])
+          // Also add as a system message to the conversation (0050)
+          addMessage('implementation-agent', 'system', `[Progress] ${message}`)
+        }
+
         try {
           const body: { message: string; supabaseUrl?: string; supabaseAnonKey?: string } = { message: content }
           if (supabaseUrl && supabaseAnonKey) {
@@ -533,10 +618,12 @@ function App() {
 
           if (!res.body) {
             setImplAgentRunStatus('failed')
+            const errorMsg = 'No response body from server.'
+            setImplAgentError(errorMsg)
             addMessage(
               'implementation-agent',
               'implementation-agent',
-              '[Implementation Agent] No response body from server.'
+              `[Implementation Agent] ${errorMsg}`
             )
             setTimeout(() => setAgentTypingTarget(null), 500)
             return
@@ -548,6 +635,8 @@ function App() {
           let lastStage = ''
           let finalContent = ''
           let finalError = ''
+          let lastProgressTime = Date.now()
+          const PROGRESS_INTERVAL = 10000 // 10 seconds
 
           while (true) {
             const { done, value } = await reader.read()
@@ -569,16 +658,35 @@ function App() {
                 }
                 const stage = data.stage ?? ''
                 if (stage) lastStage = stage
-                if (stage === 'fetching_ticket') setImplAgentRunStatus('fetching_ticket')
-                else if (stage === 'resolving_repo') setImplAgentRunStatus('resolving_repo')
-                else if (stage === 'launching') setImplAgentRunStatus('launching')
-                else if (stage === 'polling') setImplAgentRunStatus('polling')
-                else if (stage === 'completed') {
+                
+                // Update status and emit progress messages (0050)
+                if (stage === 'fetching_ticket') {
+                  setImplAgentRunStatus('fetching_ticket')
+                  addProgress('Fetching ticket from database...')
+                } else if (stage === 'resolving_repo') {
+                  setImplAgentRunStatus('resolving_repo')
+                  addProgress('Resolving GitHub repository...')
+                } else if (stage === 'launching') {
+                  setImplAgentRunStatus('launching')
+                  addProgress('Launching cloud agent...')
+                } else if (stage === 'polling') {
+                  setImplAgentRunStatus('polling')
+                  const cursorStatus = data.cursorStatus ?? 'RUNNING'
+                  const now = Date.now()
+                  // Emit progress when entering polling stage or every ~10 seconds while polling (0050)
+                  if (lastStage !== 'polling' || now - lastProgressTime >= PROGRESS_INTERVAL) {
+                    addProgress(`Agent is running (status: ${cursorStatus})...`)
+                    lastProgressTime = now
+                  }
+                } else if (stage === 'completed') {
                   setImplAgentRunStatus('completed')
                   finalContent = data.content ?? 'Implementation completed.'
+                  addProgress('Implementation completed successfully.')
                 } else if (stage === 'failed') {
                   setImplAgentRunStatus('failed')
                   finalError = data.error ?? 'Unknown error'
+                  setImplAgentError(finalError)
+                  addProgress(`Implementation failed: ${finalError}`)
                 }
               } catch {
                 // skip malformed lines
@@ -595,16 +703,19 @@ function App() {
               `[Implementation Agent] ${finalError}`
             )
           } else if (lastStage === 'failed') {
+            const errorMsg = 'Request failed. Check that Cursor API is configured and the project has a GitHub remote.'
+            setImplAgentError(errorMsg)
             addMessage(
               'implementation-agent',
               'implementation-agent',
-              '[Implementation Agent] Request failed. Check that Cursor API is configured and the project has a GitHub remote.'
+              `[Implementation Agent] ${errorMsg}`
             )
           }
           setTimeout(() => setAgentTypingTarget(null), 500)
         } catch (err) {
           setImplAgentRunStatus('failed')
           const msg = err instanceof Error ? err.message : String(err)
+          setImplAgentError(msg)
           addMessage('implementation-agent', 'implementation-agent', `[Implementation Agent] ${msg}`)
           setTimeout(() => setAgentTypingTarget(null), 500)
         }
@@ -890,6 +1001,17 @@ function App() {
     setSupabaseUrl(null)
     setSupabaseAnonKey(null)
     setUnreadByTarget({ 'project-manager': 0, 'implementation-agent': 0, 'qa-agent': 0, standup: 0 })
+    // Clear Implementation Agent state on disconnect (0050)
+    setImplAgentRunStatus('idle')
+    setImplAgentProgress([])
+    setImplAgentError(null)
+    try {
+      localStorage.removeItem(IMPL_AGENT_STATUS_KEY)
+      localStorage.removeItem(IMPL_AGENT_PROGRESS_KEY)
+      localStorage.removeItem(IMPL_AGENT_ERROR_KEY)
+    } catch {
+      // ignore localStorage errors
+    }
   }, [])
 
   const previousResponseIdInLastRequest =
@@ -998,8 +1120,7 @@ function App() {
                   const target = e.target.value as ChatTarget
                   setSelectedChatTarget(target)
                   setUnreadByTarget((prev) => ({ ...prev, [target]: 0 }))
-                  if (target !== 'implementation-agent') setImplAgentRunStatus('idle')
-                  if (target !== 'qa-agent') setQaAgentRunStatus('idle')
+                  // Don't reset status on navigation - persist it (0050)
                 }}
                 disabled={!connectedProject}
               >
@@ -1029,14 +1150,51 @@ function App() {
           ) : (
             <>
               {selectedChatTarget === 'implementation-agent' && (
-                <div className="agent-stub-banner" role="status">
-                  <p className="agent-stub-title">Implementation Agent — Cursor Cloud Agents</p>
-                  <p className="agent-stub-hint">
-                    {import.meta.env.VITE_CURSOR_API_KEY
-                      ? 'Say "Implement ticket XXXX" (e.g. Implement ticket 0046) to fetch the ticket, launch a Cursor cloud agent, and move the ticket to QA when done.'
-                      : 'Cursor API is not configured. Set CURSOR_API_KEY and VITE_CURSOR_API_KEY in .env to enable.'}
-                  </p>
-                </div>
+                <>
+                  <div className="agent-stub-banner" role="status">
+                    <p className="agent-stub-title">Implementation Agent — Cursor Cloud Agents</p>
+                    <p className="agent-stub-hint">
+                      {import.meta.env.VITE_CURSOR_API_KEY
+                        ? 'Say "Implement ticket XXXX" (e.g. Implement ticket 0046) to fetch the ticket, launch a Cursor cloud agent, and move the ticket to QA when done.'
+                        : 'Cursor API is not configured. Set CURSOR_API_KEY and VITE_CURSOR_API_KEY in .env to enable.'}
+                    </p>
+                  </div>
+                  {/* Persistent status panel (0050) */}
+                  {(implAgentRunStatus !== 'idle' || implAgentError) && (
+                    <div className="impl-agent-status-panel" role="status" aria-live="polite">
+                      <div className="impl-agent-status-header">
+                        <span className="impl-agent-status-label">Status:</span>
+                        <span className={`impl-agent-status-value impl-status-${implAgentRunStatus}`}>
+                          {implAgentRunStatus === 'preparing' ? 'Preparing' :
+                           implAgentRunStatus === 'fetching_ticket' ? 'Fetching ticket' :
+                           implAgentRunStatus === 'resolving_repo' ? 'Resolving repository' :
+                           implAgentRunStatus === 'launching' ? 'Launching agent' :
+                           implAgentRunStatus === 'polling' ? 'Running' :
+                           implAgentRunStatus === 'completed' ? 'Completed' :
+                           implAgentRunStatus === 'failed' ? 'Failed' : 'Idle'}
+                        </span>
+                      </div>
+                      {implAgentError && (
+                        <div className="impl-agent-error" role="alert">
+                          <strong>Error:</strong> {implAgentError}
+                        </div>
+                      )}
+                      {implAgentProgress.length > 0 && (
+                        <div className="impl-agent-progress-feed">
+                          <div className="impl-agent-progress-label">Progress:</div>
+                          <div className="impl-agent-progress-items">
+                            {implAgentProgress.slice(-5).map((p, idx) => (
+                              <div key={idx} className="impl-agent-progress-item">
+                                <span className="impl-agent-progress-time">[{formatTime(p.timestamp)}]</span>
+                                <span className="impl-agent-progress-message">{p.message}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
               {selectedChatTarget === 'qa-agent' && (
                 <div className="agent-stub-banner" role="status">
