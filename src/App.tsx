@@ -847,6 +847,22 @@ function App() {
             </>
           )}
 
+          {/* Configuration Status Panel (0042) */}
+          <div className="config-status-panel" role="region" aria-label="Configuration Status">
+            <h3 className="config-status-title">Configuration</h3>
+            <div className="config-status-row">
+              <span className="config-status-label">Cursor API:</span>
+              {import.meta.env.VITE_CURSOR_API_KEY ? (
+                <span className="config-status-value config-status-configured">Configured</span>
+              ) : (
+                <span className="config-status-value config-status-not-configured">
+                  Not configured
+                  <span className="config-status-hint">Missing CURSOR_API_KEY in .env</span>
+                </span>
+              )}
+            </div>
+          </div>
+
           {/* Diagnostics panel */}
           <div className="diagnostics-section">
             <button

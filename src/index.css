@@ -538,6 +538,56 @@ body {
   background: var(--hal-primary-hover);
 }
 
+/* Configuration Status Panel (0042) */
+.config-status-panel {
+  padding: 0.75rem 1rem;
+  background: var(--hal-surface-alt);
+  border-top: 1px solid var(--hal-border);
+}
+
+.config-status-title {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--hal-text);
+}
+
+.config-status-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.config-status-label {
+  color: var(--hal-text-muted);
+  min-width: 80px;
+}
+
+.config-status-value {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.config-status-configured {
+  color: var(--hal-status-ok);
+  font-weight: 500;
+}
+
+.config-status-not-configured {
+  color: var(--hal-status-error);
+  font-weight: 500;
+}
+
+.config-status-hint {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--hal-text-muted);
+  margin-top: 0.15rem;
+}
+
 /* Diagnostics */
 .diagnostics-section {
   border-top: 1px solid var(--hal-border);
@@ -617,6 +667,13 @@ body {
 
 .diag-section-toggle:hover {
   color: var(--hal-text);
+}
+
+.diag-section-header {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--hal-text-muted);
+  padding: 0.4rem 0;
 }
 
 .diag-section-content {
