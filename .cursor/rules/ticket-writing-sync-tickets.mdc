@@ -1,14 +1,15 @@
 ---
-description: Tickets are created only in Supabase; no writing tickets directly in the repo
+description: Supabase-backed Kanban — ALWAYS update tickets in the DB first, then run sync (all agents)
 alwaysApply: true
 ---
 
-# Ticket Source of Truth: Supabase Only
+# Ticket Source of Truth: Supabase Only (All Agents)
 
-- **No tickets can be created from outside the app** by writing files in the repo.
-- **Do not create or edit ticket files** under `docs/tickets/` directly. Those files are **derived from Supabase** (DB → docs).
-- **To create or change a ticket:** write it **directly into Supabase**:
-  - **In-app:** Use the HAL PM agent (create_ticket / update_ticket_body). The change propagates: Kanban UI within ~10s; run sync_tickets (or `npm run sync-tickets`) to propagate to `docs/tickets/*.md`.
-  - **Outside the app:** Use a script that inserts/updates the `tickets` table in Supabase (e.g. a one-off script with Supabase client). Then run `npm run sync-tickets` from the repo root so `docs/tickets/` match the database.
+We use a **Supabase-backed Kanban**. Ticket state (content, column, position) lives in the database. **ALWAYS update tickets in the DB first, then run the sync script** so changes propagate to `docs/tickets/*.md` and the UI. **Never update ticket files locally** for content or column — that would be overwritten by sync or cause the board to revert.
+
+- **Do not create or edit ticket files** under `docs/tickets/` directly. Those files are **derived from Supabase** (DB → docs via sync).
+- **To create or change a ticket (any agent):** update **Supabase first**, then run the sync script:
+  - **Create / update body:** Use the HAL PM agent (create_ticket / update_ticket_body) or a script that writes to the `tickets` table. Then run `npm run sync-tickets` from the repo root so `docs/tickets/*.md` match the database.
+  - **Move ticket column (e.g. QA → Human in the Loop):** Update the DB, then run sync. Use `node scripts/move-ticket-column.js <ticketId> <columnId>` from the repo root (e.g. `node scripts/move-ticket-column.js 0047 col-human-in-the-loop`). The script updates Supabase, then the file frontmatter, then runs `sync-tickets`. **Do not** add or edit YAML frontmatter in the ticket file by hand for column/position.
 - **After any Supabase ticket change**, run `npm run sync-tickets` (from repo root, with `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `.env`) so `docs/tickets/*.md` are updated from the database. Commit and push any resulting repo changes if appropriate.
 - **Never commit `.env`** (it must remain ignored).

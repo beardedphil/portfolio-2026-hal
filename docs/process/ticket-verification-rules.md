@@ -7,6 +7,7 @@ This document defines how we decide a ticket is **properly completed**.
 - **QA** (formerly "Ready for verification"): Code review + automated verification only. No manual UI testing. When QA is satisfied, QA merges to `main` and moves the ticket to **Human in the Loop**.
 - **Human in the Loop**: The user tests merged work at http://localhost:5173. The dev server always serves `main` — `npm run dev` enforces this (`scripts/check-main-branch.js`).
 - Kanban columns: Unassigned → To-do → Doing → **QA** → **Human in the Loop** → Done (and Will Not Implement).
+- **Supabase-backed Kanban (all agents):** Always update tickets in the DB first (create, update body, move column), then run the sync script so changes propagate to `docs/tickets/*.md` and the UI. Do not edit ticket files locally for content or column — use `node scripts/move-ticket-column.js <ticketId> <columnId>` for column moves, then sync.
 
 ## Definition of Done (DoD) — for every ticket
 

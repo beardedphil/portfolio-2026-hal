@@ -31,15 +31,7 @@ For ticket `docs/tickets/0026-kanban-tickets-persist-column-on-refresh.md`, the 
 When the verdict is **PASS (OK to merge)**, QA must **complete the full workflow** — do not stop at a summary or "next steps for the user."
 
 1. **Commit and push** the qa-report (and any rule changes) to the feature branch.
-2. **Move ticket to Human in the Loop** — add YAML frontmatter to the ticket file:
-   ```yaml
-   ---
-   kanbanColumnId: col-human-in-the-loop
-   kanbanPosition: 0
-   kanbanMovedAt: <ISO timestamp>
-   ---
-   ```
-   Include this in the same commit as the qa-report.
+2. **Move ticket to Human in the Loop** — update the ticket **in the DB**, then run sync. Use `node scripts/move-ticket-column.js <ticketId> col-human-in-the-loop` from the repo root (e.g. `node scripts/move-ticket-column.js 0047 col-human-in-the-loop`). Requires `.env` with `SUPABASE_URL` and `SUPABASE_ANON_KEY`. The script updates Supabase, then the ticket file frontmatter, then runs `sync-tickets`. **Do not** add or edit YAML frontmatter in the ticket file by hand — Kanban is Supabase-backed; always update DB first, then sync.
 3. **Merge to main** — checkout `main`, merge the feature branch, push `main`.
 4. **Delete the feature branch** — local and remote (see `delete-branch-after-merge.mdc`).
 5. **Then** give your summary to the user.
