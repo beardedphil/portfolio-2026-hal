@@ -144,10 +144,43 @@ function extractTicketId(filename: string): string | null {
   return match ? match[1] : null
 }
 
-/** Best-effort title: "- **Title**: ..." in content, else filename without .md */
+/** Normalize Title line in body_md to include ID prefix: "<ID> — <title>". Returns { normalized, wasNormalized }. */
+function normalizeTitleLineInBody(bodyMd: string, ticketId: string): { normalized: string; wasNormalized: boolean } {
+  if (!bodyMd || !ticketId) return { normalized: bodyMd, wasNormalized: false }
+  const idPrefix = `${ticketId} — `
+  // Match the Title line: "- **Title**: ..."
+  const titleLineRegex = /(- \*\*Title\*\*:\s*)(.+?)(?:\n|$)/
+  const match = bodyMd.match(titleLineRegex)
+  if (!match) return { normalized: bodyMd, wasNormalized: false } // No Title line found, return as-is
+  
+  const prefix = match[1] // "- **Title**: "
+  let titleValue = match[2].trim()
+  
+  // Check if already has correct ID prefix
+  if (titleValue.startsWith(idPrefix)) {
+    return { normalized: bodyMd, wasNormalized: false }
+  }
+  
+  // Remove any existing ID prefix (e.g. "0048 — " or "0048 - ")
+  titleValue = titleValue.replace(/^\d{4}\s*[—–-]\s*/, '')
+  
+  // Prepend the correct ID prefix
+  const normalizedTitle = `${idPrefix}${titleValue}`
+  const normalizedLine = `${prefix}${normalizedTitle}${match[0].endsWith('\n') ? '\n' : ''}`
+  const normalized = bodyMd.replace(titleLineRegex, normalizedLine)
+  
+  return { normalized, wasNormalized: true }
+}
+
+/** Best-effort title: "- **Title**: ..." in content, else filename without .md. Strips ID prefix if present. */
 function extractTitleFromContent(content: string, filename: string): string {
   const m = content.match(/\*\*Title\*\*:\s*(.+?)(?:\n|$)/)
-  if (m) return m[1].trim()
+  if (m) {
+    let title = m[1].trim()
+    // Strip ID prefix if present (e.g. "0048 — Title" → "Title")
+    title = title.replace(/^\d{4}\s*[—–-]\s*/, '')
+    return title
+  }
   return filename.replace(/\.md$/i, '')
 }
 
@@ -1057,7 +1090,35 @@ function App() {
     const { ticketId } = detailModal
     if (supabaseBoardActive) {
       const row = supabaseTickets.find((t) => t.id === ticketId)
-      setDetailModalBody(row?.body_md ?? '')
+      if (row) {
+        // Normalize Title line if needed (0054)
+        const { normalized, wasNormalized } = normalizeTitleLineInBody(row.body_md, ticketId)
+        if (wasNormalized) {
+          // Update in Supabase and show diagnostic
+          const url = supabaseProjectUrl.trim()
+          const key = supabaseAnonKey.trim()
+          if (url && key) {
+            const client = createClient(url, key)
+            client
+              .from('tickets')
+              .update({ body_md: normalized })
+              .eq('id', ticketId)
+              .then(() => {
+                addLog(`Ticket ${ticketId}: Title normalized to include ID prefix`)
+                // Update local state
+                setSupabaseTickets((prev) =>
+                  prev.map((t) => (t.id === ticketId ? { ...t, body_md: normalized } : t))
+                )
+              })
+              .catch((err) => {
+                console.warn(`Failed to normalize ticket ${ticketId}:`, err)
+              })
+          }
+        }
+        setDetailModalBody(normalized)
+      } else {
+        setDetailModalBody('')
+      }
       setDetailModalError(null)
       setDetailModalLoading(false)
       return
@@ -1066,6 +1127,9 @@ function App() {
       setDetailModalLoading(true)
       setDetailModalError(null)
       const filename = ticketId.split('/').pop() ?? ticketId
+      // Extract ticket ID from filename (e.g. "0048-title.md" → "0048")
+      const idMatch = filename.match(/^(\d{4})/)
+      const ticketIdFromFilename = idMatch ? idMatch[1] : ticketId
       ;(async () => {
         try {
           const docs = await ticketStoreRootHandle.getDirectoryHandle('docs')
@@ -1073,7 +1137,20 @@ function App() {
           const fileHandle = await tickets.getFileHandle(filename)
           const file = await fileHandle.getFile()
           const text = await file.text()
-          setDetailModalBody(text)
+          // Normalize Title line if needed (0054)
+          const { normalized, wasNormalized } = normalizeTitleLineInBody(text, ticketIdFromFilename)
+          if (wasNormalized) {
+            // Write normalized content back to file
+            try {
+              const writable = await fileHandle.createWritable()
+              await writable.write(normalized)
+              await writable.close()
+              addLog(`Ticket ${ticketIdFromFilename}: Title normalized to include ID prefix`)
+            } catch (writeErr) {
+              console.warn(`Failed to write normalized title for ${ticketIdFromFilename}:`, writeErr)
+            }
+          }
+          setDetailModalBody(normalized)
           setDetailModalError(null)
         } catch (e) {
           setDetailModalError(e instanceof Error ? e.message : String(e))
@@ -1246,11 +1323,35 @@ function App() {
         setSupabaseLastError(error.message ?? String(error))
         return false
       }
+      
+      // Normalize Title lines and update DB if needed (0054)
+      const normalizedRows: SupabaseTicketRow[] = []
+      const normalizationPromises: Promise<void>[] = []
+      for (const row of (rows ?? []) as SupabaseTicketRow[]) {
+        const { normalized, wasNormalized } = normalizeTitleLineInBody(row.body_md, row.id)
+        if (wasNormalized) {
+          // Update ticket in Supabase with normalized body_md
+          const updatePromise = client
+            .from('tickets')
+            .update({ body_md: normalized })
+            .eq('id', row.id)
+            .then(() => {
+              addLog(`Ticket ${row.id}: Title normalized to include ID prefix`)
+            })
+            .catch((err) => {
+              console.warn(`Failed to normalize ticket ${row.id}:`, err)
+            })
+          normalizationPromises.push(updatePromise)
+          normalizedRows.push({ ...row, body_md: normalized })
+        } else {
+          normalizedRows.push(row)
+        }
+      }
+      
       // Don't overwrite tickets that have pending moves (0047)
       if (skipPendingMoves && pendingMoves.size > 0) {
         setSupabaseTickets((prev) => {
-          const newRows = (rows ?? []) as SupabaseTicketRow[]
-          const newMap = new Map(newRows.map((r) => [r.id, r]))
+          const newMap = new Map(normalizedRows.map((r) => [r.id, r]))
           // Preserve optimistic updates for pending moves, update others from DB
           const result: SupabaseTicketRow[] = []
           const processedIds = new Set<string>()
@@ -1265,7 +1366,7 @@ function App() {
             }
           }
           // Then, add any new tickets from DB that weren't in prev
-          for (const row of newRows) {
+          for (const row of normalizedRows) {
             if (!processedIds.has(row.id)) {
               result.push(row)
             }
@@ -1273,8 +1374,13 @@ function App() {
           return result
         })
       } else {
-        setSupabaseTickets((rows ?? []) as SupabaseTicketRow[])
+        setSupabaseTickets(normalizedRows)
       }
+      
+      // Wait for normalization updates to complete (fire and forget)
+      Promise.all(normalizationPromises).catch(() => {
+        // Errors already logged above
+      })
       setSupabaseLastRefresh(new Date())
 
       const { data: colRows, error: colError } = await client
