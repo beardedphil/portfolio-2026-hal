@@ -158,10 +158,12 @@ export default defineConfig({
               console.warn('[HAL PM] projectId received but Supabase creds missing or empty — create_ticket will not be available')
             }
 
-            if (!message.trim()) {
+            // Allow empty message if images are present
+            const hasImages = Array.isArray(body.images) && body.images.length > 0
+            if (!message.trim() && !hasImages) {
               res.statusCode = 400
               res.setHeader('Content-Type', 'application/json')
-              res.end(JSON.stringify({ error: 'Message is required' }))
+              res.end(JSON.stringify({ error: 'Message is required (or attach an image)' }))
               return
             }
 
