@@ -5,7 +5,7 @@ Create a new file at `docs/tickets/<task-id>-<short-title>.md` using this templa
 ## Ticket
 
 - **ID**: `<task-id>`
-- **Title**: `<short title>`
+- **Title**: `NNNN — <short title>` (e.g. "0049 — Update ticket title format")
 - **Owner**: Implementation agent
 - **Type**: Feature / Bug / Chore
 - **Priority**: P0 / P1 / P2
