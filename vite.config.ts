@@ -658,7 +658,7 @@ export default defineConfig({
                 res.end()
                 return
               }
-              let statusData: { status?: string; summary?: string; target?: { prUrl?: string } }
+              let statusData: { status?: string; summary?: string; completionReport?: string; message?: string; report?: string; target?: { prUrl?: string } }
               try {
                 statusData = JSON.parse(statusText) as typeof statusData
               } catch {
@@ -670,6 +670,8 @@ export default defineConfig({
               writeStage({ stage: 'polling', cursorStatus: lastStatus })
 
               if (lastStatus === 'FINISHED') {
+                // Try to get full completion report, falling back to summary
+                const completionReport = statusData.completionReport ?? statusData.message ?? statusData.report ?? statusData.summary ?? 'Implementation completed.'
                 const summary = statusData.summary ?? 'Implementation completed.'
                 const prUrl = statusData.target?.prUrl
 
@@ -731,10 +733,20 @@ export default defineConfig({
                   }
                 }
 
-                const contentParts = [summary]
+                // Use full completion report if available, otherwise use summary
+                const reportContent = completionReport !== summary ? completionReport : summary
+                const contentParts = [reportContent]
                 if (prUrl) contentParts.push(`\n\nPull request: ${prUrl}`)
                 contentParts.push(`\n\nTicket ${ticketId} moved to QA.`)
-                writeStage({ stage: 'completed', success: true, content: contentParts.join(''), prUrl, summary, status: 'completed' })
+                writeStage({ 
+                  stage: 'completed', 
+                  success: true, 
+                  content: contentParts.join(''), 
+                  prUrl, 
+                  summary, 
+                  completionReport: completionReport !== summary ? completionReport : undefined,
+                  status: 'completed' 
+                })
                 res.end()
                 return
               }
@@ -1066,7 +1078,7 @@ export default defineConfig({
                 res.end()
                 return
               }
-              let statusData: { status?: string; summary?: string }
+              let statusData: { status?: string; summary?: string; completionReport?: string; message?: string; report?: string }
               try {
                 statusData = JSON.parse(statusText) as typeof statusData
               } catch {
@@ -1078,6 +1090,8 @@ export default defineConfig({
               writeStage({ stage: 'polling', cursorStatus: lastStatus })
 
               if (lastStatus === 'FINISHED') {
+                // Try to get full completion report, falling back to summary
+                const completionReport = statusData.completionReport ?? statusData.message ?? statusData.report ?? statusData.summary ?? 'QA completed.'
                 const summary = statusData.summary ?? 'QA completed.'
                 writeStage({ stage: 'generating_report', content: summary })
 
@@ -1140,30 +1154,57 @@ export default defineConfig({
                     }
                   }
 
+                  // Use full completion report if available, otherwise use summary
+                  const reportContent = completionReport !== summary ? completionReport : summary
                   const contentParts = [
                     `**QA PASSED** for ticket ${ticketId}`,
                     '',
-                    summary,
+                    reportContent,
                     '',
                     `Ticket ${ticketId} has been merged to main and moved to Human in the Loop.`,
                   ]
-                  writeStage({ stage: 'completed', success: true, content: contentParts.join('\n'), verdict: 'PASS', status: 'completed' })
+                  writeStage({ 
+                    stage: 'completed', 
+                    success: true, 
+                    content: contentParts.join('\n'), 
+                    verdict: 'PASS', 
+                    completionReport: completionReport !== summary ? completionReport : undefined,
+                    status: 'completed' 
+                  })
                   res.end()
                   return
                 } else if (verdict === 'FAIL') {
+                  // Use full completion report if available, otherwise use summary
+                  const reportContent = completionReport !== summary ? completionReport : summary
                   const contentParts = [
                     `**QA FAILED** for ticket ${ticketId}`,
                     '',
-                    summary,
+                    reportContent,
                     '',
                     'The ticket was not merged. Review the qa-report.md for details and create a bugfix ticket if needed.',
                   ]
-                  writeStage({ stage: 'completed', success: false, content: contentParts.join('\n'), verdict: 'FAIL', status: 'completed' })
+                  writeStage({ 
+                    stage: 'completed', 
+                    success: false, 
+                    content: contentParts.join('\n'), 
+                    verdict: 'FAIL', 
+                    completionReport: completionReport !== summary ? completionReport : undefined,
+                    status: 'completed' 
+                  })
                   res.end()
                   return
                 } else {
                   // Verdict unknown - agent may still be processing
-                  writeStage({ stage: 'completed', success: true, content: summary, verdict: 'UNKNOWN', status: 'completed' })
+                  // Use full completion report if available, otherwise use summary
+                  const reportContent = completionReport !== summary ? completionReport : summary
+                  writeStage({ 
+                    stage: 'completed', 
+                    success: true, 
+                    content: reportContent, 
+                    verdict: 'UNKNOWN', 
+                    completionReport: completionReport !== summary ? completionReport : undefined,
+                    status: 'completed' 
+                  })
                   res.end()
                   return
                 }

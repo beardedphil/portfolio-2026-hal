@@ -988,6 +988,7 @@ function App() {
             let finalContent = ''
             let finalError = ''
             let lastProgressTime = Date.now()
+            let completedData: { completionReport?: string; content?: string; [key: string]: unknown } | null = null
             const PROGRESS_INTERVAL = 10000 // 10 seconds
 
             while (true) {
@@ -1005,6 +1006,7 @@ function App() {
                     cursorStatus?: string
                     success?: boolean
                     content?: string
+                    completionReport?: string
                     error?: string
                     status?: string
                   }
@@ -1032,7 +1034,10 @@ function App() {
                     }
                   } else if (stage === 'completed') {
                     setImplAgentRunStatus('completed')
-                    finalContent = data.content ?? 'Implementation completed.'
+                    // Store completion data for later use (0071)
+                    completedData = data
+                    // Use full completion report if available, otherwise fall back to content/summary
+                    finalContent = data.completionReport ?? data.content ?? 'Implementation completed.'
                     addProgress('Implementation completed successfully.')
                     
                     // Auto-move ticket to QA (0061)
@@ -1060,10 +1065,25 @@ function App() {
             }
 
             if (finalContent) {
-              // Add completion summary with label (0067)
+              // Check if we received a full completion report or just a summary (0071)
+              const hasFullReport = completedData?.completionReport !== undefined || (finalContent && finalContent.split('\n').length > 3)
+              const isShortSummary = !hasFullReport && finalContent.split('\n').length <= 3 && finalContent.length < 200
+              
+              // Add completion report with label (0071)
               const agentType = cursorRunAgentType || 'implementation-agent'
               if (agentType === 'implementation-agent' || agentType === 'qa-agent') {
-                addMessage(agentType, agentType, `**Completion summary**\n\n${finalContent}`)
+                if (isShortSummary && !completedData?.completionReport) {
+                  // Show diagnostic banner if we only got a summary (0071)
+                  const receivedFields = completedData ? Object.keys(completedData).filter(k => k !== 'stage' && k !== 'status' && k !== 'success').join(', ') : 'none'
+                  addMessage(
+                    agentType,
+                    'system',
+                    `⚠️ **Completion report missing from Cursor response; showing only summary.**\n\nReceived fields: ${receivedFields}\n\n**Summary:**\n${finalContent}`
+                  )
+                } else {
+                  // Show full completion report (0071)
+                  addMessage(agentType, agentType, `**Completion report**\n\n${finalContent}`)
+                }
               } else {
                 // Missing agent type: show diagnostic and retain raw summary (0067)
                 addAutoMoveDiagnostic(
@@ -1176,6 +1196,7 @@ function App() {
             let lastStage = ''
             let finalContent = ''
             let finalError = ''
+            let completedData: { completionReport?: string; content?: string; [key: string]: unknown } | null = null
 
             while (true) {
               const { done, value } = await reader.read()
@@ -1192,6 +1213,7 @@ function App() {
                     cursorStatus?: string
                     success?: boolean
                     content?: string
+                    completionReport?: string
                     error?: string
                     status?: string
                     verdict?: 'PASS' | 'FAIL'
@@ -1224,7 +1246,10 @@ function App() {
                     addProgress('Moving ticket to Human in the Loop...')
                   } else if (stage === 'completed') {
                     setQaAgentRunStatus('completed')
-                    finalContent = data.content ?? 'QA completed.'
+                    // Store completion data for later use (0071)
+                    completedData = data
+                    // Use full completion report if available, otherwise fall back to content/summary
+                    finalContent = data.completionReport ?? data.content ?? 'QA completed.'
                     addProgress('QA completed successfully.')
                     
                     // Auto-move ticket to Human in the Loop if PASS (0061)
@@ -1270,10 +1295,25 @@ function App() {
             }
 
             if (finalContent) {
-              // Add completion summary with label (0067)
+              // Check if we received a full completion report or just a summary (0071)
+              const hasFullReport = completedData?.completionReport !== undefined || finalContent.includes('QA RESULT:') || finalContent.split('\n').length > 5
+              const isShortSummary = !hasFullReport && finalContent.split('\n').length <= 3 && finalContent.length < 200
+              
+              // Add completion report with label (0071)
               const agentType = cursorRunAgentType || 'qa-agent'
               if (agentType === 'implementation-agent' || agentType === 'qa-agent') {
-                addMessage(agentType, agentType, `**Completion summary**\n\n${finalContent}`)
+                if (isShortSummary && !completedData?.completionReport && !finalContent.includes('QA RESULT:')) {
+                  // Show diagnostic banner if we only got a summary (0071)
+                  const receivedFields = completedData ? Object.keys(completedData).filter(k => k !== 'stage' && k !== 'status' && k !== 'success' && k !== 'verdict').join(', ') : 'none'
+                  addMessage(
+                    agentType,
+                    'system',
+                    `⚠️ **Completion report missing from Cursor response; showing only summary.**\n\nReceived fields: ${receivedFields}\n\n**Summary:**\n${finalContent}`
+                  )
+                } else {
+                  // Show full completion report (0071)
+                  addMessage(agentType, agentType, `**Completion report**\n\n${finalContent}`)
+                }
               } else {
                 // Missing agent type: show diagnostic and retain raw summary (0067)
                 addAutoMoveDiagnostic(
