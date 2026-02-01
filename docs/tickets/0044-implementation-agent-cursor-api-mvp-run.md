@@ -1,3 +1,9 @@
+---
+kanbanColumnId: col-human-in-the-loop
+kanbanPosition: 0
+kanbanMovedAt: 2025-01-31T12:30:00.000Z
+---
+
 ## Ticket
 
 - **ID**: 0044
@@ -9,6 +15,7 @@
 ## QA (implementation agent fills when work is pushed)
 
 - **Branch**: `ticket/0044-implementation-agent-cursor-api-mvp-run`
+- **QA report**: `docs/audit/0044-implementation-agent-cursor-api-mvp-run/qa-report.md` — Code review PASS; manual UI verification at http://localhost:5173 per verification.md recommended.
 
 ## Human in the Loop
 
@@ -24,10 +31,10 @@ When **Implementation Agent** is selected in the agent dropdown, the chat UI can
 
 ## Acceptance criteria (UI-only)
 
-- [ ] With **Implementation Agent** selected, sending a chat message visibly starts a run and shows an in-app status/progress indicator.
-- [ ] If Cursor API is not configured, the UI shows a clear, user-readable error state (and does not attempt the request).
-- [ ] If Cursor API is configured, the UI shows a success state and displays the returned content in the chat.
-- [ ] If the Cursor API request fails, the UI shows a failure state with a human-readable error summary (no stack trace required).
+- [x] With **Implementation Agent** selected, sending a chat message visibly starts a run and shows an in-app status/progress indicator.
+- [x] If Cursor API is not configured, the UI shows a clear, user-readable error state (and does not attempt the request).
+- [x] If Cursor API is configured, the UI shows a success state and displays the returned content in the chat.
+- [x] If the Cursor API request fails, the UI shows a failure state with a human-readable error summary (no stack trace required).
 
 ## Constraints
 

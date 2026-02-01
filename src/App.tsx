@@ -179,6 +179,10 @@ function App() {
     standup: 0,
   }))
   const [agentTypingTarget, setAgentTypingTarget] = useState<ChatTarget | null>(null)
+  /** Implementation Agent run status for on-screen timeline (0044). */
+  const [implAgentRunStatus, setImplAgentRunStatus] = useState<
+    'idle' | 'preparing' | 'sending' | 'waiting' | 'completed' | 'failed'
+  >('idle')
 
   useEffect(() => {
     selectedChatTargetRef.current = selectedChatTarget
@@ -191,7 +195,7 @@ function App() {
     if (transcriptRef.current) {
       transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight
     }
-  }, [activeMessages, agentTypingTarget, selectedChatTarget])
+  }, [activeMessages, agentTypingTarget, selectedChatTarget, implAgentRunStatus])
 
   // Persist conversations to localStorage only when project connected and not using Supabase (DB is source of truth when attached)
   useEffect(() => {
@@ -472,15 +476,65 @@ function App() {
         }
       })()
     } else if (selectedChatTarget === 'implementation-agent') {
-      setAgentTypingTarget('implementation-agent')
-      setTimeout(() => {
-        setAgentTypingTarget(null)
+      const cursorApiConfigured = !!(import.meta.env.VITE_CURSOR_API_KEY as string | undefined)?.trim()
+      if (!cursorApiConfigured) {
         addMessage(
           'implementation-agent',
           'implementation-agent',
-          '[Implementation Agent] This agent is currently a stub and is not wired to the Cursor API. Implementation Agent will be enabled in a later ticket.'
+          '[Implementation Agent] Cursor API is not configured. Set CURSOR_API_KEY and VITE_CURSOR_API_KEY in .env to enable this agent.'
         )
-      }, 500)
+        return
+      }
+
+      setAgentTypingTarget('implementation-agent')
+      setImplAgentRunStatus('preparing')
+
+      ;(async () => {
+        setImplAgentRunStatus('sending')
+        try {
+          const res = await fetch('/api/implementation-agent/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: content }),
+          })
+          setImplAgentRunStatus('waiting')
+
+          const text = await res.text()
+          let data: { success?: boolean; content?: string; error?: string; status?: string }
+          try {
+            data = JSON.parse(text) as typeof data
+          } catch {
+            setImplAgentRunStatus('failed')
+            addMessage(
+              'implementation-agent',
+              'implementation-agent',
+              '[Implementation Agent] Invalid response from Cursor API.'
+            )
+            setTimeout(() => setAgentTypingTarget(null), 500)
+            return
+          }
+
+          if (data.success && data.content) {
+            setImplAgentRunStatus('completed')
+            addMessage('implementation-agent', 'implementation-agent', `[Implementation Agent] ${data.content}`)
+            setTimeout(() => setAgentTypingTarget(null), 500)
+          } else {
+            setImplAgentRunStatus('failed')
+            const errMsg = data.error ?? 'Unknown error'
+            addMessage(
+              'implementation-agent',
+              'implementation-agent',
+              `[Implementation Agent] Request failed: ${errMsg}`
+            )
+            setTimeout(() => setAgentTypingTarget(null), 500)
+          }
+        } catch (err) {
+          setImplAgentRunStatus('failed')
+          const msg = err instanceof Error ? err.message : String(err)
+          addMessage('implementation-agent', 'implementation-agent', `[Implementation Agent] Error: ${msg}`)
+          setTimeout(() => setAgentTypingTarget(null), 500)
+        }
+      })()
     } else {
       // Standup: shared transcript across all agents
       setAgentTypingTarget('standup')
@@ -758,6 +812,7 @@ function App() {
                   const target = e.target.value as ChatTarget
                   setSelectedChatTarget(target)
                   setUnreadByTarget((prev) => ({ ...prev, [target]: 0 }))
+                  if (target !== 'implementation-agent') setImplAgentRunStatus('idle')
                 }}
                 disabled={!connectedProject}
               >
@@ -782,9 +837,11 @@ function App() {
             <>
               {selectedChatTarget === 'implementation-agent' && (
                 <div className="agent-stub-banner" role="status">
-                  <p className="agent-stub-title">Implementation Agent — not yet connected</p>
+                  <p className="agent-stub-title">Implementation Agent — Cursor API (MVP)</p>
                   <p className="agent-stub-hint">
-                    This agent is currently a stub and is not wired to the Cursor API. Implementation Agent will be enabled in a later ticket.
+                    {import.meta.env.VITE_CURSOR_API_KEY
+                      ? 'Send a message to run a minimal Cursor API test. Status timeline will show request progress.'
+                      : 'Cursor API is not configured. Set CURSOR_API_KEY and VITE_CURSOR_API_KEY in .env to enable.'}
                   </p>
                 </div>
               )}
@@ -818,14 +875,34 @@ function App() {
                           <div className="message-header">
                             <span className="message-author">HAL</span>
                           </div>
-                          <span className="typing-bubble">
-                            <span className="typing-label">Thinking</span>
-                            <span className="typing-dots">
-                              <span className="typing-dot" />
-                              <span className="typing-dot" />
-                              <span className="typing-dot" />
+                          {selectedChatTarget === 'implementation-agent' ? (
+                            <div className="impl-agent-status-timeline" role="status">
+                              <span className={implAgentRunStatus === 'preparing' ? 'impl-status-active' : implAgentRunStatus !== 'idle' ? 'impl-status-done' : ''}>
+                                Preparing request
+                              </span>
+                              <span className="impl-status-arrow">→</span>
+                              <span className={implAgentRunStatus === 'sending' ? 'impl-status-active' : implAgentRunStatus === 'waiting' || implAgentRunStatus === 'completed' || implAgentRunStatus === 'failed' ? 'impl-status-done' : ''}>
+                                Sending to Cursor API
+                              </span>
+                              <span className="impl-status-arrow">→</span>
+                              <span className={implAgentRunStatus === 'waiting' ? 'impl-status-active' : implAgentRunStatus === 'completed' || implAgentRunStatus === 'failed' ? 'impl-status-done' : ''}>
+                                Waiting
+                              </span>
+                              <span className="impl-status-arrow">→</span>
+                              <span className={implAgentRunStatus === 'completed' ? 'impl-status-done' : implAgentRunStatus === 'failed' ? 'impl-status-failed' : ''}>
+                                {implAgentRunStatus === 'completed' ? 'Completed' : implAgentRunStatus === 'failed' ? 'Failed' : '…'}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="typing-bubble">
+                              <span className="typing-label">Thinking</span>
+                              <span className="typing-dots">
+                                <span className="typing-dot" />
+                                <span className="typing-dot" />
+                                <span className="typing-dot" />
+                              </span>
                             </span>
-                          </span>
+                          )}
                         </div>
                       </div>
                     )}
@@ -861,7 +938,7 @@ function App() {
               ) : (
                 <span className="config-status-value config-status-not-configured">
                   Not configured
-                  <span className="config-status-hint">Missing CURSOR_API_KEY in .env</span>
+                  <span className="config-status-hint">Missing CURSOR_API_KEY and VITE_CURSOR_API_KEY in .env</span>
                 </span>
               )}
             </div>
