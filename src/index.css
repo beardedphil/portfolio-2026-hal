@@ -876,6 +876,61 @@ body {
   text-overflow: ellipsis;
 }
 
+/* Auto-move diagnostics (0061) */
+.diag-auto-move-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.diag-auto-move-entry {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.4rem 0.5rem;
+  background: var(--hal-surface-alt);
+  border: 1px solid var(--hal-border);
+  border-radius: 4px;
+  font-size: 0.75rem;
+}
+
+.diag-auto-move-entry.diag-auto-move-error {
+  border-color: var(--hal-status-error);
+  background: #ffebee;
+}
+
+.diag-auto-move-entry.diag-auto-move-info {
+  border-color: var(--hal-status-ok);
+  background: #e8f5e9;
+}
+
+.diag-auto-move-time {
+  font-family: ui-monospace, monospace;
+  color: var(--hal-text-muted);
+  min-width: 80px;
+  flex-shrink: 0;
+}
+
+.diag-auto-move-message {
+  color: var(--hal-text);
+  word-break: break-word;
+}
+
+.diag-auto-move-entry.diag-auto-move-error .diag-auto-move-message {
+  color: var(--hal-status-error);
+}
+
+.diag-auto-move-entry.diag-auto-move-info .diag-auto-move-message {
+  color: var(--hal-status-ok);
+}
+
+.diag-auto-move-more {
+  font-size: 0.7rem;
+  color: var(--hal-text-muted);
+  font-style: italic;
+  text-align: center;
+  padding: 0.25rem 0;
+}
+
 /* Responsive adjustments */
 @media (max-width: 900px) {
   .hal-main {

@@ -9,8 +9,8 @@ For any coding task assigned to an implementation agent, the work must be **full
 
 ## Standard Prompt Format (Supabase source of truth)
 
-- All new stories/tasks must be **tickets** stored in **Supabase** (source of truth). **Do not create or edit ticket files** under `docs/tickets/` directly; tickets are created via the HAL app (PM agent) or a script that writes to the Supabase `tickets` table. Run `npm run sync-tickets` so `docs/tickets/*.md` are written from the database.
-- **Kanban is Supabase-backed.** For any ticket change (create, update body, move column): **update the DB first**, then run `npm run sync-tickets` (or use `node scripts/move-ticket-column.js <ticketId> <columnId>` for column moves). Never update ticket files locally for content or column — changes propagate from DB to docs and UI via the sync script.
+- All new stories/tasks must be **tickets** stored in **Supabase** (source of truth). **Do not create or edit ticket files** under `docs/tickets/` directly; tickets are created via the HAL app (PM agent) or a script that writes to the Supabase `tickets` table. The app uses Supabase-only mode (0065) and does not read from `docs/tickets/*.md`.
+- **Kanban is Supabase-backed (Supabase-only mode, 0065).** For any ticket change (create, update body, move column): **update the DB directly**. The Kanban UI reflects changes within the polling interval (~10s). Use `node scripts/move-ticket-column.js <ticketId> <columnId>` for column moves. Never update ticket files locally — the app does not read them.
 - Use the workspace template for **content structure** when creating a ticket (in-app or via script):
   - `docs/templates/ticket.template.md`
 - The ticket in Supabase (and, after sync, in `docs/tickets/<task-id>-<short-title>.md`) is the canonical “prompt” (we do **not** create a `prompt.md` artifact).
@@ -24,8 +24,8 @@ For any coding task assigned to an implementation agent, the work must be **full
 
 Create a task folder under `docs/audit/`:
 
-- `docs/tickets/<task-id>-<short-title>.md`
-  - Canonical ticket used to brief the implementation agent (includes acceptance criteria).
+- Ticket in Supabase (not `docs/tickets/*.md` — Supabase-only mode, 0065)
+  - Canonical ticket used to brief the implementation agent (includes acceptance criteria). Fetched from Supabase.
 - `docs/audit/<task-id>-<short-title>/plan.md`
   - 3–10 bullets: intended approach and file touchpoints.
 - `docs/audit/<task-id>-<short-title>/worklog.md`
@@ -58,8 +58,8 @@ Create a task folder under `docs/audit/`:
 - If any untracked/modified files remain, the agent must either:
   - commit them (if they belong to the ticket), or
   - delete/ignore/revert them (if they are accidental/generated), before claiming “ready.”
-- The ticket must exist in **Supabase** and, after `npm run sync-tickets`, in the repo:
-  - `docs/tickets/<task-id>-<short-title>.md` must exist on the branch being verified (written from DB by sync; do not add ticket files by hand).
+- The ticket must exist in **Supabase** (Supabase-only mode, 0065):
+  - Ticket must exist in Supabase. `docs/tickets/*.md` files are not used by the app.
 
 - “Ready for verification” instructions must be **UI-only**:
   - Do not ask the user/PM to commit, push, or otherwise “finish” the task.
@@ -69,6 +69,7 @@ Create a task folder under `docs/audit/`:
   - the **feature branch name** (so QA can review and merge), and
   - the exact `git status -sb` output.
 - The implementation agent **must add the branch name to the ticket** when claiming "ready for QA" (see ticket template: QA → Branch).
+- The implementation agent **must add an "Artifacts" section to the ticket body** when marking ready for QA (see `done-means-pushed.mdc` for the required format and artifact list).
 
 - Audit artifacts must be **in git**:
   - `docs/audit/<task-id>-<short-title>/` must be committed and pushed before claiming “ready.”

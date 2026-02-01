@@ -63,6 +63,8 @@ type DiagnosticsInfo = {
   previousResponseIdInLastRequest: boolean
   /** Agent runner label from last PM response (e.g. "v2 (shared)"). */
   agentRunner: string | null
+  /** Auto-move diagnostics entries (0061). */
+  autoMoveDiagnostics: Array<{ timestamp: Date; message: string; type: 'error' | 'info' }>
 }
 
 // localStorage helpers for conversation persistence (fallback when no project DB)
@@ -214,6 +216,16 @@ function App() {
   const [implAgentProgress, setImplAgentProgress] = useState<Array<{ timestamp: Date; message: string }>>([])
   /** Last error message for Implementation Agent (0050). */
   const [implAgentError, setImplAgentError] = useState<string | null>(null)
+  /** Current ticket ID for Implementation Agent (0061). */
+  const [implAgentTicketId, setImplAgentTicketId] = useState<string | null>(null)
+  /** Current ticket ID for QA Agent (0061). */
+  const [qaAgentTicketId, setQaAgentTicketId] = useState<string | null>(null)
+  /** Auto-move diagnostics entries (0061). */
+  const [autoMoveDiagnostics, setAutoMoveDiagnostics] = useState<Array<{ timestamp: Date; message: string; type: 'error' | 'info' }>>([])
+  /** Agent type that initiated the current Cursor run (0067). Used to route completion summaries to the correct chat. */
+  const [cursorRunAgentType, setCursorRunAgentType] = useState<Agent | null>(null)
+  /** Raw completion summary for troubleshooting when agent type is missing (0067). */
+  const [orphanedCompletionSummary, setOrphanedCompletionSummary] = useState<string | null>(null)
 
   useEffect(() => {
     selectedChatTargetRef.current = selectedChatTarget
@@ -373,6 +385,104 @@ function App() {
     if (agent !== 'user' && target !== selectedChatTargetRef.current) {
       setUnreadByTarget((prev) => ({ ...prev, [target]: (prev[target] ?? 0) + 1 }))
     }
+    
+    // Auto-move ticket when QA completion message is detected in QA Agent chat (0061)
+    if (target === 'qa-agent' && agent === 'qa-agent') {
+      const isQaCompletion = /qa.*complete|qa.*report|qa.*pass|verdict.*pass|move.*human.*loop|verified.*main|pass.*ok.*merge/i.test(content)
+      if (isQaCompletion) {
+        const isPass = /pass|ok.*merge|verified.*main|verdict.*pass/i.test(content) && !/fail|verdict.*fail/i.test(content)
+        if (isPass) {
+          const currentTicketId = qaAgentTicketId || extractTicketId(content)
+          if (currentTicketId) {
+            moveTicketToColumn(currentTicketId, 'col-human-in-the-loop', 'qa').catch(() => {
+              // Error already logged via addAutoMoveDiagnostic
+            })
+          } else {
+            addAutoMoveDiagnostic(
+              `QA Agent completion (PASS): Could not determine ticket ID from message. Auto-move skipped.`,
+              'error'
+            )
+          }
+        }
+      }
+    }
+  }, [qaAgentTicketId, extractTicketId, moveTicketToColumn, addAutoMoveDiagnostic])
+
+  /** Add auto-move diagnostic entry (0061). */
+  const addAutoMoveDiagnostic = useCallback((message: string, type: 'error' | 'info' = 'error') => {
+    setAutoMoveDiagnostics((prev) => [...prev, { timestamp: new Date(), message, type }])
+  }, [])
+
+  /** Move ticket to next column via Supabase (0061). */
+  const moveTicketToColumn = useCallback(
+    async (ticketId: string, targetColumnId: string, agentType: 'implementation' | 'qa'): Promise<{ success: boolean; error?: string }> => {
+      if (!supabaseUrl || !supabaseAnonKey) {
+        const error = `Cannot move ticket ${ticketId}: Supabase credentials not available. Connect project folder to enable auto-move.`
+        addAutoMoveDiagnostic(error, 'error')
+        return { success: false, error }
+      }
+
+      try {
+        const supabase = createClient(supabaseUrl, supabaseAnonKey)
+
+        // Get max position in target column
+        const { data: inColumn, error: fetchErr } = await supabase
+          .from('tickets')
+          .select('kanban_position')
+          .eq('kanban_column_id', targetColumnId)
+          .order('kanban_position', { ascending: false })
+          .limit(1)
+
+        if (fetchErr) {
+          const error = `Failed to fetch tickets in target column ${targetColumnId} for ticket ${ticketId}: ${fetchErr.message}`
+          addAutoMoveDiagnostic(error, 'error')
+          return { success: false, error }
+        }
+
+        const nextPosition = inColumn?.length ? ((inColumn[0]?.kanban_position ?? -1) + 1) : 0
+        const movedAt = new Date().toISOString()
+
+        // Update ticket column
+        const { error: updateErr } = await supabase
+          .from('tickets')
+          .update({
+            kanban_column_id: targetColumnId,
+            kanban_position: nextPosition,
+            kanban_moved_at: movedAt,
+          })
+          .eq('id', ticketId)
+
+        if (updateErr) {
+          const error = `Failed to move ticket ${ticketId} to ${targetColumnId}: ${updateErr.message}`
+          addAutoMoveDiagnostic(error, 'error')
+          return { success: false, error }
+        }
+
+        // Note: sync-tickets is handled by the backend when tickets are moved via the agent endpoints
+        // This frontend move is a fallback/automatic move, so we rely on the Kanban board's polling to reflect the change
+        const info = `${agentType === 'implementation' ? 'Implementation' : 'QA'} Agent: Moved ticket ${ticketId} to ${targetColumnId}`
+        addAutoMoveDiagnostic(info, 'info')
+        return { success: true }
+      } catch (err) {
+        const error = `Failed to move ticket ${ticketId} to ${targetColumnId}: ${err instanceof Error ? err.message : String(err)}`
+        addAutoMoveDiagnostic(error, 'error')
+        return { success: false, error }
+      }
+    },
+    [supabaseUrl, supabaseAnonKey, addAutoMoveDiagnostic]
+  )
+
+  /** Extract ticket ID from message content (0061). */
+  const extractTicketId = useCallback((content: string): string | null => {
+    // Try "Implement ticket XXXX" or "QA ticket XXXX" patterns
+    const implMatch = content.match(/implement\s+ticket\s+(\d{4})/i)
+    if (implMatch) return implMatch[1]
+    const qaMatch = content.match(/qa\s+ticket\s+(\d{4})/i)
+    if (qaMatch) return qaMatch[1]
+    // Try to find any 4-digit ticket ID in the message
+    const anyMatch = content.match(/\b(\d{4})\b/)
+    if (anyMatch) return anyMatch[1]
+    return null
   }, [])
 
   type CheckUnassignedResult = {
@@ -488,6 +598,23 @@ function App() {
     window.addEventListener('message', handler)
     return () => window.removeEventListener('message', handler)
   }, [supabaseUrl, supabaseAnonKey, connectedProject, runUnassignedCheck])
+
+  // Handle chat open and send message requests from Kanban
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      const data = event.data as { type?: string; chatTarget?: ChatTarget; message?: string }
+      if (data?.type !== 'HAL_OPEN_CHAT_AND_SEND') return
+      if (!data.chatTarget || !data.message) return
+      
+      // Switch to the requested chat target
+      setSelectedChatTarget(data.chatTarget)
+      
+      // Add the message to the chat
+      addMessage(data.chatTarget, 'user', data.message)
+    }
+    window.addEventListener('message', handler)
+    return () => window.removeEventListener('message', handler)
+  }, [addMessage])
 
   const handleSend = useCallback(() => {
     const content = inputValue.trim()
@@ -642,11 +769,18 @@ function App() {
       }
 
       const isImplementTicket = /implement\s+ticket\s+\d{4}/i.test(content)
+      const ticketId = extractTicketId(content)
+      if (ticketId) {
+        setImplAgentTicketId(ticketId)
+      }
 
       setAgentTypingTarget('implementation-agent')
       setImplAgentRunStatus('preparing')
       setImplAgentProgress([])
       setImplAgentError(null)
+      // Track which agent initiated this run (0067)
+      setCursorRunAgentType('implementation-agent')
+      setOrphanedCompletionSummary(null)
 
       ;(async () => {
         setImplAgentRunStatus(isImplementTicket ? 'fetching_ticket' : 'preparing')
@@ -735,6 +869,19 @@ function App() {
                   setImplAgentRunStatus('completed')
                   finalContent = data.content ?? 'Implementation completed.'
                   addProgress('Implementation completed successfully.')
+                  
+                  // Auto-move ticket to QA (0061)
+                  const currentTicketId = implAgentTicketId || extractTicketId(finalContent) || extractTicketId(content)
+                  if (currentTicketId) {
+                    moveTicketToColumn(currentTicketId, 'col-qa', 'implementation').catch(() => {
+                      // Error already logged via addAutoMoveDiagnostic
+                    })
+                  } else {
+                    addAutoMoveDiagnostic(
+                      `Implementation Agent completion: Could not determine ticket ID from message. Auto-move skipped.`,
+                      'error'
+                    )
+                  }
                 } else if (stage === 'failed') {
                   setImplAgentRunStatus('failed')
                   finalError = data.error ?? 'Unknown error'
@@ -748,7 +895,21 @@ function App() {
           }
 
           if (finalContent) {
-            addMessage('implementation-agent', 'implementation-agent', `[Implementation Agent] ${finalContent}`)
+            // Add completion summary with label (0067)
+            const agentType = cursorRunAgentType || 'implementation-agent'
+            if (agentType === 'implementation-agent' || agentType === 'qa-agent') {
+              addMessage(agentType, agentType, `**Completion summary**\n\n${finalContent}`)
+            } else {
+              // Missing agent type: show diagnostic and retain raw summary (0067)
+              addAutoMoveDiagnostic(
+                `Completion summary received but agent type is missing (expected 'implementation-agent' or 'qa-agent', got: ${agentType ?? 'null'}). Raw summary retained for troubleshooting.`,
+                'error'
+              )
+              setOrphanedCompletionSummary(finalContent)
+            }
+            // Reset ticket ID after completion
+            setImplAgentTicketId(null)
+            setCursorRunAgentType(null)
           } else if (finalError) {
             addMessage(
               'implementation-agent',
@@ -785,9 +946,16 @@ function App() {
       }
 
       const isQaTicket = /qa\s+ticket\s+\d{4}/i.test(content)
+      const ticketId = extractTicketId(content)
+      if (ticketId) {
+        setQaAgentTicketId(ticketId)
+      }
 
       setAgentTypingTarget('qa-agent')
       setQaAgentRunStatus('preparing')
+      // Track which agent initiated this run (0067)
+      setCursorRunAgentType('qa-agent')
+      setOrphanedCompletionSummary(null)
 
       ;(async () => {
         setQaAgentRunStatus(isQaTicket ? 'fetching_ticket' : 'preparing')
@@ -852,6 +1020,23 @@ function App() {
                 else if (stage === 'completed') {
                   setQaAgentRunStatus('completed')
                   finalContent = data.content ?? 'QA completed.'
+                  
+                  // Auto-move ticket to Human in the Loop if PASS (0061)
+                  const verdict = data.verdict
+                  const isPass = verdict === 'PASS' || (data.success === true && verdict !== 'FAIL') || /pass|ok.*merge|verified.*main/i.test(finalContent)
+                  if (isPass) {
+                    const currentTicketId = qaAgentTicketId || extractTicketId(finalContent) || extractTicketId(content)
+                    if (currentTicketId) {
+                      moveTicketToColumn(currentTicketId, 'col-human-in-the-loop', 'qa').catch(() => {
+                        // Error already logged via addAutoMoveDiagnostic
+                      })
+                    } else {
+                      addAutoMoveDiagnostic(
+                        `QA Agent completion (PASS): Could not determine ticket ID from message. Auto-move skipped.`,
+                        'error'
+                      )
+                    }
+                  }
                 } else if (stage === 'failed') {
                   setQaAgentRunStatus('failed')
                   finalError = data.error ?? 'Unknown error'
@@ -863,7 +1048,42 @@ function App() {
           }
 
           if (finalContent) {
-            addMessage('qa-agent', 'qa-agent', `[QA Agent] ${finalContent}`)
+            // Add completion summary with label (0067)
+            const agentType = cursorRunAgentType || 'qa-agent'
+            if (agentType === 'implementation-agent' || agentType === 'qa-agent') {
+              addMessage(agentType, agentType, `**Completion summary**\n\n${finalContent}`)
+            } else {
+              // Missing agent type: show diagnostic and retain raw summary (0067)
+              addAutoMoveDiagnostic(
+                `Completion summary received but agent type is missing (expected 'implementation-agent' or 'qa-agent', got: ${agentType ?? 'null'}). Raw summary retained for troubleshooting.`,
+                'error'
+              )
+              setOrphanedCompletionSummary(finalContent)
+            }
+            
+            // Auto-move ticket when QA completion message is detected (0061)
+            // Check if this is a completion message with PASS verdict
+            const isQaCompletion = /qa.*complete|qa.*report|qa.*pass|verdict.*pass|move.*human.*loop|verified.*main|pass.*ok.*merge/i.test(finalContent)
+            if (isQaCompletion) {
+              const verdict = /pass|ok.*merge|verified.*main|verdict.*pass/i.test(finalContent) && !/fail|verdict.*fail/i.test(finalContent)
+              if (verdict) {
+                const currentTicketId = qaAgentTicketId || extractTicketId(finalContent) || extractTicketId(content)
+                if (currentTicketId) {
+                  moveTicketToColumn(currentTicketId, 'col-human-in-the-loop', 'qa').catch(() => {
+                    // Error already logged via addAutoMoveDiagnostic
+                  })
+                } else {
+                  addAutoMoveDiagnostic(
+                    `QA Agent completion (PASS): Could not determine ticket ID from completion message. Auto-move skipped.`,
+                    'error'
+                  )
+                }
+              }
+            }
+            
+            // Reset ticket ID after completion
+            setQaAgentTicketId(null)
+            setCursorRunAgentType(null)
           } else if (finalError) {
             addMessage(
               'qa-agent',
@@ -908,7 +1128,7 @@ function App() {
         setAgentTypingTarget(null)
       }, 900)
     }
-  }, [inputValue, selectedChatTarget, addMessage, conversations, pmLastResponseId, supabaseUrl, supabaseAnonKey, connectedProject])
+  }, [inputValue, selectedChatTarget, addMessage, conversations, pmLastResponseId, supabaseUrl, supabaseAnonKey, connectedProject, extractTicketId, moveTicketToColumn, implAgentTicketId, qaAgentTicketId, setImplAgentTicketId, setQaAgentTicketId, addAutoMoveDiagnostic])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -1060,6 +1280,11 @@ function App() {
     setImplAgentRunStatus('idle')
     setImplAgentProgress([])
     setImplAgentError(null)
+    setImplAgentTicketId(null)
+    setQaAgentTicketId(null)
+    setAutoMoveDiagnostics([])
+    setCursorRunAgentType(null)
+    setOrphanedCompletionSummary(null)
     try {
       localStorage.removeItem(IMPL_AGENT_STATUS_KEY)
       localStorage.removeItem(IMPL_AGENT_PROGRESS_KEY)
@@ -1094,6 +1319,7 @@ function App() {
     pmLastResponseId,
     previousResponseIdInLastRequest,
     agentRunner,
+    autoMoveDiagnostics,
   }
 
   return (
@@ -1607,6 +1833,45 @@ function App() {
                           )}
                         </div>
                       </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Auto-move diagnostics (0061) */}
+                {(selectedChatTarget === 'implementation-agent' || selectedChatTarget === 'qa-agent' || selectedChatTarget === 'project-manager') && diagnostics.autoMoveDiagnostics.length > 0 && (
+                  <div className="diag-section">
+                    <div className="diag-section-header">Auto-move diagnostics</div>
+                    <div className="diag-section-content">
+                      <div className="diag-auto-move-list">
+                        {diagnostics.autoMoveDiagnostics.slice(-10).map((entry, idx) => (
+                          <div key={idx} className={`diag-auto-move-entry diag-auto-move-${entry.type}`}>
+                            <span className="diag-auto-move-time">[{formatTime(entry.timestamp)}]</span>
+                            <span className="diag-auto-move-message">{entry.message}</span>
+                          </div>
+                        ))}
+                        {diagnostics.autoMoveDiagnostics.length > 10 && (
+                          <div className="diag-auto-move-more">
+                            ({diagnostics.autoMoveDiagnostics.length - 10} older entries)
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Orphaned completion summary (0067) */}
+                {orphanedCompletionSummary && (
+                  <div className="diag-section">
+                    <div className="diag-section-header">Orphaned completion summary</div>
+                    <div className="diag-section-content">
+                      <div className="diag-auto-move-entry diag-auto-move-error">
+                        <span className="diag-auto-move-message">
+                          Completion summary received but agent type could not be determined. Raw summary retained for troubleshooting:
+                        </span>
+                      </div>
+                      <pre className="diag-json" style={{ marginTop: '8px', whiteSpace: 'pre-wrap' }}>
+                        {orphanedCompletionSummary}
+                      </pre>
                     </div>
                   </div>
                 )}

@@ -599,7 +599,7 @@ export async function runPmAgent(
       )
       return tool({
         description:
-          'Fetch the full ticket content (body_md, title, id, kanban_column_id) for a ticket by id. Tries Supabase first, then repo docs/tickets/<id>-*.md. Use before evaluating readiness or when the user refers to a ticket by id.',
+          'Fetch the full ticket content (body_md, title, id, kanban_column_id) for a ticket by id from Supabase. Supabase-only mode (0065). Use before evaluating readiness or when the user refers to a ticket by id.',
         parameters: z.object({
           ticket_id: z
             .string()
@@ -629,35 +629,8 @@ export async function runPmAgent(
               toolCalls.push({ name: 'fetch_ticket_content', input, output: out })
               return out
             }
-            const listOut = await listDirectory(ctx, { path: 'docs/tickets' })
-            if ('error' in listOut) {
-              out = { success: false, error: listOut.error }
-              toolCalls.push({ name: 'fetch_ticket_content', input, output: out })
-              return out
-            }
-            const match = (listOut.entries as string[]).find(
-              (e) => e.startsWith(`${normalizedId}-`) && e.endsWith('.md')
-            )
-            if (!match) {
-              out = { success: false, error: `Ticket ${normalizedId} not found in Supabase or docs/tickets.` }
-              toolCalls.push({ name: 'fetch_ticket_content', input, output: out })
-              return out
-            }
-            const readOut = await readFile(ctx, { path: `docs/tickets/${match}` })
-            if ('error' in readOut) {
-              out = { success: false, error: readOut.error }
-              toolCalls.push({ name: 'fetch_ticket_content', input, output: out })
-              return out
-            }
-            const content = (readOut as { content: string }).content
-            const titleMatch = content.match(/\*\*Title\*\*:\s*(.+?)(?:\n|$)/)
-            out = {
-              success: true,
-              id: normalizedId,
-              title: titleMatch ? titleMatch[1].trim() : match.replace(/\.md$/i, ''),
-              body_md: content,
-              kanban_column_id: null,
-            }
+            // Supabase-only mode (0065): no fallback to docs/tickets
+            out = { success: false, error: `Ticket ${normalizedId} not found in Supabase. Supabase-only mode requires Supabase connection.` }
           } catch (err) {
             out = {
               success: false,

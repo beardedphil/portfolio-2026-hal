@@ -1,0 +1,6 @@
+- Update `done-means-pushed.mdc` to require Implementation agents to add an "Artifacts" section to the ticket body when marking ready for QA
+- Update `qa-audit-report.mdc` to require QA agents to add/update the "Artifacts" section to include qa-report.md
+- Update `auditability-and-traceability.mdc` to reference the new requirement for consistency
+- Specify the minimum artifact list (plan, worklog, changed-files, decisions, verification, pm-review, qa-report when applicable)
+- Clarify that paths are acceptable as links and must match canonical folder naming (`<task-id>-<short-title-kebab>`)
+- Create audit artifacts (plan, worklog, changed-files, decisions, verification, pm-review)
