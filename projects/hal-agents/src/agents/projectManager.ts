@@ -933,7 +933,7 @@ export async function runPmAgent(
       : 'Regex search across files. Pattern is JavaScript regex.',
     parameters: z.object({
       pattern: z.string().describe('Regex pattern to search for'),
-      glob: z.string().optional().describe('Optional glob pattern to filter files (e.g. "**/*.ts")'),
+      glob: z.string().describe('Glob pattern to filter files (e.g. "**/*" for all, "**/*.ts" for TypeScript)'),
     }),
     execute: async (input) => {
       let out: { matches: Array<{ path: string; line: number; text: string }> } | { error: string }
