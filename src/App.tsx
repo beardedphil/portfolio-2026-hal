@@ -222,6 +222,10 @@ function App() {
   const [qaAgentTicketId, setQaAgentTicketId] = useState<string | null>(null)
   /** Auto-move diagnostics entries (0061). */
   const [autoMoveDiagnostics, setAutoMoveDiagnostics] = useState<Array<{ timestamp: Date; message: string; type: 'error' | 'info' }>>([])
+  /** Agent type that initiated the current Cursor run (0067). Used to route completion summaries to the correct chat. */
+  const [cursorRunAgentType, setCursorRunAgentType] = useState<Agent | null>(null)
+  /** Raw completion summary for troubleshooting when agent type is missing (0067). */
+  const [orphanedCompletionSummary, setOrphanedCompletionSummary] = useState<string | null>(null)
 
   useEffect(() => {
     selectedChatTargetRef.current = selectedChatTarget
@@ -774,6 +778,9 @@ function App() {
       setImplAgentRunStatus('preparing')
       setImplAgentProgress([])
       setImplAgentError(null)
+      // Track which agent initiated this run (0067)
+      setCursorRunAgentType('implementation-agent')
+      setOrphanedCompletionSummary(null)
 
       ;(async () => {
         setImplAgentRunStatus(isImplementTicket ? 'fetching_ticket' : 'preparing')
@@ -888,9 +895,21 @@ function App() {
           }
 
           if (finalContent) {
-            addMessage('implementation-agent', 'implementation-agent', `[Implementation Agent] ${finalContent}`)
+            // Add completion summary with label (0067)
+            const agentType = cursorRunAgentType || 'implementation-agent'
+            if (agentType === 'implementation-agent' || agentType === 'qa-agent') {
+              addMessage(agentType, agentType, `**Completion summary**\n\n${finalContent}`)
+            } else {
+              // Missing agent type: show diagnostic and retain raw summary (0067)
+              addAutoMoveDiagnostic(
+                `Completion summary received but agent type is missing (expected 'implementation-agent' or 'qa-agent', got: ${agentType ?? 'null'}). Raw summary retained for troubleshooting.`,
+                'error'
+              )
+              setOrphanedCompletionSummary(finalContent)
+            }
             // Reset ticket ID after completion
             setImplAgentTicketId(null)
+            setCursorRunAgentType(null)
           } else if (finalError) {
             addMessage(
               'implementation-agent',
@@ -934,6 +953,9 @@ function App() {
 
       setAgentTypingTarget('qa-agent')
       setQaAgentRunStatus('preparing')
+      // Track which agent initiated this run (0067)
+      setCursorRunAgentType('qa-agent')
+      setOrphanedCompletionSummary(null)
 
       ;(async () => {
         setQaAgentRunStatus(isQaTicket ? 'fetching_ticket' : 'preparing')
@@ -1026,7 +1048,18 @@ function App() {
           }
 
           if (finalContent) {
-            addMessage('qa-agent', 'qa-agent', `[QA Agent] ${finalContent}`)
+            // Add completion summary with label (0067)
+            const agentType = cursorRunAgentType || 'qa-agent'
+            if (agentType === 'implementation-agent' || agentType === 'qa-agent') {
+              addMessage(agentType, agentType, `**Completion summary**\n\n${finalContent}`)
+            } else {
+              // Missing agent type: show diagnostic and retain raw summary (0067)
+              addAutoMoveDiagnostic(
+                `Completion summary received but agent type is missing (expected 'implementation-agent' or 'qa-agent', got: ${agentType ?? 'null'}). Raw summary retained for troubleshooting.`,
+                'error'
+              )
+              setOrphanedCompletionSummary(finalContent)
+            }
             
             // Auto-move ticket when QA completion message is detected (0061)
             // Check if this is a completion message with PASS verdict
@@ -1050,6 +1083,7 @@ function App() {
             
             // Reset ticket ID after completion
             setQaAgentTicketId(null)
+            setCursorRunAgentType(null)
           } else if (finalError) {
             addMessage(
               'qa-agent',
@@ -1249,6 +1283,8 @@ function App() {
     setImplAgentTicketId(null)
     setQaAgentTicketId(null)
     setAutoMoveDiagnostics([])
+    setCursorRunAgentType(null)
+    setOrphanedCompletionSummary(null)
     try {
       localStorage.removeItem(IMPL_AGENT_STATUS_KEY)
       localStorage.removeItem(IMPL_AGENT_PROGRESS_KEY)
@@ -1819,6 +1855,23 @@ function App() {
                           </div>
                         )}
                       </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Orphaned completion summary (0067) */}
+                {orphanedCompletionSummary && (
+                  <div className="diag-section">
+                    <div className="diag-section-header">Orphaned completion summary</div>
+                    <div className="diag-section-content">
+                      <div className="diag-auto-move-entry diag-auto-move-error">
+                        <span className="diag-auto-move-message">
+                          Completion summary received but agent type could not be determined. Raw summary retained for troubleshooting:
+                        </span>
+                      </div>
+                      <pre className="diag-json" style={{ marginTop: '8px', whiteSpace: 'pre-wrap' }}>
+                        {orphanedCompletionSummary}
+                      </pre>
                     </div>
                   </div>
                 )}
