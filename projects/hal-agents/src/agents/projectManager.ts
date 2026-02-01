@@ -42,6 +42,28 @@ function sectionContent(body: string, sectionTitle: string): string {
   return (m?.[1] ?? '').trim()
 }
 
+/** Normalize Title line in body_md to include ID prefix: "<ID> — <title>". Returns normalized body_md. */
+function normalizeTitleLineInBody(bodyMd: string, ticketId: string): string {
+  if (!bodyMd || !ticketId) return bodyMd
+  const idPrefix = `${ticketId} — `
+  // Match the Title line: "- **Title**: ..."
+  const titleLineRegex = /(- \*\*Title\*\*:\s*)(.+?)(?:\n|$)/
+  const match = bodyMd.match(titleLineRegex)
+  if (!match) return bodyMd // No Title line found, return as-is
+  
+  const prefix = match[1] // "- **Title**: "
+  let titleValue = match[2].trim()
+  
+  // Remove any existing ID prefix (e.g. "0048 — " or "0048 - ")
+  titleValue = titleValue.replace(/^\d{4}\s*[—–-]\s*/, '')
+  
+  // Prepend the correct ID prefix
+  const normalizedTitle = `${idPrefix}${titleValue}`
+  const normalizedLine = `${prefix}${normalizedTitle}${match[0].endsWith('\n') ? '\n' : ''}`
+  
+  return bodyMd.replace(titleLineRegex, normalizedLine)
+}
+
 /** Placeholder-like pattern: angle brackets with content (e.g. <AC 1>, <task-id>). */
 const PLACEHOLDER_RE = /<[A-Za-z0-9\s\-_]+>/g
 
@@ -263,6 +285,10 @@ export interface PmAgentConfig {
   /** When set with supabaseAnonKey, enables create_ticket tool (store ticket to Supabase, then sync writes to repo). */
   supabaseUrl?: string
   supabaseAnonKey?: string
+  /** When set, indicates a project folder is connected and file access should use the file access API. */
+  projectId?: string
+  /** Base URL for file access API (defaults to http://localhost:5173). */
+  fileAccessApiUrl?: string
 }
 
 export interface ToolCallRecord {
@@ -285,9 +311,15 @@ const PM_SYSTEM_INSTRUCTIONS = `You are the Project Manager agent for HAL. Your 
 
 You have access to read-only tools to explore the repository. Use them to answer questions about code, tickets, and project state.
 
+**Repository access:** 
+- When a project folder is connected (user clicked "Connect Project Folder"), you can use read_file and search_files to inspect files in the connected project folder. These tools access files through the File System Access API.
+- If no project folder is connected, these tools will only access the HAL repository itself (the workspace where HAL runs).
+- If you try to use read_file or search_files when no project folder is connected and the user's question is about their project (not HAL itself), clearly explain: "I don't have access to your project folder. Please click 'Connect Project Folder' in the HAL app to enable repository inspection. Once connected, I can search and read files from your project to answer questions about the codebase."
+- Always cite specific file paths when referencing code or content (e.g., "In src/App.tsx line 42...").
+
 **Conversation context:** When "Conversation so far" is present, the "User message" is the user's latest reply in that conversation. Short replies (e.g. "Entirely, in all states", "Yes", "The first one", "inside the embedded kanban UI") are almost always answers to the question you (the assistant) just asked—interpret them in that context. Do not treat short user replies as a new top-level request about repo rules, process, or "all states" enforcement unless the conversation clearly indicates otherwise.
 
-**Creating tickets:** When the user **explicitly** asks to create a ticket (e.g. "create a ticket", "create ticket for that", "create a new ticket for X"), you MUST call the create_ticket tool if it is available. Do NOT call create_ticket for short, non-actionable messages such as: "test", "ok", "hi", "hello", "thanks", "cool", "checking", "asdf", or similar—these are usually the user testing the UI, acknowledging, or typing casually. Do not infer a ticket-creation request from context alone (e.g. if the user sends "Test" while testing the chat UI, that does NOT mean create the chat UI ticket). Calling the tool is what actually creates the ticket—do not only write the ticket content in your message. Use create_ticket with a short title and a full markdown body following the repo ticket template. Do not invent an ID—the tool assigns the next ID. Do not write secrets or API keys into the ticket body. If create_ticket is not in your tool list, tell the user: "I don't have the create-ticket tool for this request. In the HAL app, connect the project folder (with VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in its .env), then try again. Check Diagnostics to confirm 'Create ticket (this request): Available'." After creating a ticket via the tool, report the exact ticket ID and file path (e.g. docs/tickets/NNNN-title-slug.md) that was created.
+**Creating tickets:** When the user **explicitly** asks to create a ticket (e.g. "create a ticket", "create ticket for that", "create a new ticket for X"), you MUST call the create_ticket tool if it is available. Do NOT call create_ticket for short, non-actionable messages such as: "test", "ok", "hi", "hello", "thanks", "cool", "checking", "asdf", or similar—these are usually the user testing the UI, acknowledging, or typing casually. Do not infer a ticket-creation request from context alone (e.g. if the user sends "Test" while testing the chat UI, that does NOT mean create the chat UI ticket). Calling the tool is what actually creates the ticket—do not only write the ticket content in your message. Use create_ticket with a short title (without the ID prefix—the tool automatically prefixes it with "NNNN —" format). Provide a full markdown body following the repo ticket template. Do not invent an ID—the tool assigns the next ID and formats the title as "NNNN — Your Title". Do not write secrets or API keys into the ticket body. If create_ticket is not in your tool list, tell the user: "I don't have the create-ticket tool for this request. In the HAL app, connect the project folder (with VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in its .env), then try again. Check Diagnostics to confirm 'Create ticket (this request): Available'." After creating a ticket via the tool, report the exact ticket ID and file path (e.g. docs/tickets/NNNN-title-slug.md) that was created.
 
 **Moving a ticket to To Do:** When the user asks to move a ticket to To Do (e.g. "move this to To Do", "move ticket 0012 to To Do"), you MUST (1) fetch the ticket content with fetch_ticket_content (by ticket id), (2) evaluate readiness with evaluate_ticket_ready (pass the body_md from the fetch result). If the ticket is NOT ready, do NOT call kanban_move_ticket_to_todo; instead reply with a clear list of what is missing (use the missingItems from the evaluate_ticket_ready result). If the ticket IS ready, call kanban_move_ticket_to_todo with the ticket id. Then confirm in chat that the ticket was moved. The readiness checklist is in docs/process/ready-to-start-checklist.md (Goal, Human-verifiable deliverable, Acceptance criteria checkboxes, Constraints, Non-goals, no unresolved placeholders).
 
@@ -459,9 +491,9 @@ export async function runPmAgent(
         )
         return tool({
           description:
-            'Create a new ticket and store it in the Kanban board (Supabase). The ticket appears in Unassigned. Use when the user asks to create a ticket from the conversation. Provide the full markdown body using the exact structure from the Ticket template section in context: include Goal, Human-verifiable deliverable, Acceptance criteria (with - [ ] checkboxes), Constraints, and Non-goals. Replace every angle-bracket placeholder with concrete content so the ticket passes the Ready-to-start checklist (no <placeholders> left). Do not include an ID in the body—the tool assigns the next available ID. Do not write secrets or API keys.',
+            'Create a new ticket and store it in the Kanban board (Supabase). The ticket appears in Unassigned. Use when the user asks to create a ticket from the conversation. Provide the full markdown body using the exact structure from the Ticket template section in context: include Goal, Human-verifiable deliverable, Acceptance criteria (with - [ ] checkboxes), Constraints, and Non-goals. Replace every angle-bracket placeholder with concrete content so the ticket passes the Ready-to-start checklist (no <placeholders> left). Do not include an ID in the body—the tool assigns the next available ID and automatically prefixes the title with "NNNN —" format (e.g. "0050 — Your Title"). Do not write secrets or API keys.',
           parameters: z.object({
-            title: z.string().describe('Short title for the ticket (used in filename slug)'),
+            title: z.string().describe('Short title for the ticket (without ID prefix; the tool automatically formats it as "NNNN — Your Title")'),
             body_md: z
               .string()
               .describe(
@@ -508,18 +540,20 @@ export async function runPmAgent(
                 const id = String(candidateNum).padStart(4, '0')
                 const filename = `${id}-${slug}.md`
                 const filePath = `docs/tickets/${filename}`
-                const titleWithId = `${id} - ${input.title.trim()}`
+                const titleWithId = `${id} — ${input.title.trim()}`
+                // Normalize Title line in body_md to include ID prefix (0054)
+                const normalizedBodyMd = normalizeTitleLineInBody(input.body_md.trim(), id)
                 const { error: insertError } = await supabase.from('tickets').insert({
                   id,
                   filename,
                   title: titleWithId,
-                  body_md: input.body_md.trim(),
+                  body_md: normalizedBodyMd,
                   kanban_column_id: 'col-unassigned',
                   kanban_position: 0,
                   kanban_moved_at: now,
                 })
                 if (!insertError) {
-                  const readiness = evaluateTicketReady(input.body_md.trim())
+                  const readiness = evaluateTicketReady(normalizedBodyMd)
                   out = {
                     success: true,
                     id,
@@ -689,14 +723,16 @@ export async function runPmAgent(
               toolCalls.push({ name: 'update_ticket_body', input, output: out })
               return out
             }
+            // Normalize Title line in body_md to include ID prefix (0054)
+            const normalizedBodyMd = normalizeTitleLineInBody(input.body_md.trim(), normalizedId)
             const { error: updateError } = await supabase
               .from('tickets')
-              .update({ body_md: input.body_md.trim() })
+              .update({ body_md: normalizedBodyMd })
               .eq('id', normalizedId)
             if (updateError) {
               out = { success: false, error: `Supabase update: ${updateError.message}` }
             } else {
-              const readiness = evaluateTicketReady(input.body_md.trim())
+              const readiness = evaluateTicketReady(normalizedBodyMd)
               out = {
                 success: true,
                 ticketId: normalizedId,
@@ -840,13 +876,116 @@ export async function runPmAgent(
       })
     })()
 
+  // Helper to use file access API when project folder is connected, otherwise use direct file system
+  const hasProjectFolder = typeof config.projectId === 'string' && config.projectId.trim() !== ''
+  const fileAccessApiUrl = config.fileAccessApiUrl ?? 'http://localhost:5173'
+  
+  const readFileTool = tool({
+    description: hasProjectFolder
+      ? 'Read file contents from the connected project folder. Path is relative to project root. Max 500 lines.'
+      : 'Read file contents. Path is relative to repo root. Max 500 lines.',
+    parameters: z.object({
+      path: z.string().describe('File path (relative to repo/project root)'),
+    }),
+    execute: async (input) => {
+      let out: { content: string } | { error: string }
+      if (hasProjectFolder) {
+        // Use file access API
+        try {
+          const requestId = `read-${Date.now()}-${Math.random().toString(36).slice(2)}`
+          const res = await fetch(`${fileAccessApiUrl}/api/pm/file-access`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              requestId,
+              type: 'read_file',
+              path: input.path,
+              maxLines: 500,
+            }),
+          })
+          if (!res.ok) {
+            out = { error: `File access API error: ${res.status} ${res.statusText}` }
+          } else {
+            const data = (await res.json()) as { success: boolean; content?: string; error?: string }
+            if (data.success && data.content) {
+              out = { content: data.content }
+            } else {
+              out = { error: data.error ?? 'Unknown error reading file' }
+            }
+          }
+        } catch (err) {
+          out = { error: err instanceof Error ? err.message : String(err) }
+        }
+      } else {
+        // Use direct file system access
+        out = await readFile(ctx, input)
+      }
+      toolCalls.push({ name: 'read_file', input, output: out })
+      return typeof (out as { error?: string }).error === 'string'
+        ? JSON.stringify(out)
+        : out
+    },
+  })
+
+  const searchFilesTool = tool({
+    description: hasProjectFolder
+      ? 'Regex search across files in the connected project folder. Pattern is JavaScript regex.'
+      : 'Regex search across files. Pattern is JavaScript regex.',
+    parameters: z.object({
+      pattern: z.string().describe('Regex pattern to search for'),
+      glob: z.string().optional().describe('Optional glob pattern to filter files (e.g. "**/*.ts")'),
+    }),
+    execute: async (input) => {
+      let out: { matches: Array<{ path: string; line: number; text: string }> } | { error: string }
+      if (hasProjectFolder) {
+        // Use file access API
+        try {
+          const requestId = `search-${Date.now()}-${Math.random().toString(36).slice(2)}`
+          const res = await fetch(`${fileAccessApiUrl}/api/pm/file-access`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              requestId,
+              type: 'search_files',
+              pattern: input.pattern,
+              glob: input.glob ?? '**/*',
+            }),
+          })
+          if (!res.ok) {
+            out = { error: `File access API error: ${res.status} ${res.statusText}` }
+          } else {
+            const data = (await res.json()) as { success: boolean; matches?: Array<{ path: string; line: number; text: string }>; error?: string }
+            if (data.success && data.matches) {
+              out = { matches: data.matches }
+            } else {
+              out = { error: data.error ?? 'Unknown error searching files' }
+            }
+          }
+        } catch (err) {
+          out = { error: err instanceof Error ? err.message : String(err) }
+        }
+      } else {
+        // Use direct file system access
+        out = await searchFiles(ctx, { pattern: input.pattern, glob: input.glob })
+      }
+      toolCalls.push({ name: 'search_files', input, output: out })
+      return typeof (out as { error?: string }).error === 'string'
+        ? JSON.stringify(out)
+        : out
+    },
+  })
+
   const tools = {
     list_directory: tool({
-      description: 'List files in a directory. Path is relative to repo root.',
+      description: hasProjectFolder
+        ? 'List files in a directory in the connected project folder. Path is relative to project root.'
+        : 'List files in a directory. Path is relative to repo root.',
       parameters: z.object({
-        path: z.string().describe('Directory path (relative to repo root)'),
+        path: z.string().describe('Directory path (relative to repo/project root)'),
       }),
       execute: async (input) => {
+        // list_directory still uses direct file system (HAL repo only for now)
+        // TODO: Support list_directory via file access API if needed
         const out = await listDirectory(ctx, input)
         toolCalls.push({ name: 'list_directory', input, output: out })
         return typeof (out as { error?: string }).error === 'string'
@@ -854,32 +993,8 @@ export async function runPmAgent(
           : out
       },
     }),
-    read_file: tool({
-      description: 'Read file contents. Path is relative to repo root. Max 500 lines.',
-      parameters: z.object({
-        path: z.string().describe('File path (relative to repo root)'),
-      }),
-      execute: async (input) => {
-        const out = await readFile(ctx, input)
-        toolCalls.push({ name: 'read_file', input, output: out })
-        return typeof (out as { error?: string }).error === 'string'
-          ? JSON.stringify(out)
-          : out
-      },
-    }),
-    search_files: tool({
-      description: 'Regex search across files. Pattern is JavaScript regex.',
-      parameters: z.object({
-        pattern: z.string().describe('Regex pattern to search for'),
-      }),
-      execute: async (input) => {
-        const out = await searchFiles(ctx, input)
-        toolCalls.push({ name: 'search_files', input, output: out })
-        return typeof (out as { error?: string }).error === 'string'
-          ? JSON.stringify(out)
-          : out
-      },
-    }),
+    read_file: readFileTool,
+    search_files: searchFilesTool,
     ...(createTicketTool ? { create_ticket: createTicketTool } : {}),
     ...(fetchTicketContentTool ? { fetch_ticket_content: fetchTicketContentTool } : {}),
     evaluate_ticket_ready: evaluateTicketReadyTool,

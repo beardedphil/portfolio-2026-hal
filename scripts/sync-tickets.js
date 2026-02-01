@@ -64,6 +64,28 @@ function extractTitle(content, filename) {
   return filename.replace(/\.md$/i, '')
 }
 
+/** Normalize Title line in body_md to include ID prefix: "<ID> — <title>". Returns normalized body_md. */
+function normalizeTitleLineInBody(bodyMd, ticketId) {
+  if (!bodyMd || !ticketId) return bodyMd
+  const idPrefix = `${ticketId} — `
+  // Match the Title line: "- **Title**: ..."
+  const titleLineRegex = /(- \*\*Title\*\*:\s*)(.+?)(?:\n|$)/
+  const match = bodyMd.match(titleLineRegex)
+  if (!match) return bodyMd // No Title line found, return as-is
+  
+  const prefix = match[1] // "- **Title**: "
+  let titleValue = match[2].trim()
+  
+  // Remove any existing ID prefix (e.g. "0048 — " or "0048 - ")
+  titleValue = titleValue.replace(/^\d{4}\s*[—–-]\s*/, '')
+  
+  // Prepend the correct ID prefix
+  const normalizedTitle = `${idPrefix}${titleValue}`
+  const normalizedLine = `${prefix}${normalizedTitle}${match[0].endsWith('\n') ? '\n' : ''}`
+  
+  return bodyMd.replace(titleLineRegex, normalizedLine)
+}
+
 /** Return body only (strip frontmatter if present). */
 function getBodyOnly(content) {
   if (!content || !content.startsWith('---')) return content ?? ''
@@ -75,7 +97,9 @@ function getBodyOnly(content) {
 
 /** Serialize full doc with frontmatter + body (Supabase kanban fields → frontmatter). */
 function serializeDocWithKanban(row) {
-  const body = getBodyOnly(row.body_md ?? '')
+  let body = getBodyOnly(row.body_md ?? '')
+  // Normalize Title line to include ID prefix (0054)
+  body = normalizeTitleLineInBody(body, row.id)
   const frontmatter = {}
   if (row.kanban_column_id != null && row.kanban_column_id !== '') frontmatter.kanbanColumnId = row.kanban_column_id
   if (row.kanban_position != null) frontmatter.kanbanPosition = String(row.kanban_position)
@@ -149,17 +173,19 @@ async function main() {
       notReimported++
       continue
     }
-    // Docs → DB: only push body_md, title, filename from docs. Keep kanban from DB so UI moves (and move-ticket-column) are never reverted by sync.
+    // Docs → DB: normalize Title line in body_md, then push body_md, title, filename from docs. Keep kanban from DB so UI moves (and move-ticket-column) are never reverted by sync.
+    const normalizedBodyMd = normalizeTitleLineInBody(d.body_md, d.id)
     const row = {
       id: d.id,
       filename: d.filename,
       title: d.title,
-      body_md: d.body_md,
+      body_md: normalizedBodyMd,
       kanban_column_id: ex.kanban_column_id,
       kanban_position: ex.kanban_position,
       kanban_moved_at: ex.kanban_moved_at,
     }
-    if (ex.body_md !== d.body_md) {
+    // Compare normalized body_md to avoid unnecessary updates when only Title prefix differs
+    if (ex.body_md !== normalizedBodyMd) {
       const { error } = await client.from('tickets').upsert(row, { onConflict: 'id' })
       if (error) {
         console.error('Upsert error for', d.id, error.message)
