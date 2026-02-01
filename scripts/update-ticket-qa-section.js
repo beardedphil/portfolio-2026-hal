@@ -6,8 +6,18 @@
  * Requires .env with SUPABASE_URL and SUPABASE_ANON_KEY.
  */
 
-import 'dotenv/config'
+import { config } from 'dotenv'
 import { createClient } from '@supabase/supabase-js'
+import path from 'path'
+import { fileURLToPath } from 'url'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const projectRoot = process.env.PROJECT_ROOT
+  ? path.resolve(process.env.PROJECT_ROOT)
+  : path.resolve(__dirname, '..')
+
+// Load .env from project root
+config({ path: path.join(projectRoot, '.env') })
 
 const ticketId = process.argv[2]?.trim()
 const branchName = process.argv[3]?.trim()
@@ -22,10 +32,12 @@ if (!branchName) {
   process.exit(1)
 }
 
-const url = process.env.SUPABASE_URL
-const key = process.env.SUPABASE_ANON_KEY
+// Try to get credentials from environment (set directly or from .env)
+const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+const key = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY
 if (!url || !key) {
-  console.error('Set SUPABASE_URL and SUPABASE_ANON_KEY in .env')
+  console.error('Set SUPABASE_URL and SUPABASE_ANON_KEY in .env (or as environment variables) and run from project root.')
+  console.error('Alternatively, set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.')
   process.exit(1)
 }
 
