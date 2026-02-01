@@ -289,6 +289,8 @@ export interface PmAgentConfig {
   projectId?: string
   /** Base URL for file access API (defaults to http://localhost:5173). */
   fileAccessApiUrl?: string
+  /** Image attachments to include in the request (base64 data URLs). */
+  images?: Array<{ dataUrl: string; filename: string; mimeType: string }>
 }
 
 export interface ToolCallRecord {
@@ -1095,7 +1097,22 @@ export async function runPmAgent(
     ...(listTicketsByColumnTool ? { list_tickets_by_column: listTicketsByColumnTool } : {}),
   }
 
-  const prompt = `${contextPack}\n\n---\n\nRespond to the user message above using the tools as needed.`
+  const promptBase = `${contextPack}\n\n---\n\nRespond to the user message above using the tools as needed.`
+
+  // Build prompt with images if present
+  let prompt: string | Array<{ type: 'text' | 'image'; text?: string; image?: string }>
+  if (config.images && config.images.length > 0) {
+    // Include images in prompt for vision models
+    prompt = [
+      { type: 'text' as const, text: promptBase },
+      ...config.images.map((img) => ({
+        type: 'image' as const,
+        image: img.dataUrl,
+      })),
+    ]
+  } else {
+    prompt = promptBase
+  }
 
   const providerOptions =
     config.previousResponseId != null && config.previousResponseId !== ''
