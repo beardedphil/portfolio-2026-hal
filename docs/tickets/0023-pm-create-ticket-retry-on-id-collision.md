@@ -1,3 +1,8 @@
+---
+kanbanColumnId: col-done
+kanbanPosition: 0
+kanbanMovedAt: 2026-01-31T21:15:29.331+00:00
+---
 # Ticket
 
 - **ID**: `0023`

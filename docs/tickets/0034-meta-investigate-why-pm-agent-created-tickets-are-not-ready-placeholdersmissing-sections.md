@@ -1,7 +1,7 @@
 ---
-kanbanColumnId: col-human-in-the-loop
+kanbanColumnId: col-done
 kanbanPosition: 0
-kanbanMovedAt: 2026-01-31T21:47:41.187Z
+kanbanMovedAt: 2026-02-01T17:12:29.166+00:00
 ---
 # Title
 Meta: Investigate why PM agent-created tickets are not “ready” (placeholders/missing sections)

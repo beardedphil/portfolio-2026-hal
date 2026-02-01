@@ -1,3 +1,8 @@
+---
+kanbanColumnId: col-done
+kanbanPosition: 0
+kanbanMovedAt: 2026-02-01T17:12:12.846+00:00
+---
 # Title
 Process: Fix PM ticket creation so new tickets are “Ready” (no placeholders/missing sections)
 

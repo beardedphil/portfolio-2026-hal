@@ -7,6 +7,13 @@ alwaysApply: true
 
 When you **QA a ticket** (e.g. user asks to "QA", "verify", or "check" a ticket that is allegedly complete), you **must** add a QA report to that ticket’s audit folder.
 
+## Which branch to use (decision rule)
+
+- **If the ticket or prompt states that the implementation was "merged to main for QA access"** (or that code is on `main` for QA): you **must** verify from the **`main`** branch. Do **not** attempt to locate, check out, or use the feature branch. Pull the latest `main` and perform QA there.
+- **Otherwise:** use the feature branch named in the ticket's QA → Branch field (or the branch you were launched on). Perform QA on that branch, then follow the full workflow (merge to main, delete branch, etc.).
+
+When you QA from `main`, record in `qa-report.md` that verification was performed against `main` (e.g. "Verified on `main`; implementation was merged to main for QA access.").
+
 ## Required artifact
 
 - **Path:** `docs/audit/<task-id>-<short-title>/qa-report.md`
@@ -30,13 +37,21 @@ For ticket `docs/tickets/0026-kanban-tickets-persist-column-on-refresh.md`, the 
 
 When the verdict is **PASS (OK to merge)**, QA must **complete the full workflow** — do not stop at a summary or "next steps for the user."
 
+**If you are verifying from the feature branch** (normal workflow):
+
 1. **Commit and push** the qa-report (and any rule changes) to the feature branch.
 2. **Move ticket to Human in the Loop** — update the ticket **in the DB**, then run sync. Use `node scripts/move-ticket-column.js <ticketId> col-human-in-the-loop` from the repo root (e.g. `node scripts/move-ticket-column.js 0047 col-human-in-the-loop`). Requires `.env` with `SUPABASE_URL` and `SUPABASE_ANON_KEY`. The script updates Supabase, then the ticket file frontmatter, then runs `sync-tickets`. **Do not** add or edit YAML frontmatter in the ticket file by hand — Kanban is Supabase-backed; always update DB first, then sync.
 3. **Merge to main** — checkout `main`, merge the feature branch, push `main`.
 4. **Delete the feature branch** — local and remote (see `delete-branch-after-merge.mdc`).
 5. **Then** give your summary to the user.
 
-Do not give a summary with "next steps" or "run these commands" — QA performs the merge and branch deletion. The user receives the completed result.
+**If you are verifying from `main`** (implementation was merged to main for QA access):
+
+1. **Commit and push** the qa-report (and any rule changes) to **`main`**. Do **not** merge again — the change is already on `main`. Do **not** delete any branch.
+2. **Move ticket to Human in the Loop** — same as above: `node scripts/move-ticket-column.js <ticketId> col-human-in-the-loop`, DB-first then sync.
+3. **Then** give your summary to the user.
+
+Do not give a summary with "next steps" or "run these commands" — QA performs the merge (or confirms main) and branch deletion where applicable. The user receives the completed result.
 
 - Use a commit subject that includes the ticket ID (e.g. `qa(0033): add QA report, move to Human in the Loop`).
 - **If verdict is FAIL:** Do not merge. Commit and push the qa-report only; summarize findings and recommend a bugfix ticket (see `bugfix-tracking.mdc`).

@@ -1,7 +1,7 @@
 ---
-kanbanColumnId: col-human-in-the-loop
+kanbanColumnId: col-done
 kanbanPosition: 0
-kanbanMovedAt: 2026-02-01T16:40:00.000Z
+kanbanMovedAt: 2026-02-01T17:13:01.745+00:00
 ---
 ## Ticket
 

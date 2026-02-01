@@ -1,3 +1,8 @@
+---
+kanbanColumnId: col-done
+kanbanPosition: 0
+kanbanMovedAt: 2026-02-01T17:12:18.715+00:00
+---
 # Title
 Remove Add column and Debug toggle UI (prescriptive mode)
 

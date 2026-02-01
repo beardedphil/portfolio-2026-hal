@@ -1,7 +1,7 @@
 ---
-kanbanColumnId: col-qa
+kanbanColumnId: col-done
 kanbanPosition: 0
-kanbanMovedAt: 2026-01-31T22:48:49.010Z
+kanbanMovedAt: 2026-02-01T01:59:25.553+00:00
 ---
 ## Ticket
 

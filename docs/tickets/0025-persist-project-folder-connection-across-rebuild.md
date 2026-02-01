@@ -1,3 +1,8 @@
+---
+kanbanColumnId: col-wont-implement
+kanbanPosition: 0
+kanbanMovedAt: 2026-01-31T22:02:16.708+00:00
+---
 # Title
 Persist project folder connection across rebuild / reload
 

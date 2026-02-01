@@ -1,3 +1,8 @@
+---
+kanbanColumnId: col-done
+kanbanPosition: 12
+kanbanMovedAt: 2026-01-31T17:59:27.975+00:00
+---
 # Title
 Kanban: remove redundant “Connected” label next to Connect Project Folder
 

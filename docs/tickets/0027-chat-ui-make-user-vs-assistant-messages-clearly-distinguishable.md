@@ -1,3 +1,8 @@
+---
+kanbanColumnId: col-done
+kanbanPosition: 0
+kanbanMovedAt: 2026-02-01T17:11:46.021+00:00
+---
 ## Ticket
 
 - **Title**: Chat UI: make user vs assistant messages clearly distinguishable

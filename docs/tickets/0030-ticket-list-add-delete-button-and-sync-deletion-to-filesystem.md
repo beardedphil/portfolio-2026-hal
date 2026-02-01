@@ -1,3 +1,8 @@
+---
+kanbanColumnId: col-done
+kanbanPosition: 0
+kanbanMovedAt: 2026-02-01T17:12:02.864+00:00
+---
 # Title
 Ticket list: add Delete button and sync deletion to filesystem
 

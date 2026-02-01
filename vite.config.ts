@@ -790,6 +790,10 @@ export default defineConfig({
               return
             }
 
+            // Use main when ticket indicates merged to main for QA access (or when cloud cannot access feature branch)
+            const mergedToMainForQA = /merged to\s*`?main`?\s*for\s*QA\s*access/i.test(bodyMd)
+            const refForApi: string = mergedToMainForQA ? 'main' : branchName
+
             // Build QA prompt from ticket and rules
             const goalMatch = bodyMd.match(/##\s*Goal[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
             const deliverableMatch = bodyMd.match(/##\s*Human-verifiable deliverable[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
@@ -807,12 +811,18 @@ export default defineConfig({
               qaRules = '# QA Audit Report\n\nWhen you QA a ticket, you must add a QA report to the ticket\'s audit folder.'
             }
 
+            const verifyFromMainNote =
+              refForApi === 'main'
+                ? '\n**Verify from:** `main` (implementation was merged to main for QA access). Do NOT attempt to check out or use the feature branch; use the latest `main` only.\n'
+                : ''
+
             const promptText = [
-              `QA this ticket implementation. Review the code, generate a QA report, and complete the QA workflow.`,
+              `QA this ticket implementation. Review the code, generate a QA report, and complete the QA workflow.${verifyFromMainNote}`,
               '',
               '## Ticket',
               `**ID**: ${ticketId}`,
-              `**Branch**: ${branchName}`,
+              `**Branch (for context; use ref above)**: ${branchName}`,
+              refForApi === 'main' ? '**Verify from:** `main`' : '',
               '',
               '## Goal',
               goal || '(not specified)',
@@ -827,7 +837,9 @@ export default defineConfig({
               qaRules,
               '',
               '## Instructions',
-              '1. Review the implementation on the feature branch.',
+              refForApi === 'main'
+                ? '1. Review the implementation on `main` (already merged for QA access). Do NOT check out the feature branch.'
+                : '1. Review the implementation on the feature branch.',
               '2. Check that all required audit artifacts exist (plan, worklog, changed-files, decisions, verification, pm-review).',
               '3. Perform code review and verify acceptance criteria.',
               '4. Generate `docs/audit/${ticketId}-<short-title>/qa-report.md` with:',
@@ -837,10 +849,9 @@ export default defineConfig({
               '   - UI verification notes',
               '   - Verdict (PASS/FAIL)',
               '5. If PASS:',
-              '   - Commit and push the qa-report to the feature branch',
-              '   - Merge the feature branch into main',
-              '   - Move the ticket to Human in the Loop (col-human-in-the-loop)',
-              '   - Delete the feature branch (local and remote)',
+              refForApi === 'main'
+                ? '   - Commit and push the qa-report to main; move the ticket to Human in the Loop. Do NOT merge again or delete any branch.'
+                : '   - Commit and push the qa-report to the feature branch, merge the feature branch into main, move the ticket to Human in the Loop (col-human-in-the-loop), delete the feature branch (local and remote).',
               '6. If FAIL:',
               '   - Commit and push the qa-report only',
               '   - Do NOT merge',
@@ -872,7 +883,7 @@ export default defineConfig({
             }
 
             // POST /v0/agents to launch cloud agent with QA ruleset
-            const launchRes = await fetch('https://api.cursor.com/v0/agents', {
+            let launchRes = await fetch('https://api.cursor.com/v0/agents', {
               method: 'POST',
               headers: {
                 Authorization: `Basic ${auth}`,
@@ -880,12 +891,61 @@ export default defineConfig({
               },
               body: JSON.stringify({
                 prompt: { text: promptText },
-                source: { repository: repoUrl, ref: branchName },
+                source: { repository: repoUrl, ref: refForApi },
                 target: { branchName: 'main' },
               }),
             })
 
-            const launchText = await launchRes.text()
+            let launchText = await launchRes.text()
+            // If feature branch does not exist (e.g. already merged and deleted), retry with main
+            if (!launchRes.ok && launchRes.status === 400 && refForApi !== 'main') {
+              const branchNotFound =
+                /branch\s+.*\s+does not exist/i.test(launchText) || /does not exist.*branch/i.test(launchText)
+              if (branchNotFound) {
+                const promptTextOnMain = [
+                  `QA this ticket implementation. The feature branch is no longer available; verify from the latest \`main\` branch. Review the code, generate a QA report, and complete the QA workflow.`,
+                  '',
+                  '## Ticket',
+                  `**ID**: ${ticketId}`,
+                  `**Branch (was; now merged)**: ${branchName}`,
+                  '**Verify from:** `main`',
+                  '',
+                  '## Goal',
+                  goal || '(not specified)',
+                  '',
+                  '## Human-verifiable deliverable',
+                  deliverable || '(not specified)',
+                  '',
+                  '## Acceptance criteria',
+                  criteria || '(not specified)',
+                  '',
+                  '## QA Rules',
+                  qaRules,
+                  '',
+                  '## Instructions',
+                  '1. You are on `main` (feature branch was merged). Review the implementation on main.',
+                  '2. Check that all required audit artifacts exist (plan, worklog, changed-files, decisions, verification, pm-review).',
+                  '3. Perform code review and verify acceptance criteria.',
+                  '4. Generate `docs/audit/${ticketId}-<short-title>/qa-report.md`; note in the report that verification was performed against main.',
+                  '5. If PASS: commit and push the qa-report to main, move the ticket to Human in the Loop. Do NOT merge again or delete any branch.',
+                  '6. If FAIL: commit and push the qa-report only; do NOT merge; report what failed and recommend a bugfix ticket.',
+                ].join('\n')
+                launchRes = await fetch('https://api.cursor.com/v0/agents', {
+                  method: 'POST',
+                  headers: {
+                    Authorization: `Basic ${auth}`,
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    prompt: { text: promptTextOnMain },
+                    source: { repository: repoUrl, ref: 'main' },
+                    target: { branchName: 'main' },
+                  }),
+                })
+                launchText = await launchRes.text()
+              }
+            }
+
             if (!launchRes.ok) {
               let errDetail: string
               try {
