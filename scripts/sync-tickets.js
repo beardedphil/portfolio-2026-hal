@@ -1,12 +1,15 @@
 /**
- * Sync tickets: Supabase is the source of truth. docs/tickets/*.md ↔ Supabase tickets table.
+ * Sync tickets: Migration tool only (0065). Supabase is the source of truth.
  * Run from project root: npm run sync-tickets
+ *
+ * NOTE: As of 0065, this script is for migration only. The app and agents use Supabase-only mode.
+ * docs/tickets/*.md files are no longer written or read by the app.
  *
  * Requires .env (or env) with SUPABASE_URL and SUPABASE_ANON_KEY.
  * Optional: HAL_PROJECT_ID (project id for PM conversation; defaults to repo folder name to match "Connect Project Folder"); HAL_CHECK_UNASSIGNED_URL (default http://localhost:5173/api/pm/check-unassigned).
  * - Docs → DB: upsert each doc ticket that ALREADY EXISTS in Supabase (update body_md, title, filename only; keep kanban from DB so UI moves are never reverted by sync).
- * - DB → Docs: write docs/tickets/{filename} for every ticket in Supabase with frontmatter from DB so docs match DB (Supabase wins).
- * - Delete orphans: remove local files for ticket IDs in docs but no longer in Supabase (Supabase is source of truth for deletions).
+ * - DB → Docs: REMOVED (0065) - Supabase-only mode, no longer writing to docs/tickets/*.md.
+ * - Delete orphans: REMOVED (0065) - no longer managing docs/tickets/*.md files.
  * - Then: set kanban_column_id = 'col-unassigned' for tickets with null.
  * - After sync: POST to HAL check-unassigned so PM chat gets the result (ignored if HAL dev server not running).
  */
@@ -119,13 +122,14 @@ async function main() {
     process.exit(1)
   }
 
-  if (!fs.existsSync(ticketsDir)) {
-    console.error('docs/tickets not found. Run from project root.')
-    process.exit(1)
+  // Migration-only (0065): docs/tickets is optional (only needed if migrating existing files)
+  const hasDocsTickets = fs.existsSync(ticketsDir)
+  if (!hasDocsTickets) {
+    console.warn('docs/tickets not found. Migration mode: skipping Docs→DB sync (no local files to migrate).')
   }
 
   const client = createClient(url, key)
-  const filenames = fs.readdirSync(ticketsDir).filter((n) => n.endsWith('.md')).sort()
+  const filenames = hasDocsTickets ? fs.readdirSync(ticketsDir).filter((n) => n.endsWith('.md')).sort() : []
   const docTickets = []
   for (const name of filenames) {
     const id = extractTicketId(name)
@@ -197,38 +201,18 @@ async function main() {
     }
   }
 
-  // Refetch all from DB so we write the current state (Supabase source of truth)
+  // DB → Docs removed (0065): Supabase-only mode, no longer writing to docs/tickets/*.md
+
+  // Refetch all from DB for unassigned check
   const { data: refetchedRows, error: refetchError } = await client
     .from('tickets')
-    .select('id, filename, title, body_md, kanban_column_id, kanban_position, kanban_moved_at')
+    .select('id, kanban_column_id, kanban_position')
     .order('id')
   if (refetchError) {
     console.error('Supabase refetch after upsert:', refetchError.message)
     process.exit(1)
   }
   const refetched = refetchedRows ?? []
-
-  let writtenToDocs = 0
-  for (const row of refetched) {
-    const filePath = path.join(ticketsDir, row.filename)
-    const content = serializeDocWithKanban(row)
-    fs.writeFileSync(filePath, content, 'utf8')
-    writtenToDocs++
-    console.log('Wrote docs/tickets/' + row.filename)
-  }
-
-  // Delete local files for ticket IDs in docs but no longer in Supabase (Supabase is source of truth)
-  const refetchedIds = new Set(refetched.map((r) => r.id))
-  let deletedFromDocs = 0
-  for (const d of docTickets) {
-    if (refetchedIds.has(d.id)) continue
-    const filePath = path.join(ticketsDir, d.filename)
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath)
-      deletedFromDocs++
-      console.log('Removed docs/tickets/' + d.filename)
-    }
-  }
 
   if (refetched.length > 0) {
     const KANBAN_COLUMN_IDS = [
@@ -263,16 +247,13 @@ async function main() {
   }
 
   console.log(
-    'Sync done. Docs→DB:',
+    'Sync done (migration only, 0065). Docs→DB:',
     updated,
     'updated,',
     skipped,
     'skipped',
     notReimported > 0 ? `, ${notReimported} orphaned (not re-imported)` : '',
-    '. DB→Docs:',
-    writtenToDocs,
-    'written.',
-    deletedFromDocs > 0 ? ` Deleted: ${deletedFromDocs}.` : ''
+    '. DB→Docs: removed (Supabase-only mode).'
   )
 
   // Trigger HAL Unassigned check so PM chat gets the result (e.g. when sync runs from CLI)
