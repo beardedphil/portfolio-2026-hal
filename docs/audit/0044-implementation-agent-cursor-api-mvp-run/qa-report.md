@@ -80,3 +80,10 @@ Full flow requires a connected project (folder picker cannot be automated):
 - **Implementation:** Complete and aligned with the ticket. Implementation Agent uses Cursor API (GET /v0/me) via backend proxy; status timeline and all outcomes are visible in-app; no secrets displayed.
 - **QA (this run):** Code review PASS; build PASS; UI verification limited to app load and config panel (full flow requires manual “Connect Project Folder” and test cases in verification.md).
 - **Merge:** OK to merge. Recommend **Human in the Loop** verification at http://localhost:5173 per verification.md (connect project, run Test Cases 1–3) before closing the ticket.
+
+## 9. Independent QA verification
+
+- **Date:** 2025-01-31
+- **Code review:** PASS — Implementation matches ticket; implAgentRunStatus lifecycle, client guard for unconfigured API, backend proxy, human-readable errors confirmed.
+- **Build:** PASS — npm run build completes successfully.
+- **Verdict:** OK to merge. Proceeding with merge to main.
