@@ -750,9 +750,6 @@ function App() {
           <div className="chat-header">
             <h2>Chat</h2>
             <div className="agent-selector">
-              <span className="active-agent-label" aria-live="polite">
-                Active: {CHAT_OPTIONS.find((o) => o.id === selectedChatTarget)?.label ?? selectedChatTarget}
-              </span>
               <label htmlFor="agent-select">Agent:</label>
               <select
                 id="agent-select"
