@@ -29,17 +29,17 @@ All required audit files are present:
 
 | Requirement | Implementation | Evidence |
 |------------|----------------|----------|
-| Implementation Agent completion → QA | ✅ Implemented | `src/App.tsx:829-839` - Extracts ticket ID, calls `moveTicketToColumn(currentTicketId, 'col-qa', 'implementation')` on `stage === 'completed'` |
-| QA Agent completion (PASS) → Human in the Loop | ✅ Implemented | `src/App.tsx:965-979` - Checks for PASS verdict via multiple signals, calls `moveTicketToColumn(currentTicketId, 'col-human-in-the-loop', 'qa')` |
-| Ticket ID extraction | ✅ Implemented | `src/App.tsx:451-461` - `extractTicketId` function with regex patterns for "Implement ticket XXXX", "QA ticket XXXX", and fallback to any 4-digit number |
-| Ticket ID stored on agent start | ✅ Implemented | `src/App.tsx:730-733` (Implementation Agent), `src/App.tsx:892-894` (QA Agent) - Extracts and stores ticket ID when agent starts |
-| Supabase move function | ✅ Implemented | `src/App.tsx:392-448` - `moveTicketToColumn` function handles Supabase API calls, position calculation, error handling |
-| Error diagnostics (ticket ID not found) | ✅ Implemented | `src/App.tsx:835-838` (Implementation), `src/App.tsx:974-977` (QA) - Adds error diagnostic when ticket ID cannot be determined |
-| Error diagnostics (Supabase failure) | ✅ Implemented | `src/App.tsx:395-397`, `412-414`, `431-433`, `442-444` - All Supabase errors logged via `addAutoMoveDiagnostic` |
-| In-app diagnostics UI | ✅ Implemented | `src/App.tsx:1746-1765` - Auto-move diagnostics section in Diagnostics panel, shows last 10 entries with timestamps, color-coded (error/info) |
-| Diagnostics CSS styling | ✅ Implemented | `src/index.css:880-932` - Complete styling for auto-move diagnostics entries (error/info colors, layout, timestamps) |
-| State cleanup on disconnect | ✅ Implemented | `src/App.tsx:1190-1192` - Clears `implAgentTicketId`, `qaAgentTicketId`, and `autoMoveDiagnostics` on disconnect |
-| Diagnostics in DiagnosticsInfo type | ✅ Implemented | `src/App.tsx:67` - `autoMoveDiagnostics` field added to `DiagnosticsInfo` type, `src/App.tsx:1227` - Included in diagnostics object |
+| Implementation Agent completion → QA | ✅ Implemented | `src/App.tsx:873-884` - Extracts ticket ID, calls `moveTicketToColumn(currentTicketId, 'col-qa', 'implementation')` on `stage === 'completed'` |
+| QA Agent completion (PASS) → Human in the Loop | ✅ Implemented | `src/App.tsx:1024-1039` - Checks for PASS verdict via multiple signals, calls `moveTicketToColumn(currentTicketId, 'col-human-in-the-loop', 'qa')` |
+| Ticket ID extraction | ✅ Implemented | `src/App.tsx:475-486` - `extractTicketId` function with regex patterns for "Implement ticket XXXX", "QA ticket XXXX", and fallback to any 4-digit number |
+| Ticket ID stored on agent start | ✅ Implemented | `src/App.tsx:771-775` (Implementation Agent), `src/App.tsx:950-952` (QA Agent) - Extracts and stores ticket ID when agent starts |
+| Supabase move function | ✅ Implemented | `src/App.tsx:416-473` - `moveTicketToColumn` function handles Supabase API calls, position calculation, error handling |
+| Error diagnostics (ticket ID not found) | ✅ Implemented | `src/App.tsx:880-883` (Implementation), `src/App.tsx:1034-1037` (QA) - Adds error diagnostic when ticket ID cannot be determined |
+| Error diagnostics (Supabase failure) | ✅ Implemented | `src/App.tsx:419-422`, `436-439`, `455-458`, `466-469` - All Supabase errors logged via `addAutoMoveDiagnostic` |
+| In-app diagnostics UI | ✅ Implemented | `src/App.tsx:1840-1860` - Auto-move diagnostics section in Diagnostics panel, shows last 10 entries with timestamps, color-coded (error/info) |
+| Diagnostics CSS styling | ✅ Implemented | `src/index.css:879-932` - Complete styling for auto-move diagnostics entries (error/info colors, layout, timestamps) |
+| State cleanup on disconnect | ✅ Implemented | `src/App.tsx:1283-1285` - Clears `implAgentTicketId`, `qaAgentTicketId`, and `autoMoveDiagnostics` on disconnect |
+| Diagnostics in DiagnosticsInfo type | ✅ Implemented | `src/App.tsx:67` - `autoMoveDiagnostics` field added to `DiagnosticsInfo` type, `src/App.tsx:1322` - Included in diagnostics object |
 
 ### Code quality observations
 
@@ -53,6 +53,7 @@ All required audit files are present:
 
 1. **Kanban polling delay**: The implementation notes that Kanban board polls Supabase every ~10 seconds, so moves may take up to 10 seconds to appear. This is expected behavior and documented in `verification.md`.
 2. **Race condition with backend**: The implementation acknowledges that backend also moves tickets, but frontend auto-move is a fallback. If both succeed, last write wins in Supabase (acceptable behavior).
+3. **Duplicate QA auto-move logic**: QA agent has two auto-move triggers - one on `stage === 'completed'` (lines 1024-1039) and another on completion message pattern matching (lines 1064-1082). This redundancy is harmless (moves to same column) but could be simplified in a future refactor.
 
 ## UI verification
 
