@@ -7,12 +7,23 @@ alwaysApply: true
 
 When you **QA a ticket** (e.g. user asks to "QA", "verify", or "check" a ticket that is allegedly complete), you **must** add a QA report to that ticket’s audit folder.
 
+## Cloud QA workflow context
+
+In cloud environments, QA agents may not have access to feature branches (only `main`). When this is the case, the implementation agent merges the feature branch to `main` before QA begins. QA must then verify from `main` rather than attempting to check out a feature branch. This workflow is indicated when the ticket states "merged to `main` for QA access" or similar language.
+
 ## Which branch to use (decision rule)
 
-- **If the ticket or prompt states that the implementation was "merged to main for QA access"** (or that code is on `main` for QA): you **must** verify from the **`main`** branch. Do **not** attempt to locate, check out, or use the feature branch. Pull the latest `main` and perform QA there.
+- **If the ticket or prompt states that the implementation was "merged to main for QA access"** (or that code is on `main` for QA): 
+  - You **must** verify from the **`main`** branch. 
+  - Do **not** attempt to locate, check out, or use the feature branch.
+  - **Step 1:** Pull the latest `main` branch: `git checkout main && git pull origin main`
+  - **Step 2:** Perform QA on `main` (code review and verification).
+  - **Step 3:** Record in `qa-report.md` that verification was performed against `main` (e.g. "Verified on `main`; implementation was merged to main for QA access.").
+  - **Step 4:** After verification, commit the qa-report to `main` (do not merge again — the change is already on `main`).
+  - **Step 5:** Move ticket to Human in the Loop (DB-first), then provide summary.
 - **Otherwise:** use the feature branch named in the ticket's QA → Branch field (or the branch you were launched on). Perform QA on that branch, then follow the full workflow (merge to main, delete branch, etc.).
 
-When you QA from `main`, record in `qa-report.md` that verification was performed against `main` (e.g. "Verified on `main`; implementation was merged to main for QA access.").
+**Important:** When QA cannot access feature branches (cloud QA workflow), the implementation agent merges the feature branch to `main` before QA. In this case, QA must verify from `main` and record this in both the `qa-report.md` and note it in the ticket artifacts/links.
 
 ## Required artifact
 
@@ -47,9 +58,15 @@ When the verdict is **PASS (OK to merge)**, QA must **complete the full workflow
 
 **If you are verifying from `main`** (implementation was merged to main for QA access):
 
-1. **Commit and push** the qa-report (and any rule changes) to **`main`**. Do **not** merge again — the change is already on `main`. Do **not** delete any branch.
-2. **Move ticket to Human in the Loop** — same as above: `node scripts/move-ticket-column.js <ticketId> col-human-in-the-loop`, DB-first then sync.
-3. **Then** give your summary to the user.
+1. **Commit and push** the qa-report (and any rule changes) to **`main`**. 
+   - Do **not** merge again — the change is already on `main`. 
+   - Do **not** delete any branch (the feature branch may still exist, but QA does not manage it in this workflow).
+2. **Record verification context in the ticket** — Update the ticket body (in Supabase, then run `npm run sync-tickets`) to include:
+   - Link to `docs/audit/<ticket-id>-<short-title>/qa-report.md`
+   - Note that verification was performed against `main` (not the feature branch)
+   - Any other relevant audit artifact links
+3. **Move ticket to Human in the Loop** — Update the ticket **in the DB first**, then run sync. Use `node scripts/move-ticket-column.js <ticketId> col-human-in-the-loop` from the repo root (e.g. `node scripts/move-ticket-column.js 0047 col-human-in-the-loop`). Requires `.env` with `SUPABASE_URL` and `SUPABASE_ANON_KEY`. The script updates Supabase, then the ticket file frontmatter, then runs `sync-tickets`. **Do not** add or edit YAML frontmatter in the ticket file by hand — Kanban is Supabase-backed; always update DB first, then sync.
+4. **Then** give your summary to the user.
 
 Do not give a summary with "next steps" or "run these commands" — QA performs the merge (or confirms main) and branch deletion where applicable. The user receives the completed result.
 
