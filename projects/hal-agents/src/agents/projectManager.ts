@@ -42,6 +42,28 @@ function sectionContent(body: string, sectionTitle: string): string {
   return (m?.[1] ?? '').trim()
 }
 
+/** Normalize Title line in body_md to include ID prefix: "<ID> — <title>". Returns normalized body_md. */
+function normalizeTitleLineInBody(bodyMd: string, ticketId: string): string {
+  if (!bodyMd || !ticketId) return bodyMd
+  const idPrefix = `${ticketId} — `
+  // Match the Title line: "- **Title**: ..."
+  const titleLineRegex = /(- \*\*Title\*\*:\s*)(.+?)(?:\n|$)/
+  const match = bodyMd.match(titleLineRegex)
+  if (!match) return bodyMd // No Title line found, return as-is
+  
+  const prefix = match[1] // "- **Title**: "
+  let titleValue = match[2].trim()
+  
+  // Remove any existing ID prefix (e.g. "0048 — " or "0048 - ")
+  titleValue = titleValue.replace(/^\d{4}\s*[—–-]\s*/, '')
+  
+  // Prepend the correct ID prefix
+  const normalizedTitle = `${idPrefix}${titleValue}`
+  const normalizedLine = `${prefix}${normalizedTitle}${match[0].endsWith('\n') ? '\n' : ''}`
+  
+  return bodyMd.replace(titleLineRegex, normalizedLine)
+}
+
 /** Placeholder-like pattern: angle brackets with content (e.g. <AC 1>, <task-id>). */
 const PLACEHOLDER_RE = /<[A-Za-z0-9\s\-_]+>/g
 
@@ -519,17 +541,19 @@ export async function runPmAgent(
                 const filename = `${id}-${slug}.md`
                 const filePath = `docs/tickets/${filename}`
                 const titleWithId = `${id} — ${input.title.trim()}`
+                // Normalize Title line in body_md to include ID prefix (0054)
+                const normalizedBodyMd = normalizeTitleLineInBody(input.body_md.trim(), id)
                 const { error: insertError } = await supabase.from('tickets').insert({
                   id,
                   filename,
                   title: titleWithId,
-                  body_md: input.body_md.trim(),
+                  body_md: normalizedBodyMd,
                   kanban_column_id: 'col-unassigned',
                   kanban_position: 0,
                   kanban_moved_at: now,
                 })
                 if (!insertError) {
-                  const readiness = evaluateTicketReady(input.body_md.trim())
+                  const readiness = evaluateTicketReady(normalizedBodyMd)
                   out = {
                     success: true,
                     id,
@@ -699,14 +723,16 @@ export async function runPmAgent(
               toolCalls.push({ name: 'update_ticket_body', input, output: out })
               return out
             }
+            // Normalize Title line in body_md to include ID prefix (0054)
+            const normalizedBodyMd = normalizeTitleLineInBody(input.body_md.trim(), normalizedId)
             const { error: updateError } = await supabase
               .from('tickets')
-              .update({ body_md: input.body_md.trim() })
+              .update({ body_md: normalizedBodyMd })
               .eq('id', normalizedId)
             if (updateError) {
               out = { success: false, error: `Supabase update: ${updateError.message}` }
             } else {
-              const readiness = evaluateTicketReady(input.body_md.trim())
+              const readiness = evaluateTicketReady(normalizedBodyMd)
               out = {
                 success: true,
                 ticketId: normalizedId,
