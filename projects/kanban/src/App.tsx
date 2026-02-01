@@ -1093,7 +1093,7 @@ function App() {
       // Only accept messages from parent origin
       if (event.source !== window.parent) return
       
-      const data = event.data as { type?: string; url?: string; key?: string }
+      const data = event.data as { type?: string; url?: string; key?: string; theme?: string }
       
       if (data.type === 'HAL_CONNECT_SUPABASE' && data.url && data.key) {
         setProjectName('HAL-connected')
@@ -1103,6 +1103,9 @@ function App() {
         setSupabaseConnectionStatus('disconnected')
         setSupabaseTickets([])
         setSupabaseColumnsRows([])
+      } else if (data.type === 'HAL_THEME_CHANGE' && data.theme) {
+        // Apply theme to document root (0078)
+        document.documentElement.setAttribute('data-theme', data.theme)
       }
     }
     

@@ -72,6 +72,9 @@ type DiagnosticsInfo = {
   agentRunner: string | null
   /** Auto-move diagnostics entries (0061). */
   autoMoveDiagnostics: Array<{ timestamp: Date; message: string; type: 'error' | 'info' }>
+  /** Current theme and source (0078). */
+  theme: Theme
+  themeSource: 'default' | 'saved'
 }
 
 // localStorage helpers for conversation persistence (fallback when no project DB)
@@ -175,6 +178,18 @@ function getMessageAuthorLabel(agent: Message['agent']): string {
   return 'System'
 }
 
+type Theme = 'light' | 'dark'
+
+const THEME_STORAGE_KEY = 'hal-theme'
+
+function getInitialTheme(): Theme {
+  const stored = localStorage.getItem(THEME_STORAGE_KEY)
+  if (stored === 'light' || stored === 'dark') {
+    return stored
+  }
+  return 'light' // default
+}
+
 function App() {
   const [selectedChatTarget, setSelectedChatTarget] = useState<ChatTarget>('project-manager')
   const [conversations, setConversations] = useState<Record<ChatTarget, Message[]>>(getEmptyConversations)
@@ -190,6 +205,7 @@ function App() {
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const [connectedProject, setConnectedProject] = useState<string | null>(null)
   const [connectError, setConnectError] = useState<string | null>(null)
+  const [theme, setTheme] = useState<Theme>(getInitialTheme)
   const [lastPmOutboundRequest, setLastPmOutboundRequest] = useState<object | null>(null)
   const [lastPmToolCalls, setLastPmToolCalls] = useState<ToolCallRecord[] | null>(null)
   const [lastTicketCreationResult, setLastTicketCreationResult] = useState<TicketCreationResult | null>(null)
@@ -280,6 +296,30 @@ function App() {
   useEffect(() => {
     selectedChatTargetRef.current = selectedChatTarget
   }, [selectedChatTarget])
+
+  // Apply theme to document root on mount and when theme changes (0078)
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+  }, [theme])
+
+  // Persist theme to localStorage (0078)
+  useEffect(() => {
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, theme)
+    } catch {
+      // ignore localStorage errors
+    }
+  }, [theme])
+
+  // Send theme to Kanban iframe when theme changes or iframe loads (0078)
+  useEffect(() => {
+    if (kanbanLoaded && kanbanIframeRef.current?.contentWindow) {
+      kanbanIframeRef.current.contentWindow.postMessage(
+        { type: 'HAL_THEME_CHANGE', theme },
+        '*'
+      )
+    }
+  }, [theme, kanbanLoaded])
 
   // Persist chat width to localStorage (0060)
   useEffect(() => {
@@ -1534,7 +1574,14 @@ function App() {
   const handleIframeLoad = useCallback(() => {
     setKanbanLoaded(true)
     setLastError(null)
-  }, [])
+    // Send current theme to Kanban iframe immediately on load (0078)
+    if (kanbanIframeRef.current?.contentWindow) {
+      kanbanIframeRef.current.contentWindow.postMessage(
+        { type: 'HAL_THEME_CHANGE', theme },
+        '*'
+      )
+    }
+  }, [theme])
 
   const handleIframeError = useCallback(() => {
     setKanbanLoaded(false)
@@ -1662,6 +1709,10 @@ function App() {
     }
   }, [runUnassignedCheck])
 
+  const handleThemeToggle = useCallback(() => {
+    setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))
+  }, [])
+
   const handleDisconnect = useCallback(() => {
     if (kanbanIframeRef.current?.contentWindow) {
       kanbanIframeRef.current.contentWindow.postMessage(
@@ -1712,6 +1763,16 @@ function App() {
     'previous_response_id' in lastPmOutboundRequest &&
     (lastPmOutboundRequest as { previous_response_id?: string }).previous_response_id != null
 
+  // Determine theme source (0078)
+  const themeSource: 'default' | 'saved' = (() => {
+    try {
+      const stored = localStorage.getItem(THEME_STORAGE_KEY)
+      return stored === 'light' || stored === 'dark' ? 'saved' : 'default'
+    } catch {
+      return 'default'
+    }
+  })()
+
   const diagnostics: DiagnosticsInfo = {
     kanbanRenderMode: 'iframe (fallback)',
     selectedChatTarget,
@@ -1732,6 +1793,8 @@ function App() {
     previousResponseIdInLastRequest,
     agentRunner,
     autoMoveDiagnostics,
+    theme,
+    themeSource,
   }
 
   return (
@@ -1739,6 +1802,17 @@ function App() {
       <header className="hal-header">
         <h1>HAL</h1>
         <span className="hal-subtitle">Portfolio 2026 - Agent Workspace</span>
+        <div className="hal-header-actions">
+          <button
+            type="button"
+            className="theme-toggle"
+            onClick={handleThemeToggle}
+            aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} theme`}
+            title={`Switch to ${theme === 'light' ? 'dark' : 'light'} theme`}
+          >
+            {theme === 'light' ? '🌙' : '☀️'} {theme === 'light' ? 'Dark' : 'Light'}
+          </button>
+        </div>
       </header>
 
       <main className="hal-main">
@@ -2180,6 +2254,12 @@ function App() {
                   <span className="diag-label">Resizer dragging:</span>
                   <span className="diag-value" data-status={isDragging ? 'ok' : undefined}>
                     {String(isDragging)}
+                  </span>
+                </div>
+                <div className="diag-row">
+                  <span className="diag-label">Theme:</span>
+                  <span className="diag-value">
+                    {diagnostics.theme} ({diagnostics.themeSource})
                   </span>
                 </div>
                 <div className="diag-row">
