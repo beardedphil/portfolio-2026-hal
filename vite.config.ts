@@ -373,82 +373,296 @@ export default defineConfig({
             return
           }
 
+          const writeStage = (stage: object) => {
+            res.write(JSON.stringify(stage) + '\n')
+          }
+
           try {
-            const body = (await readJsonBody(req)) as { message?: string }
+            const body = (await readJsonBody(req)) as {
+              message?: string
+              supabaseUrl?: string
+              supabaseAnonKey?: string
+            }
             const message = typeof body.message === 'string' ? body.message.trim() : ''
+            const supabaseUrl = typeof body.supabaseUrl === 'string' ? body.supabaseUrl.trim() || undefined : undefined
+            const supabaseAnonKey = typeof body.supabaseAnonKey === 'string' ? body.supabaseAnonKey.trim() || undefined : undefined
 
             const key = process.env.CURSOR_API_KEY || process.env.VITE_CURSOR_API_KEY
             if (!key || !key.trim()) {
-              res.statusCode = 503
-              res.setHeader('Content-Type', 'application/json')
-              res.end(
-                JSON.stringify({
-                  success: false,
-                  error: 'Cursor API is not configured. Set CURSOR_API_KEY in .env.',
-                  status: 'not-configured',
-                })
-              )
+              res.statusCode = 200
+              res.setHeader('Content-Type', 'application/x-ndjson')
+              writeStage({ stage: 'failed', error: 'Cursor API is not configured. Set CURSOR_API_KEY in .env.', status: 'not-configured' })
+              res.end()
               return
             }
 
-            const auth = Buffer.from(`${key.trim()}:`).toString('base64')
+            // Parse "Implement ticket XXXX" pattern (0046)
+            const ticketIdMatch = message.match(/implement\s+ticket\s+(\d{4})/i)
+            const ticketId = ticketIdMatch ? ticketIdMatch[1] : null
 
-            // Minimal end-to-end call: GET /v0/me (API Key Info) to verify auth and return displayable content
-            const cursorRes = await fetch('https://api.cursor.com/v0/me', {
-              method: 'GET',
+            if (!ticketId) {
+              res.statusCode = 200
+              res.setHeader('Content-Type', 'application/x-ndjson')
+              writeStage({
+                stage: 'failed',
+                error: 'Say "Implement ticket XXXX" (e.g. Implement ticket 0046) to implement a ticket.',
+                status: 'invalid-input',
+              })
+              res.end()
+              return
+            }
+
+            res.statusCode = 200
+            res.setHeader('Content-Type', 'application/x-ndjson')
+            res.flushHeaders?.()
+
+            const auth = Buffer.from(`${key.trim()}:`).toString('base64')
+            const repoRoot = path.resolve(__dirname)
+            const ticketsDir = path.join(repoRoot, 'docs', 'tickets')
+
+            let bodyMd: string
+            let ticketFilename: string
+
+            writeStage({ stage: 'fetching_ticket' })
+
+            // Fetch ticket: Supabase first (if creds provided), else docs/tickets
+            if (supabaseUrl && supabaseAnonKey) {
+              const { createClient } = await import('@supabase/supabase-js')
+              const supabase = createClient(supabaseUrl, supabaseAnonKey)
+              const { data: row, error } = await supabase
+                .from('tickets')
+                .select('body_md, filename')
+                .eq('id', ticketId)
+                .single()
+              if (error || !row?.body_md) {
+                // Fallback to docs
+                const files = fs.readdirSync(ticketsDir, { withFileTypes: true })
+                const match = files.find((f) => f.isFile() && f.name.startsWith(ticketId + '-') && f.name.endsWith('.md'))
+                if (!match) {
+                  writeStage({ stage: 'failed', error: `Ticket ${ticketId} not found in Supabase or docs/tickets.`, status: 'ticket-not-found' })
+                  res.end()
+                  return
+                }
+                ticketFilename = match.name
+                bodyMd = fs.readFileSync(path.join(ticketsDir, ticketFilename), 'utf8')
+              } else {
+                bodyMd = row.body_md
+                ticketFilename = row.filename ?? `${ticketId}-unknown.md`
+              }
+            } else {
+              const files = fs.readdirSync(ticketsDir, { withFileTypes: true })
+              const match = files.find((f) => f.isFile() && f.name.startsWith(ticketId + '-') && f.name.endsWith('.md'))
+              if (!match) {
+                writeStage({ stage: 'failed', error: `Ticket ${ticketId} not found in docs/tickets. Connect project to fetch from Supabase.`, status: 'ticket-not-found' })
+                res.end()
+                return
+              }
+              ticketFilename = match.name
+              bodyMd = fs.readFileSync(path.join(ticketsDir, ticketFilename), 'utf8')
+            }
+
+            // Build prompt from Goal, Human-verifiable deliverable, Acceptance criteria
+            const goalMatch = bodyMd.match(/##\s*Goal\s*\([^)]*\)\s*\n([\s\S]*?)(?=\n##|$)/i)
+            const deliverableMatch = bodyMd.match(/##\s*Human-verifiable deliverable[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
+            const criteriaMatch = bodyMd.match(/##\s*Acceptance criteria[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
+            const goal = (goalMatch?.[1] ?? '').trim()
+            const deliverable = (deliverableMatch?.[1] ?? '').trim()
+            const criteria = (criteriaMatch?.[1] ?? '').trim()
+            const promptText = [
+              `Implement this ticket.`,
+              '',
+              '## Goal',
+              goal || '(not specified)',
+              '',
+              '## Human-verifiable deliverable',
+              deliverable || '(not specified)',
+              '',
+              '## Acceptance criteria',
+              criteria || '(not specified)',
+            ].join('\n')
+
+            writeStage({ stage: 'resolving_repo' })
+
+            // Resolve GitHub repo URL from git remote
+            const { execSync } = await import('child_process')
+            let repoUrl: string
+            try {
+              const out = execSync('git remote get-url origin', { cwd: repoRoot, encoding: 'utf8' })
+              const raw = out.trim()
+              // Normalize to https://github.com/owner/repo (handle git@github.com:owner/repo.git)
+              const sshMatch = raw.match(/git@github\.com:([^/]+)\/([^/]+?)(\.git)?$/i)
+              if (sshMatch) {
+                repoUrl = `https://github.com/${sshMatch[1]}/${sshMatch[2]}`
+              } else if (/^https:\/\/github\.com\//i.test(raw)) {
+                repoUrl = raw.replace(/\.git$/i, '')
+              } else {
+                writeStage({ stage: 'failed', error: 'No GitHub remote found. The connected project must have a GitHub origin (e.g. https://github.com/owner/repo or git@github.com:owner/repo.git).', status: 'no-github-remote' })
+                res.end()
+                return
+              }
+            } catch {
+              writeStage({ stage: 'failed', error: 'Could not resolve GitHub repository. Ensure the project has a git remote named "origin" pointing to a GitHub repo.', status: 'no-github-remote' })
+              res.end()
+              return
+            }
+
+            writeStage({ stage: 'launching' })
+
+            // POST /v0/agents to launch cloud agent
+            const launchRes = await fetch('https://api.cursor.com/v0/agents', {
+              method: 'POST',
               headers: {
                 Authorization: `Basic ${auth}`,
                 'Content-Type': 'application/json',
               },
+              body: JSON.stringify({
+                prompt: { text: promptText },
+                source: { repository: repoUrl, ref: 'main' },
+                target: { autoCreatePr: true, branchName: `ticket/${ticketId}-implementation` },
+              }),
             })
 
-            const text = await cursorRes.text()
-            let parsed: { apiKeyName?: string; userEmail?: string; createdAt?: string; error?: string; message?: string } | null = null
-            try {
-              parsed = JSON.parse(text) as typeof parsed
-            } catch {
-              // use raw text for error
-            }
-
-            if (!cursorRes.ok) {
-              const errMsg =
-                parsed?.message || parsed?.error || text || `HTTP ${cursorRes.status}`
-              res.statusCode = 200
-              res.setHeader('Content-Type', 'application/json')
-              res.end(
-                JSON.stringify({
-                  success: false,
-                  error: humanReadableCursorError(cursorRes.status, errMsg),
-                  status: 'failed',
-                })
-              )
+            const launchText = await launchRes.text()
+            if (!launchRes.ok) {
+              let errDetail: string
+              try {
+                const p = JSON.parse(launchText) as { message?: string; error?: string }
+                errDetail = p.message ?? p.error ?? launchText
+              } catch {
+                errDetail = launchText
+              }
+              writeStage({ stage: 'failed', error: humanReadableCursorError(launchRes.status, errDetail), status: 'launch-failed' })
+              res.end()
               return
             }
 
-            // Success: format user-friendly content (no secrets)
-            const content = parsed
-              ? `Cursor API connected. Authenticated as ${parsed.userEmail ?? 'unknown'} (API key: ${parsed.apiKeyName ?? 'unknown'}).`
-              : 'Cursor API connection successful.'
+            let launchData: { id?: string; status?: string }
+            try {
+              launchData = JSON.parse(launchText) as typeof launchData
+            } catch {
+              writeStage({ stage: 'failed', error: 'Invalid response from Cursor API when launching agent.', status: 'launch-failed' })
+              res.end()
+              return
+            }
 
-            res.statusCode = 200
-            res.setHeader('Content-Type', 'application/json')
-            res.end(
-              JSON.stringify({
-                success: true,
-                content,
-                status: 'completed',
+            const agentId = launchData.id
+            if (!agentId) {
+              writeStage({ stage: 'failed', error: 'Cursor API did not return an agent ID.', status: 'launch-failed' })
+              res.end()
+              return
+            }
+
+            // Poll agent status until FINISHED (or failed)
+            const pollInterval = 4000
+            let lastStatus = launchData.status ?? 'CREATING'
+            writeStage({ stage: 'polling', cursorStatus: lastStatus })
+
+            for (;;) {
+              await new Promise((r) => setTimeout(r, pollInterval))
+              const statusRes = await fetch(`https://api.cursor.com/v0/agents/${agentId}`, {
+                method: 'GET',
+                headers: { Authorization: `Basic ${auth}` },
               })
-            )
+              const statusText = await statusRes.text()
+              if (!statusRes.ok) {
+                writeStage({ stage: 'failed', error: humanReadableCursorError(statusRes.status, statusText), status: 'poll-failed' })
+                res.end()
+                return
+              }
+              let statusData: { status?: string; summary?: string; target?: { prUrl?: string } }
+              try {
+                statusData = JSON.parse(statusText) as typeof statusData
+              } catch {
+                writeStage({ stage: 'failed', error: 'Invalid response when polling agent status.', status: 'poll-failed' })
+                res.end()
+                return
+              }
+              lastStatus = statusData.status ?? lastStatus
+              writeStage({ stage: 'polling', cursorStatus: lastStatus })
+
+              if (lastStatus === 'FINISHED') {
+                const summary = statusData.summary ?? 'Implementation completed.'
+                const prUrl = statusData.target?.prUrl
+
+                // Move ticket to QA in Supabase
+                if (supabaseUrl && supabaseAnonKey) {
+                  try {
+                    const { createClient } = await import('@supabase/supabase-js')
+                    const supabase = createClient(supabaseUrl, supabaseAnonKey)
+                    const { data: inColumn } = await supabase
+                      .from('tickets')
+                      .select('kanban_position')
+                      .eq('kanban_column_id', 'col-qa')
+                      .order('kanban_position', { ascending: false })
+                      .limit(1)
+                    const nextPosition = inColumn?.length ? ((inColumn[0]?.kanban_position ?? -1) + 1) : 0
+                    const movedAt = new Date().toISOString()
+
+                    // Update body_md with new frontmatter so DB and docs stay in sync
+                    const content = bodyMd
+                    const fmMatch = content.match(/^---\n([\s\S]*?)\n---/)
+                    let updatedBodyMd = content
+                    if (fmMatch) {
+                      const block = fmMatch[1]
+                      const lines = block.split('\n')
+                      const out: string[] = []
+                      let hasCol = false
+                      let hasPos = false
+                      let hasMoved = false
+                      for (const line of lines) {
+                        if (/^kanbanColumnId\s*:/.test(line)) { out.push(`kanbanColumnId: col-qa`); hasCol = true; continue }
+                        if (/^kanbanPosition\s*:/.test(line)) { out.push(`kanbanPosition: ${nextPosition}`); hasPos = true; continue }
+                        if (/^kanbanMovedAt\s*:/.test(line)) { out.push(`kanbanMovedAt: ${movedAt}`); hasMoved = true; continue }
+                        out.push(line)
+                      }
+                      if (!hasCol) out.push(`kanbanColumnId: col-qa`)
+                      if (!hasPos) out.push(`kanbanPosition: ${nextPosition}`)
+                      if (!hasMoved) out.push(`kanbanMovedAt: ${movedAt}`)
+                      updatedBodyMd = content.replace(/^---\n[\s\S]*?\n---/, `---\n${out.join('\n')}\n---`)
+                    }
+
+                    await supabase
+                      .from('tickets')
+                      .update({
+                        kanban_column_id: 'col-qa',
+                        kanban_position: nextPosition,
+                        kanban_moved_at: movedAt,
+                        body_md: updatedBodyMd,
+                      })
+                      .eq('id', ticketId)
+
+                    const syncScriptPath = path.resolve(repoRoot, 'scripts', 'sync-tickets.js')
+                    spawn('node', [syncScriptPath], {
+                      cwd: repoRoot,
+                      env: { ...process.env, SUPABASE_URL: supabaseUrl, SUPABASE_ANON_KEY: supabaseAnonKey },
+                      stdio: ['ignore', 'ignore', 'ignore'],
+                    }).on('error', () => {})
+                  } catch (moveErr) {
+                    console.error('[Implementation Agent] Move to QA failed:', moveErr)
+                  }
+                }
+
+                const contentParts = [summary]
+                if (prUrl) contentParts.push(`\n\nPull request: ${prUrl}`)
+                contentParts.push(`\n\nTicket ${ticketId} moved to QA.`)
+                writeStage({ stage: 'completed', success: true, content: contentParts.join(''), prUrl, summary, status: 'completed' })
+                res.end()
+                return
+              }
+
+              if (lastStatus === 'FAILED' || lastStatus === 'CANCELLED' || lastStatus === 'ERROR') {
+                const errMsg = statusData.summary ?? `Agent ended with status ${lastStatus}.`
+                writeStage({ stage: 'failed', error: errMsg, status: lastStatus.toLowerCase() })
+                res.end()
+                return
+              }
+            }
           } catch (err) {
-            res.statusCode = 500
-            res.setHeader('Content-Type', 'application/json')
-            res.end(
-              JSON.stringify({
-                success: false,
-                error: err instanceof Error ? err.message : String(err),
-                status: 'failed',
-              })
-            )
+            const errMsg = err instanceof Error ? err.message : String(err)
+            res.statusCode = 200
+            res.setHeader('Content-Type', 'application/x-ndjson')
+            writeStage({ stage: 'failed', error: errMsg.replace(/\n/g, ' ').slice(0, 500), status: 'error' })
+            res.end()
           }
         })
       },

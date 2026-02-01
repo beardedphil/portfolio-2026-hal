@@ -179,9 +179,16 @@ function App() {
     standup: 0,
   }))
   const [agentTypingTarget, setAgentTypingTarget] = useState<ChatTarget | null>(null)
-  /** Implementation Agent run status for on-screen timeline (0044). */
+  /** Implementation Agent run status for on-screen timeline (0044, 0046). */
   const [implAgentRunStatus, setImplAgentRunStatus] = useState<
-    'idle' | 'preparing' | 'sending' | 'waiting' | 'completed' | 'failed'
+    | 'idle'
+    | 'preparing'
+    | 'fetching_ticket'
+    | 'resolving_repo'
+    | 'launching'
+    | 'polling'
+    | 'completed'
+    | 'failed'
   >('idle')
 
   useEffect(() => {
@@ -486,52 +493,100 @@ function App() {
         return
       }
 
+      const isImplementTicket = /implement\s+ticket\s+\d{4}/i.test(content)
+
       setAgentTypingTarget('implementation-agent')
       setImplAgentRunStatus('preparing')
 
       ;(async () => {
-        setImplAgentRunStatus('sending')
+        setImplAgentRunStatus(isImplementTicket ? 'fetching_ticket' : 'preparing')
         try {
+          const body: { message: string; supabaseUrl?: string; supabaseAnonKey?: string } = { message: content }
+          if (supabaseUrl && supabaseAnonKey) {
+            body.supabaseUrl = supabaseUrl
+            body.supabaseAnonKey = supabaseAnonKey
+          }
           const res = await fetch('/api/implementation-agent/run', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: content }),
+            body: JSON.stringify(body),
           })
-          setImplAgentRunStatus('waiting')
 
-          const text = await res.text()
-          let data: { success?: boolean; content?: string; error?: string; status?: string }
-          try {
-            data = JSON.parse(text) as typeof data
-          } catch {
+          if (!res.body) {
             setImplAgentRunStatus('failed')
             addMessage(
               'implementation-agent',
               'implementation-agent',
-              '[Implementation Agent] Invalid response from Cursor API.'
+              '[Implementation Agent] No response body from server.'
             )
             setTimeout(() => setAgentTypingTarget(null), 500)
             return
           }
 
-          if (data.success && data.content) {
-            setImplAgentRunStatus('completed')
-            addMessage('implementation-agent', 'implementation-agent', `[Implementation Agent] ${data.content}`)
-            setTimeout(() => setAgentTypingTarget(null), 500)
-          } else {
-            setImplAgentRunStatus('failed')
-            const errMsg = data.error ?? 'Unknown error'
+          const reader = res.body.getReader()
+          const decoder = new TextDecoder()
+          let buffer = ''
+          let lastStage = ''
+          let finalContent = ''
+          let finalError = ''
+
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            buffer += decoder.decode(value, { stream: true })
+            const lines = buffer.split('\n')
+            buffer = lines.pop() ?? ''
+            for (const line of lines) {
+              const trimmed = line.trim()
+              if (!trimmed) continue
+              try {
+                const data = JSON.parse(trimmed) as {
+                  stage?: string
+                  cursorStatus?: string
+                  success?: boolean
+                  content?: string
+                  error?: string
+                  status?: string
+                }
+                const stage = data.stage ?? ''
+                if (stage) lastStage = stage
+                if (stage === 'fetching_ticket') setImplAgentRunStatus('fetching_ticket')
+                else if (stage === 'resolving_repo') setImplAgentRunStatus('resolving_repo')
+                else if (stage === 'launching') setImplAgentRunStatus('launching')
+                else if (stage === 'polling') setImplAgentRunStatus('polling')
+                else if (stage === 'completed') {
+                  setImplAgentRunStatus('completed')
+                  finalContent = data.content ?? 'Implementation completed.'
+                } else if (stage === 'failed') {
+                  setImplAgentRunStatus('failed')
+                  finalError = data.error ?? 'Unknown error'
+                }
+              } catch {
+                // skip malformed lines
+              }
+            }
+          }
+
+          if (finalContent) {
+            addMessage('implementation-agent', 'implementation-agent', `[Implementation Agent] ${finalContent}`)
+          } else if (finalError) {
             addMessage(
               'implementation-agent',
               'implementation-agent',
-              `[Implementation Agent] Request failed: ${errMsg}`
+              `[Implementation Agent] ${finalError}`
             )
-            setTimeout(() => setAgentTypingTarget(null), 500)
+          } else if (lastStage === 'failed') {
+            addMessage(
+              'implementation-agent',
+              'implementation-agent',
+              '[Implementation Agent] Request failed. Check that Cursor API is configured and the project has a GitHub remote.'
+            )
           }
+          setTimeout(() => setAgentTypingTarget(null), 500)
         } catch (err) {
           setImplAgentRunStatus('failed')
           const msg = err instanceof Error ? err.message : String(err)
-          addMessage('implementation-agent', 'implementation-agent', `[Implementation Agent] Error: ${msg}`)
+          addMessage('implementation-agent', 'implementation-agent', `[Implementation Agent] ${msg}`)
           setTimeout(() => setAgentTypingTarget(null), 500)
         }
       })()
@@ -837,10 +892,10 @@ function App() {
             <>
               {selectedChatTarget === 'implementation-agent' && (
                 <div className="agent-stub-banner" role="status">
-                  <p className="agent-stub-title">Implementation Agent — Cursor API (MVP)</p>
+                  <p className="agent-stub-title">Implementation Agent — Cursor Cloud Agents</p>
                   <p className="agent-stub-hint">
                     {import.meta.env.VITE_CURSOR_API_KEY
-                      ? 'Send a message to run a minimal Cursor API test. Status timeline will show request progress.'
+                      ? 'Say "Implement ticket XXXX" (e.g. Implement ticket 0046) to fetch the ticket, launch a Cursor cloud agent, and move the ticket to QA when done.'
                       : 'Cursor API is not configured. Set CURSOR_API_KEY and VITE_CURSOR_API_KEY in .env to enable.'}
                   </p>
                 </div>
@@ -877,16 +932,24 @@ function App() {
                           </div>
                           {selectedChatTarget === 'implementation-agent' ? (
                             <div className="impl-agent-status-timeline" role="status">
-                              <span className={implAgentRunStatus === 'preparing' ? 'impl-status-active' : implAgentRunStatus !== 'idle' ? 'impl-status-done' : ''}>
-                                Preparing request
+                              <span className={implAgentRunStatus === 'preparing' ? 'impl-status-active' : ['fetching_ticket', 'resolving_repo', 'launching', 'polling', 'completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
+                                Preparing
                               </span>
                               <span className="impl-status-arrow">→</span>
-                              <span className={implAgentRunStatus === 'sending' ? 'impl-status-active' : implAgentRunStatus === 'waiting' || implAgentRunStatus === 'completed' || implAgentRunStatus === 'failed' ? 'impl-status-done' : ''}>
-                                Sending to Cursor API
+                              <span className={implAgentRunStatus === 'fetching_ticket' ? 'impl-status-active' : ['resolving_repo', 'launching', 'polling', 'completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
+                                Fetching ticket
                               </span>
                               <span className="impl-status-arrow">→</span>
-                              <span className={implAgentRunStatus === 'waiting' ? 'impl-status-active' : implAgentRunStatus === 'completed' || implAgentRunStatus === 'failed' ? 'impl-status-done' : ''}>
-                                Waiting
+                              <span className={implAgentRunStatus === 'resolving_repo' ? 'impl-status-active' : ['launching', 'polling', 'completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
+                                Resolving repo
+                              </span>
+                              <span className="impl-status-arrow">→</span>
+                              <span className={implAgentRunStatus === 'launching' ? 'impl-status-active' : ['polling', 'completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
+                                Launching agent
+                              </span>
+                              <span className="impl-status-arrow">→</span>
+                              <span className={implAgentRunStatus === 'polling' ? 'impl-status-active' : ['completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
+                                Running
                               </span>
                               <span className="impl-status-arrow">→</span>
                               <span className={implAgentRunStatus === 'completed' ? 'impl-status-done' : implAgentRunStatus === 'failed' ? 'impl-status-failed' : ''}>
