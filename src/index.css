@@ -70,6 +70,7 @@ body {
   flex: 1;
   gap: 0;
   min-height: 0;
+  position: relative;
 }
 
 /* Left column: Kanban */
@@ -79,8 +80,8 @@ body {
   flex-direction: column;
   min-width: 280px;
   min-height: 400px;
-  border-right: 1px solid var(--hal-border);
   background: var(--hal-surface);
+  overflow: hidden;
 }
 
 .kanban-header {
@@ -214,14 +215,45 @@ body {
   border-radius: 4px;
 }
 
+/* Resizable divider (0060) */
+.hal-divider {
+  width: 4px;
+  background: var(--hal-border);
+  cursor: col-resize;
+  flex-shrink: 0;
+  position: relative;
+  user-select: none;
+  transition: background-color 0.15s ease;
+}
+
+.hal-divider:hover {
+  background: var(--hal-primary);
+}
+
+.hal-divider.hal-divider-dragging {
+  background: var(--hal-primary);
+  cursor: col-resize;
+}
+
+.hal-divider::before {
+  content: '';
+  position: absolute;
+  left: -2px;
+  right: -2px;
+  top: 0;
+  bottom: 0;
+  /* Expand hit area for easier dragging */
+}
+
 /* Right column: Chat */
 .hal-chat-region {
-  width: 400px;
   min-width: 320px;
-  max-width: 500px;
+  max-width: 800px;
   display: flex;
   flex-direction: column;
   background: var(--hal-surface);
+  flex-shrink: 0;
+  overflow: hidden;
 }
 
 .chat-header {
@@ -938,13 +970,17 @@ body {
   }
 
   .hal-kanban-region {
-    border-right: none;
     border-bottom: 1px solid var(--hal-border);
     min-height: 50vh;
+    flex: 1 1 auto !important;
+  }
+
+  .hal-divider {
+    display: none;
   }
 
   .hal-chat-region {
-    width: 100%;
+    width: 100% !important;
     max-width: none;
     min-height: 50vh;
   }
