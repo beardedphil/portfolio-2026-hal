@@ -134,6 +134,8 @@ const CHAT_OPTIONS: { id: ChatTarget; label: string }[] = [
   { id: 'qa-agent', label: 'QA' },
   { id: 'standup', label: 'Standup (all agents)' },
 ]
+// DEBUG: QA option should be visible
+console.log('CHAT_OPTIONS:', CHAT_OPTIONS.map(o => o.label))
 
 const KANBAN_URL = 'http://localhost:5174'
 
@@ -1001,12 +1003,18 @@ function App() {
                 }}
                 disabled={!connectedProject}
               >
-                {CHAT_OPTIONS.map((opt) => (
-                  <option key={opt.id} value={opt.id}>
-                    {opt.label}
-                    {unreadByTarget[opt.id] > 0 ? ` (${unreadByTarget[opt.id]})` : ''}
-                  </option>
-                ))}
+                {(() => {
+                  console.log('[DEBUG] Rendering dropdown with', CHAT_OPTIONS.length, 'options:', CHAT_OPTIONS.map(o => o.id));
+                  return CHAT_OPTIONS.map((opt) => {
+                    console.log('[DEBUG] Rendering option:', opt.id, opt.label);
+                    return (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.label}
+                        {unreadByTarget[opt.id] > 0 ? ` (${unreadByTarget[opt.id]})` : ''}
+                      </option>
+                    );
+                  });
+                })()}
               </select>
             </div>
           </div>
