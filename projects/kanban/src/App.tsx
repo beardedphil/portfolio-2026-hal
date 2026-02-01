@@ -627,7 +627,7 @@ function SortableColumn({
     } else if (col.id === 'col-todo') {
       return { label: 'Implement top ticket', chatTarget: 'implementation-agent', message: `Please implement ticket ${topTicketId}.` }
     } else if (col.id === 'col-qa') {
-      return { label: 'QA top ticket', chatTarget: 'qa-agent', message: `Please QA ticket ${topTicketId}.` }
+      return { label: 'QA top ticket', chatTarget: 'qa-agent', message: `QA ticket ${topTicketId}.` }
     }
     return null
   }
