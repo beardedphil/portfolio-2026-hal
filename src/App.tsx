@@ -39,6 +39,8 @@ type PmAgentResponse = {
   ticketCreationResult?: TicketCreationResult
   /** True when create_ticket was available for this request (Supabase creds sent). */
   createTicketAvailable?: boolean
+  /** Runner implementation label for diagnostics (e.g. "v2 (shared)"). */
+  agentRunner?: string
 }
 
 type DiagnosticsInfo = {
@@ -59,6 +61,8 @@ type DiagnosticsInfo = {
   persistenceError: string | null
   pmLastResponseId: string | null
   previousResponseIdInLastRequest: boolean
+  /** Agent runner label from last PM response (e.g. "v2 (shared)"). */
+  agentRunner: string | null
 }
 
 // localStorage helpers for conversation persistence (fallback when no project DB)
@@ -159,6 +163,7 @@ function App() {
   const [lastTicketCreationResult, setLastTicketCreationResult] = useState<TicketCreationResult | null>(null)
   const [lastCreateTicketAvailable, setLastCreateTicketAvailable] = useState<boolean | null>(null)
   const [pmLastResponseId, setPmLastResponseId] = useState<string | null>(null)
+  const [agentRunner, setAgentRunner] = useState<string | null>(null)
   const [supabaseUrl, setSupabaseUrl] = useState<string | null>(null)
   const [supabaseAnonKey, setSupabaseAnonKey] = useState<string | null>(null)
   const [outboundRequestExpanded, setOutboundRequestExpanded] = useState(false)
@@ -410,6 +415,7 @@ function App() {
           setLastPmToolCalls(data.toolCalls?.length ? data.toolCalls : null)
           setLastTicketCreationResult(data.ticketCreationResult ?? null)
           setLastCreateTicketAvailable(data.createTicketAvailable ?? null)
+          setAgentRunner(data.agentRunner ?? null)
 
           if (!res.ok || data.error) {
             setAgentTypingTarget(null)
@@ -670,6 +676,7 @@ function App() {
     persistenceError,
     pmLastResponseId,
     previousResponseIdInLastRequest,
+    agentRunner,
   }
 
   return (
@@ -898,6 +905,12 @@ function App() {
                   <span className="diag-label">PM implementation source:</span>
                   <span className="diag-value">{diagnostics.pmImplementationSource}</span>
                 </div>
+                {selectedChatTarget === 'project-manager' && (
+                  <div className="diag-row">
+                    <span className="diag-label">Agent runner:</span>
+                    <span className="diag-value">{diagnostics.agentRunner ?? '—'}</span>
+                  </div>
+                )}
                 <div className="diag-row">
                   <span className="diag-label">Last agent error:</span>
                   <span className="diag-value" data-status={diagnostics.lastAgentError ? 'error' : 'ok'}>

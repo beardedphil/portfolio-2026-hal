@@ -53,6 +53,8 @@ interface PmAgentResponse {
   }
   /** True when Supabase creds were sent so create_ticket was available (for Diagnostics). */
   createTicketAvailable?: boolean
+  /** Runner implementation label for diagnostics (e.g. "v2 (shared)"). */
+  agentRunner?: string
 }
 
 export default defineConfig({
@@ -170,19 +172,19 @@ export default defineConfig({
               return
             }
 
-            // Import runPmAgent (and summarizeForContext) from hal-agents built dist
-            let pmAgentModule: { runPmAgent?: (msg: string, config: object) => Promise<object>; summarizeForContext?: (msgs: unknown[], key: string, model: string) => Promise<string> } | null = null
-            const distPath = path.resolve(__dirname, 'projects/hal-agents/dist/agents/projectManager.js')
+            // Import shared runner (and summarizeForContext) from hal-agents built dist (0043)
+            let runnerModule: { getSharedRunner?: () => { label: string; run: (msg: string, config: object) => Promise<object> }; summarizeForContext?: (msgs: unknown[], key: string, model: string) => Promise<string> } | null = null
+            const runnerDistPath = path.resolve(__dirname, 'projects/hal-agents/dist/agents/runner.js')
             try {
-              pmAgentModule = await import(pathToFileURL(distPath).href)
+              runnerModule = await import(pathToFileURL(runnerDistPath).href)
             } catch (err) {
-              console.error('[HAL PM] Failed to load hal-agents dist:', err)
+              console.error('[HAL PM] Failed to load hal-agents runner dist:', err)
             }
 
             // When project DB (Supabase) is provided, fetch full history and build bounded context pack (summary + recent by content size)
             const RECENT_MAX_CHARS = 12_000
             let conversationContextPack: string | undefined
-            if (projectId && supabaseUrl && supabaseAnonKey && pmAgentModule) {
+            if (projectId && supabaseUrl && supabaseAnonKey && runnerModule) {
               try {
                 const { createClient } = await import('@supabase/supabase-js')
                 const supabase = createClient(supabaseUrl, supabaseAnonKey)
@@ -214,8 +216,8 @@ export default defineConfig({
                   const needNewSummary = !summaryRow || (summaryRow.through_sequence ?? 0) < olderCount
                   let summaryText: string
                   // HAL uses the external LLM (OpenAI) to summarize older turns when building the context pack
-                  if (needNewSummary && typeof pmAgentModule.summarizeForContext === 'function') {
-                    summaryText = await pmAgentModule.summarizeForContext(older, key, model)
+                  if (needNewSummary && typeof runnerModule.summarizeForContext === 'function') {
+                    summaryText = await runnerModule.summarizeForContext(older, key, model)
                     await supabase.from('hal_conversation_summaries').upsert(
                       {
                         project_id: projectId,
@@ -241,14 +243,15 @@ export default defineConfig({
               }
             }
 
-            if (!pmAgentModule?.runPmAgent) {
+            const runner = runnerModule?.getSharedRunner?.()
+            if (!runner?.run) {
               // hal-agents#0003 not implemented yet - return stub response
               const stubResponse: PmAgentResponse = {
                 reply: '[PM Agent] The PM agent core is not yet implemented. Waiting for hal-agents#0003 to be completed.\n\nYour message was: "' + message + '"',
                 toolCalls: [],
                 outboundRequest: {
                   _stub: true,
-                  _note: 'hal-agents runPmAgent() not available yet',
+                  _note: 'hal-agents shared runner not available yet',
                   model,
                   message,
                 },
@@ -261,7 +264,7 @@ export default defineConfig({
               return
             }
 
-            // Call the real PM agent (pass Supabase so create_ticket tool is available when project connected)
+            // Call the shared runner (PM agent; pass Supabase so create_ticket tool is available when project connected)
             const repoRoot = path.resolve(__dirname)
             const createTicketAvailable = !!(supabaseUrl && supabaseAnonKey)
             if (createTicketAvailable) {
@@ -269,7 +272,7 @@ export default defineConfig({
             } else {
               console.log('[HAL PM] create_ticket NOT available (no Supabase creds; connect project with .env)')
             }
-            const result = (await pmAgentModule.runPmAgent(message, {
+            const result = (await runner.run(message, {
               repoRoot,
               openaiApiKey: key,
               openaiModel: model,
@@ -329,6 +332,7 @@ export default defineConfig({
               ...(result.errorPhase != null && { errorPhase: result.errorPhase }),
               ...(ticketCreationResult != null && { ticketCreationResult }),
               createTicketAvailable,
+              agentRunner: runner.label,
             }
 
             res.statusCode = 200
