@@ -26,14 +26,27 @@ For ticket `docs/tickets/0026-kanban-tickets-persist-column-on-refresh.md`, the 
 
 `docs/audit/0026-kanban-tickets-persist-column-on-refresh/qa-report.md`
 
+## QA on main (cloud QA branch access limitation)
+
+- **For tickets marked "Merged to main for QA":** The implementation agent has already merged the feature branch to `main` due to cloud QA branch access limits. QA reviews and tests on `main` (not a feature branch).
+- **Workflow:**
+  - QA performs code review and automated verification on `main`.
+  - QA still produces `docs/audit/<task-id>-<short-title>/qa-report.md` as required.
+  - If verdict is **PASS:** QA commits the qa-report to `main`, moves ticket to Human in the Loop, and deletes the feature branch (if it still exists).
+  - If verdict is **FAIL:** QA commits the qa-report to `main` and recommends a bugfix ticket.
+
 ## QA completion: do not hand off to the user
 
 When the verdict is **PASS (OK to merge)**, QA must **complete the full workflow** — do not stop at a summary or "next steps for the user."
 
-1. **Commit and push** the qa-report (and any rule changes) to the feature branch.
+1. **Commit and push** the qa-report (and any rule changes):
+   - **If ticket is "Merged to main for QA":** commit to `main`.
+   - **Otherwise:** commit to the feature branch.
 2. **Move ticket to Human in the Loop** — update the ticket **in the DB**, then run sync. Use `node scripts/move-ticket-column.js <ticketId> col-human-in-the-loop` from the repo root (e.g. `node scripts/move-ticket-column.js 0047 col-human-in-the-loop`). Requires `.env` with `SUPABASE_URL` and `SUPABASE_ANON_KEY`. The script updates Supabase, then the ticket file frontmatter, then runs `sync-tickets`. **Do not** add or edit YAML frontmatter in the ticket file by hand — Kanban is Supabase-backed; always update DB first, then sync.
-3. **Merge to main** — checkout `main`, merge the feature branch, push `main`.
-4. **Delete the feature branch** — local and remote (see `delete-branch-after-merge.mdc`).
+3. **Merge to main** (only if not already merged):
+   - **If ticket is "Merged to main for QA":** skip this step (already merged).
+   - **Otherwise:** checkout `main`, merge the feature branch, push `main`.
+4. **Delete the feature branch** — local and remote (see `delete-branch-after-merge.mdc`). If the ticket was "Merged to main for QA", the feature branch may still exist and should be deleted.
 5. **Then** give your summary to the user.
 
 Do not give a summary with "next steps" or "run these commands" — QA performs the merge and branch deletion. The user receives the completed result.
