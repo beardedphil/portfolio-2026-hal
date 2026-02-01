@@ -2148,6 +2148,72 @@ function App() {
                   </div>
                 )}
 
+                {/* PM Diagnostics: Ticket readiness evaluation (0066) */}
+                {selectedChatTarget === 'project-manager' && diagnostics.lastPmToolCalls && (() => {
+                  const createTicketCall = diagnostics.lastPmToolCalls.find(c => c.name === 'create_ticket')
+                  const updateTicketCall = diagnostics.lastPmToolCalls.find(c => c.name === 'update_ticket_body')
+                  const readinessCall = createTicketCall || updateTicketCall
+                  if (!readinessCall) return null
+                  
+                  const output = readinessCall.output as any
+                  const isSuccess = output?.success === true
+                  const isRejected = output?.success === false && output?.detectedPlaceholders
+                  const hasReadiness = isSuccess && (output?.ready !== undefined || output?.missingItems)
+                  
+                  if (!isRejected && !hasReadiness) return null
+                  
+                  return (
+                    <div className="diag-section">
+                      <div className="diag-section-header">Ticket readiness evaluation</div>
+                      <div className="diag-section-content">
+                        {isRejected ? (
+                          <div className="diag-ticket-readiness">
+                            <div>
+                              <strong>Status:</strong>{' '}
+                              <span className="diag-sync-error">REJECTED</span>
+                            </div>
+                            <div>
+                              <strong>Reason:</strong> Unresolved template placeholder tokens detected
+                            </div>
+                            {output.detectedPlaceholders && Array.isArray(output.detectedPlaceholders) && output.detectedPlaceholders.length > 0 && (
+                              <div>
+                                <strong>Detected placeholders:</strong>{' '}
+                                <code>{output.detectedPlaceholders.join(', ')}</code>
+                              </div>
+                            )}
+                            {output.error && (
+                              <div className="diag-readiness-error">
+                                <strong>Error message:</strong> {output.error}
+                              </div>
+                            )}
+                          </div>
+                        ) : isSuccess && hasReadiness ? (
+                          <div className="diag-ticket-readiness">
+                            <div>
+                              <strong>Status:</strong>{' '}
+                              {output.ready ? (
+                                <span className="diag-sync-ok">PASS</span>
+                              ) : (
+                                <span className="diag-sync-error">FAIL</span>
+                              )}
+                            </div>
+                            {output.missingItems && Array.isArray(output.missingItems) && output.missingItems.length > 0 && (
+                              <div>
+                                <strong>Missing items:</strong>
+                                <ul style={{ marginTop: '0.5em', marginBottom: '0.5em', paddingLeft: '1.5em' }}>
+                                  {output.missingItems.map((item: string, idx: number) => (
+                                    <li key={idx}>{item}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  )
+                })()}
+
                 {/* Auto-move diagnostics (0061) */}
                 {(selectedChatTarget === 'implementation-agent' || selectedChatTarget === 'qa-agent' || selectedChatTarget === 'project-manager') && diagnostics.autoMoveDiagnostics.length > 0 && (
                   <div className="diag-section">

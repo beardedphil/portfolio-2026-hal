@@ -514,9 +514,23 @@ export async function runPmAgent(
                   ready: boolean
                   missingItems?: string[]
                 }
-              | { success: false; error: string }
+              | { success: false; error: string; detectedPlaceholders?: string[] }
             let out: CreateResult
             try {
+              // Validate for unresolved placeholders BEFORE any database operations (0066)
+              const bodyMdTrimmed = input.body_md.trim()
+              const placeholders = bodyMdTrimmed.match(PLACEHOLDER_RE) ?? []
+              if (placeholders.length > 0) {
+                const uniquePlaceholders = [...new Set(placeholders)]
+                out = {
+                  success: false,
+                  error: `Ticket creation rejected: unresolved template placeholder tokens detected. Detected placeholders: ${uniquePlaceholders.join(', ')}. Replace all angle-bracket placeholders with concrete content before creating the ticket.`,
+                  detectedPlaceholders: uniquePlaceholders,
+                }
+                toolCalls.push({ name: 'create_ticket', input, output: out })
+                return out
+              }
+
               const { data: existingRows, error: fetchError } = await supabase
                 .from('tickets')
                 .select('id')
@@ -544,7 +558,19 @@ export async function runPmAgent(
                 const filePath = `docs/tickets/${filename}`
                 const titleWithId = `${id} — ${input.title.trim()}`
                 // Normalize Title line in body_md to include ID prefix (0054)
-                const normalizedBodyMd = normalizeTitleLineInBody(input.body_md.trim(), id)
+                const normalizedBodyMd = normalizeTitleLineInBody(bodyMdTrimmed, id)
+                // Re-validate after normalization (normalization shouldn't introduce placeholders, but check anyway)
+                const normalizedPlaceholders = normalizedBodyMd.match(PLACEHOLDER_RE) ?? []
+                if (normalizedPlaceholders.length > 0) {
+                  const uniquePlaceholders = [...new Set(normalizedPlaceholders)]
+                  out = {
+                    success: false,
+                    error: `Ticket creation rejected: unresolved template placeholder tokens detected after normalization. Detected placeholders: ${uniquePlaceholders.join(', ')}. Replace all angle-bracket placeholders with concrete content before creating the ticket.`,
+                    detectedPlaceholders: uniquePlaceholders,
+                  }
+                  toolCalls.push({ name: 'create_ticket', input, output: out })
+                  return out
+                }
                 const { error: insertError } = await supabase.from('tickets').insert({
                   id,
                   filename,
@@ -680,9 +706,23 @@ export async function runPmAgent(
           const normalizedId = input.ticket_id.replace(/^0+/, '0').padStart(4, '0')
           type UpdateResult =
             | { success: true; ticketId: string; ready: boolean; missingItems?: string[] }
-            | { success: false; error: string }
+            | { success: false; error: string; detectedPlaceholders?: string[] }
           let out: UpdateResult
           try {
+            // Validate for unresolved placeholders BEFORE any database operations (0066)
+            const bodyMdTrimmed = input.body_md.trim()
+            const placeholders = bodyMdTrimmed.match(PLACEHOLDER_RE) ?? []
+            if (placeholders.length > 0) {
+              const uniquePlaceholders = [...new Set(placeholders)]
+              out = {
+                success: false,
+                error: `Ticket update rejected: unresolved template placeholder tokens detected. Detected placeholders: ${uniquePlaceholders.join(', ')}. Replace all angle-bracket placeholders with concrete content before updating the ticket.`,
+                detectedPlaceholders: uniquePlaceholders,
+              }
+              toolCalls.push({ name: 'update_ticket_body', input, output: out })
+              return out
+            }
+
             const { data: row, error: fetchError } = await supabase
               .from('tickets')
               .select('id')
@@ -699,7 +739,19 @@ export async function runPmAgent(
               return out
             }
             // Normalize Title line in body_md to include ID prefix (0054)
-            const normalizedBodyMd = normalizeTitleLineInBody(input.body_md.trim(), normalizedId)
+            const normalizedBodyMd = normalizeTitleLineInBody(bodyMdTrimmed, normalizedId)
+            // Re-validate after normalization (normalization shouldn't introduce placeholders, but check anyway)
+            const normalizedPlaceholders = normalizedBodyMd.match(PLACEHOLDER_RE) ?? []
+            if (normalizedPlaceholders.length > 0) {
+              const uniquePlaceholders = [...new Set(normalizedPlaceholders)]
+              out = {
+                success: false,
+                error: `Ticket update rejected: unresolved template placeholder tokens detected after normalization. Detected placeholders: ${uniquePlaceholders.join(', ')}. Replace all angle-bracket placeholders with concrete content before updating the ticket.`,
+                detectedPlaceholders: uniquePlaceholders,
+              }
+              toolCalls.push({ name: 'update_ticket_body', input, output: out })
+              return out
+            }
             const { error: updateError } = await supabase
               .from('tickets')
               .update({ body_md: normalizedBodyMd })
@@ -1062,56 +1114,96 @@ export async function runPmAgent(
 
     let reply = result.text ?? ''
     // If the model returned no text but create_ticket succeeded, provide a fallback so the user sees a clear outcome (0011/0020)
+    // Also handle placeholder validation failures (0066)
     if (!reply.trim()) {
-      const createTicketCall = toolCalls.find(
+      // Check for placeholder validation failures first (0066)
+      const createTicketRejected = toolCalls.find(
         (c) =>
           c.name === 'create_ticket' &&
           typeof c.output === 'object' &&
           c.output !== null &&
-          (c.output as { success?: boolean }).success === true
+          (c.output as { success?: boolean }).success === false &&
+          (c.output as { detectedPlaceholders?: string[] }).detectedPlaceholders
       )
-      if (createTicketCall) {
-        const out = createTicketCall.output as {
-          id: string
-          filename: string
-          filePath: string
-          ready?: boolean
-          missingItems?: string[]
+      if (createTicketRejected) {
+        const out = createTicketRejected.output as {
+          error: string
+          detectedPlaceholders?: string[]
         }
-        reply = `I created ticket **${out.id}** at \`${out.filePath}\`. It should appear in the Kanban board under Unassigned (sync may run automatically).`
-        if (out.ready === false && out.missingItems?.length) {
-          reply += ` The ticket is not yet ready for To Do: ${out.missingItems.join('; ')}. Update the ticket or ask me to move it once it passes the Ready-to-start checklist.`
+        reply = `**Ticket creation rejected:** ${out.error}`
+        if (out.detectedPlaceholders && out.detectedPlaceholders.length > 0) {
+          reply += `\n\n**Detected placeholders:** ${out.detectedPlaceholders.join(', ')}`
         }
+        reply += `\n\nPlease replace all angle-bracket placeholders with concrete content and try again. Check Diagnostics for details.`
       } else {
-        const moveCall = toolCalls.find(
+        const updateTicketRejected = toolCalls.find(
           (c) =>
-            c.name === 'kanban_move_ticket_to_todo' &&
+            c.name === 'update_ticket_body' &&
             typeof c.output === 'object' &&
             c.output !== null &&
-            (c.output as { success?: boolean }).success === true
+            (c.output as { success?: boolean }).success === false &&
+            (c.output as { detectedPlaceholders?: string[] }).detectedPlaceholders
         )
-        if (moveCall) {
-          const out = moveCall.output as { ticketId: string; fromColumn: string; toColumn: string }
-          reply = `I moved ticket **${out.ticketId}** from ${out.fromColumn} to **${out.toColumn}**. It should now appear under To Do on the Kanban board.`
+        if (updateTicketRejected) {
+          const out = updateTicketRejected.output as {
+            error: string
+            detectedPlaceholders?: string[]
+          }
+          reply = `**Ticket update rejected:** ${out.error}`
+          if (out.detectedPlaceholders && out.detectedPlaceholders.length > 0) {
+            reply += `\n\n**Detected placeholders:** ${out.detectedPlaceholders.join(', ')}`
+          }
+          reply += `\n\nPlease replace all angle-bracket placeholders with concrete content and try again. Check Diagnostics for details.`
         } else {
-          const updateBodyCall = toolCalls.find(
+          const createTicketCall = toolCalls.find(
             (c) =>
-              c.name === 'update_ticket_body' &&
+              c.name === 'create_ticket' &&
               typeof c.output === 'object' &&
               c.output !== null &&
               (c.output as { success?: boolean }).success === true
           )
-          if (updateBodyCall) {
-            const out = updateBodyCall.output as {
-              ticketId: string
+          if (createTicketCall) {
+            const out = createTicketCall.output as {
+              id: string
+              filename: string
+              filePath: string
               ready?: boolean
               missingItems?: string[]
             }
-            reply = `I updated the body of ticket **${out.ticketId}** in Supabase. The Kanban UI will reflect the change within ~10 seconds.`
+            reply = `I created ticket **${out.id}** at \`${out.filePath}\`. It should appear in the Kanban board under Unassigned (sync may run automatically).`
             if (out.ready === false && out.missingItems?.length) {
-              reply += ` Note: the ticket may still not pass readiness: ${out.missingItems.join('; ')}.`
+              reply += ` The ticket is not yet ready for To Do: ${out.missingItems.join('; ')}. Update the ticket or ask me to move it once it passes the Ready-to-start checklist.`
             }
           } else {
+            const moveCall = toolCalls.find(
+              (c) =>
+                c.name === 'kanban_move_ticket_to_todo' &&
+                typeof c.output === 'object' &&
+                c.output !== null &&
+                (c.output as { success?: boolean }).success === true
+            )
+            if (moveCall) {
+              const out = moveCall.output as { ticketId: string; fromColumn: string; toColumn: string }
+              reply = `I moved ticket **${out.ticketId}** from ${out.fromColumn} to **${out.toColumn}**. It should now appear under To Do on the Kanban board.`
+            } else {
+              const updateBodyCall = toolCalls.find(
+                (c) =>
+                  c.name === 'update_ticket_body' &&
+                  typeof c.output === 'object' &&
+                  c.output !== null &&
+                  (c.output as { success?: boolean }).success === true
+              )
+              if (updateBodyCall) {
+                const out = updateBodyCall.output as {
+                  ticketId: string
+                  ready?: boolean
+                  missingItems?: string[]
+                }
+                reply = `I updated the body of ticket **${out.ticketId}** in Supabase. The Kanban UI will reflect the change within ~10 seconds.`
+                if (out.ready === false && out.missingItems?.length) {
+                  reply += ` Note: the ticket may still not pass readiness: ${out.missingItems.join('; ')}.`
+                }
+              } else {
             const syncTicketsCall = toolCalls.find(
               (c) =>
                 c.name === 'sync_tickets' &&
