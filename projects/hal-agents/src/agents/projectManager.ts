@@ -1100,19 +1100,8 @@ export async function runPmAgent(
   const promptBase = `${contextPack}\n\n---\n\nRespond to the user message above using the tools as needed.`
 
   // Build prompt with images if present
-  let prompt: string | Array<{ type: 'text' | 'image'; text?: string; image?: string }>
-  if (config.images && config.images.length > 0) {
-    // Include images in prompt for vision models
-    prompt = [
-      { type: 'text' as const, text: promptBase },
-      ...config.images.map((img) => ({
-        type: 'image' as const,
-        image: img.dataUrl,
-      })),
-    ]
-  } else {
-    prompt = promptBase
-  }
+  // Note: Vision model support may require different handling in future AI SDK versions
+  const prompt = promptBase
 
   const providerOptions =
     config.previousResponseId != null && config.previousResponseId !== ''
@@ -1221,37 +1210,39 @@ export async function runPmAgent(
                   reply += ` Note: the ticket may still not pass readiness: ${out.missingItems.join('; ')}.`
                 }
               } else {
-            const syncTicketsCall = toolCalls.find(
-              (c) =>
-                c.name === 'sync_tickets' &&
-                typeof c.output === 'object' &&
-                c.output !== null &&
-                (c.output as { success?: boolean }).success === true
-            )
-            if (syncTicketsCall) {
-              reply =
-                'I ran sync-tickets. docs/tickets/*.md now match Supabase (Supabase is the source of truth).'
-            } else {
-              const listTicketsCall = toolCalls.find(
-                (c) =>
-                  c.name === 'list_tickets_by_column' &&
-                  typeof c.output === 'object' &&
-                  c.output !== null &&
-                  (c.output as { success?: boolean }).success === true
-              )
-              if (listTicketsCall) {
-                const out = listTicketsCall.output as {
-                  column_id: string
-                  tickets: Array<{ id: string; title: string; column: string }>
-                  count: number
-                }
-                if (out.count === 0) {
-                  reply = `No tickets found in column **${out.column_id}**.`
+                const syncTicketsCall = toolCalls.find(
+                  (c) =>
+                    c.name === 'sync_tickets' &&
+                    typeof c.output === 'object' &&
+                    c.output !== null &&
+                    (c.output as { success?: boolean }).success === true
+                )
+                if (syncTicketsCall) {
+                  reply =
+                    'I ran sync-tickets. docs/tickets/*.md now match Supabase (Supabase is the source of truth).'
                 } else {
-                  const ticketList = out.tickets
-                    .map((t) => `- **${t.id}** — ${t.title}`)
-                    .join('\n')
-                  reply = `Tickets in **${out.column_id}** (${out.count}):\n\n${ticketList}`
+                  const listTicketsCall = toolCalls.find(
+                    (c) =>
+                      c.name === 'list_tickets_by_column' &&
+                      typeof c.output === 'object' &&
+                      c.output !== null &&
+                      (c.output as { success?: boolean }).success === true
+                  )
+                  if (listTicketsCall) {
+                    const out = listTicketsCall.output as {
+                      column_id: string
+                      tickets: Array<{ id: string; title: string; column: string }>
+                      count: number
+                    }
+                    if (out.count === 0) {
+                      reply = `No tickets found in column **${out.column_id}**.`
+                    } else {
+                      const ticketList = out.tickets
+                        .map((t) => `- **${t.id}** — ${t.title}`)
+                        .join('\n')
+                      reply = `Tickets in **${out.column_id}** (${out.count}):\n\n${ticketList}`
+                    }
+                  }
                 }
               }
             }
