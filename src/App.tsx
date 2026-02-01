@@ -170,6 +170,7 @@ function App() {
   const [agentRunner, setAgentRunner] = useState<string | null>(null)
   const [supabaseUrl, setSupabaseUrl] = useState<string | null>(null)
   const [supabaseAnonKey, setSupabaseAnonKey] = useState<string | null>(null)
+  const [projectFolderHandle, setProjectFolderHandle] = useState<FileSystemDirectoryHandle | null>(null)
   const [outboundRequestExpanded, setOutboundRequestExpanded] = useState(false)
   const [toolCallsExpanded, setToolCallsExpanded] = useState(false)
   const messageIdRef = useRef(0)
@@ -289,6 +290,58 @@ function App() {
       // ignore localStorage errors
     }
   }, [implAgentError])
+
+  // Poll for pending file access requests and handle them (0052)
+  useEffect(() => {
+    if (!projectFolderHandle) return
+
+    let pollInterval: number | null = null
+    const poll = async () => {
+      try {
+        const res = await fetch('/api/pm/file-access/pending')
+        if (!res.ok) return
+        const data = (await res.json()) as { pending: Array<{ requestId: string; type: string; path?: string; pattern?: string; glob?: string; maxLines?: number }> }
+        for (const req of data.pending) {
+          if (req.type === 'read_file' && req.path) {
+            const { readFileFromHandle } = await import('./fileAccess')
+            const result = await readFileFromHandle(projectFolderHandle, req.path, req.maxLines ?? 500)
+            await fetch('/api/pm/file-access/result', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                requestId: req.requestId,
+                success: 'content' in result,
+                content: 'content' in result ? result.content : undefined,
+                error: 'error' in result ? result.error : undefined,
+              }),
+            })
+          } else if (req.type === 'search_files' && req.pattern) {
+            const { searchFilesFromHandle } = await import('./fileAccess')
+            const result = await searchFilesFromHandle(projectFolderHandle, req.pattern, req.glob ?? '**/*')
+            await fetch('/api/pm/file-access/result', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                requestId: req.requestId,
+                success: 'matches' in result,
+                matches: 'matches' in result ? result.matches : undefined,
+                error: 'error' in result ? result.error : undefined,
+              }),
+            })
+          }
+        }
+      } catch (err) {
+        // Silently fail - polling will retry
+      }
+    }
+
+    pollInterval = window.setInterval(poll, 500)
+    poll() // Initial poll
+
+    return () => {
+      if (pollInterval != null) clearInterval(pollInterval)
+    }
+  }, [projectFolderHandle])
 
   const activeMessages = conversations[selectedChatTarget] ?? []
 
@@ -923,6 +976,7 @@ function App() {
         const projectName = folderHandle.name
         setSupabaseUrl(url)
         setSupabaseAnonKey(key)
+        setProjectFolderHandle(folderHandle)
         setConnectedProject(projectName)
         setConnectError(null)
         setPmLastResponseId(null)
@@ -995,6 +1049,7 @@ function App() {
     pmMaxSequenceRef.current = 0
     setPersistenceError(null)
     setConnectedProject(null)
+    setProjectFolderHandle(null)
     setPmLastResponseId(null)
     setLastTicketCreationResult(null)
     setLastCreateTicketAvailable(null)
