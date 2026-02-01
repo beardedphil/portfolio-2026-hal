@@ -4,9 +4,9 @@
  *
  * Requires .env (or env) with SUPABASE_URL and SUPABASE_ANON_KEY.
  * Optional: HAL_PROJECT_ID (project id for PM conversation; defaults to repo folder name to match "Connect Project Folder"); HAL_CHECK_UNASSIGNED_URL (default http://localhost:5173/api/pm/check-unassigned).
- * - Docs → DB: upsert each doc ticket (create or update by id) so any local edits are in DB.
+ * - Docs → DB: upsert each doc ticket that ALREADY EXISTS in Supabase (update only; do not re-import deleted tickets).
  * - DB → Docs: write docs/tickets/{filename} for every ticket in Supabase so docs match DB (Supabase wins).
- * - DB → Docs (deletions): remove local files for ticket IDs in docs but no longer in Supabase (0030).
+ * - Delete orphans: remove local files for ticket IDs in docs but no longer in Supabase (Supabase is source of truth for deletions).
  * - Then: set kanban_column_id = 'col-unassigned' for tickets with null.
  * - After sync: POST to HAL check-unassigned so PM chat gets the result (ignored if HAL dev server not running).
  */
@@ -117,6 +117,7 @@ async function main() {
   let created = 0
   let updated = 0
   let skipped = 0
+  let notReimported = 0
 
   for (const d of docTickets) {
     const row = {
@@ -130,13 +131,11 @@ async function main() {
     }
     const ex = existing.find((r) => r.id === d.id)
     if (!ex) {
-      const { error } = await client.from('tickets').upsert(row, { onConflict: 'id' })
-      if (error) {
-        console.error('Upsert error for', d.id, error.message)
-        process.exit(1)
-      }
-      created++
-    } else if (ex.body_md !== d.body_md) {
+      // Do NOT re-import: ticket was deleted from DB; treat doc file as orphan (will be removed below)
+      notReimported++
+      continue
+    }
+    if (ex.body_md !== d.body_md) {
       const { error } = await client.from('tickets').upsert(row, { onConflict: 'id' })
       if (error) {
         console.error('Upsert error for', d.id, error.message)
@@ -167,7 +166,7 @@ async function main() {
     console.log('Wrote docs/tickets/' + row.filename)
   }
 
-  // Delete local files for ticket IDs in docs but no longer in Supabase (0030)
+  // Delete local files for ticket IDs in docs but no longer in Supabase (Supabase is source of truth)
   const refetchedIds = new Set(refetched.map((r) => r.id))
   let deletedFromDocs = 0
   for (const d of docTickets) {
@@ -214,12 +213,12 @@ async function main() {
 
   console.log(
     'Sync done. Docs→DB:',
-    created,
-    'created,',
     updated,
     'updated,',
     skipped,
-    'skipped. DB→Docs:',
+    'skipped',
+    notReimported > 0 ? `, ${notReimported} orphaned (not re-imported)` : '',
+    '. DB→Docs:',
     writtenToDocs,
     'written.',
     deletedFromDocs > 0 ? ` Deleted: ${deletedFromDocs}.` : ''

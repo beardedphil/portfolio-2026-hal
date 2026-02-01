@@ -2376,7 +2376,9 @@ function App() {
         onDragEnd={handleDragEnd}
       >
         <section className="columns-section" aria-label="Columns">
-          <button
+          {!isEmbedded && (
+            <>
+              <button
                 type="button"
                 className="add-column-btn"
                 onClick={() => {
@@ -2417,6 +2419,8 @@ function App() {
                   </div>
                 </div>
               )}
+            </>
+          )}
           <SortableContext
             items={columnsForDisplay.map((c) => c.id)}
             strategy={horizontalListSortingStrategy}
@@ -2448,9 +2452,11 @@ function App() {
         </DragOverlay>
       </DndContext>
 
-      <button type="button" className="debug-toggle" onClick={toggleDebug} aria-pressed={debugOpen}>
-        Debug {debugOpen ? 'ON' : 'OFF'}
-      </button>
+      {!isEmbedded && (
+        <button type="button" className="debug-toggle" onClick={toggleDebug} aria-pressed={debugOpen}>
+          Debug {debugOpen ? 'ON' : 'OFF'}
+        </button>
+      )}
 
       {debugOpen && (
         <div className="debug-panel" role="region" aria-label="Debug panel">
