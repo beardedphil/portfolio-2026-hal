@@ -612,6 +612,44 @@ function SortableColumn({
     transform: CSS.Transform.toString(transform),
     transition,
   }
+
+  // Get top ticket ID from column
+  const topTicketId = col.cardIds.length > 0 ? extractTicketId(col.cardIds[0]) : null
+  const hasTickets = col.cardIds.length > 0 && topTicketId != null
+
+  // Determine if this column should show a work button
+  const shouldShowWorkButton = col.id === 'col-unassigned' || col.id === 'col-todo' || col.id === 'col-qa'
+  
+  // Get button label and chat target based on column
+  const getButtonConfig = () => {
+    if (col.id === 'col-unassigned') {
+      return { label: 'Prepare top ticket', chatTarget: 'project-manager', message: `Please prepare ticket ${topTicketId} and get it ready (Definition of Ready).` }
+    } else if (col.id === 'col-todo') {
+      return { label: 'Implement top ticket', chatTarget: 'implementation-agent', message: `Please implement ticket ${topTicketId}.` }
+    } else if (col.id === 'col-qa') {
+      return { label: 'QA top ticket', chatTarget: 'qa-agent', message: `Please QA ticket ${topTicketId}.` }
+    }
+    return null
+  }
+
+  const buttonConfig = getButtonConfig()
+
+  const handleWorkButtonClick = () => {
+    if (!hasTickets || !buttonConfig) return
+    
+    // Send postMessage to parent window to open chat and send message
+    if (typeof window !== 'undefined' && window.parent !== window) {
+      window.parent.postMessage(
+        {
+          type: 'HAL_OPEN_CHAT_AND_SEND',
+          chatTarget: buttonConfig.chatTarget,
+          message: buttonConfig.message,
+        },
+        '*'
+      )
+    }
+  }
+
   return (
     <div
       ref={setNodeRef}
@@ -623,16 +661,30 @@ function SortableColumn({
         <span className="column-title" {...attributes} {...listeners}>
           {col.title}
         </span>
-        {!hideRemove && (
-          <button
-            type="button"
-            className="column-remove"
-            onClick={() => onRemove(col.id)}
-            aria-label={`Remove column ${col.title}`}
-          >
-            Remove
-          </button>
-        )}
+        <div className="column-header-actions">
+          {shouldShowWorkButton && (
+            <button
+              type="button"
+              className="column-work-button"
+              onClick={handleWorkButtonClick}
+              disabled={!hasTickets}
+              aria-label={hasTickets ? buttonConfig?.label : 'No tickets in this column'}
+              title={hasTickets ? buttonConfig?.label : 'No tickets in this column'}
+            >
+              {hasTickets ? buttonConfig?.label : 'No tickets'}
+            </button>
+          )}
+          {!hideRemove && (
+            <button
+              type="button"
+              className="column-remove"
+              onClick={() => onRemove(col.id)}
+              aria-label={`Remove column ${col.title}`}
+            >
+              Remove
+            </button>
+          )}
+        </div>
       </div>
       <div
         ref={setDroppableRef}

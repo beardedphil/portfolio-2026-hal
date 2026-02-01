@@ -574,6 +574,23 @@ function App() {
     return () => window.removeEventListener('message', handler)
   }, [supabaseUrl, supabaseAnonKey, connectedProject, runUnassignedCheck])
 
+  // Handle chat open and send message requests from Kanban
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      const data = event.data as { type?: string; chatTarget?: ChatTarget; message?: string }
+      if (data?.type !== 'HAL_OPEN_CHAT_AND_SEND') return
+      if (!data.chatTarget || !data.message) return
+      
+      // Switch to the requested chat target
+      setSelectedChatTarget(data.chatTarget)
+      
+      // Add the message to the chat
+      addMessage(data.chatTarget, 'user', data.message)
+    }
+    window.addEventListener('message', handler)
+    return () => window.removeEventListener('message', handler)
+  }, [addMessage])
+
   const handleSend = useCallback(() => {
     const content = inputValue.trim()
     if (!content) return

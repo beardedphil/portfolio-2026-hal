@@ -214,6 +214,11 @@ h1 {
   align-items: flex-start;
   gap: 0.5rem;
 }
+.column-header-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
 .column-title {
   font-weight: 600;
   font-size: 0.95rem;
@@ -467,6 +472,28 @@ h1 {
   font-style: italic;
 }
 
+.column-work-button {
+  align-self: flex-start;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  border: 1px solid #8b5cf6;
+  border-radius: 4px;
+  background: #f3e8ff;
+  color: #6d28d9;
+  font-weight: 500;
+}
+.column-work-button:hover:not(:disabled) {
+  background: #e9d5ff;
+  border-color: #7c3aed;
+}
+.column-work-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  background: #f5f5f5;
+  color: #999;
+  border-color: #ddd;
+}
 .column-remove {
   align-self: flex-start;
   padding: 0.25rem 0.5rem;
