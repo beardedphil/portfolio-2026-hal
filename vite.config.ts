@@ -427,12 +427,13 @@ export default defineConfig({
             writeStage({ stage: 'fetching_ticket' })
 
             // Fetch ticket: Supabase first (if creds provided), else docs/tickets
+            let currentColumnId: string | null = null
             if (supabaseUrl && supabaseAnonKey) {
               const { createClient } = await import('@supabase/supabase-js')
               const supabase = createClient(supabaseUrl, supabaseAnonKey)
               const { data: row, error } = await supabase
                 .from('tickets')
-                .select('body_md, filename')
+                .select('body_md, filename, kanban_column_id')
                 .eq('id', ticketId)
                 .single()
               if (error || !row?.body_md) {
@@ -449,6 +450,7 @@ export default defineConfig({
               } else {
                 bodyMd = row.body_md
                 ticketFilename = row.filename ?? `${ticketId}-unknown.md`
+                currentColumnId = row.kanban_column_id ?? null
               }
             } else {
               const files = fs.readdirSync(ticketsDir, { withFileTypes: true })
@@ -460,6 +462,100 @@ export default defineConfig({
               }
               ticketFilename = match.name
               bodyMd = fs.readFileSync(path.join(ticketsDir, ticketFilename), 'utf8')
+            }
+
+            // Move ticket from To Do to Doing when Implementation Agent starts (0053)
+            if (supabaseUrl && supabaseAnonKey && currentColumnId === 'col-todo') {
+              try {
+                const { createClient } = await import('@supabase/supabase-js')
+                const supabase = createClient(supabaseUrl, supabaseAnonKey)
+                
+                // Get max position in Doing column
+                const { data: inColumn, error: fetchErr } = await supabase
+                  .from('tickets')
+                  .select('kanban_position')
+                  .eq('kanban_column_id', 'col-doing')
+                  .order('kanban_position', { ascending: false })
+                  .limit(1)
+                
+                if (fetchErr) {
+                  writeStage({ 
+                    stage: 'failed', 
+                    error: `Failed to move ticket to Doing: ${fetchErr.message}. The ticket remains in To Do.`, 
+                    status: 'move-to-doing-failed' 
+                  })
+                  res.end()
+                  return
+                }
+                
+                const nextPosition = inColumn?.length ? ((inColumn[0]?.kanban_position ?? -1) + 1) : 0
+                const movedAt = new Date().toISOString()
+                
+                // Update body_md frontmatter to keep DB and docs in sync
+                const content = bodyMd
+                const fmMatch = content.match(/^---\n([\s\S]*?)\n---/)
+                let updatedBodyMd = content
+                if (fmMatch) {
+                  const block = fmMatch[1]
+                  const lines = block.split('\n')
+                  const out: string[] = []
+                  let hasCol = false
+                  let hasPos = false
+                  let hasMoved = false
+                  for (const line of lines) {
+                    if (/^kanbanColumnId\s*:/.test(line)) { out.push(`kanbanColumnId: col-doing`); hasCol = true; continue }
+                    if (/^kanbanPosition\s*:/.test(line)) { out.push(`kanbanPosition: ${nextPosition}`); hasPos = true; continue }
+                    if (/^kanbanMovedAt\s*:/.test(line)) { out.push(`kanbanMovedAt: ${movedAt}`); hasMoved = true; continue }
+                    out.push(line)
+                  }
+                  if (!hasCol) out.push(`kanbanColumnId: col-doing`)
+                  if (!hasPos) out.push(`kanbanPosition: ${nextPosition}`)
+                  if (!hasMoved) out.push(`kanbanMovedAt: ${movedAt}`)
+                  updatedBodyMd = content.replace(/^---\n[\s\S]*?\n---/, `---\n${out.join('\n')}\n---`)
+                } else {
+                  // No frontmatter, add it
+                  updatedBodyMd = `---\nkanbanColumnId: col-doing\nkanbanPosition: ${nextPosition}\nkanbanMovedAt: ${movedAt}\n---\n${content}`
+                }
+                
+                const { error: updateErr } = await supabase
+                  .from('tickets')
+                  .update({
+                    kanban_column_id: 'col-doing',
+                    kanban_position: nextPosition,
+                    kanban_moved_at: movedAt,
+                    body_md: updatedBodyMd,
+                  })
+                  .eq('id', ticketId)
+                
+                if (updateErr) {
+                  writeStage({ 
+                    stage: 'failed', 
+                    error: `Failed to move ticket to Doing: ${updateErr.message}. The ticket remains in To Do.`, 
+                    status: 'move-to-doing-failed' 
+                  })
+                  res.end()
+                  return
+                }
+                
+                // Run sync-tickets to propagate change to docs
+                const syncScriptPath = path.resolve(repoRoot, 'scripts', 'sync-tickets.js')
+                spawn('node', [syncScriptPath], {
+                  cwd: repoRoot,
+                  env: { ...process.env, SUPABASE_URL: supabaseUrl, SUPABASE_ANON_KEY: supabaseAnonKey },
+                  stdio: ['ignore', 'ignore', 'ignore'],
+                }).on('error', () => {
+                  // Sync failure is non-blocking; DB is updated
+                })
+              } catch (moveErr) {
+                const errMsg = moveErr instanceof Error ? moveErr.message : String(moveErr)
+                writeStage({ 
+                  stage: 'failed', 
+                  error: `Failed to move ticket to Doing: ${errMsg}. The ticket remains in To Do.`, 
+                  status: 'move-to-doing-failed' 
+                })
+                res.end()
+                return
+              }
             }
 
             // Build prompt from Goal, Human-verifiable deliverable, Acceptance criteria
