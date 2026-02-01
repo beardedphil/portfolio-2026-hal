@@ -381,7 +381,28 @@ function App() {
     if (agent !== 'user' && target !== selectedChatTargetRef.current) {
       setUnreadByTarget((prev) => ({ ...prev, [target]: (prev[target] ?? 0) + 1 }))
     }
-  }, [])
+    
+    // Auto-move ticket when QA completion message is detected in QA Agent chat (0061)
+    if (target === 'qa-agent' && agent === 'qa-agent') {
+      const isQaCompletion = /qa.*complete|qa.*report|qa.*pass|verdict.*pass|move.*human.*loop|verified.*main|pass.*ok.*merge/i.test(content)
+      if (isQaCompletion) {
+        const isPass = /pass|ok.*merge|verified.*main|verdict.*pass/i.test(content) && !/fail|verdict.*fail/i.test(content)
+        if (isPass) {
+          const currentTicketId = qaAgentTicketId || extractTicketId(content)
+          if (currentTicketId) {
+            moveTicketToColumn(currentTicketId, 'col-human-in-the-loop', 'qa').catch(() => {
+              // Error already logged via addAutoMoveDiagnostic
+            })
+          } else {
+            addAutoMoveDiagnostic(
+              `QA Agent completion (PASS): Could not determine ticket ID from message. Auto-move skipped.`,
+              'error'
+            )
+          }
+        }
+      }
+    }
+  }, [qaAgentTicketId, extractTicketId, moveTicketToColumn, addAutoMoveDiagnostic])
 
   /** Add auto-move diagnostic entry (0061). */
   const addAutoMoveDiagnostic = useCallback((message: string, type: 'error' | 'info' = 'error') => {
@@ -989,6 +1010,27 @@ function App() {
 
           if (finalContent) {
             addMessage('qa-agent', 'qa-agent', `[QA Agent] ${finalContent}`)
+            
+            // Auto-move ticket when QA completion message is detected (0061)
+            // Check if this is a completion message with PASS verdict
+            const isQaCompletion = /qa.*complete|qa.*report|qa.*pass|verdict.*pass|move.*human.*loop|verified.*main|pass.*ok.*merge/i.test(finalContent)
+            if (isQaCompletion) {
+              const verdict = /pass|ok.*merge|verified.*main|verdict.*pass/i.test(finalContent) && !/fail|verdict.*fail/i.test(finalContent)
+              if (verdict) {
+                const currentTicketId = qaAgentTicketId || extractTicketId(finalContent) || extractTicketId(content)
+                if (currentTicketId) {
+                  moveTicketToColumn(currentTicketId, 'col-human-in-the-loop', 'qa').catch(() => {
+                    // Error already logged via addAutoMoveDiagnostic
+                  })
+                } else {
+                  addAutoMoveDiagnostic(
+                    `QA Agent completion (PASS): Could not determine ticket ID from completion message. Auto-move skipped.`,
+                    'error'
+                  )
+                }
+              }
+            }
+            
             // Reset ticket ID after completion
             setQaAgentTicketId(null)
           } else if (finalError) {
@@ -1743,7 +1785,7 @@ function App() {
                 )}
 
                 {/* Auto-move diagnostics (0061) */}
-                {(selectedChatTarget === 'implementation-agent' || selectedChatTarget === 'qa-agent') && diagnostics.autoMoveDiagnostics.length > 0 && (
+                {(selectedChatTarget === 'implementation-agent' || selectedChatTarget === 'qa-agent' || selectedChatTarget === 'project-manager') && diagnostics.autoMoveDiagnostics.length > 0 && (
                   <div className="diag-section">
                     <div className="diag-section-header">Auto-move diagnostics</div>
                     <div className="diag-section-content">
