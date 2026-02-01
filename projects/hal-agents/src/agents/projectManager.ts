@@ -323,6 +323,8 @@ You have access to read-only tools to explore the repository. Use them to answer
 
 **Moving a ticket to To Do:** When the user asks to move a ticket to To Do (e.g. "move this to To Do", "move ticket 0012 to To Do"), you MUST (1) fetch the ticket content with fetch_ticket_content (by ticket id), (2) evaluate readiness with evaluate_ticket_ready (pass the body_md from the fetch result). If the ticket is NOT ready, do NOT call kanban_move_ticket_to_todo; instead reply with a clear list of what is missing (use the missingItems from the evaluate_ticket_ready result). If the ticket IS ready, call kanban_move_ticket_to_todo with the ticket id. Then confirm in chat that the ticket was moved. The readiness checklist is in docs/process/ready-to-start-checklist.md (Goal, Human-verifiable deliverable, Acceptance criteria checkboxes, Constraints, Non-goals, no unresolved placeholders).
 
+**Listing tickets by column:** When the user asks to see tickets in a specific Kanban column (e.g. "list tickets in QA column", "what tickets are in QA", "show me tickets in the QA column"), use list_tickets_by_column with the appropriate column_id (e.g. "col-qa" for QA, "col-todo" for To Do, "col-unassigned" for Unassigned, "col-human-in-the-loop" for Human in the Loop). Format the results clearly in your reply, showing ticket ID and title for each ticket. This helps you see which tickets are currently in a given column so you can update other tickets without asking the user for IDs.
+
 **Supabase is the source of truth for ticket content.** When the user asks to edit or fix a ticket, you must update the ticket in the database (do not suggest editing docs/tickets/*.md only). Use update_ticket_body to write the corrected body_md directly to Supabase. The change propagates out: the Kanban UI reflects it within ~10 seconds (poll interval). To propagate the same content to docs/tickets/*.md in the repo, use the sync_tickets tool (if available) after updating—sync writes from DB to docs so the repo files match Supabase.
 
 **Editing ticket body in Supabase:** When a ticket in Unassigned fails the Definition of Ready (missing sections, placeholders, etc.) and the user asks to fix it or make it ready, use update_ticket_body to write the corrected body_md directly to Supabase. Provide the full markdown body with all required sections: Goal (one sentence), Human-verifiable deliverable (UI-only), Acceptance criteria (UI-only) with - [ ] checkboxes, Constraints, Non-goals. Replace every placeholder with concrete content. The Kanban UI reflects updates within ~10 seconds. Optionally call sync_tickets afterward so docs/tickets/*.md match the database.
@@ -849,6 +851,70 @@ export async function runPmAgent(
       })
     })()
 
+  const listTicketsByColumnTool =
+    hasSupabase &&
+    (() => {
+      const supabase: SupabaseClient = createClient(
+        config.supabaseUrl!.trim(),
+        config.supabaseAnonKey!.trim()
+      )
+      return tool({
+        description:
+          'List all tickets in a given Kanban column (e.g. "col-qa", "col-todo", "col-unassigned", "col-human-in-the-loop"). Returns ticket ID, title, and column. Use when the user asks to see tickets in a specific column, especially QA.',
+        parameters: z.object({
+          column_id: z
+            .string()
+            .describe(
+              'Kanban column ID (e.g. "col-qa", "col-todo", "col-unassigned", "col-human-in-the-loop")'
+            ),
+        }),
+        execute: async (input: { column_id: string }) => {
+          type ListResult =
+            | {
+                success: true
+                column_id: string
+                tickets: Array<{ id: string; title: string; column: string }>
+                count: number
+              }
+            | { success: false; error: string }
+          let out: ListResult
+          try {
+            const { data: rows, error: fetchError } = await supabase
+              .from('tickets')
+              .select('id, title, kanban_column_id')
+              .eq('kanban_column_id', input.column_id)
+              .order('id', { ascending: true })
+
+            if (fetchError) {
+              out = { success: false, error: `Supabase fetch: ${fetchError.message}` }
+              toolCalls.push({ name: 'list_tickets_by_column', input, output: out })
+              return out
+            }
+
+            const tickets = (rows ?? []).map((r) => ({
+              id: (r as { id: string }).id,
+              title: (r as { title?: string }).title ?? '',
+              column: input.column_id,
+            }))
+
+            out = {
+              success: true,
+              column_id: input.column_id,
+              tickets,
+              count: tickets.length,
+            }
+          } catch (err) {
+            out = {
+              success: false,
+              error: err instanceof Error ? err.message : String(err),
+            }
+          }
+          toolCalls.push({ name: 'list_tickets_by_column', input, output: out })
+          return out
+        },
+      })
+    })()
+
   // Helper to use file access API when project folder is connected, otherwise use direct file system
   const hasProjectFolder = typeof config.projectId === 'string' && config.projectId.trim() !== ''
   const fileAccessApiUrl = config.fileAccessApiUrl ?? 'http://localhost:5173'
@@ -974,6 +1040,7 @@ export async function runPmAgent(
     ...(updateTicketBodyTool ? { update_ticket_body: updateTicketBodyTool } : {}),
     ...(syncTicketsTool ? { sync_tickets: syncTicketsTool } : {}),
     ...(kanbanMoveTicketToTodoTool ? { kanban_move_ticket_to_todo: kanbanMoveTicketToTodoTool } : {}),
+    ...(listTicketsByColumnTool ? { list_tickets_by_column: listTicketsByColumnTool } : {}),
   }
 
   const prompt = `${contextPack}\n\n---\n\nRespond to the user message above using the tools as needed.`
@@ -1055,6 +1122,29 @@ export async function runPmAgent(
             if (syncTicketsCall) {
               reply =
                 'I ran sync-tickets. docs/tickets/*.md now match Supabase (Supabase is the source of truth).'
+            } else {
+              const listTicketsCall = toolCalls.find(
+                (c) =>
+                  c.name === 'list_tickets_by_column' &&
+                  typeof c.output === 'object' &&
+                  c.output !== null &&
+                  (c.output as { success?: boolean }).success === true
+              )
+              if (listTicketsCall) {
+                const out = listTicketsCall.output as {
+                  column_id: string
+                  tickets: Array<{ id: string; title: string; column: string }>
+                  count: number
+                }
+                if (out.count === 0) {
+                  reply = `No tickets found in column **${out.column_id}**.`
+                } else {
+                  const ticketList = out.tickets
+                    .map((t) => `- **${t.id}** — ${t.title}`)
+                    .join('\n')
+                  reply = `Tickets in **${out.column_id}** (${out.count}):\n\n${ticketList}`
+                }
+              }
             }
           }
         }
