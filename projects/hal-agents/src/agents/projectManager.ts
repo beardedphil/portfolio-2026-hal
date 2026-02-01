@@ -1100,8 +1100,26 @@ export async function runPmAgent(
   const promptBase = `${contextPack}\n\n---\n\nRespond to the user message above using the tools as needed.`
 
   // Build prompt with images if present
-  // Note: Vision model support may require different handling in future AI SDK versions
-  const prompt = promptBase
+  // For vision models, prompt must be an array of content parts
+  // For non-vision models, prompt is a string (images are ignored)
+  const hasImages = config.images && config.images.length > 0
+  const isVisionModel = config.openaiModel.includes('vision') || config.openaiModel.includes('gpt-4o')
+  
+  let prompt: string | Array<{ type: 'text' | 'image'; text?: string; image?: string }>
+  if (hasImages && isVisionModel) {
+    // Vision model: use array format with text and images
+    prompt = [
+      { type: 'text' as const, text: promptBase },
+      ...config.images!.map((img) => ({ type: 'image' as const, image: img.dataUrl })),
+    ]
+  } else {
+    // Non-vision model or no images: use string format
+    prompt = promptBase
+    if (hasImages && !isVisionModel) {
+      // Log warning but don't fail - user can still send text
+      console.warn('[PM Agent] Images provided but model does not support vision. Images will be ignored.')
+    }
+  }
 
   const providerOptions =
     config.previousResponseId != null && config.previousResponseId !== ''
@@ -1112,7 +1130,7 @@ export async function runPmAgent(
     const result = await generateText({
       model,
       system: PM_SYSTEM_INSTRUCTIONS,
-      prompt,
+      prompt: prompt as any, // Type assertion: AI SDK supports array format for vision models
       tools,
       maxSteps: MAX_TOOL_ITERATIONS,
       ...(providerOptions && { providerOptions }),

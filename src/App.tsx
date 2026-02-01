@@ -84,6 +84,8 @@ type DiagnosticsInfo = {
   /** Current theme and source (0078). */
   theme: Theme
   themeSource: 'default' | 'saved'
+  /** Last send payload summary (0077). */
+  lastSendPayloadSummary: string | null
 }
 
 // localStorage helpers for conversation persistence (fallback when no project DB)
@@ -246,6 +248,7 @@ function App() {
   const [inputValue, setInputValue] = useState('')
   const [imageAttachment, setImageAttachment] = useState<ImageAttachment | null>(null)
   const [imageError, setImageError] = useState<string | null>(null)
+  const [sendValidationError, setSendValidationError] = useState<string | null>(null)
   const [lastError, setLastError] = useState<string | null>(null)
   const [lastAgentError, setLastAgentError] = useState<string | null>(null)
   const [persistenceError, setPersistenceError] = useState<string | null>(null)
@@ -264,6 +267,7 @@ function App() {
   const [agentRunner, setAgentRunner] = useState<string | null>(null)
   const [supabaseUrl, setSupabaseUrl] = useState<string | null>(null)
   const [supabaseAnonKey, setSupabaseAnonKey] = useState<string | null>(null)
+  const [lastSendPayloadSummary, setLastSendPayloadSummary] = useState<string | null>(null)
   const [projectFolderHandle, setProjectFolderHandle] = useState<FileSystemDirectoryHandle | null>(null)
   const [outboundRequestExpanded, setOutboundRequestExpanded] = useState(false)
   const [toolCallsExpanded, setToolCallsExpanded] = useState(false)
@@ -1666,11 +1670,21 @@ function App() {
 
   const handleSend = useCallback(() => {
     const content = inputValue.trim()
-    // Allow sending even if content is empty if there's an image
-    if (!content && !imageAttachment) return
+    
+    // Clear previous validation error
+    setSendValidationError(null)
+    
+    // Validate: must have either text or image
+    if (!content && !imageAttachment) {
+      setSendValidationError('Please enter a message or attach an image before sending.')
+      return
+    }
 
-    // Don't send if there's an error
-    if (imageError) return
+    // Don't send if there's an image error
+    if (imageError) {
+      setSendValidationError('Please fix the image error before sending.')
+      return
+    }
 
     // Get or create conversation ID for the selected chat target (0070)
     let convId: string
@@ -1685,10 +1699,27 @@ function App() {
 
     const useDb = selectedChatTarget === 'project-manager' && supabaseUrl != null && supabaseAnonKey != null && connectedProject != null
     const attachments = imageAttachment ? [imageAttachment] : undefined
+    
+    // Track payload summary for diagnostics (0077)
+    const hasText = content.length > 0
+    const hasImages = attachments && attachments.length > 0
+    let payloadSummary: string
+    if (hasText && hasImages) {
+      payloadSummary = `Text + ${attachments.length} image${attachments.length > 1 ? 's' : ''}`
+    } else if (hasText) {
+      payloadSummary = 'Text only'
+    } else if (hasImages) {
+      payloadSummary = `${attachments.length} image${attachments.length > 1 ? 's' : ''} only`
+    } else {
+      payloadSummary = 'Empty (should not happen)'
+    }
+    setLastSendPayloadSummary(payloadSummary)
+    
     if (!useDb) addMessage(convId, 'user', content, undefined, attachments)
     setInputValue('')
     setImageAttachment(null)
     setImageError(null)
+    setSendValidationError(null)
     setLastAgentError(null)
 
     // Use the extracted triggerAgentRun function
@@ -1961,6 +1992,7 @@ function App() {
     autoMoveDiagnostics,
     theme,
     themeSource,
+    lastSendPayloadSummary,
   }
 
   return (
@@ -2401,6 +2433,11 @@ function App() {
                                 {imageError}
                               </div>
                             )}
+                            {sendValidationError && (
+                              <div className="image-error-message" role="alert">
+                                {sendValidationError}
+                              </div>
+                            )}
                             <div className="composer-input-row">
                               <textarea
                                 className="message-input"
@@ -2573,6 +2610,11 @@ function App() {
                     {imageError}
                   </div>
                 )}
+                {sendValidationError && (
+                  <div className="image-error-message" role="alert">
+                    {sendValidationError}
+                  </div>
+                )}
                 <div className="composer-input-row">
                   <textarea
                     className="message-input"
@@ -2721,6 +2763,12 @@ function App() {
                   <span className="diag-label">Last error:</span>
                   <span className="diag-value" data-status={diagnostics.lastError ? 'error' : 'ok'}>
                     {diagnostics.lastError ?? 'none'}
+                  </span>
+                </div>
+                <div className="diag-row">
+                  <span className="diag-label">Last send payload summary:</span>
+                  <span className="diag-value">
+                    {diagnostics.lastSendPayloadSummary ?? 'no send yet'}
                   </span>
                 </div>
                 <div className="diag-row">
