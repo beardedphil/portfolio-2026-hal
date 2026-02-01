@@ -625,7 +625,7 @@ function SortableColumn({
     if (col.id === 'col-unassigned') {
       return { label: 'Prepare top ticket', chatTarget: 'project-manager', message: `Please prepare ticket ${topTicketId} and get it ready (Definition of Ready).` }
     } else if (col.id === 'col-todo') {
-      return { label: 'Implement top ticket', chatTarget: 'implementation-agent', message: `Please implement ticket ${topTicketId}.` }
+      return { label: 'Implement top ticket', chatTarget: 'implementation-agent', message: `Implement ticket ${topTicketId}.` }
     } else if (col.id === 'col-qa') {
       return { label: 'QA top ticket', chatTarget: 'qa-agent', message: `QA ticket ${topTicketId}.` }
     }
@@ -785,6 +785,11 @@ function _DraggableSupabaseTicketItem({
 function App() {
   const [debugOpen, setDebugOpen] = useState(false)
   const [actionLog, setActionLog] = useState<LogEntry[]>([])
+  const addLog = useCallback((message: string) => {
+    const at = formatTime()
+    const id = Date.now()
+    setActionLog((prev) => [...prev.slice(-19), { id, message, at }])
+  }, [])
   const [runtimeError, _setRuntimeError] = useState<string | null>(null)
   const [columns, setColumns] = useState<Column[]>(() => EMPTY_KANBAN_COLUMNS)
   const [cards] = useState<Record<string, Card>>({})
@@ -1302,12 +1307,6 @@ function App() {
     },
     [supabaseProjectUrl, supabaseAnonKey]
   )
-
-  const addLog = useCallback((message: string) => {
-    const at = formatTime()
-    const id = Date.now()
-    setActionLog((prev) => [...prev.slice(-19), { id, message, at }])
-  }, [])
 
   /** Delete a ticket from Supabase and run sync to remove local file (0030, 0039). */
   const handleDeleteTicket = useCallback(
