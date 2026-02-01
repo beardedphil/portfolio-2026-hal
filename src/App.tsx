@@ -125,7 +125,7 @@ function getEmptyConversations(): Record<ChatTarget, Message[]> {
 
 const CHAT_OPTIONS: { id: ChatTarget; label: string }[] = [
   { id: 'project-manager', label: 'Project Manager' },
-  { id: 'implementation-agent', label: 'Implementation Agent (stub)' },
+  { id: 'implementation-agent', label: 'Implementation Agent' },
   { id: 'standup', label: 'Standup (all agents)' },
 ]
 
@@ -469,8 +469,11 @@ function App() {
       setAgentTypingTarget('implementation-agent')
       setTimeout(() => {
         setAgentTypingTarget(null)
-        const agentLabel = CHAT_OPTIONS.find((a) => a.id === selectedChatTarget)?.label ?? selectedChatTarget
-        addMessage('implementation-agent', 'implementation-agent', `[${agentLabel}] This is a stub response. Real agent infrastructure is not implemented yet.`)
+        addMessage(
+          'implementation-agent',
+          'implementation-agent',
+          '[Implementation Agent] This agent is currently a stub and is not wired to the Cursor API. Implementation Agent will be enabled in a later ticket.'
+        )
       }, 500)
     } else {
       // Standup: shared transcript across all agents
@@ -485,7 +488,7 @@ function App() {
 • Ready to assist with prioritization`)
       }, 300)
       setTimeout(() => {
-        addMessage('standup', 'implementation-agent', `[Standup] Implementation Agent (stub):
+        addMessage('standup', 'implementation-agent', `[Standup] Implementation Agent:
 • Awaiting task assignment
 • Development environment ready
 • No active work in progress`)
@@ -740,6 +743,9 @@ function App() {
           <div className="chat-header">
             <h2>Chat</h2>
             <div className="agent-selector">
+              <span className="active-agent-label" aria-live="polite">
+                Active: {CHAT_OPTIONS.find((o) => o.id === selectedChatTarget)?.label ?? selectedChatTarget}
+              </span>
               <label htmlFor="agent-select">Agent:</label>
               <select
                 id="agent-select"
@@ -770,6 +776,14 @@ function App() {
             </div>
           ) : (
             <>
+              {selectedChatTarget === 'implementation-agent' && (
+                <div className="agent-stub-banner" role="status">
+                  <p className="agent-stub-title">Implementation Agent — not yet connected</p>
+                  <p className="agent-stub-hint">
+                    This agent is currently a stub and is not wired to the Cursor API. Implementation Agent will be enabled in a later ticket.
+                  </p>
+                </div>
+              )}
               <div className="chat-transcript" ref={transcriptRef}>
                 {activeMessages.length === 0 && !agentTypingTarget ? (
                   <p className="transcript-empty">No messages yet. Start a conversation.</p>

@@ -265,6 +265,31 @@ body {
   cursor: not-allowed;
 }
 
+.agent-selector .active-agent-label {
+  color: var(--hal-text-muted);
+  font-size: 0.8rem;
+}
+
+/* Agent stub status banner (0041) */
+.agent-stub-banner {
+  padding: 0.75rem 1rem;
+  background: var(--hal-surface-alt);
+  border-bottom: 1px solid var(--hal-border);
+  font-size: 0.9rem;
+}
+
+.agent-stub-title {
+  margin: 0 0 0.35rem 0;
+  font-weight: 600;
+  color: var(--hal-text);
+}
+
+.agent-stub-hint {
+  margin: 0;
+  color: var(--hal-text-muted);
+  line-height: 1.45;
+}
+
 /* Chat placeholder (when no project connected) */
 .chat-placeholder {
   flex: 1;
