@@ -36,12 +36,13 @@ alwaysApply: true
   1. Verify the feature branch is clean and pushed to remote.
   2. **Merge the feature branch into `main`** (with a commit message that includes the ticket ID, e.g., `merge(0056): merge feature branch to main for cloud QA access`).
   3. Push `main` to remote.
-  4. **Update the ticket body** (in Supabase, then run `npm run sync-tickets`) with:
+  4. **Kill HAL** (`npx --yes kill-port 5173 5174`), **pull from main** (`git pull origin main`), **restart HAL** (`npm run dev` in background).
+  5. **Update the ticket body** (in Supabase, then run `npm run sync-tickets`) with:
      - The feature branch name used (e.g., `ticket/0056-implementation`)
      - A note that changes were merged to `main` due to cloud QA branch access limits
      - An **"Artifacts" section** (see below) listing links/paths to all required audit artifacts
-  5. Mark the ticket as "Merged to main for QA" (add this note to the ticket body).
-  6. Then send the completion/summary message including the branch name, merge note, and `git status -sb`.
+  6. Mark the ticket as "Merged to main for QA" (add this note to the ticket body).
+  7. Then send the completion/summary message including the branch name, merge note, and `git status -sb`.
 - **Why:** Cloud QA agents may only have access to `main` branch. Merging to `main` makes the changes accessible for QA review and testing.
 
 ## Artifacts section requirement (implementation agent)
@@ -71,16 +72,21 @@ alwaysApply: true
 ## Sequence: push first, merge to main, then summarize
 
 - The moment you **think** you're done (implementation complete, audit written, etc.) is when you **commit and push** — not after you've already told the user.
-- **First:** commit all relevant changes, **push the feature branch** to GitHub, **merge the feature branch into `main`** (with a commit message that includes the ticket ID, e.g., `merge(0060): merge feature branch to main`), push `main`, **delete the feature branch** (local and remote), and **update the ticket body** with the branch name, merge note, and the **"Artifacts" section** (see "Artifacts section requirement" above).
-- **Then:** tell the user what was done (summary, verification, audit location, **branch name**). Do not give the long "here's what I did" report until after push + merge + branch deletion + ticket update.
+- **First:** commit all relevant changes, **push the feature branch** to GitHub, **merge the feature branch into `main`** (with a commit message that includes the ticket ID, e.g., `merge(0060): merge feature branch to main`), push `main`, **delete the feature branch** (local and remote).
+- **After merge, before summarizing (implementation agent):** After merging to `main` and pushing `main`, and before updating the ticket body or sending the summary message:
+  1. **Kill HAL:** Stop the dev server (e.g. `npx --yes kill-port 5173 5174` to free HAL and Kanban ports).
+  2. **Pull from main:** Run `git pull origin main` (you should already be on `main`).
+  3. **Restart HAL:** Run `npm run dev` (in the background or in a dev terminal) so the app is running the latest `main`.
+- Then **update the ticket body** with the branch name, merge note, and the **"Artifacts" section** (see "Artifacts section requirement" above).
+- **Then:** tell the user what was done (summary, verification, audit location, **branch name**). Do not give the long "here's what I did" report until after push + merge + branch deletion + HAL restart + ticket update.
 - **MANDATORY:** Always merge to main and delete the feature branch before sending any summary message. This applies to all implementation work, not just cloud QA scenarios.
 - If you summarize first and then commit/push/merge (or forget to add the branch to the ticket), you did it in the wrong order.
 
 ## Before you reply: the gate
 
 - **If you are about to send a message** that summarizes completed work, or that includes any of: "done", "complete", "ready", "looks good", "here's what I did", "Implementation complete", "Summary:", or similar — **STOP**.
-- **First** run: `git status -sb`. If there are any `M` (modified) or `??` (untracked) relevant to the task: run `git add`, `git commit -m '...'` (with ticket ID in subject), `git push` (feature branch), then **merge the feature branch into `main`** (with a commit message that includes the ticket ID, e.g., `merge(0060): merge feature branch to main`), push `main`, **delete the feature branch** (local and remote), and **update the ticket body** with the branch name, merge note, and the **"Artifacts" section** (see "Artifacts section requirement" above). Then run `git status -sb` again.
-- **Only after** the working tree is clean, the feature branch is merged to main, the branch is deleted, and the **branch name is added to the ticket** may you send that message — and your message **must** include the **branch name** and the exact `git status -sb` output.
+- **First** run: `git status -sb`. If there are any `M` (modified) or `??` (untracked) relevant to the task: run `git add`, `git commit -m '...'` (with ticket ID in subject), `git push` (feature branch), then **merge the feature branch into `main`** (with a commit message that includes the ticket ID, e.g., `merge(0060): merge feature branch to main`), push `main`, **delete the feature branch** (local and remote). Then **kill HAL** (`npx --yes kill-port 5173 5174`), **pull from main** (`git pull origin main`), **restart HAL** (`npm run dev` in background), and **update the ticket body** with the branch name, merge note, and the **"Artifacts" section** (see "Artifacts section requirement" above). Then run `git status -sb` again.
+- **Only after** the working tree is clean, the feature branch is merged to main, the branch is deleted, HAL has been restarted on latest main, and the **branch name is added to the ticket** may you send that message — and your message **must** include the **branch name** and the exact `git status -sb` output.
 - **MANDATORY:** Always merge to main and delete the feature branch before sending any summary message. Never send a summary while still on a feature branch.
 - If you have not yet committed, pushed, merged to main, and deleted the branch, do **not** send a "done" or summary message; do all of these steps in this same turn, then reply.
 

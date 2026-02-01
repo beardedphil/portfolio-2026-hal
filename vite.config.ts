@@ -1657,5 +1657,12 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    proxy: {
+      // Forward /kanban-app to kanban dev server (5174); kanban runs with base '/kanban-app/'
+      '/kanban-app': {
+        target: 'http://localhost:5174',
+        changeOrigin: true,
+      },
+    },
   },
 })

@@ -49,12 +49,11 @@ export async function readFileFromHandle(
   }
 
   try {
-    let currentHandle: FileSystemDirectoryHandle | FileSystemFileHandle = handle
+    let dirHandle: FileSystemDirectoryHandle = handle
     for (let i = 0; i < parts.length - 1; i++) {
-      const dirHandle = await currentHandle.getDirectoryHandle(parts[i])
-      currentHandle = dirHandle
+      dirHandle = await dirHandle.getDirectoryHandle(parts[i])
     }
-    const fileHandle = await currentHandle.getFileHandle(parts[parts.length - 1])
+    const fileHandle = await dirHandle.getFileHandle(parts[parts.length - 1])
     const file = await fileHandle.getFile()
     const text = await file.text()
     const lines = text.split('\n')
@@ -83,7 +82,11 @@ export async function listDirectoryFromHandle(
       currentHandle = await currentHandle.getDirectoryHandle(part)
     }
     const entries: string[] = []
-    for await (const entry of currentHandle.values()) {
+    // DOM lib may not type FileSystemDirectoryHandle.values(); assert so we can call it
+    const dirWithValues = currentHandle as FileSystemDirectoryHandle & {
+      values(): AsyncIterableIterator<FileSystemDirectoryHandle | FileSystemFileHandle>
+    }
+    for await (const entry of dirWithValues.values()) {
       entries.push(entry.name)
     }
     return { entries }
@@ -124,9 +127,13 @@ export async function searchFilesFromHandle(
 
   const matches: Array<{ path: string; line: number; text: string }> = []
 
+  const dirWithValues = (h: FileSystemDirectoryHandle) =>
+    h as FileSystemDirectoryHandle & {
+      values(): AsyncIterableIterator<FileSystemDirectoryHandle | FileSystemFileHandle>
+    }
   async function searchDir(dirHandle: FileSystemDirectoryHandle, relativePath: string): Promise<void> {
     try {
-      for await (const entry of dirHandle.values()) {
+      for await (const entry of dirWithValues(dirHandle).values()) {
         const entryPath = relativePath ? `${relativePath}/${entry.name}` : entry.name
         if (entry.kind === 'directory') {
           // Skip node_modules and .git
