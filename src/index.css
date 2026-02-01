@@ -245,6 +245,24 @@ body {
   /* Expand hit area for easier dragging */
 }
 
+/* Resizer width display (0076) */
+.hal-divider-width-display {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--hal-primary);
+  color: #fff;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 10;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
 /* Right column: Chat */
 .hal-chat-region {
   min-width: 320px;

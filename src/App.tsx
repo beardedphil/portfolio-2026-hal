@@ -272,6 +272,10 @@ function App() {
   /** Whether the divider is currently being dragged (0060). */
   const [isDragging, setIsDragging] = useState(false)
   const dividerRef = useRef<HTMLDivElement>(null)
+  /** Animation frame ID for smooth resizing (0076). */
+  const rafIdRef = useRef<number | null>(null)
+  /** Current mouse position during drag (0076). */
+  const mouseXRef = useRef<number | null>(null)
 
   useEffect(() => {
     selectedChatTargetRef.current = selectedChatTarget
@@ -286,31 +290,62 @@ function App() {
     }
   }, [chatWidth])
 
-  // Handle divider drag (0060)
+  // Handle divider drag with smooth animation (0076)
   const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     setIsDragging(true)
+    mouseXRef.current = e.clientX
   }, [])
 
+  // Smooth resize using requestAnimationFrame (0076)
   useEffect(() => {
-    if (!isDragging) return
+    if (!isDragging) {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current)
+        rafIdRef.current = null
+      }
+      return
+    }
 
-    const handleMouseMove = (e: MouseEvent) => {
+    const updateWidth = () => {
+      if (mouseXRef.current === null) return
+      
       const mainElement = document.querySelector('.hal-main')
       if (!mainElement) return
+      
       const mainRect = mainElement.getBoundingClientRect()
       // Calculate chat width: distance from mouse to right edge, accounting for divider (4px)
-      const newWidth = mainRect.right - e.clientX - 4
+      const newWidth = mainRect.right - mouseXRef.current - 4
       // Clamp between min and max widths
       const clampedWidth = Math.max(320, Math.min(800, newWidth))
       setChatWidth(clampedWidth)
+      
+      // Schedule next update
+      rafIdRef.current = requestAnimationFrame(updateWidth)
+    }
+
+    const handleMouseMove = (e: MouseEvent) => {
+      // Update mouse position immediately
+      mouseXRef.current = e.clientX
+      // Start animation loop if not already running
+      if (rafIdRef.current === null) {
+        rafIdRef.current = requestAnimationFrame(updateWidth)
+      }
     }
 
     const handleMouseUp = () => {
       setIsDragging(false)
+      mouseXRef.current = null
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current)
+        rafIdRef.current = null
+      }
     }
 
-    document.addEventListener('mousemove', handleMouseMove)
+    // Start animation loop immediately
+    rafIdRef.current = requestAnimationFrame(updateWidth)
+    
+    document.addEventListener('mousemove', handleMouseMove, { passive: true })
     document.addEventListener('mouseup', handleMouseUp)
     // Prevent text selection while dragging
     document.body.style.userSelect = 'none'
@@ -321,6 +356,10 @@ function App() {
       document.removeEventListener('mouseup', handleMouseUp)
       document.body.style.userSelect = ''
       document.body.style.cursor = ''
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current)
+        rafIdRef.current = null
+      }
     }
   }, [isDragging])
 
@@ -1757,7 +1796,19 @@ function App() {
           role="separator"
           aria-label="Resize chat and kanban panes"
           aria-orientation="vertical"
-        />
+        >
+          {isDragging && (() => {
+            const mainElement = document.querySelector('.hal-main')
+            if (!mainElement) return null
+            const mainRect = mainElement.getBoundingClientRect()
+            const percentage = (chatWidth / mainRect.width) * 100
+            return (
+              <div className="hal-divider-width-display">
+                {percentage.toFixed(1)}%
+              </div>
+            )
+          })()}
+        </div>
 
         {/* Right column: Chat UI */}
         <section className="hal-chat-region" aria-label="Chat" style={{ width: `${chatWidth}px` }}>
@@ -2097,6 +2148,28 @@ function App() {
             
             {diagnosticsOpen && (
               <div className="diagnostics-panel" role="region" aria-label="Diagnostics">
+                <div className="diag-row">
+                  <span className="diag-label">Chat width (px):</span>
+                  <span className="diag-value">{chatWidth}</span>
+                </div>
+                <div className="diag-row">
+                  <span className="diag-label">Chat width (%):</span>
+                  <span className="diag-value">
+                    {(() => {
+                      const mainElement = document.querySelector('.hal-main')
+                      if (!mainElement) return '—'
+                      const mainRect = mainElement.getBoundingClientRect()
+                      const percentage = (chatWidth / mainRect.width) * 100
+                      return `${percentage.toFixed(1)}%`
+                    })()}
+                  </span>
+                </div>
+                <div className="diag-row">
+                  <span className="diag-label">Resizer dragging:</span>
+                  <span className="diag-value" data-status={isDragging ? 'ok' : undefined}>
+                    {String(isDragging)}
+                  </span>
+                </div>
                 <div className="diag-row">
                   <span className="diag-label">Kanban render mode:</span>
                   <span className="diag-value">{diagnostics.kanbanRenderMode}</span>
