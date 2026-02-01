@@ -632,7 +632,7 @@ function SortableColumn({
     return null
   }
 
-  const buttonConfig = getButtonConfig()
+  const buttonConfig = shouldShowWorkButton ? getButtonConfig() : null
 
   const handleWorkButtonClick = () => {
     if (!hasTickets || !buttonConfig) return
@@ -662,16 +662,16 @@ function SortableColumn({
           {col.title}
         </span>
         <div className="column-header-actions">
-          {shouldShowWorkButton && (
+          {shouldShowWorkButton && buttonConfig && (
             <button
               type="button"
               className="column-work-button"
               onClick={handleWorkButtonClick}
               disabled={!hasTickets}
-              aria-label={hasTickets ? buttonConfig?.label : 'No tickets in this column'}
-              title={hasTickets ? buttonConfig?.label : 'No tickets in this column'}
+              aria-label={hasTickets ? buttonConfig.label : 'No tickets in this column'}
+              title={hasTickets ? buttonConfig.label : 'No tickets in this column'}
             >
-              {hasTickets ? buttonConfig?.label : 'No tickets'}
+              {hasTickets ? (buttonConfig.label || 'Work top ticket') : 'No tickets'}
             </button>
           )}
           {!hideRemove && (
