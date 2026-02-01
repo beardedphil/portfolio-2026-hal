@@ -18,6 +18,15 @@ type Message = {
   imageAttachments?: ImageAttachment[] // Optional array of image attachments
 }
 
+// Conversation instance with unique ID (0070)
+type Conversation = {
+  id: string // e.g., "implementation-agent-1", "qa-agent-2"
+  agentRole: Agent // The agent role this conversation belongs to
+  instanceNumber: number // 1, 2, 3, etc.
+  messages: Message[]
+  createdAt: Date
+}
+
 type ToolCallRecord = {
   name: string
   input: unknown
@@ -93,22 +102,58 @@ type SerializedMessage = Omit<Message, 'timestamp' | 'imageAttachments'> & {
   timestamp: string
   imageAttachments?: SerializedImageAttachment[]
 }
+type SerializedConversation = Omit<Conversation, 'messages' | 'createdAt'> & {
+  messages: SerializedMessage[]
+  createdAt: string
+}
+
+// Generate conversation ID for an agent role and instance number (0070)
+function getConversationId(agentRole: Agent, instanceNumber: number): string {
+  return `${agentRole}-${instanceNumber}`
+}
+
+// Parse conversation ID to get agent role and instance number (0070)
+function parseConversationId(conversationId: string): { agentRole: Agent; instanceNumber: number } | null {
+  const match = conversationId.match(/^(project-manager|implementation-agent|qa-agent)-(\d+)$/)
+  if (!match) return null
+  return {
+    agentRole: match[1] as Agent,
+    instanceNumber: parseInt(match[2], 10),
+  }
+}
+
+// Get next instance number for an agent role (0070)
+function getNextInstanceNumber(conversations: Map<string, Conversation>, agentRole: Agent): number {
+  let maxNumber = 0
+  for (const conv of conversations.values()) {
+    if (conv.agentRole === agentRole && conv.instanceNumber > maxNumber) {
+      maxNumber = conv.instanceNumber
+    }
+  }
+  return maxNumber + 1
+}
 
 function saveConversationsToStorage(
   projectName: string,
-  conversations: Record<ChatTarget, Message[]>
+  conversations: Map<string, Conversation>
 ): { success: boolean; error?: string } {
   try {
-    const serialized: Record<ChatTarget, SerializedMessage[]> = {} as Record<ChatTarget, SerializedMessage[]>
-    for (const key of Object.keys(conversations) as ChatTarget[]) {
-      serialized[key] = conversations[key].map((msg) => ({
-        ...msg,
-        timestamp: msg.timestamp.toISOString(),
-        imageAttachments: msg.imageAttachments?.map((img) => ({
-          dataUrl: img.dataUrl,
-          filename: img.filename,
+    const serialized: SerializedConversation[] = []
+    for (const conv of conversations.values()) {
+      serialized.push({
+        id: conv.id,
+        agentRole: conv.agentRole,
+        instanceNumber: conv.instanceNumber,
+        createdAt: conv.createdAt.toISOString(),
+        messages: conv.messages.map((msg) => ({
+          ...msg,
+          timestamp: msg.timestamp.toISOString(),
+          imageAttachments: msg.imageAttachments?.map((img) => ({
+            dataUrl: img.dataUrl,
+            filename: img.filename,
+          })),
         })),
-      }))
+      })
     }
     localStorage.setItem(getStorageKey(projectName), JSON.stringify(serialized))
     return { success: true }
@@ -120,25 +165,31 @@ function saveConversationsToStorage(
 
 function loadConversationsFromStorage(
   projectName: string
-): { data: Record<ChatTarget, Message[]> | null; error?: string } {
+): { data: Map<string, Conversation> | null; error?: string } {
   try {
     const raw = localStorage.getItem(getStorageKey(projectName))
-    if (!raw) return { data: null }
-    const parsed = JSON.parse(raw) as Record<ChatTarget, SerializedMessage[]>
-    const result: Record<ChatTarget, Message[]> = {} as Record<ChatTarget, Message[]>
-    for (const key of Object.keys(parsed) as ChatTarget[]) {
-      result[key] = parsed[key].map((msg) => ({
-        ...msg,
-        timestamp: new Date(msg.timestamp),
-        // Note: imageAttachments from storage won't have File objects, only dataUrl and filename
-        // This is fine for display purposes, but won't work for sending new messages
-        imageAttachments: msg.imageAttachments?.map((img) => ({
-          dataUrl: img.dataUrl,
-          filename: img.filename,
-          // Create a dummy File object for type compatibility (won't be used for sending)
-          file: new File([], img.filename, { type: 'image/jpeg' }),
+    if (!raw) return { data: new Map() }
+    const parsed = JSON.parse(raw) as SerializedConversation[]
+    const result = new Map<string, Conversation>()
+    for (const conv of parsed) {
+      result.set(conv.id, {
+        id: conv.id,
+        agentRole: conv.agentRole,
+        instanceNumber: conv.instanceNumber,
+        createdAt: new Date(conv.createdAt),
+        messages: conv.messages.map((msg) => ({
+          ...msg,
+          timestamp: new Date(msg.timestamp),
+          // Note: imageAttachments from storage won't have File objects, only dataUrl and filename
+          // This is fine for display purposes, but won't work for sending new messages
+          imageAttachments: msg.imageAttachments?.map((img) => ({
+            dataUrl: img.dataUrl,
+            filename: img.filename,
+            // Create a dummy File object for type compatibility (won't be used for sending)
+            file: new File([], img.filename, { type: 'image/jpeg' }),
+          })),
         })),
-      }))
+      })
     }
     return { data: result }
   } catch (e) {
@@ -147,13 +198,8 @@ function loadConversationsFromStorage(
   }
 }
 
-function getEmptyConversations(): Record<ChatTarget, Message[]> {
-  return {
-    'project-manager': [],
-    'implementation-agent': [],
-    'qa-agent': [],
-    standup: [],
-  }
+function getEmptyConversations(): Map<string, Conversation> {
+  return new Map()
 }
 
 const CHAT_OPTIONS: { id: ChatTarget; label: string }[] = [
@@ -192,7 +238,11 @@ function getInitialTheme(): Theme {
 
 function App() {
   const [selectedChatTarget, setSelectedChatTarget] = useState<ChatTarget>('project-manager')
-  const [conversations, setConversations] = useState<Record<ChatTarget, Message[]>>(getEmptyConversations)
+  // Selected conversation ID (0070) - null means showing conversation list
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
+  // Modal open state for viewing conversation thread (0070)
+  const [conversationModalOpen, setConversationModalOpen] = useState(false)
+  const [conversations, setConversations] = useState<Map<string, Conversation>>(getEmptyConversations)
   const [inputValue, setInputValue] = useState('')
   const [imageAttachment, setImageAttachment] = useState<ImageAttachment | null>(null)
   const [imageError, setImageError] = useState<string | null>(null)
@@ -598,14 +648,56 @@ function App() {
     }
   }, [projectFolderHandle])
 
-  const activeMessages = conversations[selectedChatTarget] ?? []
+  // Get active messages from selected conversation (0070)
+  // For PM and Standup, always use default conversation; for Implementation/QA, use selected conversation if modal is open
+  const activeMessages = (() => {
+    if (selectedChatTarget === 'project-manager' || selectedChatTarget === 'standup') {
+      const defaultConvId = getDefaultConversationId('project-manager')
+      return conversations.has(defaultConvId) ? conversations.get(defaultConvId)!.messages : []
+    }
+    if (selectedConversationId && conversations.has(selectedConversationId)) {
+      return conversations.get(selectedConversationId)!.messages
+    }
+    return []
+  })()
+
+  // Get conversations for a specific agent role (0070)
+  const getConversationsForAgent = useCallback((agentRole: Agent): Conversation[] => {
+    const result: Conversation[] = []
+    for (const conv of conversations.values()) {
+      if (conv.agentRole === agentRole) {
+        result.push(conv)
+      }
+    }
+    // Sort by instance number (ascending)
+    result.sort((a, b) => a.instanceNumber - b.instanceNumber)
+    return result
+  }, [conversations])
+
+  // Get conversation label (e.g., "Implementation #1", "QA #2") (0070)
+  const getConversationLabel = useCallback((conv: Conversation): string => {
+    const roleLabels: Record<Agent, string> = {
+      'project-manager': 'Project Manager',
+      'implementation-agent': 'Implementation',
+      'qa-agent': 'QA',
+    }
+    return `${roleLabels[conv.agentRole]} #${conv.instanceNumber}`
+  }, [])
+
+  // Get preview text from last message (first line, max 100 chars) (0070)
+  const getConversationPreview = useCallback((conv: Conversation): string => {
+    if (conv.messages.length === 0) return 'No messages yet'
+    const lastMsg = conv.messages[conv.messages.length - 1]
+    const firstLine = lastMsg.content.split('\n')[0]
+    return firstLine.length > 100 ? firstLine.substring(0, 100) + '...' : firstLine
+  }, [])
 
   // Auto-scroll transcript to bottom when messages or typing indicator change
   useEffect(() => {
     if (transcriptRef.current) {
       transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight
     }
-  }, [activeMessages, agentTypingTarget, selectedChatTarget, implAgentRunStatus, qaAgentRunStatus, implAgentProgress, qaAgentProgress])
+  }, [activeMessages, agentTypingTarget, selectedConversationId, implAgentRunStatus, qaAgentRunStatus, implAgentProgress, qaAgentProgress])
 
   // Persist conversations to localStorage only when project connected and not using Supabase (DB is source of truth when attached)
   useEffect(() => {
@@ -695,18 +787,55 @@ function App() {
     [supabaseUrl, supabaseAnonKey, addAutoMoveDiagnostic]
   )
 
-  const addMessage = useCallback((target: ChatTarget, agent: Message['agent'], content: string, id?: number, imageAttachments?: ImageAttachment[]) => {
+  // Get or create a conversation for an agent role (0070)
+  const getOrCreateConversation = useCallback((agentRole: Agent, conversationId?: string): string => {
+    if (conversationId && conversations.has(conversationId)) {
+      return conversationId
+    }
+    // Create new conversation instance
+    const instanceNumber = getNextInstanceNumber(conversations, agentRole)
+    const newId = getConversationId(agentRole, instanceNumber)
+    const newConversation: Conversation = {
+      id: newId,
+      agentRole,
+      instanceNumber,
+      messages: [],
+      createdAt: new Date(),
+    }
+    setConversations((prev) => {
+      const next = new Map(prev)
+      next.set(newId, newConversation)
+      return next
+    })
+    return newId
+  }, [conversations])
+
+  // Get default conversation ID for an agent role (for backward compatibility) (0070)
+  const getDefaultConversationId = useCallback((agentRole: Agent): string => {
+    // Find existing conversation-1, or create it
+    const defaultId = getConversationId(agentRole, 1)
+    if (conversations.has(defaultId)) {
+      return defaultId
+    }
+    return getOrCreateConversation(agentRole, defaultId)
+  }, [conversations, getOrCreateConversation])
+
+  const addMessage = useCallback((conversationId: string, agent: Message['agent'], content: string, id?: number, imageAttachments?: ImageAttachment[]) => {
     const nextId = id ?? ++messageIdRef.current
     if (id != null) messageIdRef.current = Math.max(messageIdRef.current, nextId)
-    setConversations((prev) => ({
-      ...prev,
-      [target]: [...(prev[target] ?? []), { id: nextId, agent, content, timestamp: new Date(), imageAttachments }],
-    }))
-    if (agent !== 'user' && target !== selectedChatTargetRef.current) {
-      setUnreadByTarget((prev) => ({ ...prev, [target]: (prev[target] ?? 0) + 1 }))
-    }
+    setConversations((prev) => {
+      const next = new Map(prev)
+      const conv = next.get(conversationId)
+      if (!conv) return next
+      next.set(conversationId, {
+        ...conv,
+        messages: [...conv.messages, { id: nextId, agent, content, timestamp: new Date(), imageAttachments }],
+      })
+      return next
+    })
     // Auto-move ticket when QA completion message is detected in QA Agent chat (0061)
-    if (target === 'qa-agent' && agent === 'qa-agent') {
+    const parsed = parseConversationId(conversationId)
+    if (parsed && parsed.agentRole === 'qa-agent' && agent === 'qa-agent') {
       const isQaCompletion = /qa.*complete|qa.*report|qa.*pass|verdict.*pass|move.*human.*loop|verified.*main|pass.*ok.*merge/i.test(content)
       if (isQaCompletion) {
         const isPass = /pass|ok.*merge|verified.*main|verdict.*pass/i.test(content) && !/fail|verdict.*fail/i.test(content)
@@ -843,9 +972,11 @@ function App() {
 
   /** Trigger agent run for a given message and target (used by handleSend and HAL_OPEN_CHAT_AND_SEND) */
   const triggerAgentRun = useCallback(
-    (content: string, target: ChatTarget, imageAttachments?: ImageAttachment[]) => {
+    (content: string, target: ChatTarget, imageAttachments?: ImageAttachment[], conversationId?: string) => {
+      // Get or create conversation ID (0070)
+      const convId = conversationId || getDefaultConversationId(target === 'project-manager' ? 'project-manager' : target === 'standup' ? 'project-manager' : target)
       const useDb = target === 'project-manager' && supabaseUrl != null && supabaseAnonKey != null && connectedProject != null
-      if (!useDb) addMessage(target, 'user', content, undefined, imageAttachments)
+      if (!useDb) addMessage(convId, 'user', content, undefined, imageAttachments)
       setLastAgentError(null)
 
       if (target === 'project-manager') {
@@ -885,13 +1016,14 @@ function App() {
               })
               if (insertErr) {
                 setPersistenceError(`DB: ${insertErr.message}`)
-                addMessage('project-manager', 'user', content, undefined, imageAttachments)
+                addMessage(convId, 'user', content, undefined, imageAttachments)
               } else {
                 pmMaxSequenceRef.current = nextSeq
-                addMessage('project-manager', 'user', content, nextSeq, imageAttachments)
+                addMessage(convId, 'user', content, nextSeq, imageAttachments)
               }
             } else {
-              const pmMessages = conversations['project-manager'] ?? []
+              const pmConv = conversations.get(convId)
+              const pmMessages = pmConv?.messages ?? []
               const turns = pmMessages.map((msg) => ({
                 role: msg.agent === 'user' ? ('user' as const) : ('assistant' as const),
                 content: msg.content,
@@ -923,7 +1055,7 @@ function App() {
               setAgentTypingTarget(null)
               setOpenaiLastError('Invalid JSON response from PM endpoint')
               setLastAgentError('Invalid JSON response')
-              addMessage('project-manager', 'project-manager', `[PM] Error: Invalid response format`)
+              addMessage(convId, 'project-manager', `[PM] Error: Invalid response format`)
               return
             }
 
@@ -941,7 +1073,7 @@ function App() {
               setLastAgentError(errMsg)
               // Still show reply if available, otherwise show error
               const displayMsg = data.reply || `[PM] Error: ${errMsg}`
-              addMessage('project-manager', 'project-manager', displayMsg)
+              addMessage(convId, 'project-manager', displayMsg)
               return
             }
 
@@ -975,9 +1107,9 @@ function App() {
                 sequence: nextSeq,
               })
               pmMaxSequenceRef.current = nextSeq
-              addMessage('project-manager', 'project-manager', reply, nextSeq)
+              addMessage(convId, 'project-manager', reply, nextSeq)
             } else {
-              addMessage('project-manager', 'project-manager', reply)
+              addMessage(convId, 'project-manager', reply)
             }
           } catch (err) {
             setAgentTypingTarget(null)
@@ -985,14 +1117,14 @@ function App() {
             setOpenaiLastStatus(null)
             setOpenaiLastError(msg)
             setLastAgentError(msg)
-            addMessage('project-manager', 'project-manager', `[PM] Error: ${msg}`)
+            addMessage(convId, 'project-manager', `[PM] Error: ${msg}`)
           }
         })()
       } else if (target === 'implementation-agent') {
         const cursorApiConfigured = !!(import.meta.env.VITE_CURSOR_API_KEY as string | undefined)?.trim()
         if (!cursorApiConfigured) {
           addMessage(
-            'implementation-agent',
+            convId,
             'implementation-agent',
             '[Implementation Agent] Cursor API is not configured. Set CURSOR_API_KEY and VITE_CURSOR_API_KEY in .env to enable this agent.'
           )
@@ -1007,7 +1139,7 @@ function App() {
 
         // Show run start status with ticket ID
         if (ticketId) {
-          addMessage('implementation-agent', 'system', `[Status] Starting Implementation run for ticket ${ticketId}...`)
+          addMessage(convId, 'system', `[Status] Starting Implementation run for ticket ${ticketId}...`)
         }
 
         setAgentTypingTarget('implementation-agent')
@@ -1024,7 +1156,7 @@ function App() {
             const progressEntry = { timestamp: new Date(), message }
             setImplAgentProgress((prev) => [...prev, progressEntry])
             // Also add as a system message to the conversation (0050)
-            addMessage('implementation-agent', 'system', `[Progress] ${message}`)
+            addMessage(convId, 'system', `[Progress] ${message}`)
           }
 
           try {
@@ -1052,7 +1184,7 @@ function App() {
               const errorMsg = 'No response body from server.'
               setImplAgentError(errorMsg)
               addMessage(
-                'implementation-agent',
+                convId,
                 'implementation-agent',
                 `[Implementation Agent] ${errorMsg}`
               )
@@ -1142,7 +1274,7 @@ function App() {
               // Add completion summary with label (0067)
               const agentType = cursorRunAgentType || 'implementation-agent'
               if (agentType === 'implementation-agent' || agentType === 'qa-agent') {
-                addMessage(agentType, agentType, `**Completion summary**\n\n${finalContent}`)
+                addMessage(convId, agentType, `**Completion summary**\n\n${finalContent}`)
               } else {
                 // Missing agent type: show diagnostic and retain raw summary (0067)
                 addAutoMoveDiagnostic(
@@ -1156,7 +1288,7 @@ function App() {
               setCursorRunAgentType(null)
             } else if (finalError) {
               addMessage(
-                'implementation-agent',
+                convId,
                 'implementation-agent',
                 `[Implementation Agent] ${finalError}`
               )
@@ -1164,7 +1296,7 @@ function App() {
               const errorMsg = 'Request failed. Check that Cursor API is configured and the project has a GitHub remote.'
               setImplAgentError(errorMsg)
               addMessage(
-                'implementation-agent',
+                convId,
                 'implementation-agent',
                 `[Implementation Agent] ${errorMsg}`
               )
@@ -1174,7 +1306,7 @@ function App() {
             setImplAgentRunStatus('failed')
             const msg = err instanceof Error ? err.message : String(err)
             setImplAgentError(msg)
-            addMessage('implementation-agent', 'implementation-agent', `[Implementation Agent] ${msg}`)
+            addMessage(convId, 'implementation-agent', `[Implementation Agent] ${msg}`)
             setTimeout(() => setAgentTypingTarget(null), 500)
           }
         })()
@@ -1182,7 +1314,7 @@ function App() {
         const cursorApiConfigured = !!(import.meta.env.VITE_CURSOR_API_KEY as string | undefined)?.trim()
         if (!cursorApiConfigured) {
           addMessage(
-            'qa-agent',
+            convId,
             'qa-agent',
             '[QA Agent] Cursor API is not configured. Set CURSOR_API_KEY and VITE_CURSOR_API_KEY in .env to enable this agent.'
           )
@@ -1197,7 +1329,7 @@ function App() {
 
         // Show run start status with ticket ID
         if (ticketId) {
-          addMessage('qa-agent', 'system', `[Status] Starting QA run for ticket ${ticketId}...`)
+          addMessage(convId, 'system', `[Status] Starting QA run for ticket ${ticketId}...`)
         }
 
         setAgentTypingTarget('qa-agent')
@@ -1214,7 +1346,7 @@ function App() {
             const progressEntry = { timestamp: new Date(), message }
             setQaAgentProgress((prev) => [...prev, progressEntry])
             // Also add as a system message to the conversation (0062)
-            addMessage('qa-agent', 'system', `[Progress] ${message}`)
+            addMessage(convId, 'system', `[Progress] ${message}`)
           }
           try {
             const body: { message: string; supabaseUrl?: string; supabaseAnonKey?: string; images?: Array<{ dataUrl: string; filename: string; mimeType: string }> } = { message: content }
@@ -1241,7 +1373,7 @@ function App() {
               const errorMsg = 'No response body from server.'
               setQaAgentError(errorMsg)
               addMessage(
-                'qa-agent',
+                convId,
                 'qa-agent',
                 `[QA Agent] ${errorMsg}`
               )
@@ -1352,7 +1484,7 @@ function App() {
               // Add completion summary with label (0067)
               const agentType = cursorRunAgentType || 'qa-agent'
               if (agentType === 'implementation-agent' || agentType === 'qa-agent') {
-                addMessage(agentType, agentType, `**Completion summary**\n\n${finalContent}`)
+                addMessage(convId, agentType, `**Completion summary**\n\n${finalContent}`)
               } else {
                 // Missing agent type: show diagnostic and retain raw summary (0067)
                 addAutoMoveDiagnostic(
@@ -1388,7 +1520,7 @@ function App() {
             } else if (finalError) {
               setQaAgentError(finalError)
               addMessage(
-                'qa-agent',
+                convId,
                 'qa-agent',
                 `[QA Agent] ${finalError}`
               )
@@ -1396,7 +1528,7 @@ function App() {
               const errorMsg = 'Request failed. Check that Cursor API is configured and the project has a GitHub remote.'
               setQaAgentError(errorMsg)
               addMessage(
-                'qa-agent',
+                convId,
                 'qa-agent',
                 `[QA Agent] ${errorMsg}`
               )
@@ -1412,7 +1544,7 @@ function App() {
             setQaAgentRunStatus('failed')
             const msg = err instanceof Error ? err.message : String(err)
             setQaAgentError(msg)
-            addMessage('qa-agent', 'qa-agent', `[QA Agent] ${msg}`)
+            addMessage(convId, 'qa-agent', `[QA Agent] ${msg}`)
             setTimeout(() => setAgentTypingTarget(null), 500)
             // Reset to idle after delay to avoid stale "running" indicators (0062)
             setTimeout(() => {
@@ -1441,6 +1573,7 @@ function App() {
       cursorRunAgentType,
       setCursorRunAgentType,
       setOrphanedCompletionSummary,
+      getDefaultConversationId,
     ]
   )
 
@@ -1466,15 +1599,26 @@ function App() {
       // Switch to the requested chat target
       setSelectedChatTarget(data.chatTarget)
       
+      // For Implementation and QA agents, create a new conversation instance (0070)
+      let conversationId: string | undefined
+      if (data.chatTarget === 'implementation-agent' || data.chatTarget === 'qa-agent') {
+        conversationId = getOrCreateConversation(data.chatTarget)
+        setSelectedConversationId(conversationId)
+        setConversationModalOpen(true)
+      } else {
+        // For PM and standup, use default conversation
+        conversationId = getDefaultConversationId(data.chatTarget === 'project-manager' ? 'project-manager' : 'project-manager')
+      }
+      
       // Don't add message here - triggerAgentRun handles it appropriately based on DB usage
       // This prevents duplicate messages (0072)
       
       // Trigger the agent run (which will add the message if needed)
-      triggerAgentRun(data.message, data.chatTarget)
+      triggerAgentRun(data.message, data.chatTarget, undefined, conversationId)
     }
     window.addEventListener('message', handler)
     return () => window.removeEventListener('message', handler)
-  }, [triggerAgentRun])
+  }, [triggerAgentRun, getOrCreateConversation, getDefaultConversationId])
 
   const handleImageSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -1528,41 +1672,52 @@ function App() {
     // Don't send if there's an error
     if (imageError) return
 
+    // Get or create conversation ID for the selected chat target (0070)
+    let convId: string
+    if (selectedConversationId && conversations.has(selectedConversationId)) {
+      convId = selectedConversationId
+    } else if (selectedChatTarget === 'standup') {
+      // Standup uses a special conversation
+      convId = getDefaultConversationId('project-manager') // Reuse PM conversation for standup
+    } else {
+      convId = getDefaultConversationId(selectedChatTarget === 'project-manager' ? 'project-manager' : selectedChatTarget)
+    }
+
     const useDb = selectedChatTarget === 'project-manager' && supabaseUrl != null && supabaseAnonKey != null && connectedProject != null
     const attachments = imageAttachment ? [imageAttachment] : undefined
-    if (!useDb) addMessage(selectedChatTarget, 'user', content, undefined, attachments)
+    if (!useDb) addMessage(convId, 'user', content, undefined, attachments)
     setInputValue('')
     setImageAttachment(null)
     setImageError(null)
     setLastAgentError(null)
 
     // Use the extracted triggerAgentRun function
-    triggerAgentRun(content, selectedChatTarget, attachments)
+    triggerAgentRun(content, selectedChatTarget, attachments, convId)
     
     // Standup handling (not part of triggerAgentRun)
     if (selectedChatTarget === 'standup') {
       setAgentTypingTarget('standup')
       setTimeout(() => {
-        addMessage('standup', 'system', '--- Standup (all agents) ---')
+        addMessage(convId, 'system', '--- Standup (all agents) ---')
       }, 100)
       setTimeout(() => {
-        addMessage('standup', 'project-manager', `[Standup] Project Manager:
+        addMessage(convId, 'project-manager', `[Standup] Project Manager:
 • Reviewed ticket backlog
 • No blockers identified
 • Ready to assist with prioritization`)
       }, 300)
       setTimeout(() => {
-        addMessage('standup', 'implementation-agent', `[Standup] Implementation Agent:
+        addMessage(convId, 'implementation-agent', `[Standup] Implementation Agent:
 • Awaiting task assignment
 • Development environment ready
 • No active work in progress`)
       }, 600)
       setTimeout(() => {
-        addMessage('standup', 'system', '--- End of Standup ---')
+        addMessage(convId, 'system', '--- End of Standup ---')
         setAgentTypingTarget(null)
       }, 900)
     }
-  }, [inputValue, selectedChatTarget, addMessage, supabaseUrl, supabaseAnonKey, connectedProject, triggerAgentRun])
+  }, [inputValue, selectedChatTarget, selectedConversationId, conversations, addMessage, supabaseUrl, supabaseAnonKey, connectedProject, triggerAgentRun, getDefaultConversationId])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -1672,7 +1827,18 @@ function App() {
             const maxSeq = Math.max(...msgs.map((m) => m.id))
             pmMaxSequenceRef.current = maxSeq
             messageIdRef.current = maxSeq
-            setConversations({ ...getEmptyConversations(), [PM_AGENT_ID]: msgs })
+            // Create default PM conversation (0070)
+            const pmConvId = getConversationId('project-manager', 1)
+            const pmConversation: Conversation = {
+              id: pmConvId,
+              agentRole: 'project-manager',
+              instanceNumber: 1,
+              messages: msgs,
+              createdAt: msgs.length > 0 ? msgs[0].timestamp : new Date(),
+            }
+            const convs = new Map<string, Conversation>()
+            convs.set(pmConvId, pmConversation)
+            setConversations(convs)
             setPersistenceError(null)
           } else {
             throw new Error(error?.message ?? 'no rows')
@@ -1684,8 +1850,8 @@ function App() {
         if (loadResult.data) {
           setConversations(loadResult.data)
           let maxId = 0
-          for (const msgs of Object.values(loadResult.data)) {
-            for (const msg of msgs) {
+          for (const conv of loadResult.data.values()) {
+            for (const msg of conv.messages) {
               if (msg.id > maxId) maxId = msg.id
             }
           }
@@ -2035,12 +2201,72 @@ function App() {
                   )}
                 </>
               )}
-              <div className="chat-transcript" ref={transcriptRef}>
-                {activeMessages.length === 0 && !agentTypingTarget ? (
-                  <p className="transcript-empty">No messages yet. Start a conversation.</p>
-                ) : (
-                  <>
-                    {activeMessages.map((msg) => (
+              {/* Conversation list for Implementation and QA agents (0070) */}
+              {(selectedChatTarget === 'implementation-agent' || selectedChatTarget === 'qa-agent') && !conversationModalOpen ? (
+                <div className="conversation-list">
+                  {getConversationsForAgent(selectedChatTarget).length === 0 ? (
+                    <div className="conversation-list-empty">
+                      <p>No conversations yet. Click a work button in the Kanban column header to start a new conversation.</p>
+                    </div>
+                  ) : (
+                    <div className="conversation-cards">
+                      {getConversationsForAgent(selectedChatTarget).map((conv) => (
+                        <div
+                          key={conv.id}
+                          className="conversation-card"
+                          onClick={() => {
+                            setSelectedConversationId(conv.id)
+                            setConversationModalOpen(true)
+                          }}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              setSelectedConversationId(conv.id)
+                              setConversationModalOpen(true)
+                            }
+                          }}
+                        >
+                          <div className="conversation-card-header">
+                            <span className="conversation-card-label">{getConversationLabel(conv)}</span>
+                          </div>
+                          <div className="conversation-card-preview">{getConversationPreview(conv)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <>
+                  {/* Modal for viewing conversation thread (0070) */}
+                  {conversationModalOpen && selectedConversationId && conversations.has(selectedConversationId) ? (
+                    <div className="conversation-modal-overlay" onClick={() => {
+                      setConversationModalOpen(false)
+                      setSelectedConversationId(null)
+                    }}>
+                      <div className="conversation-modal" onClick={(e) => e.stopPropagation()}>
+                        <div className="conversation-modal-header">
+                          <h3>{getConversationLabel(conversations.get(selectedConversationId)!)}</h3>
+                          <button
+                            type="button"
+                            className="conversation-modal-close"
+                            onClick={() => {
+                              setConversationModalOpen(false)
+                              setSelectedConversationId(null)
+                            }}
+                            aria-label="Close conversation"
+                          >
+                            ×
+                          </button>
+                        </div>
+                        <div className="conversation-modal-content">
+                          <div className="chat-transcript" ref={transcriptRef}>
+                            {activeMessages.length === 0 && !agentTypingTarget ? (
+                              <p className="transcript-empty">No messages yet. Start a conversation.</p>
+                            ) : (
+                              <>
+                                {activeMessages.map((msg) => (
                       <div
                         key={msg.id}
                         className={`message-row message-row-${msg.agent}`}
@@ -2159,9 +2385,180 @@ function App() {
                     )}
                   </>
                 )}
-              </div>
-
-              <div className="chat-composer">
+                          </div>
+                          <div className="conversation-modal-composer">
+                            {imageAttachment && (
+                              <div className="image-attachment-preview">
+                                <img src={imageAttachment.dataUrl} alt={imageAttachment.filename} className="attachment-thumbnail" />
+                                <span className="attachment-filename">{imageAttachment.filename}</span>
+                                <button type="button" className="remove-attachment-btn" onClick={handleRemoveImage} aria-label="Remove attachment">
+                                  ×
+                                </button>
+                              </div>
+                            )}
+                            {imageError && (
+                              <div className="image-error-message" role="alert">
+                                {imageError}
+                              </div>
+                            )}
+                            <div className="composer-input-row">
+                              <textarea
+                                className="message-input"
+                                value={inputValue}
+                                onChange={(e) => setInputValue(e.target.value)}
+                                onKeyDown={handleKeyDown}
+                                placeholder="Type a message... (Enter to send)"
+                                rows={2}
+                              />
+                              <div className="composer-actions">
+                                <label className="attach-image-btn" title="Attach image">
+                                  <input
+                                    type="file"
+                                    accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
+                                    onChange={handleImageSelect}
+                                    style={{ display: 'none' }}
+                                    aria-label="Attach image"
+                                  />
+                                  📎
+                                </label>
+                                <button type="button" className="send-btn" onClick={handleSend} disabled={!!imageError}>
+                                  Send
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Regular chat UI for PM and Standup (0070) */}
+                      <div className="chat-transcript" ref={transcriptRef}>
+                        {activeMessages.length === 0 && !agentTypingTarget ? (
+                          <p className="transcript-empty">No messages yet. Start a conversation.</p>
+                        ) : (
+                          <>
+                            {activeMessages.map((msg) => (
+                              <div
+                                key={msg.id}
+                                className={`message-row message-row-${msg.agent}`}
+                                data-agent={msg.agent}
+                              >
+                                <div className={`message message-${msg.agent}`}>
+                                  <div className="message-header">
+                                    <span className="message-author">{getMessageAuthorLabel(msg.agent)}</span>
+                                    <span className="message-time">[{formatTime(msg.timestamp)}]</span>
+                                    {msg.imageAttachments && msg.imageAttachments.length > 0 && (
+                                      <span className="message-image-indicator" title={`${msg.imageAttachments.length} image${msg.imageAttachments.length > 1 ? 's' : ''} attached`}>
+                                        📎 {msg.imageAttachments.length}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {msg.imageAttachments && msg.imageAttachments.length > 0 && (
+                                    <div className="message-images">
+                                      {msg.imageAttachments.map((img, idx) => (
+                                        <div key={idx} className="message-image-container">
+                                          <img src={img.dataUrl} alt={img.filename} className="message-image-thumbnail" />
+                                          <span className="message-image-filename">{img.filename}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {msg.content.trimStart().startsWith('{') ? (
+                                    <pre className="message-content message-json">{msg.content}</pre>
+                                  ) : (
+                                    <span className="message-content">{msg.content}</span>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                            {agentTypingTarget === selectedChatTarget && (
+                              <div className="message-row message-row-typing" data-agent="typing" aria-live="polite">
+                                <div className="message message-typing">
+                                  <div className="message-header">
+                                    <span className="message-author">HAL</span>
+                                  </div>
+                                  {selectedChatTarget === 'implementation-agent' ? (
+                                    <div className="impl-agent-status-timeline" role="status">
+                                      <span className={implAgentRunStatus === 'preparing' ? 'impl-status-active' : ['fetching_ticket', 'resolving_repo', 'launching', 'polling', 'completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
+                                        Preparing
+                                      </span>
+                                      <span className="impl-status-arrow">→</span>
+                                      <span className={implAgentRunStatus === 'fetching_ticket' ? 'impl-status-active' : ['resolving_repo', 'launching', 'polling', 'completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
+                                        Fetching ticket
+                                      </span>
+                                      <span className="impl-status-arrow">→</span>
+                                      <span className={implAgentRunStatus === 'resolving_repo' ? 'impl-status-active' : ['launching', 'polling', 'completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
+                                        Resolving repo
+                                      </span>
+                                      <span className="impl-status-arrow">→</span>
+                                      <span className={implAgentRunStatus === 'launching' ? 'impl-status-active' : ['polling', 'completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
+                                        Launching agent
+                                      </span>
+                                      <span className="impl-status-arrow">→</span>
+                                      <span className={implAgentRunStatus === 'polling' ? 'impl-status-active' : ['completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
+                                        Running
+                                      </span>
+                                      <span className="impl-status-arrow">→</span>
+                                      <span className={implAgentRunStatus === 'completed' ? 'impl-status-done' : implAgentRunStatus === 'failed' ? 'impl-status-failed' : ''}>
+                                        {implAgentRunStatus === 'completed' ? 'Completed' : implAgentRunStatus === 'failed' ? 'Failed' : '…'}
+                                      </span>
+                                    </div>
+                                  ) : selectedChatTarget === 'qa-agent' ? (
+                                    <div className="impl-agent-status-timeline" role="status">
+                                      <span className={qaAgentRunStatus === 'preparing' ? 'impl-status-active' : ['fetching_ticket', 'fetching_branch', 'launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
+                                        Preparing
+                                      </span>
+                                      <span className="impl-status-arrow">→</span>
+                                      <span className={qaAgentRunStatus === 'fetching_ticket' ? 'impl-status-active' : ['fetching_branch', 'launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
+                                        Fetching ticket
+                                      </span>
+                                      <span className="impl-status-arrow">→</span>
+                                      <span className={qaAgentRunStatus === 'fetching_branch' ? 'impl-status-active' : ['launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
+                                        Finding branch
+                                      </span>
+                                      <span className="impl-status-arrow">→</span>
+                                      <span className={qaAgentRunStatus === 'launching' ? 'impl-status-active' : ['polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
+                                        Launching QA
+                                      </span>
+                                      <span className="impl-status-arrow">→</span>
+                                      <span className={qaAgentRunStatus === 'polling' ? 'impl-status-active' : ['generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
+                                        Reviewing
+                                      </span>
+                                      <span className="impl-status-arrow">→</span>
+                                      <span className={qaAgentRunStatus === 'generating_report' ? 'impl-status-active' : ['merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
+                                        Generating report
+                                      </span>
+                                      <span className="impl-status-arrow">→</span>
+                                      <span className={qaAgentRunStatus === 'merging' ? 'impl-status-active' : ['moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
+                                        Merging
+                                      </span>
+                                      <span className="impl-status-arrow">→</span>
+                                      <span className={qaAgentRunStatus === 'moving_ticket' ? 'impl-status-active' : ['completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
+                                        Moving ticket
+                                      </span>
+                                      <span className="impl-status-arrow">→</span>
+                                      <span className={qaAgentRunStatus === 'completed' ? 'impl-status-done' : qaAgentRunStatus === 'failed' ? 'impl-status-failed' : ''}>
+                                        {qaAgentRunStatus === 'completed' ? 'Completed' : qaAgentRunStatus === 'failed' ? 'Failed' : '…'}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <span className="typing-bubble">
+                                      <span className="typing-label">Thinking</span>
+                                      <span className="typing-dots">
+                                        <span className="typing-dot" />
+                                        <span className="typing-dot" />
+                                        <span className="typing-dot" />
+                                      </span>
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                      <div className="chat-composer">
                 {imageAttachment && (
                   <div className="image-attachment-preview">
                     <img src={imageAttachment.dataUrl} alt={imageAttachment.filename} className="attachment-thumbnail" />
