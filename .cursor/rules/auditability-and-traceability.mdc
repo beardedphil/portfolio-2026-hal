@@ -10,6 +10,7 @@ For any coding task assigned to an implementation agent, the work must be **full
 ## Standard Prompt Format (Supabase source of truth)
 
 - All new stories/tasks must be **tickets** stored in **Supabase** (source of truth). **Do not create or edit ticket files** under `docs/tickets/` directly; tickets are created via the HAL app (PM agent) or a script that writes to the Supabase `tickets` table. Run `npm run sync-tickets` so `docs/tickets/*.md` are written from the database.
+- **Kanban is Supabase-backed.** For any ticket change (create, update body, move column): **update the DB first**, then run `npm run sync-tickets` (or use `node scripts/move-ticket-column.js <ticketId> <columnId>` for column moves). Never update ticket files locally for content or column — changes propagate from DB to docs and UI via the sync script.
 - Use the workspace template for **content structure** when creating a ticket (in-app or via script):
   - `docs/templates/ticket.template.md`
 - The ticket in Supabase (and, after sync, in `docs/tickets/<task-id>-<short-title>.md`) is the canonical “prompt” (we do **not** create a `prompt.md` artifact).

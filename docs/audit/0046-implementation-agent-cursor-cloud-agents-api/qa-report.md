@@ -61,6 +61,21 @@ npm run build
 
 No TypeScript or build errors. (No `lint` script in package.json.)
 
+## 4.5 UI verification (this QA run)
+
+- **Environment:** HAL at http://localhost:5173 on `main`; project connected (GitHub remote, Cursor API configured).
+- **Automated UI tests run:**
+
+| Test case | Steps | Result |
+|-----------|-------|--------|
+| TC2: Invalid input | Sent "Hello" | PASS — Reply: "Say 'Implement ticket XXXX' (e.g. Implement ticket 0046) to implement a ticket." Human-readable, no stack trace. |
+| TC3: Ticket not found | Sent "Implement ticket 9999" | PASS — Reply: "Ticket 9999 not found in Supabase or docs/tickets." Clear error. |
+| TC7: Banner and Configuration | Selected Implementation Agent | PASS — Banner: "Implementation Agent — Cursor Cloud Agents"; Hint matches spec; Configuration: "Cursor API: Configured". |
+| TC1: Happy path (partial) | Sent "Implement ticket 0046" | PASS — Status timeline: Preparing → Fetching ticket → Resolving repo → Launching agent → Running. Flow starts correctly; full completion (agent run ~5–10 min) not awaited. |
+
+- **Not run:** TC4 (no GitHub remote), TC5 (Cursor API not configured), TC6 (Cursor API failure) — would require changing env/git; TC1 full completion — agent run duration.
+- **Manual steps for Human in the Loop:** Run TC1 to completion (wait for agent FINISHED, confirm ticket 0046 in QA column); optionally TC4–TC6 per `verification.md`.
+
 ## 5. Changed files verification
 
 `changed-files.md` lists:
@@ -109,8 +124,8 @@ Matches actual changes.
 ## 9. Verdict
 
 - **Implementation:** Complete and aligned with the ticket. Implementation Agent parses "Implement ticket XXXX", fetches ticket, builds prompt, resolves GitHub repo, launches Cursor cloud agent via POST /v0/agents, polls until FINISHED, moves ticket to QA, and displays summary/PR link. NDJSON streaming provides real-time status.
-- **QA (this run):** Code review PASS; build PASS; changed-files verified. UI verification requires manual Human-in-the-Loop at http://localhost:5173 after merge (dev server enforces `main` branch).
-- **Merge:** OK to merge. Recommend **Human in the Loop** verification per `verification.md` (connect project with GitHub remote, Cursor API + Supabase configured, run Test Cases 1–7) before closing the ticket.
+- **QA (this run):** Code review PASS; build PASS; changed-files verified. UI verification: TC2, TC3, TC7, TC1 (flow start) PASS. TC1 full completion (agent FINISHED, ticket moved to QA) not run—agent takes ~5–10 min; Human in the Loop should run per `verification.md`.
+- **Status:** Already merged to `main`. Ticket ready for Human in the Loop; optionally delete feature branch per `delete-branch-after-merge.mdc`.
 
 ## 10. Minor note
 

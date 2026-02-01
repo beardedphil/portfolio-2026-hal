@@ -525,6 +525,22 @@ h1 {
 
 .debug-panel .build-info,
 .debug-panel .error-section {
+  font-size: 0.9rem;
+}
+.debug-success {
+  color: #155724;
+  font-weight: 500;
+}
+.debug-error {
+  color: #856404;
+  font-weight: 500;
+}
+.debug-warning {
+  color: #856404;
+  font-style: italic;
+}
+.debug-panel .build-info,
+.debug-panel .error-section {
   font-family: ui-monospace, monospace;
   font-size: 0.8rem;
   padding: 0.5rem;

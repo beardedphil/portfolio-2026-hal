@@ -318,6 +318,15 @@ function formatTime(): string {
   return d.toLocaleTimeString('en-US', { hour12: false }) + '.' + String(d.getMilliseconds()).padStart(3, '0')
 }
 
+/** Auto-dismiss component for success messages (0047) */
+function AutoDismissMessage({ onDismiss, delay }: { onDismiss: () => void; delay: number }) {
+  useEffect(() => {
+    const timer = setTimeout(onDismiss, delay)
+    return () => clearTimeout(timer)
+  }, [onDismiss, delay])
+  return null
+}
+
 function stableColumnId(): string {
   return typeof crypto !== 'undefined' && crypto.randomUUID
     ? crypto.randomUUID()
@@ -762,6 +771,9 @@ function App() {
   const [supabaseLastSyncError, setSupabaseLastSyncError] = useState<string | null>(null)
   const [supabaseLastDeleteError, setSupabaseLastDeleteError] = useState<string | null>(null)
   const [deleteSuccessMessage, setDeleteSuccessMessage] = useState<string | null>(null)
+  // Ticket persistence tracking (0047)
+  const [lastMovePersisted, setLastMovePersisted] = useState<{ success: boolean; timestamp: Date; ticketId: string; error?: string } | null>(null)
+  const [pendingMoves, setPendingMoves] = useState<Set<string>>(new Set())
 
   // Ticket detail modal (0033): click card opens modal; content from Supabase or docs
   const [detailModal, setDetailModal] = useState<{ ticketId: string; title: string } | null>(null)
@@ -1220,7 +1232,7 @@ function App() {
   }, [])
 
   /** Refetch tickets and columns from Supabase (0020). Uses current url/key. */
-  const refetchSupabaseTickets = useCallback(async (): Promise<boolean> => {
+  const refetchSupabaseTickets = useCallback(async (skipPendingMoves = false): Promise<boolean> => {
     const url = supabaseProjectUrl.trim()
     const key = supabaseAnonKey.trim()
     if (!url || !key) return false
@@ -1234,7 +1246,35 @@ function App() {
         setSupabaseLastError(error.message ?? String(error))
         return false
       }
-      setSupabaseTickets((rows ?? []) as SupabaseTicketRow[])
+      // Don't overwrite tickets that have pending moves (0047)
+      if (skipPendingMoves && pendingMoves.size > 0) {
+        setSupabaseTickets((prev) => {
+          const newRows = (rows ?? []) as SupabaseTicketRow[]
+          const newMap = new Map(newRows.map((r) => [r.id, r]))
+          // Preserve optimistic updates for pending moves, update others from DB
+          const result: SupabaseTicketRow[] = []
+          const processedIds = new Set<string>()
+          // First, add all existing tickets (preserving pending moves)
+          for (const t of prev) {
+            if (pendingMoves.has(t.id)) {
+              result.push(t) // Keep optimistic update
+              processedIds.add(t.id)
+            } else if (newMap.has(t.id)) {
+              result.push(newMap.get(t.id)!) // Update from DB
+              processedIds.add(t.id)
+            }
+          }
+          // Then, add any new tickets from DB that weren't in prev
+          for (const row of newRows) {
+            if (!processedIds.has(row.id)) {
+              result.push(row)
+            }
+          }
+          return result
+        })
+      } else {
+        setSupabaseTickets((rows ?? []) as SupabaseTicketRow[])
+      }
       setSupabaseLastRefresh(new Date())
 
       const { data: colRows, error: colError } = await client
@@ -1252,7 +1292,7 @@ function App() {
     } catch {
       return false
     }
-  }, [supabaseProjectUrl, supabaseAnonKey])
+  }, [supabaseProjectUrl, supabaseAnonKey, pendingMoves])
 
   /** Update one ticket's kanban fields in Supabase (0013). Returns { ok: true } or { ok: false, error: string }. */
   const updateSupabaseTicketKanban = useCallback(
@@ -1343,10 +1383,10 @@ function App() {
     [supabaseProjectUrl, supabaseAnonKey, supabaseCards, refetchSupabaseTickets, addLog]
   )
 
-  // Polling when Supabase board is active (0013)
+  // Polling when Supabase board is active (0013); skip pending moves to avoid overwriting optimistic updates (0047)
   useEffect(() => {
     if (!supabaseBoardActive) return
-    const id = setInterval(refetchSupabaseTickets, SUPABASE_POLL_INTERVAL_MS)
+    const id = setInterval(() => refetchSupabaseTickets(true), SUPABASE_POLL_INTERVAL_MS)
     return () => clearInterval(id)
   }, [supabaseBoardActive, refetchSupabaseTickets])
 
@@ -1891,6 +1931,8 @@ function App() {
         let overIndex = overColumn.cardIds.indexOf(String(effectiveOverId))
         if (overIndex < 0) overIndex = overColumn.cardIds.length
         const movedAt = new Date().toISOString()
+        // Optimistic update (0047)
+        setPendingMoves((prev) => new Set(prev).add(ticketId))
         setSupabaseTickets((prev) =>
           prev.map((t) =>
             t.id === ticketId
@@ -1898,17 +1940,33 @@ function App() {
               : t
           )
         )
-        const ok = await updateSupabaseTicketKanban(ticketId, {
+        const result = await updateSupabaseTicketKanban(ticketId, {
           kanban_column_id: overColumn.id,
           kanban_position: overIndex,
           kanban_moved_at: movedAt,
         })
-        if (ok) {
+        if (result.ok) {
+          setLastMovePersisted({ success: true, timestamp: new Date(), ticketId })
           addLog(`Supabase ticket ${ticketId} dropped into ${overColumn.title}`)
-          setTimeout(() => refetchSupabaseTickets(), REFETCH_AFTER_MOVE_MS)
+          // Remove from pending after delay to allow DB write to be visible
+          setTimeout(() => {
+            setPendingMoves((prev) => {
+              const next = new Set(prev)
+              next.delete(ticketId)
+              return next
+            })
+            refetchSupabaseTickets(false) // Full refetch after move is persisted
+          }, REFETCH_AFTER_MOVE_MS)
         } else {
-          refetchSupabaseTickets()
-          addLog(`Supabase update failed for ${ticketId}`)
+          // Revert optimistic update on failure (0047)
+          setLastMovePersisted({ success: false, timestamp: new Date(), ticketId, error: result.error })
+          setPendingMoves((prev) => {
+            const next = new Set(prev)
+            next.delete(ticketId)
+            return next
+          })
+          refetchSupabaseTickets(false) // Full refetch to restore correct state
+          addLog(`Supabase update failed for ${ticketId}: ${result.error}`)
         }
         return
       }
@@ -1927,6 +1985,9 @@ function App() {
           if (activeIndex === overIndex) return
           const newOrder = arrayMove(sourceCardIds, activeIndex, overIndex)
           const movedAt = new Date().toISOString()
+          const ticketId = String(active.id)
+          // Optimistic update (0047)
+          setPendingMoves((prev) => new Set(prev).add(ticketId))
           setSupabaseTickets((prev) =>
             prev.map((t) => {
               const i = newOrder.indexOf(t.id)
@@ -1938,6 +1999,8 @@ function App() {
               }
             })
           )
+          let allSucceeded = true
+          let firstError: string | undefined
           for (let i = 0; i < newOrder.length; i++) {
             const id = newOrder[i]
             const result = await updateSupabaseTicketKanban(id, {
@@ -1945,15 +2008,37 @@ function App() {
               ...(id === active.id ? { kanban_moved_at: movedAt } : {}),
             })
             if (!result.ok) {
+              allSucceeded = false
+              if (!firstError) firstError = result.error
               addLog(`Supabase reorder failed for ${id}: ${result.error}`)
-              refetchSupabaseTickets()
-              return
             }
           }
-          addLog(`Supabase ticket ${active.id} reordered in ${sourceColumn.title}`)
-          setTimeout(() => refetchSupabaseTickets(), REFETCH_AFTER_MOVE_MS)
+          if (allSucceeded) {
+            setLastMovePersisted({ success: true, timestamp: new Date(), ticketId })
+            addLog(`Supabase ticket ${active.id} reordered in ${sourceColumn.title}`)
+            setTimeout(() => {
+              setPendingMoves((prev) => {
+                const next = new Set(prev)
+                next.delete(ticketId)
+                return next
+              })
+              refetchSupabaseTickets(false) // Full refetch after move is persisted
+            }, REFETCH_AFTER_MOVE_MS)
+          } else {
+            // Revert optimistic update on failure (0047)
+            setLastMovePersisted({ success: false, timestamp: new Date(), ticketId, error: firstError })
+            setPendingMoves((prev) => {
+              const next = new Set(prev)
+              next.delete(ticketId)
+              return next
+            })
+            refetchSupabaseTickets(false) // Full refetch to restore correct state
+          }
         } else {
           const movedAt = new Date().toISOString()
+          const ticketId = String(active.id)
+          // Optimistic update (0047)
+          setPendingMoves((prev) => new Set(prev).add(ticketId))
           setSupabaseTickets((prev) =>
             prev.map((t) =>
               t.id === active.id
@@ -1967,10 +2052,25 @@ function App() {
             kanban_moved_at: movedAt,
           })
           if (result.ok) {
+            setLastMovePersisted({ success: true, timestamp: new Date(), ticketId })
             addLog(`Supabase ticket ${active.id} moved to ${overColumn.title}`)
-            setTimeout(() => refetchSupabaseTickets(), REFETCH_AFTER_MOVE_MS)
+            setTimeout(() => {
+              setPendingMoves((prev) => {
+                const next = new Set(prev)
+                next.delete(ticketId)
+                return next
+              })
+              refetchSupabaseTickets(false) // Full refetch after move is persisted
+            }, REFETCH_AFTER_MOVE_MS)
           } else {
-            refetchSupabaseTickets()
+            // Revert optimistic update on failure (0047)
+            setLastMovePersisted({ success: false, timestamp: new Date(), ticketId, error: result.error })
+            setPendingMoves((prev) => {
+              const next = new Set(prev)
+              next.delete(ticketId)
+              return next
+            })
+            refetchSupabaseTickets(false) // Full refetch to restore correct state
             addLog(`Supabase ticket ${active.id} move failed: ${result.error}`)
           }
         }
@@ -2195,6 +2295,27 @@ function App() {
         <div className="success-message" role="status">
           ✓ {deleteSuccessMessage}
         </div>
+      )}
+
+      {/* Ticket persistence status indicator (0047) */}
+      {supabaseBoardActive && lastMovePersisted && (
+        <div
+          className={lastMovePersisted.success ? 'success-message' : 'config-missing-error'}
+          role={lastMovePersisted.success ? 'status' : 'alert'}
+        >
+          {lastMovePersisted.success ? (
+            <>✓ Move persisted: ticket {lastMovePersisted.ticketId} at {lastMovePersisted.timestamp.toLocaleTimeString()}</>
+          ) : (
+            <>✗ Move failed: ticket {lastMovePersisted.ticketId} - {lastMovePersisted.error ?? 'Unknown error'}</>
+          )}
+        </div>
+      )}
+      {/* Auto-dismiss success messages after 5 seconds (0047) */}
+      {lastMovePersisted?.success && (
+        <AutoDismissMessage
+          onDismiss={() => setLastMovePersisted(null)}
+          delay={5000}
+        />
       )}
 
       {newHalWizardOpen && (
@@ -2505,10 +2626,24 @@ function App() {
               <p>Connected: {String(supabaseConnectionStatus === 'connected')}</p>
               <p>Project URL present: {String(!!supabaseProjectUrl.trim())}</p>
               <p>Polling: {supabaseBoardActive ? `${SUPABASE_POLL_INTERVAL_MS / 1000}s` : 'off'}</p>
-              <p>Last poll time: {supabaseLastRefresh ? supabaseLastRefresh.toISOString() : 'never'}</p>
+              <p>Last tickets refresh: {supabaseLastRefresh ? supabaseLastRefresh.toLocaleTimeString() : 'never'}</p>
               <p>Last poll error: {supabaseLastError ?? 'none'}</p>
               <p>Last sync error: {supabaseLastSyncError ?? 'none'}</p>
               <p>Last delete error: {supabaseLastDeleteError ?? 'none'}</p>
+              {/* Ticket persistence status (0047) */}
+              {lastMovePersisted ? (
+                <p className={lastMovePersisted.success ? 'debug-success' : 'debug-error'}>
+                  Last move {lastMovePersisted.success ? 'persisted' : 'failed'}: ticket {lastMovePersisted.ticketId} at {lastMovePersisted.timestamp.toLocaleTimeString()}
+                  {lastMovePersisted.error && ` - ${lastMovePersisted.error}`}
+                </p>
+              ) : (
+                <p>Last move persisted/failed: none</p>
+              )}
+              {pendingMoves.size > 0 && (
+                <p className="debug-warning">
+                  Pending moves: {Array.from(pendingMoves).join(', ')}
+                </p>
+              )}
               {supabaseBoardActive && (
                 <>
                   <p>Columns source: Supabase</p>

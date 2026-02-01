@@ -668,6 +668,390 @@ export default defineConfig({
       },
     },
     {
+      name: 'qa-agent-endpoint',
+      configureServer(server) {
+        server.middlewares.use(async (req, res, next) => {
+          if (req.url !== '/api/qa-agent/run' || req.method !== 'POST') {
+            next()
+            return
+          }
+
+          const writeStage = (stage: object) => {
+            res.write(JSON.stringify(stage) + '\n')
+          }
+
+          try {
+            const body = (await readJsonBody(req)) as {
+              message?: string
+              supabaseUrl?: string
+              supabaseAnonKey?: string
+            }
+            const message = typeof body.message === 'string' ? body.message.trim() : ''
+            const supabaseUrl = typeof body.supabaseUrl === 'string' ? body.supabaseUrl.trim() || undefined : undefined
+            const supabaseAnonKey = typeof body.supabaseAnonKey === 'string' ? body.supabaseAnonKey.trim() || undefined : undefined
+
+            const key = process.env.CURSOR_API_KEY || process.env.VITE_CURSOR_API_KEY
+            if (!key || !key.trim()) {
+              res.statusCode = 200
+              res.setHeader('Content-Type', 'application/x-ndjson')
+              writeStage({ stage: 'failed', error: 'Cursor API is not configured. Set CURSOR_API_KEY in .env.', status: 'not-configured' })
+              res.end()
+              return
+            }
+
+            // Parse "QA ticket XXXX" pattern
+            const ticketIdMatch = message.match(/qa\s+ticket\s+(\d{4})/i)
+            const ticketId = ticketIdMatch ? ticketIdMatch[1] : null
+
+            if (!ticketId) {
+              res.statusCode = 200
+              res.setHeader('Content-Type', 'application/x-ndjson')
+              writeStage({
+                stage: 'failed',
+                error: 'Say "QA ticket XXXX" (e.g. QA ticket 0046) to QA a ticket.',
+                status: 'invalid-input',
+              })
+              res.end()
+              return
+            }
+
+            res.statusCode = 200
+            res.setHeader('Content-Type', 'application/x-ndjson')
+            res.flushHeaders?.()
+
+            const auth = Buffer.from(`${key.trim()}:`).toString('base64')
+            const repoRoot = path.resolve(__dirname)
+            const ticketsDir = path.join(repoRoot, 'docs', 'tickets')
+
+            let bodyMd: string
+            let ticketFilename: string
+            let branchName: string | null = null
+
+            writeStage({ stage: 'fetching_ticket' })
+
+            // Fetch ticket: Supabase first (if creds provided), else docs/tickets
+            if (supabaseUrl && supabaseAnonKey) {
+              const { createClient } = await import('@supabase/supabase-js')
+              const supabase = createClient(supabaseUrl, supabaseAnonKey)
+              const { data: row, error } = await supabase
+                .from('tickets')
+                .select('body_md, filename')
+                .eq('id', ticketId)
+                .single()
+              if (error || !row?.body_md) {
+                // Fallback to docs
+                const files = fs.readdirSync(ticketsDir, { withFileTypes: true })
+                const match = files.find((f) => f.isFile() && f.name.startsWith(ticketId + '-') && f.name.endsWith('.md'))
+                if (!match) {
+                  writeStage({ stage: 'failed', error: `Ticket ${ticketId} not found in Supabase or docs/tickets.`, status: 'ticket-not-found' })
+                  res.end()
+                  return
+                }
+                ticketFilename = match.name
+                bodyMd = fs.readFileSync(path.join(ticketsDir, ticketFilename), 'utf8')
+              } else {
+                bodyMd = row.body_md
+                ticketFilename = row.filename ?? `${ticketId}-unknown.md`
+              }
+            } else {
+              const files = fs.readdirSync(ticketsDir, { withFileTypes: true })
+              const match = files.find((f) => f.isFile() && f.name.startsWith(ticketId + '-') && f.name.endsWith('.md'))
+              if (!match) {
+                writeStage({ stage: 'failed', error: `Ticket ${ticketId} not found in docs/tickets. Connect project to fetch from Supabase.`, status: 'ticket-not-found' })
+                res.end()
+                return
+              }
+              ticketFilename = match.name
+              bodyMd = fs.readFileSync(path.join(ticketsDir, ticketFilename), 'utf8')
+            }
+
+            // Extract branch name from ticket (QA → Branch field)
+            writeStage({ stage: 'fetching_branch' })
+            const branchMatch = bodyMd.match(/-?\s*\*\*Branch\*\*:\s*`?([^`\n]+)`?/i)
+            if (branchMatch) {
+              branchName = branchMatch[1].trim()
+            } else {
+              // Fallback: construct branch name from ticket ID and title
+              const titleMatch = bodyMd.match(/-?\s*\*\*Title\*\*:\s*(.+?)(?:\n|$)/i)
+              const title = titleMatch ? titleMatch[1].trim() : 'unknown'
+              const slug = title
+                .toLowerCase()
+                .replace(/\s+/g, '-')
+                .replace(/[^a-z0-9-]/g, '')
+                .replace(/-+/g, '-')
+                .replace(/^-|-$/g, '') || 'ticket'
+              branchName = `ticket/${ticketId}-${slug}`
+            }
+
+            if (!branchName) {
+              writeStage({ stage: 'failed', error: `Could not determine branch name for ticket ${ticketId}. Ensure the ticket has a "Branch" field in the QA section.`, status: 'branch-not-found' })
+              res.end()
+              return
+            }
+
+            // Build QA prompt from ticket and rules
+            const goalMatch = bodyMd.match(/##\s*Goal[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
+            const deliverableMatch = bodyMd.match(/##\s*Human-verifiable deliverable[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
+            const criteriaMatch = bodyMd.match(/##\s*Acceptance criteria[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
+            const goal = (goalMatch?.[1] ?? '').trim()
+            const deliverable = (deliverableMatch?.[1] ?? '').trim()
+            const criteria = (criteriaMatch?.[1] ?? '').trim()
+
+            // Read QA ruleset
+            const qaRulesPath = path.join(repoRoot, '.cursor', 'rules', 'qa-audit-report.mdc')
+            let qaRules = ''
+            try {
+              qaRules = fs.readFileSync(qaRulesPath, 'utf8')
+            } catch {
+              qaRules = '# QA Audit Report\n\nWhen you QA a ticket, you must add a QA report to the ticket\'s audit folder.'
+            }
+
+            const promptText = [
+              `QA this ticket implementation. Review the code, generate a QA report, and complete the QA workflow.`,
+              '',
+              '## Ticket',
+              `**ID**: ${ticketId}`,
+              `**Branch**: ${branchName}`,
+              '',
+              '## Goal',
+              goal || '(not specified)',
+              '',
+              '## Human-verifiable deliverable',
+              deliverable || '(not specified)',
+              '',
+              '## Acceptance criteria',
+              criteria || '(not specified)',
+              '',
+              '## QA Rules',
+              qaRules,
+              '',
+              '## Instructions',
+              '1. Review the implementation on the feature branch.',
+              '2. Check that all required audit artifacts exist (plan, worklog, changed-files, decisions, verification, pm-review).',
+              '3. Perform code review and verify acceptance criteria.',
+              '4. Generate `docs/audit/${ticketId}-<short-title>/qa-report.md` with:',
+              '   - Ticket & deliverable summary',
+              '   - Audit artifacts check',
+              '   - Code review (PASS/FAIL with evidence)',
+              '   - UI verification notes',
+              '   - Verdict (PASS/FAIL)',
+              '5. If PASS:',
+              '   - Commit and push the qa-report to the feature branch',
+              '   - Merge the feature branch into main',
+              '   - Move the ticket to Human in the Loop (col-human-in-the-loop)',
+              '   - Delete the feature branch (local and remote)',
+              '6. If FAIL:',
+              '   - Commit and push the qa-report only',
+              '   - Do NOT merge',
+              '   - Report what failed and recommend a bugfix ticket',
+            ].join('\n')
+
+            writeStage({ stage: 'launching' })
+
+            // Resolve GitHub repo URL from git remote
+            const { execSync } = await import('child_process')
+            let repoUrl: string
+            try {
+              const out = execSync('git remote get-url origin', { cwd: repoRoot, encoding: 'utf8' })
+              const raw = out.trim()
+              const sshMatch = raw.match(/git@github\.com:([^/]+)\/([^/]+?)(\.git)?$/i)
+              if (sshMatch) {
+                repoUrl = `https://github.com/${sshMatch[1]}/${sshMatch[2]}`
+              } else if (/^https:\/\/github\.com\//i.test(raw)) {
+                repoUrl = raw.replace(/\.git$/i, '')
+              } else {
+                writeStage({ stage: 'failed', error: 'No GitHub remote found. The connected project must have a GitHub origin.', status: 'no-github-remote' })
+                res.end()
+                return
+              }
+            } catch {
+              writeStage({ stage: 'failed', error: 'Could not resolve GitHub repository. Ensure the project has a git remote named "origin" pointing to a GitHub repo.', status: 'no-github-remote' })
+              res.end()
+              return
+            }
+
+            // POST /v0/agents to launch cloud agent with QA ruleset
+            const launchRes = await fetch('https://api.cursor.com/v0/agents', {
+              method: 'POST',
+              headers: {
+                Authorization: `Basic ${auth}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                prompt: { text: promptText },
+                source: { repository: repoUrl, ref: branchName },
+                target: { branchName: 'main' },
+              }),
+            })
+
+            const launchText = await launchRes.text()
+            if (!launchRes.ok) {
+              let errDetail: string
+              try {
+                const p = JSON.parse(launchText) as { message?: string; error?: string }
+                errDetail = p.message ?? p.error ?? launchText
+              } catch {
+                errDetail = launchText
+              }
+              writeStage({ stage: 'failed', error: humanReadableCursorError(launchRes.status, errDetail), status: 'launch-failed' })
+              res.end()
+              return
+            }
+
+            let launchData: { id?: string; status?: string }
+            try {
+              launchData = JSON.parse(launchText) as typeof launchData
+            } catch {
+              writeStage({ stage: 'failed', error: 'Invalid response from Cursor API when launching agent.', status: 'launch-failed' })
+              res.end()
+              return
+            }
+
+            const agentId = launchData.id
+            if (!agentId) {
+              writeStage({ stage: 'failed', error: 'Cursor API did not return an agent ID.', status: 'launch-failed' })
+              res.end()
+              return
+            }
+
+            // Poll agent status until FINISHED (or failed)
+            const pollInterval = 4000
+            let lastStatus = launchData.status ?? 'CREATING'
+            writeStage({ stage: 'polling', cursorStatus: lastStatus })
+
+            for (;;) {
+              await new Promise((r) => setTimeout(r, pollInterval))
+              const statusRes = await fetch(`https://api.cursor.com/v0/agents/${agentId}`, {
+                method: 'GET',
+                headers: { Authorization: `Basic ${auth}` },
+              })
+              const statusText = await statusRes.text()
+              if (!statusRes.ok) {
+                writeStage({ stage: 'failed', error: humanReadableCursorError(statusRes.status, statusText), status: 'poll-failed' })
+                res.end()
+                return
+              }
+              let statusData: { status?: string; summary?: string }
+              try {
+                statusData = JSON.parse(statusText) as typeof statusData
+              } catch {
+                writeStage({ stage: 'failed', error: 'Invalid response when polling agent status.', status: 'poll-failed' })
+                res.end()
+                return
+              }
+              lastStatus = statusData.status ?? lastStatus
+              writeStage({ stage: 'polling', cursorStatus: lastStatus })
+
+              if (lastStatus === 'FINISHED') {
+                const summary = statusData.summary ?? 'QA completed.'
+                writeStage({ stage: 'generating_report', content: summary })
+
+                // Check if qa-report.md was created (the agent should have done this)
+                const auditDirMatch = ticketFilename.match(/^(\d{4})-(.+)\.md$/)
+                const shortTitle = auditDirMatch ? auditDirMatch[2] : 'unknown'
+                const auditDir = path.join(repoRoot, 'docs', 'audit', `${ticketId}-${shortTitle}`)
+                const qaReportPath = path.join(auditDir, 'qa-report.md')
+
+                // Try to read the qa-report to determine verdict
+                let verdict: 'PASS' | 'FAIL' | 'UNKNOWN' = 'UNKNOWN'
+                try {
+                  if (fs.existsSync(qaReportPath)) {
+                    const reportContent = fs.readFileSync(qaReportPath, 'utf8')
+                    if (/verdict.*pass/i.test(reportContent) || /ok\s+to\s+merge/i.test(reportContent)) {
+                      verdict = 'PASS'
+                    } else if (/verdict.*fail/i.test(reportContent)) {
+                      verdict = 'FAIL'
+                    }
+                  }
+                } catch {
+                  // Report may not exist yet or be unreadable
+                }
+
+                if (verdict === 'PASS') {
+                  writeStage({ stage: 'merging', content: 'QA passed. Merging to main...' })
+                  // The Cursor agent should have already merged, but we verify
+                  // Move ticket to Human in the Loop
+                  if (supabaseUrl && supabaseAnonKey) {
+                    writeStage({ stage: 'moving_ticket', content: 'Moving ticket to Human in the Loop...' })
+                    try {
+                      const { createClient } = await import('@supabase/supabase-js')
+                      const supabase = createClient(supabaseUrl, supabaseAnonKey)
+                      const { data: inColumn } = await supabase
+                        .from('tickets')
+                        .select('kanban_position')
+                        .eq('kanban_column_id', 'col-human-in-the-loop')
+                        .order('kanban_position', { ascending: false })
+                        .limit(1)
+                      const nextPosition = inColumn?.length ? ((inColumn[0]?.kanban_position ?? -1) + 1) : 0
+                      const movedAt = new Date().toISOString()
+
+                      await supabase
+                        .from('tickets')
+                        .update({
+                          kanban_column_id: 'col-human-in-the-loop',
+                          kanban_position: nextPosition,
+                          kanban_moved_at: movedAt,
+                        })
+                        .eq('id', ticketId)
+
+                      const syncScriptPath = path.resolve(repoRoot, 'scripts', 'sync-tickets.js')
+                      spawn('node', [syncScriptPath], {
+                        cwd: repoRoot,
+                        env: { ...process.env, SUPABASE_URL: supabaseUrl, SUPABASE_ANON_KEY: supabaseAnonKey },
+                        stdio: ['ignore', 'ignore', 'ignore'],
+                      }).on('error', () => {})
+                    } catch (moveErr) {
+                      console.error('[QA Agent] Move to Human in the Loop failed:', moveErr)
+                    }
+                  }
+
+                  const contentParts = [
+                    `**QA PASSED** for ticket ${ticketId}`,
+                    '',
+                    summary,
+                    '',
+                    `Ticket ${ticketId} has been merged to main and moved to Human in the Loop.`,
+                  ]
+                  writeStage({ stage: 'completed', success: true, content: contentParts.join('\n'), verdict: 'PASS', status: 'completed' })
+                  res.end()
+                  return
+                } else if (verdict === 'FAIL') {
+                  const contentParts = [
+                    `**QA FAILED** for ticket ${ticketId}`,
+                    '',
+                    summary,
+                    '',
+                    'The ticket was not merged. Review the qa-report.md for details and create a bugfix ticket if needed.',
+                  ]
+                  writeStage({ stage: 'completed', success: false, content: contentParts.join('\n'), verdict: 'FAIL', status: 'completed' })
+                  res.end()
+                  return
+                } else {
+                  // Verdict unknown - agent may still be processing
+                  writeStage({ stage: 'completed', success: true, content: summary, verdict: 'UNKNOWN', status: 'completed' })
+                  res.end()
+                  return
+                }
+              }
+
+              if (lastStatus === 'FAILED' || lastStatus === 'CANCELLED' || lastStatus === 'ERROR') {
+                const errMsg = statusData.summary ?? `Agent ended with status ${lastStatus}.`
+                writeStage({ stage: 'failed', error: errMsg, status: lastStatus.toLowerCase() })
+                res.end()
+                return
+              }
+            }
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err)
+            res.statusCode = 200
+            res.setHeader('Content-Type', 'application/x-ndjson')
+            writeStage({ stage: 'failed', error: errMsg.replace(/\n/g, ' ').slice(0, 500), status: 'error' })
+            res.end()
+          }
+        })
+      },
+    },
+    {
       name: 'tickets-delete-endpoint',
       configureServer(server) {
         server.middlewares.use(async (req, res, next) => {

@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
-type Agent = 'project-manager' | 'implementation-agent'
+type Agent = 'project-manager' | 'implementation-agent' | 'qa-agent'
 type ChatTarget = Agent | 'standup'
 
 type Message = {
@@ -123,6 +123,7 @@ function getEmptyConversations(): Record<ChatTarget, Message[]> {
   return {
     'project-manager': [],
     'implementation-agent': [],
+    'qa-agent': [],
     standup: [],
   }
 }
@@ -130,6 +131,7 @@ function getEmptyConversations(): Record<ChatTarget, Message[]> {
 const CHAT_OPTIONS: { id: ChatTarget; label: string }[] = [
   { id: 'project-manager', label: 'Project Manager' },
   { id: 'implementation-agent', label: 'Implementation Agent' },
+  { id: 'qa-agent', label: 'QA' },
   { id: 'standup', label: 'Standup (all agents)' },
 ]
 
@@ -141,7 +143,7 @@ function formatTime(date: Date): string {
 
 function getMessageAuthorLabel(agent: Message['agent']): string {
   if (agent === 'user') return 'You'
-  if (agent === 'project-manager' || agent === 'implementation-agent') return 'HAL'
+  if (agent === 'project-manager' || agent === 'implementation-agent' || agent === 'qa-agent') return 'HAL'
   return 'System'
 }
 
@@ -176,6 +178,7 @@ function App() {
   const [unreadByTarget, setUnreadByTarget] = useState<Record<ChatTarget, number>>(() => ({
     'project-manager': 0,
     'implementation-agent': 0,
+    'qa-agent': 0,
     standup: 0,
   }))
   const [agentTypingTarget, setAgentTypingTarget] = useState<ChatTarget | null>(null)
@@ -187,6 +190,20 @@ function App() {
     | 'resolving_repo'
     | 'launching'
     | 'polling'
+    | 'completed'
+    | 'failed'
+  >('idle')
+  /** QA Agent run status for on-screen timeline. */
+  const [qaAgentRunStatus, setQaAgentRunStatus] = useState<
+    | 'idle'
+    | 'preparing'
+    | 'fetching_ticket'
+    | 'fetching_branch'
+    | 'launching'
+    | 'polling'
+    | 'generating_report'
+    | 'merging'
+    | 'moving_ticket'
     | 'completed'
     | 'failed'
   >('idle')
@@ -202,7 +219,7 @@ function App() {
     if (transcriptRef.current) {
       transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight
     }
-  }, [activeMessages, agentTypingTarget, selectedChatTarget, implAgentRunStatus])
+  }, [activeMessages, agentTypingTarget, selectedChatTarget, implAgentRunStatus, qaAgentRunStatus])
 
   // Persist conversations to localStorage only when project connected and not using Supabase (DB is source of truth when attached)
   useEffect(() => {
@@ -590,6 +607,118 @@ function App() {
           setTimeout(() => setAgentTypingTarget(null), 500)
         }
       })()
+    } else if (selectedChatTarget === 'qa-agent') {
+      const cursorApiConfigured = !!(import.meta.env.VITE_CURSOR_API_KEY as string | undefined)?.trim()
+      if (!cursorApiConfigured) {
+        addMessage(
+          'qa-agent',
+          'qa-agent',
+          '[QA Agent] Cursor API is not configured. Set CURSOR_API_KEY and VITE_CURSOR_API_KEY in .env to enable this agent.'
+        )
+        return
+      }
+
+      const isQaTicket = /qa\s+ticket\s+\d{4}/i.test(content)
+
+      setAgentTypingTarget('qa-agent')
+      setQaAgentRunStatus('preparing')
+
+      ;(async () => {
+        setQaAgentRunStatus(isQaTicket ? 'fetching_ticket' : 'preparing')
+        try {
+          const body: { message: string; supabaseUrl?: string; supabaseAnonKey?: string } = { message: content }
+          if (supabaseUrl && supabaseAnonKey) {
+            body.supabaseUrl = supabaseUrl
+            body.supabaseAnonKey = supabaseAnonKey
+          }
+          const res = await fetch('/api/qa-agent/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          })
+
+          if (!res.body) {
+            setQaAgentRunStatus('failed')
+            addMessage(
+              'qa-agent',
+              'qa-agent',
+              '[QA Agent] No response body from server.'
+            )
+            setTimeout(() => setAgentTypingTarget(null), 500)
+            return
+          }
+
+          const reader = res.body.getReader()
+          const decoder = new TextDecoder()
+          let buffer = ''
+          let lastStage = ''
+          let finalContent = ''
+          let finalError = ''
+
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            buffer += decoder.decode(value, { stream: true })
+            const lines = buffer.split('\n')
+            buffer = lines.pop() ?? ''
+            for (const line of lines) {
+              const trimmed = line.trim()
+              if (!trimmed) continue
+              try {
+                const data = JSON.parse(trimmed) as {
+                  stage?: string
+                  cursorStatus?: string
+                  success?: boolean
+                  content?: string
+                  error?: string
+                  status?: string
+                  verdict?: 'PASS' | 'FAIL'
+                }
+                const stage = data.stage ?? ''
+                if (stage) lastStage = stage
+                if (stage === 'fetching_ticket') setQaAgentRunStatus('fetching_ticket')
+                else if (stage === 'fetching_branch') setQaAgentRunStatus('fetching_branch')
+                else if (stage === 'launching') setQaAgentRunStatus('launching')
+                else if (stage === 'polling') setQaAgentRunStatus('polling')
+                else if (stage === 'generating_report') setQaAgentRunStatus('generating_report')
+                else if (stage === 'merging') setQaAgentRunStatus('merging')
+                else if (stage === 'moving_ticket') setQaAgentRunStatus('moving_ticket')
+                else if (stage === 'completed') {
+                  setQaAgentRunStatus('completed')
+                  finalContent = data.content ?? 'QA completed.'
+                } else if (stage === 'failed') {
+                  setQaAgentRunStatus('failed')
+                  finalError = data.error ?? 'Unknown error'
+                }
+              } catch {
+                // skip malformed lines
+              }
+            }
+          }
+
+          if (finalContent) {
+            addMessage('qa-agent', 'qa-agent', `[QA Agent] ${finalContent}`)
+          } else if (finalError) {
+            addMessage(
+              'qa-agent',
+              'qa-agent',
+              `[QA Agent] ${finalError}`
+            )
+          } else if (lastStage === 'failed') {
+            addMessage(
+              'qa-agent',
+              'qa-agent',
+              '[QA Agent] Request failed. Check that Cursor API is configured and the project has a GitHub remote.'
+            )
+          }
+          setTimeout(() => setAgentTypingTarget(null), 500)
+        } catch (err) {
+          setQaAgentRunStatus('failed')
+          const msg = err instanceof Error ? err.message : String(err)
+          addMessage('qa-agent', 'qa-agent', `[QA Agent] ${msg}`)
+          setTimeout(() => setAgentTypingTarget(null), 500)
+        }
+      })()
     } else {
       // Standup: shared transcript across all agents
       setAgentTypingTarget('standup')
@@ -758,7 +887,7 @@ function App() {
     setLastCreateTicketAvailable(null)
     setSupabaseUrl(null)
     setSupabaseAnonKey(null)
-    setUnreadByTarget({ 'project-manager': 0, 'implementation-agent': 0, standup: 0 })
+    setUnreadByTarget({ 'project-manager': 0, 'implementation-agent': 0, 'qa-agent': 0, standup: 0 })
   }, [])
 
   const previousResponseIdInLastRequest =
@@ -868,6 +997,7 @@ function App() {
                   setSelectedChatTarget(target)
                   setUnreadByTarget((prev) => ({ ...prev, [target]: 0 }))
                   if (target !== 'implementation-agent') setImplAgentRunStatus('idle')
+                  if (target !== 'qa-agent') setQaAgentRunStatus('idle')
                 }}
                 disabled={!connectedProject}
               >
@@ -896,6 +1026,16 @@ function App() {
                   <p className="agent-stub-hint">
                     {import.meta.env.VITE_CURSOR_API_KEY
                       ? 'Say "Implement ticket XXXX" (e.g. Implement ticket 0046) to fetch the ticket, launch a Cursor cloud agent, and move the ticket to QA when done.'
+                      : 'Cursor API is not configured. Set CURSOR_API_KEY and VITE_CURSOR_API_KEY in .env to enable.'}
+                  </p>
+                </div>
+              )}
+              {selectedChatTarget === 'qa-agent' && (
+                <div className="agent-stub-banner" role="status">
+                  <p className="agent-stub-title">QA Agent — Cursor Cloud Agents</p>
+                  <p className="agent-stub-hint">
+                    {import.meta.env.VITE_CURSOR_API_KEY
+                      ? 'Say "QA ticket XXXX" (e.g. QA ticket 0046) to review the ticket implementation, generate a QA report, and merge to main if it passes.'
                       : 'Cursor API is not configured. Set CURSOR_API_KEY and VITE_CURSOR_API_KEY in .env to enable.'}
                   </p>
                 </div>
@@ -954,6 +1094,44 @@ function App() {
                               <span className="impl-status-arrow">→</span>
                               <span className={implAgentRunStatus === 'completed' ? 'impl-status-done' : implAgentRunStatus === 'failed' ? 'impl-status-failed' : ''}>
                                 {implAgentRunStatus === 'completed' ? 'Completed' : implAgentRunStatus === 'failed' ? 'Failed' : '…'}
+                              </span>
+                            </div>
+                          ) : selectedChatTarget === 'qa-agent' ? (
+                            <div className="impl-agent-status-timeline" role="status">
+                              <span className={qaAgentRunStatus === 'preparing' ? 'impl-status-active' : ['fetching_ticket', 'fetching_branch', 'launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
+                                Preparing
+                              </span>
+                              <span className="impl-status-arrow">→</span>
+                              <span className={qaAgentRunStatus === 'fetching_ticket' ? 'impl-status-active' : ['fetching_branch', 'launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
+                                Fetching ticket
+                              </span>
+                              <span className="impl-status-arrow">→</span>
+                              <span className={qaAgentRunStatus === 'fetching_branch' ? 'impl-status-active' : ['launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
+                                Finding branch
+                              </span>
+                              <span className="impl-status-arrow">→</span>
+                              <span className={qaAgentRunStatus === 'launching' ? 'impl-status-active' : ['polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
+                                Launching QA
+                              </span>
+                              <span className="impl-status-arrow">→</span>
+                              <span className={qaAgentRunStatus === 'polling' ? 'impl-status-active' : ['generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
+                                Reviewing
+                              </span>
+                              <span className="impl-status-arrow">→</span>
+                              <span className={qaAgentRunStatus === 'generating_report' ? 'impl-status-active' : ['merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
+                                Generating report
+                              </span>
+                              <span className="impl-status-arrow">→</span>
+                              <span className={qaAgentRunStatus === 'merging' ? 'impl-status-active' : ['moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
+                                Merging
+                              </span>
+                              <span className="impl-status-arrow">→</span>
+                              <span className={qaAgentRunStatus === 'moving_ticket' ? 'impl-status-active' : ['completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
+                                Moving ticket
+                              </span>
+                              <span className="impl-status-arrow">→</span>
+                              <span className={qaAgentRunStatus === 'completed' ? 'impl-status-done' : qaAgentRunStatus === 'failed' ? 'impl-status-failed' : ''}>
+                                {qaAgentRunStatus === 'completed' ? 'Completed' : qaAgentRunStatus === 'failed' ? 'Failed' : '…'}
                               </span>
                             </div>
                           ) : (

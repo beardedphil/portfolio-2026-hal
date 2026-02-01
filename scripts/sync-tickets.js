@@ -4,8 +4,8 @@
  *
  * Requires .env (or env) with SUPABASE_URL and SUPABASE_ANON_KEY.
  * Optional: HAL_PROJECT_ID (project id for PM conversation; defaults to repo folder name to match "Connect Project Folder"); HAL_CHECK_UNASSIGNED_URL (default http://localhost:5173/api/pm/check-unassigned).
- * - Docs → DB: upsert each doc ticket that ALREADY EXISTS in Supabase (update only; do not re-import deleted tickets).
- * - DB → Docs: write docs/tickets/{filename} for every ticket in Supabase so docs match DB (Supabase wins).
+ * - Docs → DB: upsert each doc ticket that ALREADY EXISTS in Supabase (update body_md, title, filename only; keep kanban from DB so UI moves are never reverted by sync).
+ * - DB → Docs: write docs/tickets/{filename} for every ticket in Supabase with frontmatter from DB so docs match DB (Supabase wins).
  * - Delete orphans: remove local files for ticket IDs in docs but no longer in Supabase (Supabase is source of truth for deletions).
  * - Then: set kanban_column_id = 'col-unassigned' for tickets with null.
  * - After sync: POST to HAL check-unassigned so PM chat gets the result (ignored if HAL dev server not running).
@@ -64,6 +64,29 @@ function extractTitle(content, filename) {
   return filename.replace(/\.md$/i, '')
 }
 
+/** Return body only (strip frontmatter if present). */
+function getBodyOnly(content) {
+  if (!content || !content.startsWith('---')) return content ?? ''
+  const afterFirst = content.slice(3)
+  const closeIdx = afterFirst.indexOf('\n---')
+  if (closeIdx === -1) return content
+  return afterFirst.slice(closeIdx + 4).trimStart()
+}
+
+/** Serialize full doc with frontmatter + body (Supabase kanban fields → frontmatter). */
+function serializeDocWithKanban(row) {
+  const body = getBodyOnly(row.body_md ?? '')
+  const frontmatter = {}
+  if (row.kanban_column_id != null && row.kanban_column_id !== '') frontmatter.kanbanColumnId = row.kanban_column_id
+  if (row.kanban_position != null) frontmatter.kanbanPosition = String(row.kanban_position)
+  if (row.kanban_moved_at != null && row.kanban_moved_at !== '') frontmatter.kanbanMovedAt = row.kanban_moved_at
+  if (Object.keys(frontmatter).length === 0) return body
+  const block = Object.entries(frontmatter)
+    .map(([k, v]) => `${k}: ${String(v)}`)
+    .join('\n')
+  return `---\n${block}\n---\n${body}`
+}
+
 async function main() {
   const url = process.env.SUPABASE_URL
   const key = process.env.SUPABASE_ANON_KEY
@@ -120,20 +143,21 @@ async function main() {
   let notReimported = 0
 
   for (const d of docTickets) {
-    const row = {
-      id: d.id,
-      filename: d.filename,
-      title: d.title,
-      body_md: d.body_md,
-      kanban_column_id: d.kanban_column_id,
-      kanban_position: d.kanban_position,
-      kanban_moved_at: d.kanban_moved_at,
-    }
     const ex = existing.find((r) => r.id === d.id)
     if (!ex) {
       // Do NOT re-import: ticket was deleted from DB; treat doc file as orphan (will be removed below)
       notReimported++
       continue
+    }
+    // Docs → DB: only push body_md, title, filename from docs. Keep kanban from DB so UI moves (and move-ticket-column) are never reverted by sync.
+    const row = {
+      id: d.id,
+      filename: d.filename,
+      title: d.title,
+      body_md: d.body_md,
+      kanban_column_id: ex.kanban_column_id,
+      kanban_position: ex.kanban_position,
+      kanban_moved_at: ex.kanban_moved_at,
     }
     if (ex.body_md !== d.body_md) {
       const { error } = await client.from('tickets').upsert(row, { onConflict: 'id' })
@@ -161,7 +185,8 @@ async function main() {
   let writtenToDocs = 0
   for (const row of refetched) {
     const filePath = path.join(ticketsDir, row.filename)
-    fs.writeFileSync(filePath, row.body_md ?? '', 'utf8')
+    const content = serializeDocWithKanban(row)
+    fs.writeFileSync(filePath, content, 'utf8')
     writtenToDocs++
     console.log('Wrote docs/tickets/' + row.filename)
   }
