@@ -1,0 +1,9 @@
+- `.cursor/rules/done-means-pushed.mdc` — Added "Artifacts section requirement" section for Implementation agents; updated references to require adding Artifacts section when marking ready for QA
+- `.cursor/rules/qa-audit-report.mdc` — Added "Artifacts section requirement" section for QA agents; updated workflow sections to require adding/updating Artifacts section with qa-report.md
+- `.cursor/rules/auditability-and-traceability.mdc` — Added reference to Artifacts section requirement in completion message section
+- `docs/audit/0055-implementation/plan.md` — Created plan document
+- `docs/audit/0055-implementation/worklog.md` — Created worklog document
+- `docs/audit/0055-implementation/changed-files.md` — Created changed-files document
+- `docs/audit/0055-implementation/decisions.md` — Created decisions document
+- `docs/audit/0055-implementation/verification.md` — Created verification document
+- `docs/audit/0055-implementation/pm-review.md` — Created PM review document

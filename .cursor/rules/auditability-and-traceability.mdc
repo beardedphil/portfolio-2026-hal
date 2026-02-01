@@ -69,6 +69,7 @@ Create a task folder under `docs/audit/`:
   - the **feature branch name** (so QA can review and merge), and
   - the exact `git status -sb` output.
 - The implementation agent **must add the branch name to the ticket** when claiming "ready for QA" (see ticket template: QA → Branch).
+- The implementation agent **must add an "Artifacts" section to the ticket body** when marking ready for QA (see `done-means-pushed.mdc` for the required format and artifact list).
 
 - Audit artifacts must be **in git**:
   - `docs/audit/<task-id>-<short-title>/` must be committed and pushed before claiming “ready.”

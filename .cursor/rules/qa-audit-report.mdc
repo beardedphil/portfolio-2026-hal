@@ -51,20 +51,23 @@ When the verdict is **PASS (OK to merge)**, QA must **complete the full workflow
 **If you are verifying from the feature branch** (normal workflow):
 
 1. **Commit and push** the qa-report (and any rule changes) to the feature branch.
-2. **Move ticket to Human in the Loop** — update the ticket **in the DB**, then run sync. Use `node scripts/move-ticket-column.js <ticketId> col-human-in-the-loop` from the repo root (e.g. `node scripts/move-ticket-column.js 0047 col-human-in-the-loop`). Requires `.env` with `SUPABASE_URL` and `SUPABASE_ANON_KEY`. The script updates Supabase, then the ticket file frontmatter, then runs `sync-tickets`. **Do not** add or edit YAML frontmatter in the ticket file by hand — Kanban is Supabase-backed; always update DB first, then sync.
-3. **Merge to main** — checkout `main`, merge the feature branch, push `main`.
-4. **Delete the feature branch** — local and remote (see `delete-branch-after-merge.mdc`).
-5. **Then** give your summary to the user.
+2. **Update the ticket's "Artifacts" section** — Update the ticket body (in Supabase, then run `npm run sync-tickets`) to add or update the **"Artifacts" section** (see "Artifacts section requirement" below) to include:
+   - Link/path to `docs/audit/<ticket-id>-<short-title>/qa-report.md`
+   - All other required audit artifact links (plan, worklog, changed-files, decisions, verification, pm-review)
+3. **Move ticket to Human in the Loop** — update the ticket **in the DB**, then run sync. Use `node scripts/move-ticket-column.js <ticketId> col-human-in-the-loop` from the repo root (e.g. `node scripts/move-ticket-column.js 0047 col-human-in-the-loop`). Requires `.env` with `SUPABASE_URL` and `SUPABASE_ANON_KEY`. The script updates Supabase, then the ticket file frontmatter, then runs `sync-tickets`. **Do not** add or edit YAML frontmatter in the ticket file by hand — Kanban is Supabase-backed; always update DB first, then sync.
+4. **Merge to main** — checkout `main`, merge the feature branch, push `main`.
+5. **Delete the feature branch** — local and remote (see `delete-branch-after-merge.mdc`).
+6. **Then** give your summary to the user.
 
 **If you are verifying from `main`** (implementation was merged to main for QA access):
 
 1. **Commit and push** the qa-report (and any rule changes) to **`main`**. 
    - Do **not** merge again — the change is already on `main`. 
    - Do **not** delete any branch (the feature branch may still exist, but QA does not manage it in this workflow).
-2. **Record verification context in the ticket** — Update the ticket body (in Supabase, then run `npm run sync-tickets`) to include:
-   - Link to `docs/audit/<ticket-id>-<short-title>/qa-report.md`
-   - Note that verification was performed against `main` (not the feature branch)
-   - Any other relevant audit artifact links
+2. **Update the ticket's "Artifacts" section** — Update the ticket body (in Supabase, then run `npm run sync-tickets`) to add or update the **"Artifacts" section** (see "Artifacts section requirement" below) to include:
+   - Link/path to `docs/audit/<ticket-id>-<short-title>/qa-report.md`
+   - All other required audit artifact links (plan, worklog, changed-files, decisions, verification, pm-review)
+   - Note that verification was performed against `main` (not the feature branch) — add this note in the Artifacts section or nearby
 3. **Move ticket to Human in the Loop** — Update the ticket **in the DB first**, then run sync. Use `node scripts/move-ticket-column.js <ticketId> col-human-in-the-loop` from the repo root (e.g. `node scripts/move-ticket-column.js 0047 col-human-in-the-loop`). Requires `.env` with `SUPABASE_URL` and `SUPABASE_ANON_KEY`. The script updates Supabase, then the ticket file frontmatter, then runs `sync-tickets`. **Do not** add or edit YAML frontmatter in the ticket file by hand — Kanban is Supabase-backed; always update DB first, then sync.
 4. **Then** give your summary to the user.
 
@@ -72,6 +75,32 @@ Do not give a summary with "next steps" or "run these commands" — QA performs 
 
 - Use a commit subject that includes the ticket ID (e.g. `qa(0033): add QA report, move to Human in the Loop`).
 - **If verdict is FAIL:** Do not merge. Commit and push the qa-report only; summarize findings and recommend a bugfix ticket (see `bugfix-tracking.mdc`).
+
+## Artifacts section requirement (QA agent)
+
+- **When QA is complete:** The QA agent **must** add or update the **"Artifacts" section** in the ticket body (in Supabase, then run `npm run sync-tickets`).
+- **Required format:** The "Artifacts" section must list links/paths to all required audit files under `docs/audit/<task-id>-<short-title>/`:
+  - `plan.md`
+  - `worklog.md`
+  - `changed-files.md`
+  - `decisions.md`
+  - `verification.md`
+  - `pm-review.md`
+  - `qa-report.md` (added by QA)
+- **Link format:** Paths are acceptable as "links" (they are clickable in most editors). Paths must match the canonical folder naming: `<task-id>-<short-title-kebab>` (e.g., `docs/audit/0056-implementation/qa-report.md`).
+- **Example Artifacts section:**
+  ```
+  ## Artifacts
+  
+  - [plan.md](docs/audit/0056-implementation/plan.md)
+  - [worklog.md](docs/audit/0056-implementation/worklog.md)
+  - [changed-files.md](docs/audit/0056-implementation/changed-files.md)
+  - [decisions.md](docs/audit/0056-implementation/decisions.md)
+  - [verification.md](docs/audit/0056-implementation/verification.md)
+  - [pm-review.md](docs/audit/0056-implementation/pm-review.md)
+  - [qa-report.md](docs/audit/0056-implementation/qa-report.md)
+  ```
+- **Why:** This ensures all audit artifacts (including the QA report) are traceable from the Kanban UI, making work fully auditable without requiring access to the repo structure.
 
 ## Scope
 

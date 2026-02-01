@@ -1,0 +1,13 @@
+- Read current rule files: `done-means-pushed.mdc`, `qa-audit-report.mdc`, `auditability-and-traceability.mdc`
+- Read ticket template to understand current structure
+- Updated `done-means-pushed.mdc`:
+  - Added new "Artifacts section requirement" section for Implementation agents
+  - Updated references in cloud QA workflow and "Before you reply" sections to mention the Artifacts section
+  - Specified minimum artifact list and link format requirements
+- Updated `qa-audit-report.mdc`:
+  - Added new "Artifacts section requirement" section for QA agents
+  - Updated both workflow sections (feature branch and main branch) to require updating the Artifacts section
+  - Specified minimum artifact list including qa-report.md and link format requirements
+- Updated `auditability-and-traceability.mdc`:
+  - Added reference to the Artifacts section requirement in the completion message section
+- Created audit artifacts (plan, worklog, changed-files, decisions, verification, pm-review)
