@@ -1,3 +1,47 @@
+/* Kanban color palette - Light theme */
+:root {
+  --kanban-bg: #f5f5f5;
+  --kanban-text: #1a1a1a;
+  --kanban-text-muted: #555;
+  --kanban-text-subtle: #666;
+  --kanban-surface: #fff;
+  --kanban-surface-alt: #f9f9f9;
+  --kanban-border: #ddd;
+  --kanban-border-muted: #e0e0e0;
+  --kanban-primary: #1976d2;
+  --kanban-primary-hover: #1565c0;
+  --kanban-success: #0a6b0a;
+  --kanban-success-bg: #d4edda;
+  --kanban-success-border: #c3e6cb;
+  --kanban-success-text: #155724;
+  --kanban-warning-bg: #fef3cd;
+  --kanban-warning-border: #e0c040;
+  --kanban-warning-text: #856404;
+  --kanban-error: #c00;
+}
+
+/* Dark theme */
+[data-theme="dark"] {
+  --kanban-bg: #1a1625;
+  --kanban-text: #e8e3f0;
+  --kanban-text-muted: #b8a9d4;
+  --kanban-text-subtle: #9d8fb8;
+  --kanban-surface: #2a2438;
+  --kanban-surface-alt: #241f32;
+  --kanban-border: #3d3550;
+  --kanban-border-muted: #4a415f;
+  --kanban-primary: #64b5f6;
+  --kanban-primary-hover: #42a5f5;
+  --kanban-success: #4caf50;
+  --kanban-success-bg: #1b5e20;
+  --kanban-success-border: #2e7d32;
+  --kanban-success-text: #81c784;
+  --kanban-warning-bg: #5d4037;
+  --kanban-warning-border: #8d6e63;
+  --kanban-warning-text: #ffb74d;
+  --kanban-error: #f44336;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -7,8 +51,8 @@ body {
   font-family: system-ui, -apple-system, sans-serif;
   font-size: 16px;
   line-height: 1.5;
-  color: #1a1a1a;
-  background: #f5f5f5;
+  color: var(--kanban-text);
+  background: var(--kanban-bg);
 }
 
 #root {
@@ -24,7 +68,7 @@ h1 {
 
 .subtitle {
   font-size: 1rem;
-  color: #555;
+  color: var(--kanban-text-muted);
   margin: 0 0 1.5rem 0;
 }
 
@@ -40,22 +84,22 @@ h1 {
   padding: 0.45rem 0.9rem;
   font-size: 0.95rem;
   cursor: pointer;
-  background: #1976d2;
+  background: var(--kanban-primary);
   color: #fff;
   border: none;
   border-radius: 6px;
   font-weight: 500;
 }
 .connect-project-btn:hover {
-  background: #1565c0;
+  background: var(--kanban-primary-hover);
 }
 .embedded-status {
   font-size: 0.9rem;
-  color: #666;
+  color: var(--kanban-text-subtle);
   font-style: italic;
 }
 .embedded-status.connected {
-  color: #0a6b0a;
+  color: var(--kanban-success);
   font-style: normal;
   font-weight: 500;
 }
@@ -64,40 +108,40 @@ h1 {
   align-items: center;
   gap: 0.75rem;
   padding: 0.5rem 1rem;
-  background: #e8f4fd;
-  border: 1px solid #90caf9;
+  background: var(--kanban-surface-alt);
+  border: 1px solid var(--kanban-border);
   border-radius: 6px;
 }
 .project-name {
   font-size: 0.95rem;
   font-weight: 600;
-  color: #1565c0;
+  color: var(--kanban-primary);
 }
 .disconnect-btn {
   padding: 0.3rem 0.6rem;
   font-size: 0.85rem;
   cursor: pointer;
-  background: #fff;
-  color: #666;
-  border: 1px solid #ccc;
+  background: var(--kanban-surface);
+  color: var(--kanban-text-subtle);
+  border: 1px solid var(--kanban-border);
   border-radius: 4px;
 }
 .disconnect-btn:hover {
-  background: #f5f5f5;
-  color: #333;
+  background: var(--kanban-surface-alt);
+  color: var(--kanban-text);
 }
 .connection-status {
   font-size: 0.9rem;
   margin: 0;
 }
 .connection-status[data-status="connected"] {
-  color: #0a6b0a;
+  color: var(--kanban-success);
 }
 .connection-status[data-status="disconnected"] {
-  color: #666;
+  color: var(--kanban-text-subtle);
 }
 .connection-status[data-status="connecting"] {
-  color: #888;
+  color: var(--kanban-text-muted);
 }
 .new-hal-project-btn {
   padding: 0.35rem 0.7rem;
@@ -113,21 +157,21 @@ h1 {
 }
 .config-missing-error {
   padding: 0.75rem 1rem;
-  background: #fef3cd;
-  border: 1px solid #e0c040;
+  background: var(--kanban-warning-bg);
+  border: 1px solid var(--kanban-warning-border);
   border-radius: 6px;
   margin-bottom: 1rem;
   font-size: 0.95rem;
-  color: #856404;
+  color: var(--kanban-warning-text);
 }
 .success-message {
   padding: 0.75rem 1rem;
-  background: #d4edda;
-  border: 1px solid #c3e6cb;
+  background: var(--kanban-success-bg);
+  border: 1px solid var(--kanban-success-border);
   border-radius: 6px;
   margin-bottom: 1rem;
   font-size: 0.95rem;
-  color: #155724;
+  color: var(--kanban-success-text);
 }
 
 /* Columns section */
@@ -139,13 +183,13 @@ h1 {
   padding: 0.4rem 0.8rem;
   font-size: 0.9rem;
   cursor: pointer;
-  background: #333;
+  background: var(--kanban-primary);
   color: #fff;
   border: none;
   border-radius: 6px;
 }
 .add-column-btn:hover {
-  background: #555;
+  background: var(--kanban-primary-hover);
 }
 .add-column-btn:focus {
   outline: none;
@@ -158,8 +202,8 @@ h1 {
 .add-column-form {
   margin-bottom: 1rem;
   padding: 0.75rem;
-  background: #fff;
-  border: 1px solid #ddd;
+  background: var(--kanban-surface);
+  border: 1px solid var(--kanban-border);
   border-radius: 6px;
   max-width: 280px;
 }
@@ -168,13 +212,15 @@ h1 {
   padding: 0.4rem 0.5rem;
   font-size: 0.9rem;
   margin-bottom: 0.5rem;
-  border: 1px solid #ccc;
+  border: 1px solid var(--kanban-border);
   border-radius: 4px;
+  background: var(--kanban-surface);
+  color: var(--kanban-text);
 }
 .add-column-error {
   margin: 0 0 0.5rem 0;
   font-size: 0.875rem;
-  color: #c00;
+  color: var(--kanban-error);
 }
 .add-column-form .form-actions {
   display: flex;
@@ -184,12 +230,13 @@ h1 {
   padding: 0.35rem 0.7rem;
   font-size: 0.85rem;
   cursor: pointer;
-  border: 1px solid #ccc;
+  border: 1px solid var(--kanban-border);
   border-radius: 4px;
-  background: #f5f5f5;
+  background: var(--kanban-surface-alt);
+  color: var(--kanban-text);
 }
 .add-column-form .form-actions button:hover {
-  background: #e8e8e8;
+  background: var(--kanban-surface);
 }
 .columns-row {
   display: flex;
@@ -201,8 +248,8 @@ h1 {
 .column-card {
   min-width: 180px;
   padding: 0.6rem 0.75rem;
-  background: #fff;
-  border: 1px solid #ddd;
+  background: var(--kanban-surface);
+  border: 1px solid var(--kanban-border);
   border-radius: 6px;
   display: flex;
   flex-direction: column;
@@ -244,9 +291,10 @@ h1 {
   gap: 0.5rem;
   padding: 0.5rem 0.6rem;
   font-size: 0.85rem;
-  background: #f9f9f9;
-  border: 1px solid #e0e0e0;
+  background: var(--kanban-surface-alt);
+  border: 1px solid var(--kanban-border-muted);
   border-radius: 4px;
+  color: var(--kanban-text);
 }
 .ticket-card-title {
   flex: 1;
@@ -257,13 +305,13 @@ h1 {
   padding: 0.2rem 0.4rem;
   font-size: 0.75rem;
   cursor: pointer;
-  border: 1px solid #ccc;
+  border: 1px solid var(--kanban-border);
   border-radius: 3px;
-  background: #fff;
-  color: #c00;
+  background: var(--kanban-surface);
+  color: var(--kanban-error);
 }
 .ticket-card-delete:hover {
-  background: #ffe0e0;
+  background: var(--kanban-surface-alt);
 }
 
 /* 0033: drag handle only for DnD; rest of card opens detail modal */
@@ -526,10 +574,11 @@ h1 {
 .debug-panel {
   margin-top: 1rem;
   padding: 1rem;
-  background: #fff;
-  border: 1px solid #ddd;
+  background: var(--kanban-surface);
+  border: 1px solid var(--kanban-border);
   border-radius: 8px;
   font-size: 0.875rem;
+  color: var(--kanban-text);
 }
 
 .debug-panel h3 {
@@ -593,10 +642,11 @@ h1 {
 }
 .modal {
   width: min(720px, 100%);
-  background: #fff;
+  background: var(--kanban-surface);
   border-radius: 10px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--kanban-border);
   padding: 1rem;
+  color: var(--kanban-text);
 }
 .modal-header {
   display: flex;
@@ -819,21 +869,21 @@ h1 {
   cursor: pointer;
   border: none;
   background: transparent;
-  color: #1a1a1a;
+  color: var(--kanban-text);
 }
 .ticket-file-btn:hover {
-  background: #eee;
+  background: var(--kanban-surface-alt);
 }
 .ticket-file-btn[aria-pressed='true'] {
-  background: #e0e8f0;
+  background: var(--kanban-surface);
   font-weight: 600;
 }
 .ticket-viewer {
   flex: 1;
   min-width: 0;
   padding: 0.75rem;
-  background: #f9f9f9;
-  border: 1px solid #e0e0e0;
+  background: var(--kanban-surface-alt);
+  border: 1px solid var(--kanban-border-muted);
   border-radius: 6px;
   display: flex;
   flex-direction: column;
