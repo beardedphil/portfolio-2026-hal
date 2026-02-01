@@ -221,6 +221,10 @@ function App() {
   const [implAgentTicketId, setImplAgentTicketId] = useState<string | null>(null)
   /** Current ticket ID for QA Agent (0061). */
   const [qaAgentTicketId, setQaAgentTicketId] = useState<string | null>(null)
+  /** Progress messages for QA Agent (0062). */
+  const [qaAgentProgress, setQaAgentProgress] = useState<Array<{ timestamp: Date; message: string }>>([])
+  /** Last error message for QA Agent (0062). */
+  const [qaAgentError, setQaAgentError] = useState<string | null>(null)
   /** Auto-move diagnostics entries (0061). */
   const [autoMoveDiagnostics, setAutoMoveDiagnostics] = useState<Array<{ timestamp: Date; message: string; type: 'error' | 'info' }>>([])
   /** Agent type that initiated the current Cursor run (0067). Used to route completion summaries to the correct chat. */
@@ -299,6 +303,10 @@ function App() {
   const IMPL_AGENT_STATUS_KEY = 'hal-impl-agent-status'
   const IMPL_AGENT_PROGRESS_KEY = 'hal-impl-agent-progress'
   const IMPL_AGENT_ERROR_KEY = 'hal-impl-agent-error'
+  // Persist QA Agent status to localStorage (0062)
+  const QA_AGENT_STATUS_KEY = 'hal-qa-agent-status'
+  const QA_AGENT_PROGRESS_KEY = 'hal-qa-agent-progress'
+  const QA_AGENT_ERROR_KEY = 'hal-qa-agent-error'
 
   // Load persisted status on mount (0050)
   useEffect(() => {
@@ -319,6 +327,31 @@ function App() {
       const savedError = localStorage.getItem(IMPL_AGENT_ERROR_KEY)
       if (savedError) {
         setImplAgentError(savedError)
+      }
+    } catch {
+      // ignore localStorage errors
+    }
+  }, [])
+
+  // Load persisted QA Agent status on mount (0062)
+  useEffect(() => {
+    try {
+      const savedStatus = localStorage.getItem(QA_AGENT_STATUS_KEY)
+      if (savedStatus && ['preparing', 'fetching_ticket', 'fetching_branch', 'launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(savedStatus)) {
+        setQaAgentRunStatus(savedStatus as typeof qaAgentRunStatus)
+      }
+      const savedProgress = localStorage.getItem(QA_AGENT_PROGRESS_KEY)
+      if (savedProgress) {
+        try {
+          const parsed = JSON.parse(savedProgress) as Array<{ timestamp: string; message: string }>
+          setQaAgentProgress(parsed.map((p) => ({ timestamp: new Date(p.timestamp), message: p.message })))
+        } catch {
+          // ignore parse errors
+        }
+      }
+      const savedError = localStorage.getItem(QA_AGENT_ERROR_KEY)
+      if (savedError) {
+        setQaAgentError(savedError)
       }
     } catch {
       // ignore localStorage errors
@@ -366,6 +399,48 @@ function App() {
       // ignore localStorage errors
     }
   }, [implAgentError])
+
+  // Save QA Agent status to localStorage whenever it changes (0062)
+  useEffect(() => {
+    try {
+      if (qaAgentRunStatus === 'idle') {
+        localStorage.removeItem(QA_AGENT_STATUS_KEY)
+      } else {
+        localStorage.setItem(QA_AGENT_STATUS_KEY, qaAgentRunStatus)
+      }
+    } catch {
+      // ignore localStorage errors
+    }
+  }, [qaAgentRunStatus])
+
+  // Save QA Agent progress to localStorage whenever it changes (0062)
+  useEffect(() => {
+    try {
+      if (qaAgentProgress.length === 0) {
+        localStorage.removeItem(QA_AGENT_PROGRESS_KEY)
+      } else {
+        localStorage.setItem(
+          QA_AGENT_PROGRESS_KEY,
+          JSON.stringify(qaAgentProgress.map((p) => ({ timestamp: p.timestamp.toISOString(), message: p.message })))
+        )
+      }
+    } catch {
+      // ignore localStorage errors
+    }
+  }, [qaAgentProgress])
+
+  // Save QA Agent error to localStorage whenever it changes (0062)
+  useEffect(() => {
+    try {
+      if (!qaAgentError) {
+        localStorage.removeItem(QA_AGENT_ERROR_KEY)
+      } else {
+        localStorage.setItem(QA_AGENT_ERROR_KEY, qaAgentError)
+      }
+    } catch {
+      // ignore localStorage errors
+    }
+  }, [qaAgentError])
 
   // Poll for pending file access requests and handle them (0052)
   useEffect(() => {
@@ -426,7 +501,7 @@ function App() {
     if (transcriptRef.current) {
       transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight
     }
-  }, [activeMessages, agentTypingTarget, selectedChatTarget, implAgentRunStatus, qaAgentRunStatus, implAgentProgress])
+  }, [activeMessages, agentTypingTarget, selectedChatTarget, implAgentRunStatus, qaAgentRunStatus, implAgentProgress, qaAgentProgress])
 
   // Persist conversations to localStorage only when project connected and not using Supabase (DB is source of truth when attached)
   useEffect(() => {
@@ -1007,12 +1082,20 @@ function App() {
 
         setAgentTypingTarget('qa-agent')
         setQaAgentRunStatus('preparing')
+        setQaAgentProgress([])
+        setQaAgentError(null)
         // Track which agent initiated this run (0067)
         setCursorRunAgentType('qa-agent')
         setOrphanedCompletionSummary(null)
 
         ;(async () => {
           setQaAgentRunStatus(isQaTicket ? 'fetching_ticket' : 'preparing')
+          const addProgress = (message: string) => {
+            const progressEntry = { timestamp: new Date(), message }
+            setQaAgentProgress((prev) => [...prev, progressEntry])
+            // Also add as a system message to the conversation (0062)
+            addMessage('qa-agent', 'system', `[Progress] ${message}`)
+          }
           try {
             const body: { message: string; supabaseUrl?: string; supabaseAnonKey?: string } = { message: content }
             if (supabaseUrl && supabaseAnonKey) {
@@ -1027,10 +1110,12 @@ function App() {
 
             if (!res.body) {
               setQaAgentRunStatus('failed')
+              const errorMsg = 'No response body from server.'
+              setQaAgentError(errorMsg)
               addMessage(
                 'qa-agent',
                 'qa-agent',
-                '[QA Agent] No response body from server.'
+                `[QA Agent] ${errorMsg}`
               )
               setTimeout(() => setAgentTypingTarget(null), 500)
               return
@@ -1064,16 +1149,34 @@ function App() {
                   }
                   const stage = data.stage ?? ''
                   if (stage) lastStage = stage
-                  if (stage === 'fetching_ticket') setQaAgentRunStatus('fetching_ticket')
-                  else if (stage === 'fetching_branch') setQaAgentRunStatus('fetching_branch')
-                  else if (stage === 'launching') setQaAgentRunStatus('launching')
-                  else if (stage === 'polling') setQaAgentRunStatus('polling')
-                  else if (stage === 'generating_report') setQaAgentRunStatus('generating_report')
-                  else if (stage === 'merging') setQaAgentRunStatus('merging')
-                  else if (stage === 'moving_ticket') setQaAgentRunStatus('moving_ticket')
-                  else if (stage === 'completed') {
+                  
+                  // Update status and emit progress messages (0062)
+                  if (stage === 'fetching_ticket') {
+                    setQaAgentRunStatus('fetching_ticket')
+                    addProgress('Fetching ticket from database...')
+                  } else if (stage === 'fetching_branch') {
+                    setQaAgentRunStatus('fetching_branch')
+                    addProgress('Finding feature branch...')
+                  } else if (stage === 'launching') {
+                    setQaAgentRunStatus('launching')
+                    addProgress('Launching QA agent...')
+                  } else if (stage === 'polling') {
+                    setQaAgentRunStatus('polling')
+                    const cursorStatus = data.cursorStatus ?? 'RUNNING'
+                    addProgress(`QA agent is running (status: ${cursorStatus})...`)
+                  } else if (stage === 'generating_report') {
+                    setQaAgentRunStatus('generating_report')
+                    addProgress('Generating QA report...')
+                  } else if (stage === 'merging') {
+                    setQaAgentRunStatus('merging')
+                    addProgress('Merging to main...')
+                  } else if (stage === 'moving_ticket') {
+                    setQaAgentRunStatus('moving_ticket')
+                    addProgress('Moving ticket to Human in the Loop...')
+                  } else if (stage === 'completed') {
                     setQaAgentRunStatus('completed')
                     finalContent = data.content ?? 'QA completed.'
+                    addProgress('QA completed successfully.')
                     
                     // Auto-move ticket to Human in the Loop if PASS (0061)
                     const verdict = data.verdict
@@ -1091,9 +1194,25 @@ function App() {
                         )
                       }
                     }
+                    
+                    // Reset to idle after delay to avoid stale "running" indicators (0062)
+                    setTimeout(() => {
+                      setQaAgentRunStatus('idle')
+                      setQaAgentProgress([])
+                      setQaAgentError(null)
+                    }, 5000) // 5 seconds delay
                   } else if (stage === 'failed') {
                     setQaAgentRunStatus('failed')
                     finalError = data.error ?? 'Unknown error'
+                    setQaAgentError(finalError)
+                    addProgress(`QA failed: ${finalError}`)
+                    
+                    // Reset to idle after delay to avoid stale "running" indicators (0062)
+                    setTimeout(() => {
+                      setQaAgentRunStatus('idle')
+                      setQaAgentProgress([])
+                      setQaAgentError(null)
+                    }, 5000) // 5 seconds delay
                   }
                 } catch {
                   // skip malformed lines
@@ -1139,24 +1258,40 @@ function App() {
               setQaAgentTicketId(null)
               setCursorRunAgentType(null)
             } else if (finalError) {
+              setQaAgentError(finalError)
               addMessage(
                 'qa-agent',
                 'qa-agent',
                 `[QA Agent] ${finalError}`
               )
             } else if (lastStage === 'failed') {
+              const errorMsg = 'Request failed. Check that Cursor API is configured and the project has a GitHub remote.'
+              setQaAgentError(errorMsg)
               addMessage(
                 'qa-agent',
                 'qa-agent',
-                '[QA Agent] Request failed. Check that Cursor API is configured and the project has a GitHub remote.'
+                `[QA Agent] ${errorMsg}`
               )
+              // Reset to idle after delay to avoid stale "running" indicators (0062)
+              setTimeout(() => {
+                setQaAgentRunStatus('idle')
+                setQaAgentProgress([])
+                setQaAgentError(null)
+              }, 5000) // 5 seconds delay
             }
             setTimeout(() => setAgentTypingTarget(null), 500)
           } catch (err) {
             setQaAgentRunStatus('failed')
             const msg = err instanceof Error ? err.message : String(err)
+            setQaAgentError(msg)
             addMessage('qa-agent', 'qa-agent', `[QA Agent] ${msg}`)
             setTimeout(() => setAgentTypingTarget(null), 500)
+            // Reset to idle after delay to avoid stale "running" indicators (0062)
+            setTimeout(() => {
+              setQaAgentRunStatus('idle')
+              setQaAgentProgress([])
+              setQaAgentError(null)
+            }, 5000) // 5 seconds delay
           }
         })()
       }
@@ -1400,6 +1535,10 @@ function App() {
     setImplAgentProgress([])
     setImplAgentError(null)
     setImplAgentTicketId(null)
+    // Clear QA Agent state on disconnect (0062)
+    setQaAgentRunStatus('idle')
+    setQaAgentProgress([])
+    setQaAgentError(null)
     setQaAgentTicketId(null)
     setAutoMoveDiagnostics([])
     setCursorRunAgentType(null)
@@ -1408,6 +1547,9 @@ function App() {
       localStorage.removeItem(IMPL_AGENT_STATUS_KEY)
       localStorage.removeItem(IMPL_AGENT_PROGRESS_KEY)
       localStorage.removeItem(IMPL_AGENT_ERROR_KEY)
+      localStorage.removeItem(QA_AGENT_STATUS_KEY)
+      localStorage.removeItem(QA_AGENT_PROGRESS_KEY)
+      localStorage.removeItem(QA_AGENT_ERROR_KEY)
     } catch {
       // ignore localStorage errors
     }
@@ -1607,14 +1749,54 @@ function App() {
                 </>
               )}
               {selectedChatTarget === 'qa-agent' && (
-                <div className="agent-stub-banner" role="status">
-                  <p className="agent-stub-title">QA Agent — Cursor Cloud Agents</p>
-                  <p className="agent-stub-hint">
-                    {import.meta.env.VITE_CURSOR_API_KEY
-                      ? 'Say "QA ticket XXXX" (e.g. QA ticket 0046) to review the ticket implementation, generate a QA report, and merge to main if it passes.'
-                      : 'Cursor API is not configured. Set CURSOR_API_KEY and VITE_CURSOR_API_KEY in .env to enable.'}
-                  </p>
-                </div>
+                <>
+                  <div className="agent-stub-banner" role="status">
+                    <p className="agent-stub-title">QA Agent — Cursor Cloud Agents</p>
+                    <p className="agent-stub-hint">
+                      {import.meta.env.VITE_CURSOR_API_KEY
+                        ? 'Say "QA ticket XXXX" (e.g. QA ticket 0046) to review the ticket implementation, generate a QA report, and merge to main if it passes.'
+                        : 'Cursor API is not configured. Set CURSOR_API_KEY and VITE_CURSOR_API_KEY in .env to enable.'}
+                    </p>
+                  </div>
+                  {/* Persistent status panel (0062) */}
+                  {(qaAgentRunStatus !== 'idle' || qaAgentError) && (
+                    <div className="impl-agent-status-panel" role="status" aria-live="polite">
+                      <div className="impl-agent-status-header">
+                        <span className="impl-agent-status-label">Status:</span>
+                        <span className={`impl-agent-status-value impl-status-${qaAgentRunStatus}`}>
+                          {qaAgentRunStatus === 'preparing' ? 'Preparing' :
+                           qaAgentRunStatus === 'fetching_ticket' ? 'Fetching ticket' :
+                           qaAgentRunStatus === 'fetching_branch' ? 'Finding branch' :
+                           qaAgentRunStatus === 'launching' ? 'Launching QA' :
+                           qaAgentRunStatus === 'polling' ? 'Reviewing' :
+                           qaAgentRunStatus === 'generating_report' ? 'Generating report' :
+                           qaAgentRunStatus === 'merging' ? 'Merging' :
+                           qaAgentRunStatus === 'moving_ticket' ? 'Moving ticket' :
+                           qaAgentRunStatus === 'completed' ? 'Completed' :
+                           qaAgentRunStatus === 'failed' ? 'Failed' : 'Idle'}
+                        </span>
+                      </div>
+                      {qaAgentError && (
+                        <div className="impl-agent-error" role="alert">
+                          <strong>Error:</strong> {qaAgentError}
+                        </div>
+                      )}
+                      {qaAgentProgress.length > 0 && (
+                        <div className="impl-agent-progress-feed">
+                          <div className="impl-agent-progress-label">Progress:</div>
+                          <div className="impl-agent-progress-items">
+                            {qaAgentProgress.slice(-5).map((p, idx) => (
+                              <div key={idx} className="impl-agent-progress-item">
+                                <span className="impl-agent-progress-time">[{formatTime(p.timestamp)}]</span>
+                                <span className="impl-agent-progress-message">{p.message}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
               <div className="chat-transcript" ref={transcriptRef}>
                 {activeMessages.length === 0 && !agentTypingTarget ? (
