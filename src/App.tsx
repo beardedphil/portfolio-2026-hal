@@ -1404,6 +1404,9 @@ function App() {
     ]
   )
 
+  // Track most recent work button click event for diagnostics (0072)
+  const [lastWorkButtonClick, setLastWorkButtonClick] = useState<{ eventId: string; timestamp: Date; chatTarget: ChatTarget; message: string } | null>(null)
+
   // Handle chat open and send message requests from Kanban
   useEffect(() => {
     const handler = (event: MessageEvent) => {
@@ -1411,18 +1414,27 @@ function App() {
       if (data?.type !== 'HAL_OPEN_CHAT_AND_SEND') return
       if (!data.chatTarget || !data.message) return
       
+      // Generate unique event ID for this click
+      const eventId = `work-btn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+      setLastWorkButtonClick({
+        eventId,
+        timestamp: new Date(),
+        chatTarget: data.chatTarget,
+        message: data.message,
+      })
+      
       // Switch to the requested chat target
       setSelectedChatTarget(data.chatTarget)
       
-      // Add the message to the chat
-      addMessage(data.chatTarget, 'user', data.message)
+      // Don't add message here - triggerAgentRun handles it appropriately based on DB usage
+      // This prevents duplicate messages (0072)
       
-      // Trigger the agent run (not just add the message)
+      // Trigger the agent run (which will add the message if needed)
       triggerAgentRun(data.message, data.chatTarget)
     }
     window.addEventListener('message', handler)
     return () => window.removeEventListener('message', handler)
-  }, [addMessage, triggerAgentRun])
+  }, [triggerAgentRun])
 
   const handleImageSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -2192,6 +2204,18 @@ function App() {
                   <span className="diag-label">PM implementation source:</span>
                   <span className="diag-value">{diagnostics.pmImplementationSource}</span>
                 </div>
+                {lastWorkButtonClick && (
+                  <div className="diag-row">
+                    <span className="diag-label">Last work button click:</span>
+                    <span className="diag-value">
+                      {lastWorkButtonClick.eventId} ({lastWorkButtonClick.timestamp.toLocaleTimeString()})
+                      <br />
+                      <span style={{ fontSize: '0.9em', color: '#666' }}>
+                        Target: {lastWorkButtonClick.chatTarget}
+                      </span>
+                    </span>
+                  </div>
+                )}
                 {selectedChatTarget === 'project-manager' && (
                   <div className="diag-row">
                     <span className="diag-label">Agent runner:</span>
