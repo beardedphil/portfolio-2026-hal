@@ -4,11 +4,18 @@ import { createClient } from '@supabase/supabase-js'
 type Agent = 'project-manager' | 'implementation-agent' | 'qa-agent'
 type ChatTarget = Agent | 'standup'
 
+type ImageAttachment = {
+  file: File
+  dataUrl: string // base64 data URL for preview
+  filename: string
+}
+
 type Message = {
   id: number
   agent: Agent | 'user' | 'system'
   content: string
   timestamp: Date
+  imageAttachments?: ImageAttachment[] // Optional array of image attachments
 }
 
 type ToolCallRecord = {
@@ -78,7 +85,11 @@ function getStorageKey(projectName: string): string {
   return `${CONVERSATION_STORAGE_PREFIX}${projectName}`
 }
 
-type SerializedMessage = Omit<Message, 'timestamp'> & { timestamp: string }
+type SerializedImageAttachment = Omit<ImageAttachment, 'file'> // File objects can't be serialized
+type SerializedMessage = Omit<Message, 'timestamp' | 'imageAttachments'> & { 
+  timestamp: string
+  imageAttachments?: SerializedImageAttachment[]
+}
 
 function saveConversationsToStorage(
   projectName: string,
@@ -90,6 +101,10 @@ function saveConversationsToStorage(
       serialized[key] = conversations[key].map((msg) => ({
         ...msg,
         timestamp: msg.timestamp.toISOString(),
+        imageAttachments: msg.imageAttachments?.map((img) => ({
+          dataUrl: img.dataUrl,
+          filename: img.filename,
+        })),
       }))
     }
     localStorage.setItem(getStorageKey(projectName), JSON.stringify(serialized))
@@ -112,6 +127,14 @@ function loadConversationsFromStorage(
       result[key] = parsed[key].map((msg) => ({
         ...msg,
         timestamp: new Date(msg.timestamp),
+        // Note: imageAttachments from storage won't have File objects, only dataUrl and filename
+        // This is fine for display purposes, but won't work for sending new messages
+        imageAttachments: msg.imageAttachments?.map((img) => ({
+          dataUrl: img.dataUrl,
+          filename: img.filename,
+          // Create a dummy File object for type compatibility (won't be used for sending)
+          file: new File([], img.filename, { type: 'image/jpeg' }),
+        })),
       }))
     }
     return { data: result }
@@ -156,6 +179,8 @@ function App() {
   const [selectedChatTarget, setSelectedChatTarget] = useState<ChatTarget>('project-manager')
   const [conversations, setConversations] = useState<Record<ChatTarget, Message[]>>(getEmptyConversations)
   const [inputValue, setInputValue] = useState('')
+  const [imageAttachment, setImageAttachment] = useState<ImageAttachment | null>(null)
+  const [imageError, setImageError] = useState<string | null>(null)
   const [lastError, setLastError] = useState<string | null>(null)
   const [lastAgentError, setLastAgentError] = useState<string | null>(null)
   const [persistenceError, setPersistenceError] = useState<string | null>(null)
@@ -591,12 +616,12 @@ function App() {
     [supabaseUrl, supabaseAnonKey, addAutoMoveDiagnostic]
   )
 
-  const addMessage = useCallback((target: ChatTarget, agent: Message['agent'], content: string, id?: number) => {
+  const addMessage = useCallback((target: ChatTarget, agent: Message['agent'], content: string, id?: number, imageAttachments?: ImageAttachment[]) => {
     const nextId = id ?? ++messageIdRef.current
     if (id != null) messageIdRef.current = Math.max(messageIdRef.current, nextId)
     setConversations((prev) => ({
       ...prev,
-      [target]: [...(prev[target] ?? []), { id: nextId, agent, content, timestamp: new Date() }],
+      [target]: [...(prev[target] ?? []), { id: nextId, agent, content, timestamp: new Date(), imageAttachments }],
     }))
     if (agent !== 'user' && target !== selectedChatTargetRef.current) {
       setUnreadByTarget((prev) => ({ ...prev, [target]: (prev[target] ?? 0) + 1 }))
@@ -739,9 +764,9 @@ function App() {
 
   /** Trigger agent run for a given message and target (used by handleSend and HAL_OPEN_CHAT_AND_SEND) */
   const triggerAgentRun = useCallback(
-    (content: string, target: ChatTarget) => {
+    (content: string, target: ChatTarget, imageAttachments?: ImageAttachment[]) => {
       const useDb = target === 'project-manager' && supabaseUrl != null && supabaseAnonKey != null && connectedProject != null
-      if (!useDb) addMessage(target, 'user', content)
+      if (!useDb) addMessage(target, 'user', content, undefined, imageAttachments)
       setLastAgentError(null)
 
       if (target === 'project-manager') {
@@ -752,13 +777,21 @@ function App() {
         setAgentTypingTarget('project-manager')
         ;(async () => {
           try {
-            let body: { message: string; conversationHistory?: Array<{ role: string; content: string }>; previous_response_id?: string; projectId?: string; supabaseUrl?: string; supabaseAnonKey?: string } = { message: content }
+            let body: { message: string; conversationHistory?: Array<{ role: string; content: string }>; previous_response_id?: string; projectId?: string; supabaseUrl?: string; supabaseAnonKey?: string; images?: Array<{ dataUrl: string; filename: string; mimeType: string }> } = { message: content }
             if (pmLastResponseId) body.previous_response_id = pmLastResponseId
             if (connectedProject) body.projectId = connectedProject
             // Always send Supabase creds when we have them so create_ticket is available (0011)
             if (supabaseUrl && supabaseAnonKey) {
               body.supabaseUrl = supabaseUrl
               body.supabaseAnonKey = supabaseAnonKey
+            }
+            // Include image attachments if present
+            if (imageAttachments && imageAttachments.length > 0) {
+              body.images = imageAttachments.map((img) => ({
+                dataUrl: img.dataUrl,
+                filename: img.filename,
+                mimeType: img.file.type,
+              }))
             }
 
             if (useDb && supabaseUrl && supabaseAnonKey && connectedProject) {
@@ -773,10 +806,10 @@ function App() {
               })
               if (insertErr) {
                 setPersistenceError(`DB: ${insertErr.message}`)
-                addMessage('project-manager', 'user', content)
+                addMessage('project-manager', 'user', content, undefined, imageAttachments)
               } else {
                 pmMaxSequenceRef.current = nextSeq
-                addMessage('project-manager', 'user', content, nextSeq)
+                addMessage('project-manager', 'user', content, nextSeq, imageAttachments)
               }
             } else {
               const pmMessages = conversations['project-manager'] ?? []
@@ -916,10 +949,18 @@ function App() {
           }
 
           try {
-            const body: { message: string; supabaseUrl?: string; supabaseAnonKey?: string } = { message: content }
+            const body: { message: string; supabaseUrl?: string; supabaseAnonKey?: string; images?: Array<{ dataUrl: string; filename: string; mimeType: string }> } = { message: content }
             if (supabaseUrl && supabaseAnonKey) {
               body.supabaseUrl = supabaseUrl
               body.supabaseAnonKey = supabaseAnonKey
+            }
+            // Include image attachments if present
+            if (imageAttachments && imageAttachments.length > 0) {
+              body.images = imageAttachments.map((img) => ({
+                dataUrl: img.dataUrl,
+                filename: img.filename,
+                mimeType: img.file.type,
+              }))
             }
             const res = await fetch('/api/implementation-agent/run', {
               method: 'POST',
@@ -1097,10 +1138,18 @@ function App() {
             addMessage('qa-agent', 'system', `[Progress] ${message}`)
           }
           try {
-            const body: { message: string; supabaseUrl?: string; supabaseAnonKey?: string } = { message: content }
+            const body: { message: string; supabaseUrl?: string; supabaseAnonKey?: string; images?: Array<{ dataUrl: string; filename: string; mimeType: string }> } = { message: content }
             if (supabaseUrl && supabaseAnonKey) {
               body.supabaseUrl = supabaseUrl
               body.supabaseAnonKey = supabaseAnonKey
+            }
+            // Include image attachments if present
+            if (imageAttachments && imageAttachments.length > 0) {
+              body.images = imageAttachments.map((img) => ({
+                dataUrl: img.dataUrl,
+                filename: img.filename,
+                mimeType: img.file.type,
+              }))
             }
             const res = await fetch('/api/qa-agent/run', {
               method: 'POST',
@@ -1336,17 +1385,68 @@ function App() {
     return () => window.removeEventListener('message', handler)
   }, [addMessage, triggerAgentRun])
 
+  const handleImageSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setImageError(null)
+
+    // Validate file type
+    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp']
+    if (!validTypes.includes(file.type)) {
+      setImageError(`Unsupported file type: ${file.type}. Please select a JPEG, PNG, GIF, or WebP image.`)
+      e.target.value = '' // Reset input
+      return
+    }
+
+    // Validate file size (max 10MB)
+    const maxSize = 10 * 1024 * 1024 // 10MB
+    if (file.size > maxSize) {
+      setImageError(`File is too large: ${(file.size / 1024 / 1024).toFixed(2)}MB. Maximum size is 10MB.`)
+      e.target.value = '' // Reset input
+      return
+    }
+
+    // Create preview
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      const dataUrl = event.target?.result as string
+      setImageAttachment({
+        file,
+        dataUrl,
+        filename: file.name,
+      })
+    }
+    reader.onerror = () => {
+      setImageError('Failed to read image file.')
+      e.target.value = '' // Reset input
+    }
+    reader.readAsDataURL(file)
+  }, [])
+
+  const handleRemoveImage = useCallback(() => {
+    setImageAttachment(null)
+    setImageError(null)
+  }, [])
+
   const handleSend = useCallback(() => {
     const content = inputValue.trim()
-    if (!content) return
+    // Allow sending even if content is empty if there's an image
+    if (!content && !imageAttachment) return
+
+    // Don't send if there's an error
+    if (imageError) return
 
     const useDb = selectedChatTarget === 'project-manager' && supabaseUrl != null && supabaseAnonKey != null && connectedProject != null
-    if (!useDb) addMessage(selectedChatTarget, 'user', content)
+    const attachments = imageAttachment ? [imageAttachment] : undefined
+    if (!useDb) addMessage(selectedChatTarget, 'user', content, undefined, attachments)
     setInputValue('')
+    setImageAttachment(null)
+    setImageError(null)
     setLastAgentError(null)
 
     // Use the extracted triggerAgentRun function
-    triggerAgentRun(content, selectedChatTarget)
+    triggerAgentRun(content, selectedChatTarget, attachments)
     
     // Standup handling (not part of triggerAgentRun)
     if (selectedChatTarget === 'standup') {
@@ -1813,7 +1913,22 @@ function App() {
                           <div className="message-header">
                             <span className="message-author">{getMessageAuthorLabel(msg.agent)}</span>
                             <span className="message-time">[{formatTime(msg.timestamp)}]</span>
+                            {msg.imageAttachments && msg.imageAttachments.length > 0 && (
+                              <span className="message-image-indicator" title={`${msg.imageAttachments.length} image${msg.imageAttachments.length > 1 ? 's' : ''} attached`}>
+                                📎 {msg.imageAttachments.length}
+                              </span>
+                            )}
                           </div>
+                          {msg.imageAttachments && msg.imageAttachments.length > 0 && (
+                            <div className="message-images">
+                              {msg.imageAttachments.map((img, idx) => (
+                                <div key={idx} className="message-image-container">
+                                  <img src={img.dataUrl} alt={img.filename} className="message-image-thumbnail" />
+                                  <span className="message-image-filename">{img.filename}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                           {msg.content.trimStart().startsWith('{') ? (
                             <pre className="message-content message-json">{msg.content}</pre>
                           ) : (
@@ -1910,18 +2025,44 @@ function App() {
               </div>
 
               <div className="chat-composer">
-                <textarea
-                  className="message-input"
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Type a message... (Enter to send)"
-                  rows={2}
-                />
-                <div className="composer-actions">
-                  <button type="button" className="send-btn" onClick={handleSend}>
-                    Send
-                  </button>
+                {imageAttachment && (
+                  <div className="image-attachment-preview">
+                    <img src={imageAttachment.dataUrl} alt={imageAttachment.filename} className="attachment-thumbnail" />
+                    <span className="attachment-filename">{imageAttachment.filename}</span>
+                    <button type="button" className="remove-attachment-btn" onClick={handleRemoveImage} aria-label="Remove attachment">
+                      ×
+                    </button>
+                  </div>
+                )}
+                {imageError && (
+                  <div className="image-error-message" role="alert">
+                    {imageError}
+                  </div>
+                )}
+                <div className="composer-input-row">
+                  <textarea
+                    className="message-input"
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="Type a message... (Enter to send)"
+                    rows={2}
+                  />
+                  <div className="composer-actions">
+                    <label className="attach-image-btn" title="Attach image">
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
+                        onChange={handleImageSelect}
+                        style={{ display: 'none' }}
+                        aria-label="Attach image"
+                      />
+                      📎
+                    </label>
+                    <button type="button" className="send-btn" onClick={handleSend} disabled={!!imageError}>
+                      Send
+                    </button>
+                  </div>
                 </div>
               </div>
             </>

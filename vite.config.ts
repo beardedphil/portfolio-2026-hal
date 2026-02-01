@@ -145,6 +145,7 @@ export default defineConfig({
               projectId?: string
               supabaseUrl?: string
               supabaseAnonKey?: string
+              images?: Array<{ dataUrl: string; filename: string; mimeType: string }>
             }
             const message = body.message ?? ''
             let conversationHistory = Array.isArray(body.conversationHistory) ? body.conversationHistory : undefined
@@ -282,6 +283,9 @@ export default defineConfig({
             } else {
               console.log('[HAL PM] create_ticket NOT available (no Supabase creds; connect project with .env)')
             }
+            // Extract images from request body if present
+            const images = Array.isArray(body.images) ? body.images : undefined
+            
             const result = (await runner.run(message, {
               repoRoot,
               openaiApiKey: key,
@@ -291,6 +295,8 @@ export default defineConfig({
               previousResponseId,
               ...(createTicketAvailable ? { supabaseUrl: supabaseUrl!, supabaseAnonKey: supabaseAnonKey! } : {}),
               ...(projectId ? { projectId } : {}),
+              // Note: Images are passed but PM agent implementation needs to be updated to use them
+              ...(images ? { images } : {}),
             })) as PmAgentResponse & { toolCalls: Array<{ name: string; input: unknown; output: unknown }> }
 
             // If create_ticket succeeded, run sync-tickets so the new row is written to docs/tickets/ (0011)
