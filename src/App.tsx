@@ -1573,6 +1573,7 @@ function App() {
 
   const handleIframeLoad = useCallback(() => {
     setKanbanLoaded(true)
+    setLastError(null)
     // Send current theme to Kanban iframe immediately on load (0078)
     if (kanbanIframeRef.current?.contentWindow) {
       kanbanIframeRef.current.contentWindow.postMessage(
@@ -1580,8 +1581,7 @@ function App() {
         '*'
       )
     }
-    setLastError(null)
-  }, [])
+  }, [theme])
 
   const handleIframeError = useCallback(() => {
     setKanbanLoaded(false)
