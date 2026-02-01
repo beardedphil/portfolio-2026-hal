@@ -495,6 +495,31 @@ body {
   30% { transform: translateY(-4px); opacity: 1; }
 }
 
+/* Implementation Agent status timeline (0044) */
+.impl-agent-status-timeline {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--hal-text-muted);
+}
+.impl-agent-status-timeline .impl-status-active {
+  color: var(--hal-primary);
+  font-weight: 600;
+}
+.impl-agent-status-timeline .impl-status-done {
+  color: var(--hal-status-ok);
+}
+.impl-agent-status-timeline .impl-status-failed {
+  color: var(--hal-status-error);
+  font-weight: 600;
+}
+.impl-agent-status-timeline .impl-status-arrow {
+  color: var(--hal-border-muted);
+  font-size: 0.75rem;
+}
+
 /* Chat composer */
 .chat-composer {
   padding: 0.75rem 1rem;

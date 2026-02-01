@@ -9,6 +9,16 @@ import { config as loadEnv } from 'dotenv'
 // Load .env so OPENAI_API_KEY / OPENAI_MODEL are available in server middleware
 loadEnv()
 
+/** Human-readable error summary for Cursor API failures (no stack traces). */
+function humanReadableCursorError(status: number, detail?: string): string {
+  if (status === 401) return 'Cursor API authentication failed. Check that CURSOR_API_KEY is valid.'
+  if (status === 403) return 'Cursor API access denied. Your plan may not include Cloud Agents API.'
+  if (status === 429) return 'Cursor API rate limit exceeded. Please try again in a moment.'
+  if (status >= 500) return `Cursor API server error (${status}). Please try again later.`
+  const suffix = detail ? ` — ${String(detail).slice(0, 100)}` : ''
+  return `Cursor API request failed (${status})${suffix}`
+}
+
 /** Read JSON body from incoming request (for API proxy). */
 function readJsonBody(req: import('http').IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
@@ -349,6 +359,95 @@ export default defineConfig({
                 error: err instanceof Error ? err.message : String(err),
                 errorPhase: 'openai',
               } satisfies PmAgentResponse)
+            )
+          }
+        })
+      },
+    },
+    {
+      name: 'implementation-agent-endpoint',
+      configureServer(server) {
+        server.middlewares.use(async (req, res, next) => {
+          if (req.url !== '/api/implementation-agent/run' || req.method !== 'POST') {
+            next()
+            return
+          }
+
+          try {
+            const body = (await readJsonBody(req)) as { message?: string }
+            const message = typeof body.message === 'string' ? body.message.trim() : ''
+
+            const key = process.env.CURSOR_API_KEY || process.env.VITE_CURSOR_API_KEY
+            if (!key || !key.trim()) {
+              res.statusCode = 503
+              res.setHeader('Content-Type', 'application/json')
+              res.end(
+                JSON.stringify({
+                  success: false,
+                  error: 'Cursor API is not configured. Set CURSOR_API_KEY in .env.',
+                  status: 'not-configured',
+                })
+              )
+              return
+            }
+
+            const auth = Buffer.from(`${key.trim()}:`).toString('base64')
+
+            // Minimal end-to-end call: GET /v0/me (API Key Info) to verify auth and return displayable content
+            const cursorRes = await fetch('https://api.cursor.com/v0/me', {
+              method: 'GET',
+              headers: {
+                Authorization: `Basic ${auth}`,
+                'Content-Type': 'application/json',
+              },
+            })
+
+            const text = await cursorRes.text()
+            let parsed: { apiKeyName?: string; userEmail?: string; createdAt?: string; error?: string; message?: string } | null = null
+            try {
+              parsed = JSON.parse(text) as typeof parsed
+            } catch {
+              // use raw text for error
+            }
+
+            if (!cursorRes.ok) {
+              const errMsg =
+                parsed?.message || parsed?.error || text || `HTTP ${cursorRes.status}`
+              res.statusCode = 200
+              res.setHeader('Content-Type', 'application/json')
+              res.end(
+                JSON.stringify({
+                  success: false,
+                  error: humanReadableCursorError(cursorRes.status, errMsg),
+                  status: 'failed',
+                })
+              )
+              return
+            }
+
+            // Success: format user-friendly content (no secrets)
+            const content = parsed
+              ? `Cursor API connected. Authenticated as ${parsed.userEmail ?? 'unknown'} (API key: ${parsed.apiKeyName ?? 'unknown'}).`
+              : 'Cursor API connection successful.'
+
+            res.statusCode = 200
+            res.setHeader('Content-Type', 'application/json')
+            res.end(
+              JSON.stringify({
+                success: true,
+                content,
+                status: 'completed',
+              })
+            )
+          } catch (err) {
+            res.statusCode = 500
+            res.setHeader('Content-Type', 'application/json')
+            res.end(
+              JSON.stringify({
+                success: false,
+                error: err instanceof Error ? err.message : String(err),
+                status: 'failed',
+              })
             )
           }
         })
