@@ -48,6 +48,18 @@ For ticket `docs/tickets/0026-kanban-tickets-persist-column-on-refresh.md`, the 
 
 When the verdict is **PASS (OK to merge)**, QA must **complete the full workflow** — do not stop at a summary or "next steps for the user."
 
+## Completion message format requirement
+
+**MANDATORY:** The final completion message to the user **must** include the ticket ID and an explicit PASS/FAIL outcome token in a consistent, easy-to-spot format.
+
+- **Format:** `QA RESULT: <PASS|FAIL> — <ticket-id>`
+- **Examples:**
+  - `QA RESULT: PASS — 0056`
+  - `QA RESULT: FAIL — 0056`
+- **Placement:** This must appear in the final summary message that QA sends to the user after completing all workflow steps (merge, branch deletion, ticket updates, etc.).
+- **Why:** HAL needs to reliably parse QA outcomes from chat transcripts. The format must be human-verifiable (no external tooling required) and consistently structured for automated interpretation.
+- **Verification:** A human can read the QA chat transcript in the app and immediately see the ticket ID and outcome without parsing complex prose.
+
 **If you are verifying from the feature branch** (normal workflow):
 
 1. **Commit and push** the qa-report (and any rule changes) to the feature branch.
@@ -57,7 +69,7 @@ When the verdict is **PASS (OK to merge)**, QA must **complete the full workflow
 3. **Move ticket to Human in the Loop** — update the ticket **in the DB**, then run sync. Use `node scripts/move-ticket-column.js <ticketId> col-human-in-the-loop` from the repo root (e.g. `node scripts/move-ticket-column.js 0047 col-human-in-the-loop`). Requires `.env` with `SUPABASE_URL` and `SUPABASE_ANON_KEY`. The script updates Supabase, then the ticket file frontmatter, then runs `sync-tickets`. **Do not** add or edit YAML frontmatter in the ticket file by hand — Kanban is Supabase-backed; always update DB first, then sync.
 4. **Merge to main** — checkout `main`, merge the feature branch, push `main`.
 5. **Delete the feature branch** — local and remote (see `delete-branch-after-merge.mdc`).
-6. **Then** give your summary to the user.
+6. **Then** give your summary to the user. **The final message must include:** `QA RESULT: PASS — <ticket-id>` (see "Completion message format requirement" above).
 
 **If you are verifying from `main`** (implementation was merged to main for QA access):
 
@@ -69,12 +81,12 @@ When the verdict is **PASS (OK to merge)**, QA must **complete the full workflow
    - All other required audit artifact links (plan, worklog, changed-files, decisions, verification, pm-review)
    - Note that verification was performed against `main` (not the feature branch) — add this note in the Artifacts section or nearby
 3. **Move ticket to Human in the Loop** — Update the ticket **in the DB first**, then run sync. Use `node scripts/move-ticket-column.js <ticketId> col-human-in-the-loop` from the repo root (e.g. `node scripts/move-ticket-column.js 0047 col-human-in-the-loop`). Requires `.env` with `SUPABASE_URL` and `SUPABASE_ANON_KEY`. The script updates Supabase, then the ticket file frontmatter, then runs `sync-tickets`. **Do not** add or edit YAML frontmatter in the ticket file by hand — Kanban is Supabase-backed; always update DB first, then sync.
-4. **Then** give your summary to the user.
+4. **Then** give your summary to the user. **The final message must include:** `QA RESULT: PASS — <ticket-id>` (see "Completion message format requirement" above).
 
 Do not give a summary with "next steps" or "run these commands" — QA performs the merge (or confirms main) and branch deletion where applicable. The user receives the completed result.
 
 - Use a commit subject that includes the ticket ID (e.g. `qa(0033): add QA report, move to Human in the Loop`).
-- **If verdict is FAIL:** Do not merge. Commit and push the qa-report only; summarize findings and recommend a bugfix ticket (see `bugfix-tracking.mdc`).
+- **If verdict is FAIL:** Do not merge. Commit and push the qa-report only; summarize findings and recommend a bugfix ticket (see `bugfix-tracking.mdc`). **The final message must include:** `QA RESULT: FAIL — <ticket-id>` (see "Completion message format requirement" above).
 
 ## Artifacts section requirement (QA agent)
 
