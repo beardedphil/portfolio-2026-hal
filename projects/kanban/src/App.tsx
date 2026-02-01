@@ -794,22 +794,7 @@ function App() {
   const [activeCardId, setActiveCardId] = useState<UniqueIdentifier | null>(null)
   const lastOverId = useRef<UniqueIdentifier | null>(null)
 
-  // Ticket Store (Docs read + write when connected with readwrite)
-  const [ticketStoreConnected, setTicketStoreConnected] = useState(false)
-  const [ticketStoreRootHandle, setTicketStoreRootHandle] = useState<FileSystemDirectoryHandle | null>(null)
-  const [ticketStoreFiles, setTicketStoreFiles] = useState<TicketFile[]>([])
-  const [ticketStoreLastRefresh, setTicketStoreLastRefresh] = useState<Date | null>(null)
-  const [ticketStoreLastError, setTicketStoreLastError] = useState<string | null>(null)
-  const [ticketStoreConnectMessage, setTicketStoreConnectMessage] = useState<string | null>(null)
-  const [selectedTicketPath, setSelectedTicketPath] = useState<string | null>(null)
-  const [selectedTicketContent, setSelectedTicketContent] = useState<string | null>(null)
-  const [_ticketViewerLoading, setTicketViewerLoading] = useState(false)
-  // Kanban-from-docs state (used when connected)
-  const [ticketColumns, setTicketColumns] = useState<Column[]>(() => EMPTY_KANBAN_COLUMNS)
-  const [ticketCards, setTicketCards] = useState<Record<string, Card>>({})
-  const [lastSavedTicketPath, setLastSavedTicketPath] = useState<string | null>(null)
-  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null)
-  const [lastWriteError, setLastWriteError] = useState<string | null>(null)
+  // File system mode removed: Supabase-only (0065)
 
   // Project folder and connection state
   const [projectFolderHandle, setProjectFolderHandle] = useState<FileSystemDirectoryHandle | null>(null)
@@ -1120,18 +1105,11 @@ function App() {
     return () => window.removeEventListener('message', handleMessage)
   }, [isEmbedded, connectSupabase])
 
-  const columnsForDisplay = supabaseBoardActive
-    ? supabaseColumns
-    : ticketStoreConnected
-      ? ticketColumns
-      : columns
-  const cardsForDisplay = supabaseBoardActive
-    ? supabaseCards
-    : ticketStoreConnected
-      ? ticketCards
-      : cards
+  // Supabase-only mode (0065): always use Supabase when connected, otherwise empty
+  const columnsForDisplay = supabaseBoardActive ? supabaseColumns : columns
+  const cardsForDisplay = supabaseBoardActive ? supabaseCards : cards
 
-  // Resolve ticket detail modal content when modal opens (0033)
+  // Resolve ticket detail modal content when modal opens (0033); Supabase-only (0065)
   useEffect(() => {
     if (!detailModal) {
       setDetailModalBody(null)
@@ -1173,50 +1151,13 @@ function App() {
       }
       setDetailModalError(null)
       setDetailModalLoading(false)
-      return
+    } else {
+      // Supabase not connected: show error
+      setDetailModalError('Supabase not connected. Connect project folder to view ticket details.')
+      setDetailModalBody(null)
+      setDetailModalLoading(false)
     }
-    if (ticketStoreConnected && ticketStoreRootHandle && (ticketId.startsWith('docs/') || ticketId.includes('tickets'))) {
-      setDetailModalLoading(true)
-      setDetailModalError(null)
-      const filename = ticketId.split('/').pop() ?? ticketId
-      // Extract ticket ID from filename (e.g. "0048-title.md" → "0048")
-      const idMatch = filename.match(/^(\d{4})/)
-      const ticketIdFromFilename = idMatch ? idMatch[1] : ticketId
-      ;(async () => {
-        try {
-          const docs = await ticketStoreRootHandle.getDirectoryHandle('docs')
-          const tickets = await docs.getDirectoryHandle('tickets')
-          const fileHandle = await tickets.getFileHandle(filename)
-          const file = await fileHandle.getFile()
-          const text = await file.text()
-          // Normalize Title line if needed (0054)
-          const { normalized, wasNormalized } = normalizeTitleLineInBody(text, ticketIdFromFilename)
-          if (wasNormalized) {
-            // Write normalized content back to file
-            try {
-              const writable = await fileHandle.createWritable()
-              await writable.write(normalized)
-              await writable.close()
-              addLog(`Ticket ${ticketIdFromFilename}: Title normalized to include ID prefix`)
-            } catch (writeErr) {
-              console.warn(`Failed to write normalized title for ${ticketIdFromFilename}:`, writeErr)
-            }
-          }
-          setDetailModalBody(normalized)
-          setDetailModalError(null)
-        } catch (e) {
-          setDetailModalError(e instanceof Error ? e.message : String(e))
-          setDetailModalBody(null)
-        } finally {
-          setDetailModalLoading(false)
-        }
-      })()
-      return
-    }
-    setDetailModalBody('')
-    setDetailModalError(null)
-    setDetailModalLoading(false)
-  }, [detailModal, supabaseBoardActive, supabaseTickets, ticketStoreConnected, ticketStoreRootHandle, detailModalRetryTrigger])
+  }, [detailModal, supabaseBoardActive, supabaseTickets, supabaseProjectUrl, supabaseAnonKey, detailModalRetryTrigger, addLog])
 
   const handleOpenTicketDetail = useCallback(
     (cardId: string) => {
@@ -1228,128 +1169,7 @@ function App() {
   const handleCloseTicketDetail = useCallback(() => setDetailModal(null), [])
   const handleRetryTicketDetail = useCallback(() => setDetailModalRetryTrigger((n) => n + 1), [])
 
-  useEffect(() => {
-    if (!lastSavedTicketPath) return
-    const t = setTimeout(() => {
-      setLastSavedTicketPath(null)
-      setLastSavedAt(null)
-    }, 3000)
-    return () => clearTimeout(t)
-  }, [lastSavedTicketPath])
-
-  const refreshTicketStore = useCallback(async (root: FileSystemDirectoryHandle) => {
-    setTicketStoreLastError(null)
-    setLastWriteError(null)
-    try {
-      const docs = await root.getDirectoryHandle('docs')
-      const tickets = await docs.getDirectoryHandle('tickets')
-      const files: TicketFile[] = []
-      for await (const [name, entry] of tickets.entries()) {
-        if (entry.kind === 'file' && name.endsWith('.md')) {
-          files.push({ name, path: `docs/tickets/${name}` })
-        }
-      }
-      files.sort((a, b) => a.name.localeCompare(b.name))
-      setTicketStoreFiles(files)
-
-      const ticketCardsMap: Record<string, Card> = {}
-      const byColumn: Record<string, { path: string; position: number }[]> = {
-        'col-unassigned': [],
-        'col-todo': [],
-        'col-doing': [],
-        'col-qa': [],
-        'col-human-in-the-loop': [],
-        'col-done': [],
-        'col-wont-implement': [],
-      }
-      for (const f of files) {
-        ticketCardsMap[f.path] = { id: f.path, title: f.name.replace(/\.md$/, '') }
-        try {
-          const fileHandle = await tickets.getFileHandle(f.name)
-          const file = await fileHandle.getFile()
-          const text = await file.text()
-          const { frontmatter } = parseFrontmatter(text)
-          const kanban = getKanbanFromFrontmatter(frontmatter)
-          const colId = kanban.kanbanColumnId && KANBAN_COLUMN_IDS.includes(kanban.kanbanColumnId as (typeof KANBAN_COLUMN_IDS)[number])
-            ? kanban.kanbanColumnId
-            : 'col-unassigned'
-          const pos = typeof kanban.kanbanPosition === 'number' ? kanban.kanbanPosition : 0
-          byColumn[colId].push({ path: f.path, position: pos })
-        } catch {
-          byColumn['col-unassigned'].push({ path: f.path, position: 0 })
-        }
-      }
-      for (const id of KANBAN_COLUMN_IDS) {
-        byColumn[id].sort((a, b) => a.position - b.position)
-      }
-      setTicketCards(ticketCardsMap)
-      setTicketColumns([
-        { id: 'col-unassigned', title: 'Unassigned', cardIds: byColumn['col-unassigned'].map((x) => x.path) },
-        { id: 'col-todo', title: 'To-do', cardIds: byColumn['col-todo'].map((x) => x.path) },
-        { id: 'col-doing', title: 'Doing', cardIds: byColumn['col-doing'].map((x) => x.path) },
-        { id: 'col-qa', title: 'QA', cardIds: byColumn['col-qa'].map((x) => x.path) },
-        { id: 'col-human-in-the-loop', title: 'Human in the Loop', cardIds: byColumn['col-human-in-the-loop'].map((x) => x.path) },
-        { id: 'col-done', title: 'Done', cardIds: byColumn['col-done'].map((x) => x.path) },
-        { id: 'col-wont-implement', title: 'Will Not Implement', cardIds: byColumn['col-wont-implement'].map((x) => x.path) },
-      ])
-      setTicketStoreLastRefresh(new Date())
-    } catch {
-      setTicketStoreLastError('No `docs/tickets` folder found.')
-      setTicketStoreFiles([])
-      setTicketCards({})
-      setTicketColumns(EMPTY_KANBAN_COLUMNS)
-      setTicketStoreLastRefresh(new Date())
-    }
-  }, [])
-
-  const _handleConnectProject = useCallback(async () => {
-    setTicketStoreConnectMessage(null)
-    if (typeof window.showDirectoryPicker !== 'function') {
-      setTicketStoreLastError('Folder picker not supported in this browser.')
-      return
-    }
-    try {
-      const root = await window.showDirectoryPicker({ mode: 'readwrite' })
-      setTicketStoreConnected(true)
-      setTicketStoreRootHandle(root)
-      await refreshTicketStore(root)
-    } catch (e) {
-      const err = e as { name?: string }
-      if (err.name === 'AbortError') {
-        setTicketStoreConnectMessage('Connect cancelled.')
-        return
-      }
-      setTicketStoreLastError(err instanceof Error ? err.message : 'Failed to open folder.')
-    }
-  }, [refreshTicketStore])
-
-  const _handleSelectTicket = useCallback(
-    async (path: string, name: string) => {
-      const root = ticketStoreRootHandle
-      if (!root) return
-      setSelectedTicketPath(path)
-      setTicketViewerLoading(true)
-      setSelectedTicketContent(null)
-      try {
-        const docs = await root.getDirectoryHandle('docs')
-        const tickets = await docs.getDirectoryHandle('tickets')
-        const fileHandle = await tickets.getFileHandle(name)
-        const file = await fileHandle.getFile()
-        const text = await file.text()
-        setSelectedTicketContent(text)
-      } catch {
-        setSelectedTicketContent('(Failed to read file.)')
-      } finally {
-        setTicketViewerLoading(false)
-      }
-    },
-    [ticketStoreRootHandle]
-  )
-
-  const _handleRefreshTickets = useCallback(async () => {
-    const root = ticketStoreRootHandle
-    if (root) await refreshTicketStore(root)
-  }, [ticketStoreRootHandle, refreshTicketStore])
+  // File system mode removed (0065): Supabase-only
 
   const _handleSupabaseConnect = useCallback(() => {
     connectSupabase(supabaseProjectUrl.trim(), supabaseAnonKey.trim())
@@ -1557,203 +1377,7 @@ function App() {
     setSupabaseColumnsJustInitialized(false)
   }, [supabaseColumnsJustInitialized])
 
-  const _handlePreviewSync = useCallback(async () => {
-    const root = ticketStoreRootHandle
-    if (!root) return
-    setSupabaseLastSyncError(null)
-    const url = supabaseProjectUrl.trim()
-    const key = supabaseAnonKey.trim()
-    if (!url || !key) return
-    try {
-      const client = createClient(url, key)
-      const { data: rows, error } = await client
-        .from('tickets')
-        .select('id, filename, title, body_md, kanban_column_id, kanban_position, kanban_moved_at, updated_at')
-        .order('id')
-      if (error) {
-        setSupabaseLastSyncError(error.message ?? String(error))
-        setSyncPreview(null)
-        return
-      }
-      const existing = (rows ?? []) as SupabaseTicketRow[]
-      const scanResults = await scanDocsTickets(root)
-      const preview = buildSyncPreview(scanResults, existing)
-      setSyncPreview(preview)
-    } catch (e) {
-      setSupabaseLastSyncError(e instanceof Error ? e.message : String(e))
-      setSyncPreview(null)
-    }
-  }, [ticketStoreRootHandle, supabaseProjectUrl, supabaseAnonKey])
-
-  /** Write a new file to docs/tickets (Sync: DB→docs). */
-  const writeDocTicketFile = useCallback(
-    async (root: FileSystemDirectoryHandle, filename: string, content: string): Promise<void> => {
-      const docs = await root.getDirectoryHandle('docs')
-      const tickets = await docs.getDirectoryHandle('tickets')
-      const fileHandle = await tickets.getFileHandle(filename, { create: true })
-      if (fileHandle.requestPermission) {
-        const perm = await fileHandle.requestPermission({ mode: 'readwrite' })
-        if (perm !== 'granted') throw new Error('Write permission denied.')
-      }
-      const writable = await fileHandle.createWritable()
-      await writable.write(content)
-      await writable.close()
-    },
-    []
-  )
-
-  const _handleRunSync = useCallback(async () => {
-    const root = ticketStoreRootHandle
-    if (!root) return
-    setSupabaseLastSyncError(null)
-    setSyncSummary(null)
-    const url = supabaseProjectUrl.trim()
-    const key = supabaseAnonKey.trim()
-    if (!url || !key) return
-    setSyncInProgress(true)
-    try {
-      const client = createClient(url, key)
-      const { data: rows, error } = await client
-        .from('tickets')
-        .select('id, filename, title, body_md, kanban_column_id, kanban_position, kanban_moved_at, updated_at')
-        .order('id')
-      if (error) {
-        setSupabaseLastSyncError(error.message ?? String(error))
-        setSyncInProgress(false)
-        setSyncProgressText(null)
-        return
-      }
-      const existing = (rows ?? []) as SupabaseTicketRow[]
-      const scanResults = await scanDocsTickets(root)
-      const { docsToDb, dbToDocs } = buildSyncPreview(scanResults, existing)
-      const toWrite = docsToDb.items.filter((i) => i.action === 'create' || i.action === 'update')
-      const parsedByFilename = new Map<string, ParsedDocTicket>()
-      for (const r of scanResults) {
-        if (r.ok) parsedByFilename.set(r.data.filename, r.data)
-      }
-      const existingById = new Map(existing.map((r) => [r.id, r]))
-
-      let done = 0
-      let created = 0
-      let updated = 0
-      for (const item of toWrite) {
-        setSyncProgressText(`Docs→DB ${done + 1}/${toWrite.length}…`)
-        const data = parsedByFilename.get(item.filename)
-        if (!data) continue
-        const row = {
-          id: data.id,
-          filename: data.filename,
-          title: data.title,
-          body_md: data.body_md,
-          kanban_column_id: data.kanban_column_id,
-          kanban_position: data.kanban_position,
-          kanban_moved_at: data.kanban_moved_at,
-        }
-        const { error: upsertError } = await client.from('tickets').upsert(row, { onConflict: 'id' })
-        if (upsertError) {
-          setSupabaseLastSyncError(upsertError.message ?? String(upsertError))
-          setSyncSummary(`Stopped after ${done} of ${toWrite.length}. Created ${created}, updated ${updated}.`)
-          setSyncInProgress(false)
-          setSyncProgressText(null)
-          return
-        }
-        if (item.action === 'create') created++
-        else updated++
-        done++
-      }
-
-      let writtenToDocs = 0
-      for (let i = 0; i < dbToDocs.length; i++) {
-        setSyncProgressText(`DB→Docs ${i + 1}/${dbToDocs.length}…`)
-        const { id, filename } = dbToDocs[i]
-        const row = existingById.get(id)
-        if (!row) continue
-        try {
-          await writeDocTicketFile(root, filename, row.body_md ?? '')
-          writtenToDocs++
-        } catch (e) {
-          setSupabaseLastSyncError(e instanceof Error ? e.message : String(e))
-          setSyncSummary(`Docs→DB: ${created} created, ${updated} updated. DB→Docs: stopped at ${filename}.`)
-          setSyncInProgress(false)
-          setSyncProgressText(null)
-          await refetchSupabaseTickets()
-          return
-        }
-      }
-
-      const { data: afterRows } = await client
-        .from('tickets')
-        .select('id, kanban_column_id, kanban_position')
-        .order('id')
-      const afterRefetch = (afterRows ?? []) as SupabaseTicketRow[]
-      const { data: colRows } = await client
-        .from('kanban_columns')
-        .select('id')
-        .order('position', { ascending: true })
-      const validColumnIds = new Set((colRows ?? []).map((r: { id: string }) => r.id))
-      const firstColumnId = (colRows?.[0] as { id: string } | undefined)?.id ?? 'col-unassigned'
-      const unassigned = afterRefetch.filter(
-        (r) =>
-          r.kanban_column_id == null || r.kanban_column_id === '' || !validColumnIds.has(r.kanban_column_id)
-      )
-      const movedAt = new Date().toISOString()
-      for (let i = 0; i < unassigned.length; i++) {
-        await client
-          .from('tickets')
-          .update({
-            kanban_column_id: firstColumnId,
-            kanban_position: i,
-            kanban_moved_at: movedAt,
-          })
-          .eq('id', unassigned[i].id)
-      }
-
-      setSyncProgressText(null)
-      setSyncSummary(
-        `Docs→DB: ${created} created, ${updated} updated, ${docsToDb.skip} skipped. DB→Docs: ${writtenToDocs} written. Unassigned: ${unassigned.length} in column.`
-      )
-      await refetchSupabaseTickets()
-    } catch (e) {
-      setSupabaseLastSyncError(e instanceof Error ? e.message : String(e))
-      setSyncSummary(null)
-    } finally {
-      setSyncInProgress(false)
-      setSyncProgressText(null)
-      if (typeof window !== 'undefined' && window.parent !== window) {
-        window.parent.postMessage({ type: 'HAL_SYNC_COMPLETED' }, '*')
-      }
-    }
-  }, [
-    ticketStoreRootHandle,
-    supabaseProjectUrl,
-    supabaseAnonKey,
-    refetchSupabaseTickets,
-    writeDocTicketFile,
-  ])
-
-  const writeTicketKanbanFrontmatter = useCallback(
-    async (
-      root: FileSystemDirectoryHandle,
-      path: string,
-      updates: KanbanFrontmatter
-    ): Promise<void> => {
-      const name = path.split('/').pop() ?? path
-      const docs = await root.getDirectoryHandle('docs')
-      const tickets = await docs.getDirectoryHandle('tickets')
-      const fileHandle = await tickets.getFileHandle(name, { create: false })
-      if (fileHandle.requestPermission) {
-        const perm = await fileHandle.requestPermission({ mode: 'readwrite' })
-        if (perm !== 'granted') throw new Error('Write permission denied.')
-      }
-      const file = await fileHandle.getFile()
-      const content = await file.text()
-      const newContent = updateKanbanInContent(content, updates)
-      const writable = await fileHandle.createWritable()
-      await writable.write(newContent)
-      await writable.close()
-    },
-    []
-  )
+  // File system sync removed (0065): Supabase-only
 
   const toggleDebug = useCallback(() => {
     const next = !debugOpen
@@ -1892,11 +1516,7 @@ function App() {
     const title = newColumnTitle.trim()
     if (!title) return
     const normalized = normalizeTitle(title)
-    const checkCols = supabaseBoardActive
-      ? supabaseColumns
-      : ticketStoreConnected
-        ? ticketColumns
-        : columns
+    const checkCols = supabaseBoardActive ? supabaseColumns : columns
     const isDuplicate = checkCols.some((c) => normalizeTitle(c.title) === normalized)
     if (isDuplicate) {
       setAddColumnError('Column title must be unique.')
@@ -1934,16 +1554,11 @@ function App() {
       }
       return
     }
-    const setCols = ticketStoreConnected ? setTicketColumns : setColumns
-    const col: Column = { id: stableColumnId(), title, cardIds: [] }
-    setCols((prev) => [...prev, col])
-    setNewColumnTitle('')
-    setShowAddColumnForm(false)
-    addLog(`Column added: "${title}"`)
+    // Supabase-only mode: can't add columns when not connected
+    setAddColumnError('Connect to Supabase to add columns.')
+    addLog('Column add blocked: Supabase not connected')
   }, [
     newColumnTitle,
-    ticketStoreConnected,
-    ticketColumns,
     columns,
     supabaseBoardActive,
     supabaseColumns,
@@ -1962,13 +1577,14 @@ function App() {
 
   const handleRemoveColumn = useCallback(
     (id: string) => {
-      const cols = ticketStoreConnected ? ticketColumns : columns
-      const setCols = ticketStoreConnected ? setTicketColumns : setColumns
-      const col = cols.find((c) => c.id === id)
-      setCols((prev) => prev.filter((c) => c.id !== id))
-      if (col) addLog(`Column removed: "${col.title}"`)
+      if (!supabaseBoardActive) {
+        addLog('Column removal blocked: Supabase-only mode requires Supabase connection')
+        return
+      }
+      const col = supabaseColumns.find((c) => c.id === id)
+      if (col) addLog(`Column removal: "${col.title}" (Supabase-only: removal via Supabase UI)`)
     },
-    [ticketStoreConnected, ticketColumns, columns, addLog]
+    [supabaseBoardActive, supabaseColumns, addLog]
   )
 
   const handleDragStart = useCallback(
@@ -2033,50 +1649,15 @@ function App() {
           return
         }
 
-        const setCols = ticketStoreConnected ? setTicketColumns : setColumns
-        setCols((prev) => {
-          const oldIndex = prev.findIndex((c) => c.id === active.id)
-          const newIndex = prev.findIndex((c) => c.id === overColumnId)
-          if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return prev
-          const next = arrayMove(prev, oldIndex, newIndex)
-          addLog(`Columns reordered: ${prev.map((c) => c.title).join(',')} -> ${next.map((c) => c.title).join(',')}`)
-          return next
-        })
+        // Supabase-only mode: column reorder requires Supabase connection
+        addLog('Column reorder blocked: Supabase-only mode requires Supabase connection')
         return
       }
 
       const sourceColumn = findColumnByCardId(String(active.id))
       const overColumn = findColumnById(String(effectiveOverId)) ?? findColumnByCardId(String(effectiveOverId))
 
-      if (!sourceColumn && ticketStoreConnected && ticketStoreRootHandle && overColumn && ticketStoreFiles.some((f) => f.path === active.id)) {
-        const path = String(active.id)
-        let overIndex = overColumn.cardIds.indexOf(String(effectiveOverId))
-        if (overIndex < 0) overIndex = overColumn.cardIds.length
-        const prev = ticketColumns.map((c) => ({ ...c, cardIds: [...c.cardIds] }))
-        setTicketColumns((prevCols) =>
-          prevCols.map((col) =>
-            col.id === overColumn.id
-              ? { ...col, cardIds: [...col.cardIds.slice(0, overIndex), path, ...col.cardIds.slice(overIndex)] }
-              : col
-          )
-        )
-        try {
-          await writeTicketKanbanFrontmatter(ticketStoreRootHandle, path, {
-            kanbanColumnId: overColumn.id,
-            kanbanPosition: overIndex,
-            kanbanMovedAt: new Date().toISOString(),
-          })
-          setLastSavedTicketPath(path)
-          setLastSavedAt(new Date())
-          setLastWriteError(null)
-          addLog(`Ticket dropped into ${overColumn.title}: ${path}`)
-        } catch (e) {
-          setLastWriteError(e instanceof Error ? e.message : 'Write failed')
-          setTicketColumns(prev)
-          addLog(`Write failed for ${path}`)
-        }
-        return
-      }
+      // File system mode removed (0065): Supabase-only
 
       // Supabase: drag from ticket list into column (0013)
       if (
@@ -2235,84 +1816,14 @@ function App() {
         return
       }
 
-      const sourceCardIds = sourceColumn.cardIds
-      const activeIndex = sourceCardIds.indexOf(String(active.id))
-      const isSameColumn = sourceColumn.id === overColumn.id
-      const cols = ticketStoreConnected ? ticketColumns : columns
-      const setCols = ticketStoreConnected ? setTicketColumns : setColumns
-      const cardsMap = cardsForDisplay
-
-      if (isSameColumn) {
-        let overIndex = overColumn.cardIds.indexOf(String(effectiveOverId))
-        if (overIndex < 0) overIndex = overColumn.cardIds.length
-        if (activeIndex === overIndex) return
-        const nextCols = cols.map((c) =>
-          c.id === sourceColumn.id
-            ? { ...c, cardIds: arrayMove(c.cardIds, activeIndex, overIndex) }
-            : c
-        )
-        setCols(nextCols)
-        addLog(`Card reordered in ${sourceColumn.title} (card: ${cardsMap[String(active.id)]?.title ?? active.id})`)
-        if (ticketStoreConnected && ticketStoreRootHandle) {
-          const col = nextCols.find((c) => c.id === sourceColumn.id)
-          if (col) {
-            try {
-              for (let i = 0; i < col.cardIds.length; i++) {
-                const p = col.cardIds[i]
-                if (!p.startsWith('docs/')) continue
-                await writeTicketKanbanFrontmatter(ticketStoreRootHandle, p, {
-                  kanbanColumnId: col.id,
-                  kanbanPosition: i,
-                  ...(p === active.id ? { kanbanMovedAt: new Date().toISOString() } : {}),
-                })
-              }
-              setLastSavedTicketPath(String(active.id))
-              setLastSavedAt(new Date())
-              setLastWriteError(null)
-            } catch (e) {
-              setLastWriteError(e instanceof Error ? e.message : 'Write failed')
-            }
-          }
-        }
-      } else {
-        let overIndex = overColumn.cardIds.indexOf(String(effectiveOverId))
-        if (overIndex < 0) overIndex = overColumn.cardIds.length
-        const nextCols = cols.map((c) => {
-          if (c.id === sourceColumn.id) return { ...c, cardIds: c.cardIds.filter((id) => id !== active.id) }
-          if (c.id === overColumn.id) {
-            const without = c.cardIds.filter((id) => id !== active.id)
-            return { ...c, cardIds: [...without.slice(0, overIndex), String(active.id), ...without.slice(overIndex)] }
-          }
-          return c
-        })
-        setCols(nextCols)
-        addLog(`Card moved from ${sourceColumn.title} to ${overColumn.title} (${cardsMap[String(active.id)]?.title ?? active.id})`)
-        if (ticketStoreConnected && ticketStoreRootHandle) {
-          const path = String(active.id)
-          if (path.startsWith('docs/')) {
-            try {
-              await writeTicketKanbanFrontmatter(ticketStoreRootHandle, path, {
-                kanbanColumnId: overColumn.id,
-                kanbanPosition: overIndex,
-                kanbanMovedAt: new Date().toISOString(),
-              })
-              setLastSavedTicketPath(path)
-              setLastSavedAt(new Date())
-              setLastWriteError(null)
-            } catch (e) {
-              setLastWriteError(e instanceof Error ? e.message : 'Write failed')
-              setCols(cols)
-            }
-          }
-        }
+      // File system mode removed (0065): Supabase-only
+      // If we reach here without Supabase active, it's an error state
+      if (!supabaseBoardActive) {
+        addLog('Card move blocked: Supabase-only mode requires Supabase connection')
+        return
       }
     },
     [
-      ticketStoreConnected,
-      ticketStoreRootHandle,
-      ticketStoreFiles,
-      ticketColumns,
-      columns,
       supabaseBoardActive,
       supabaseColumns,
       supabaseProjectUrl,
@@ -2324,8 +1835,6 @@ function App() {
       findColumnById,
       isColumnId,
       addLog,
-      writeTicketKanbanFrontmatter,
-      cardsForDisplay,
     ]
   )
 
@@ -2362,22 +1871,12 @@ function App() {
     INITIAL_CARDS,
     _SUPABASE_SETUP_SQL,
     _SUPABASE_KANBAN_COLUMNS_SETUP_SQL,
-    _DraggableTicketItem,
     _DraggableSupabaseTicketItem,
-    ticketStoreConnectMessage,
     _supabaseNotInitialized,
     _selectedSupabaseTicketId,
     _selectedSupabaseTicketContent,
-    _syncPreview,
-    _syncInProgress,
-    _syncSummary,
-    _syncProgressText,
-    _handleSelectTicket,
-    _handleRefreshTickets,
     _handleSupabaseConnect,
     _handleSelectSupabaseTicket,
-    _handlePreviewSync,
-    _handleRunSync,
   ]
   void _retain
 
@@ -2711,7 +2210,7 @@ function App() {
                   col={col}
                   cards={cardsForDisplay}
                   onRemove={handleRemoveColumn}
-                  hideRemove={ticketStoreConnected || supabaseBoardActive}
+                  hideRemove={supabaseBoardActive}
                   onDeleteTicket={handleDeleteTicket}
                   showDelete={supabaseBoardActive}
                   onOpenDetail={handleOpenTicketDetail}
@@ -2758,27 +2257,14 @@ function App() {
             </div>
           </section>
           <section>
-            <h3>Ticket Store</h3>
+            <h3>Ticket Store (Supabase-only)</h3>
             <div className="build-info">
-              <p>Store: Docs (read + write when connected with readwrite)</p>
-              {!ticketStoreConnected && (
-                <button type="button" onClick={_handleConnectProject}>
-                  Connect Ticket Store (docs)
-                </button>
-              )}
-              <p>Connected: {String(ticketStoreConnected)}</p>
-              <p>Last refresh: {ticketStoreLastRefresh ? ticketStoreLastRefresh.toISOString() : 'never'}</p>
-              <p>Last error: {ticketStoreLastError ?? 'none'}</p>
-              <p>Last write error: {lastWriteError ?? 'none'}</p>
-              <p>Last saved: {lastSavedTicketPath ? `${lastSavedTicketPath} at ${lastSavedAt?.toISOString() ?? ''}` : 'none'}</p>
-            </div>
-          </section>
-          <section>
-            <h3>Ticket Store (Supabase)</h3>
-            <div className="build-info">
+              <p className="debug-mode-indicator" role="status">
+                Mode: <strong>Supabase-only</strong> (file system mode removed in 0065)
+              </p>
               {supabaseConfigMissing && (
-                <p className="debug-env-missing" role="status">
-                  Missing env: {[!envUrl && 'VITE_SUPABASE_URL', !envKey && 'VITE_SUPABASE_ANON_KEY'].filter(Boolean).join(', ') || 'none'}
+                <p className="debug-env-missing" role="alert">
+                  <strong>Error:</strong> Missing env: {[!envUrl && 'VITE_SUPABASE_URL', !envKey && 'VITE_SUPABASE_ANON_KEY'].filter(Boolean).join(', ') || 'none'}
                 </p>
               )}
               <p>Connected: {String(supabaseConnectionStatus === 'connected')}</p>
@@ -2818,25 +2304,7 @@ function App() {
               <p className="kanban-column-ticket-ids">Per-column ticket IDs: {kanbanColumnTicketIdsDisplay}</p>
             </div>
           </section>
-          {selectedTicketPath && (
-            <section>
-              <h3>Selected ticket frontmatter</h3>
-              <div className="build-info">
-                <p>Path: {selectedTicketPath}</p>
-                {selectedTicketContent != null && !selectedTicketContent.startsWith('(') && (() => {
-                  const { frontmatter } = parseFrontmatter(selectedTicketContent)
-                  const kanban = getKanbanFromFrontmatter(frontmatter)
-                  return (
-                    <>
-                      <p>kanbanColumnId: {kanban.kanbanColumnId ?? '(not set)'}</p>
-                      <p>kanbanPosition: {kanban.kanbanPosition ?? '(not set)'}</p>
-                      <p>kanbanMovedAt: {kanban.kanbanMovedAt ?? '(not set)'}</p>
-                    </>
-                  )
-                })()}
-              </div>
-            </section>
-          )}
+          {/* File system mode removed (0065): selectedTicketPath debug section removed */}
           <section>
             <h3>Action Log</h3>
             <p className="action-log-summary">Total actions: {actionLog.length}</p>

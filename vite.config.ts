@@ -426,7 +426,7 @@ export default defineConfig({
 
             writeStage({ stage: 'fetching_ticket' })
 
-            // Fetch ticket: Supabase first (if creds provided), else docs/tickets
+            // Fetch ticket: Supabase-only (0065)
             let currentColumnId: string | null = null
             if (supabaseUrl && supabaseAnonKey) {
               const { createClient } = await import('@supabase/supabase-js')
@@ -437,31 +437,17 @@ export default defineConfig({
                 .eq('id', ticketId)
                 .single()
               if (error || !row?.body_md) {
-                // Fallback to docs
-                const files = fs.readdirSync(ticketsDir, { withFileTypes: true })
-                const match = files.find((f) => f.isFile() && f.name.startsWith(ticketId + '-') && f.name.endsWith('.md'))
-                if (!match) {
-                  writeStage({ stage: 'failed', error: `Ticket ${ticketId} not found in Supabase or docs/tickets.`, status: 'ticket-not-found' })
-                  res.end()
-                  return
-                }
-                ticketFilename = match.name
-                bodyMd = fs.readFileSync(path.join(ticketsDir, ticketFilename), 'utf8')
-              } else {
-                bodyMd = row.body_md
-                ticketFilename = row.filename ?? `${ticketId}-unknown.md`
-                currentColumnId = row.kanban_column_id ?? null
-              }
-            } else {
-              const files = fs.readdirSync(ticketsDir, { withFileTypes: true })
-              const match = files.find((f) => f.isFile() && f.name.startsWith(ticketId + '-') && f.name.endsWith('.md'))
-              if (!match) {
-                writeStage({ stage: 'failed', error: `Ticket ${ticketId} not found in docs/tickets. Connect project to fetch from Supabase.`, status: 'ticket-not-found' })
+                writeStage({ stage: 'failed', error: `Ticket ${ticketId} not found in Supabase. Supabase-only mode requires Supabase connection.`, status: 'ticket-not-found' })
                 res.end()
                 return
               }
-              ticketFilename = match.name
-              bodyMd = fs.readFileSync(path.join(ticketsDir, ticketFilename), 'utf8')
+              bodyMd = row.body_md
+              ticketFilename = row.filename ?? `${ticketId}-unknown.md`
+              currentColumnId = row.kanban_column_id ?? null
+            } else {
+              writeStage({ stage: 'failed', error: `Supabase not configured. Connect project to fetch ticket ${ticketId} from Supabase.`, status: 'ticket-not-found' })
+              res.end()
+              return
             }
 
             // Move ticket from To Do to Doing when Implementation Agent starts (0053)
@@ -826,7 +812,7 @@ export default defineConfig({
 
             writeStage({ stage: 'fetching_ticket' })
 
-            // Fetch ticket: Supabase first (if creds provided), else docs/tickets
+            // Fetch ticket: Supabase-only (0065)
             if (supabaseUrl && supabaseAnonKey) {
               const { createClient } = await import('@supabase/supabase-js')
               const supabase = createClient(supabaseUrl, supabaseAnonKey)
@@ -836,30 +822,16 @@ export default defineConfig({
                 .eq('id', ticketId)
                 .single()
               if (error || !row?.body_md) {
-                // Fallback to docs
-                const files = fs.readdirSync(ticketsDir, { withFileTypes: true })
-                const match = files.find((f) => f.isFile() && f.name.startsWith(ticketId + '-') && f.name.endsWith('.md'))
-                if (!match) {
-                  writeStage({ stage: 'failed', error: `Ticket ${ticketId} not found in Supabase or docs/tickets.`, status: 'ticket-not-found' })
-                  res.end()
-                  return
-                }
-                ticketFilename = match.name
-                bodyMd = fs.readFileSync(path.join(ticketsDir, ticketFilename), 'utf8')
-              } else {
-                bodyMd = row.body_md
-                ticketFilename = row.filename ?? `${ticketId}-unknown.md`
-              }
-            } else {
-              const files = fs.readdirSync(ticketsDir, { withFileTypes: true })
-              const match = files.find((f) => f.isFile() && f.name.startsWith(ticketId + '-') && f.name.endsWith('.md'))
-              if (!match) {
-                writeStage({ stage: 'failed', error: `Ticket ${ticketId} not found in docs/tickets. Connect project to fetch from Supabase.`, status: 'ticket-not-found' })
+                writeStage({ stage: 'failed', error: `Ticket ${ticketId} not found in Supabase. Supabase-only mode requires Supabase connection.`, status: 'ticket-not-found' })
                 res.end()
                 return
               }
-              ticketFilename = match.name
-              bodyMd = fs.readFileSync(path.join(ticketsDir, ticketFilename), 'utf8')
+              bodyMd = row.body_md
+              ticketFilename = row.filename ?? `${ticketId}-unknown.md`
+            } else {
+              writeStage({ stage: 'failed', error: `Supabase not configured. Connect project to fetch ticket ${ticketId} from Supabase.`, status: 'ticket-not-found' })
+              res.end()
+              return
             }
 
             // Extract branch name from ticket (QA → Branch field)
