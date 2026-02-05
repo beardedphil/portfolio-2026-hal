@@ -32,6 +32,38 @@ function slugFromTitle(title: string): string {
     .replace(/^-|-$/g, '') || 'ticket'
 }
 
+function isUnknownColumnError(err: unknown): boolean {
+  const e = err as { code?: string; message?: string }
+  const msg = (e?.message ?? '').toLowerCase()
+  return e?.code === '42703' || (msg.includes('column') && msg.includes('does not exist'))
+}
+
+function repoHintPrefix(repoFullName: string): string {
+  const repo = repoFullName.split('/').pop() ?? repoFullName
+  const tokens = repo
+    .toLowerCase()
+    .split(/[^a-z0-9]+/g)
+    .filter(Boolean)
+
+  for (let i = tokens.length - 1; i >= 0; i--) {
+    const t = tokens[i]
+    if (!/[a-z]/.test(t)) continue
+    if (t.length >= 2 && t.length <= 6) return t.toUpperCase()
+  }
+
+  const letters = repo.replace(/[^a-zA-Z]/g, '').toUpperCase()
+  return (letters.slice(0, 4) || 'PRJ').toUpperCase()
+}
+
+function parseTicketNumber(ref: string): number | null {
+  const s = String(ref ?? '').trim()
+  if (!s) return null
+  const m = s.match(/(\d{1,4})(?!.*\d)/) // last 1-4 digit run
+  if (!m) return null
+  const n = parseInt(m[1], 10)
+  return Number.isFinite(n) ? n : null
+}
+
 /** Extract section body after a ## Section Title line (first line after blank line or next ##). */
 function sectionContent(body: string, sectionTitle: string): string {
   const re = new RegExp(
@@ -54,8 +86,8 @@ function normalizeTitleLineInBody(bodyMd: string, ticketId: string): string {
   const prefix = match[1] // "- **Title**: "
   let titleValue = match[2].trim()
   
-  // Remove any existing ID prefix (e.g. "0048 — " or "0048 - ")
-  titleValue = titleValue.replace(/^\d{4}\s*[—–-]\s*/, '')
+  // Remove any existing ID prefix (e.g. "0048 — " or "HAL-0048 - ")
+  titleValue = titleValue.replace(/^(?:[A-Za-z0-9]{2,10}-)?\d{4}\s*[—–-]\s*/, '')
   
   // Prepend the correct ID prefix
   const normalizedTitle = `${idPrefix}${titleValue}`
@@ -155,10 +187,22 @@ export async function checkUnassignedTickets(
   const notReady: Array<{ id: string; title?: string; missingItems: string[] }> = []
 
   try {
-    const { data: rows, error: fetchError } = await supabase
+    // Repo-scoped safe mode (0079): use pk for updates; keep legacy fallback if schema isn't migrated.
+    const r = await supabase
       .from('tickets')
-      .select('id, title, body_md, kanban_column_id')
-      .order('id', { ascending: true })
+      .select('pk, id, display_id, repo_full_name, ticket_number, title, body_md, kanban_column_id')
+      .order('repo_full_name', { ascending: true })
+      .order('ticket_number', { ascending: true })
+    let rows = r.data as any[] | null
+    let fetchError = r.error as any
+    if (fetchError && isUnknownColumnError(fetchError)) {
+      const legacy = await supabase
+        .from('tickets')
+        .select('id, title, body_md, kanban_column_id')
+        .order('id', { ascending: true })
+      rows = legacy.data as any[] | null
+      fetchError = legacy.error as any
+    }
 
     if (fetchError) {
       return { moved: [], notReady: [], error: `Supabase fetch: ${fetchError.message}` }
@@ -171,39 +215,74 @@ export async function checkUnassignedTickets(
         r.kanban_column_id === ''
     )
 
-    let nextTodoPosition = 0
-    const { data: todoRows } = await supabase
-      .from('tickets')
-      .select('kanban_position')
-      .eq('kanban_column_id', COL_TODO)
-      .order('kanban_position', { ascending: false })
-      .limit(1)
-    if (todoRows?.length) {
-      const max = (todoRows as { kanban_position?: number }[]).reduce(
-        (acc, r) => Math.max(acc, r.kanban_position ?? 0),
-        0
-      )
-      nextTodoPosition = max + 1
+    const now = new Date().toISOString()
+    // Group by repo when available; otherwise treat as single bucket.
+    const groups = new Map<string, any[]>()
+    for (const row of unassigned) {
+      const repo = (row as any).repo_full_name ?? 'legacy/unknown'
+      const arr = groups.get(repo) ?? []
+      arr.push(row)
+      groups.set(repo, arr)
     }
 
-    const now = new Date().toISOString()
-    for (const row of unassigned) {
-      const id = (row as { id: string }).id
-      const title = (row as { title?: string }).title
-      const bodyMd = (row as { body_md?: string }).body_md ?? ''
-      const result = evaluateTicketReady(bodyMd)
-      if (result.ready) {
-        const { error: updateError } = await supabase
+    for (const [repo, rowsInRepo] of groups.entries()) {
+      // Compute next position within this repo's To Do column if schema supports repo scoping; else global.
+      let nextTodoPosition = 0
+      const todoQ = supabase
+        .from('tickets')
+        .select('kanban_position')
+        .eq('kanban_column_id', COL_TODO)
+      const hasRepoCol = (rowsInRepo[0] as any).repo_full_name != null
+      const todoR = hasRepoCol
+        ? await todoQ.eq('repo_full_name', repo).order('kanban_position', { ascending: false }).limit(1)
+        : await todoQ.order('kanban_position', { ascending: false }).limit(1)
+      if (todoR.error && isUnknownColumnError(todoR.error)) {
+        // Legacy schema: ignore repo filter
+        const legacyTodo = await supabase
           .from('tickets')
-          .update({
-            kanban_column_id: COL_TODO,
-            kanban_position: nextTodoPosition++,
-            kanban_moved_at: now,
-          })
-          .eq('id', id)
-        if (!updateError) moved.push(id)
+          .select('kanban_position')
+          .eq('kanban_column_id', COL_TODO)
+          .order('kanban_position', { ascending: false })
+          .limit(1)
+        if (legacyTodo.error) {
+          return { moved: [], notReady: [], error: `Supabase fetch: ${legacyTodo.error.message}` }
+        }
+        const max = (legacyTodo.data ?? []).reduce(
+          (acc, r) => Math.max(acc, (r as { kanban_position?: number }).kanban_position ?? 0),
+          0
+        )
+        nextTodoPosition = max + 1
+      } else if (todoR.error) {
+        return { moved: [], notReady: [], error: `Supabase fetch: ${todoR.error.message}` }
       } else {
-        notReady.push({ id, title, missingItems: result.missingItems })
+        const max = (todoR.data ?? []).reduce(
+          (acc, r) => Math.max(acc, (r as { kanban_position?: number }).kanban_position ?? 0),
+          0
+        )
+        nextTodoPosition = max + 1
+      }
+
+      for (const row of rowsInRepo) {
+        const id = (row as { id: string }).id
+        const displayId = (row as any).display_id
+        const title = (row as { title?: string }).title
+        const bodyMd = (row as { body_md?: string }).body_md ?? ''
+        const result = evaluateTicketReady(bodyMd)
+        if (result.ready) {
+          const updateQ = supabase
+            .from('tickets')
+            .update({
+              kanban_column_id: COL_TODO,
+              kanban_position: nextTodoPosition++,
+              kanban_moved_at: now,
+            })
+          const upd = (row as any).pk
+            ? await updateQ.eq('pk', (row as any).pk)
+            : await updateQ.eq('id', id)
+          if (!upd.error) moved.push(displayId ?? id)
+        } else {
+          notReady.push({ id: displayId ?? id, title, missingItems: result.missingItems })
+        }
       }
     }
 
@@ -289,6 +368,8 @@ export interface PmAgentConfig {
   projectId?: string
   /** Base URL for file access API (defaults to http://localhost:5173). */
   fileAccessApiUrl?: string
+  /** Per-browser session token used to scope file-access requests. */
+  fileAccessSessionId?: string
   /** Image attachments to include in the request (base64 data URLs). */
   images?: Array<{ dataUrl: string; filename: string; mimeType: string }>
 }
@@ -321,7 +402,7 @@ You have access to read-only tools to explore the repository. Use them to answer
 
 **Conversation context:** When "Conversation so far" is present, the "User message" is the user's latest reply in that conversation. Short replies (e.g. "Entirely, in all states", "Yes", "The first one", "inside the embedded kanban UI") are almost always answers to the question you (the assistant) just asked—interpret them in that context. Do not treat short user replies as a new top-level request about repo rules, process, or "all states" enforcement unless the conversation clearly indicates otherwise.
 
-**Creating tickets:** When the user **explicitly** asks to create a ticket (e.g. "create a ticket", "create ticket for that", "create a new ticket for X"), you MUST call the create_ticket tool if it is available. Do NOT call create_ticket for short, non-actionable messages such as: "test", "ok", "hi", "hello", "thanks", "cool", "checking", "asdf", or similar—these are usually the user testing the UI, acknowledging, or typing casually. Do not infer a ticket-creation request from context alone (e.g. if the user sends "Test" while testing the chat UI, that does NOT mean create the chat UI ticket). Calling the tool is what actually creates the ticket—do not only write the ticket content in your message. Use create_ticket with a short title (without the ID prefix—the tool automatically prefixes it with "NNNN —" format). Provide a full markdown body following the repo ticket template. Do not invent an ID—the tool assigns the next ID and formats the title as "NNNN — Your Title". Do not write secrets or API keys into the ticket body. If create_ticket is not in your tool list, tell the user: "I don't have the create-ticket tool for this request. In the HAL app, connect the project folder (with VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in its .env), then try again. Check Diagnostics to confirm 'Create ticket (this request): Available'." After creating a ticket via the tool, report the exact ticket ID and file path (e.g. docs/tickets/NNNN-title-slug.md) that was created.
+**Creating tickets:** When the user **explicitly** asks to create a ticket (e.g. "create a ticket", "create ticket for that", "create a new ticket for X"), you MUST call the create_ticket tool if it is available. Do NOT call create_ticket for short, non-actionable messages such as: "test", "ok", "hi", "hello", "thanks", "cool", "checking", "asdf", or similar—these are usually the user testing the UI, acknowledging, or typing casually. Do not infer a ticket-creation request from context alone (e.g. if the user sends "Test" while testing the chat UI, that does NOT mean create the chat UI ticket). Calling the tool is what actually creates the ticket—do not only write the ticket content in your message. Use create_ticket with a short title (without the ID prefix—the tool assigns the next repo-scoped ID and normalizes the Title line to "PREFIX-NNNN — ..."). Provide a full markdown body following the repo ticket template. Do not invent an ID—the tool assigns it. Do not write secrets or API keys into the ticket body. If create_ticket is not in your tool list, tell the user: "I don't have the create-ticket tool for this request. In the HAL app, connect the project folder (with VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in its .env), then try again. Check Diagnostics to confirm 'Create ticket (this request): Available'." After creating a ticket via the tool, report the exact ticket display ID (e.g. HAL-0079) and the returned filePath (Supabase-only).
 
 **Moving a ticket to To Do:** When the user asks to move a ticket to To Do (e.g. "move this to To Do", "move ticket 0012 to To Do"), you MUST (1) fetch the ticket content with fetch_ticket_content (by ticket id), (2) evaluate readiness with evaluate_ticket_ready (pass the body_md from the fetch result). If the ticket is NOT ready, do NOT call kanban_move_ticket_to_todo; instead reply with a clear list of what is missing (use the missingItems from the evaluate_ticket_ready result). If the ticket IS ready, call kanban_move_ticket_to_todo with the ticket id. Then confirm in chat that the ticket was moved. The readiness checklist is in docs/process/ready-to-start-checklist.md (Goal, Human-verifiable deliverable, Acceptance criteria checkboxes, Constraints, Non-goals, no unresolved placeholders).
 
@@ -495,7 +576,7 @@ export async function runPmAgent(
         )
         return tool({
           description:
-            'Create a new ticket and store it in the Kanban board (Supabase). The ticket appears in Unassigned. Use when the user asks to create a ticket from the conversation. Provide the full markdown body using the exact structure from the Ticket template section in context: include Goal, Human-verifiable deliverable, Acceptance criteria (with - [ ] checkboxes), Constraints, and Non-goals. Replace every angle-bracket placeholder with concrete content so the ticket passes the Ready-to-start checklist (no <placeholders> left). Do not include an ID in the body—the tool assigns the next available ID and automatically prefixes the title with "NNNN —" format (e.g. "0050 — Your Title"). Do not write secrets or API keys.',
+            'Create a new ticket and store it in the Kanban board (Supabase). The ticket appears in Unassigned. Use when the user asks to create a ticket from the conversation. Provide the full markdown body using the exact structure from the Ticket template section in context: include Goal, Human-verifiable deliverable, Acceptance criteria (with - [ ] checkboxes), Constraints, and Non-goals. Replace every angle-bracket placeholder with concrete content so the ticket passes the Ready-to-start checklist (no <placeholders> left). Do not include an ID in the body—the tool assigns the next available ID for the connected repo and normalizes the Title line to "PREFIX-NNNN — <title>" (e.g. "HAL-0050 — Your Title"). Do not write secrets or API keys.',
           parameters: z.object({
             title: z.string().describe('Short title for the ticket (without ID prefix; the tool automatically formats it as "NNNN — Your Title")'),
             body_md: z
@@ -509,6 +590,9 @@ export async function runPmAgent(
               | {
                   success: true
                   id: string
+                  display_id?: string
+                  ticket_number?: number
+                  repo_full_name?: string
                   filename: string
                   filePath: string
                   retried?: boolean
@@ -533,34 +617,60 @@ export async function runPmAgent(
                 return out
               }
 
-              const { data: existingRows, error: fetchError } = await supabase
-                .from('tickets')
-                .select('id')
-                .order('id', { ascending: true })
-              if (fetchError) {
-                out = { success: false, error: `Supabase fetch ids: ${fetchError.message}` }
-                toolCalls.push({ name: 'create_ticket', input, output: out })
-                return out
+              const repoFullName =
+                typeof config.projectId === 'string' && config.projectId.trim() ? config.projectId.trim() : 'legacy/unknown'
+              const prefix = repoHintPrefix(repoFullName)
+
+              // Prefer repo-scoped IDs (0079): max(ticket_number) per repo
+              let startNum = 1
+              {
+                const { data, error } = await supabase
+                  .from('tickets')
+                  .select('ticket_number')
+                  .eq('repo_full_name', repoFullName)
+                  .order('ticket_number', { ascending: false })
+                  .limit(1)
+                if (error) {
+                  if (!isUnknownColumnError(error)) {
+                    out = { success: false, error: `Supabase fetch max ticket_number: ${error.message}` }
+                    toolCalls.push({ name: 'create_ticket', input, output: out })
+                    return out
+                  }
+
+                  // Legacy fallback: max(id) across all tickets
+                  const { data: existingRows, error: fetchError } = await supabase
+                    .from('tickets')
+                    .select('id')
+                    .order('id', { ascending: true })
+                  if (fetchError) {
+                    out = { success: false, error: `Supabase fetch ids: ${fetchError.message}` }
+                    toolCalls.push({ name: 'create_ticket', input, output: out })
+                    return out
+                  }
+                  const ids = (existingRows ?? []).map((r) => (r as { id?: string }).id ?? '')
+                  const numericIds = ids
+                    .map((id) => {
+                      const n = parseInt(id, 10)
+                      return Number.isNaN(n) ? 0 : n
+                    })
+                    .filter((n) => n >= 0)
+                  startNum = numericIds.length > 0 ? Math.max(...numericIds) + 1 : 1
+                } else {
+                  const maxN = (data?.[0] as { ticket_number?: number } | undefined)?.ticket_number
+                  startNum = typeof maxN === 'number' && Number.isFinite(maxN) ? maxN + 1 : 1
+                }
               }
-              const ids = (existingRows ?? []).map((r) => r.id)
-              const numericIds = ids
-                .map((id) => {
-                  const n = parseInt(id, 10)
-                  return Number.isNaN(n) ? 0 : n
-                })
-                .filter((n) => n >= 0)
-              const startNum = numericIds.length > 0 ? Math.max(...numericIds) + 1 : 1
               const slug = slugFromTitle(input.title)
               const now = new Date().toISOString()
               let lastInsertError: { code?: string; message?: string } | null = null
               for (let attempt = 1; attempt <= MAX_CREATE_TICKET_RETRIES; attempt++) {
                 const candidateNum = startNum + attempt - 1
-                const id = String(candidateNum).padStart(4, '0')
+                const id = String(candidateNum).padStart(4, '0') // legacy string id
+                const displayId = `${prefix}-${id}`
                 const filename = `${id}-${slug}.md`
-                const filePath = `docs/tickets/${filename}`
-                const titleWithId = `${id} — ${input.title.trim()}`
+                const filePath = `supabase:tickets/${displayId}`
                 // Normalize Title line in body_md to include ID prefix (0054)
-                const normalizedBodyMd = normalizeTitleLineInBody(bodyMdTrimmed, id)
+                const normalizedBodyMd = normalizeTitleLineInBody(bodyMdTrimmed, displayId)
                 // Re-validate after normalization (normalization shouldn't introduce placeholders, but check anyway)
                 const normalizedPlaceholders = normalizedBodyMd.match(PLACEHOLDER_RE) ?? []
                 if (normalizedPlaceholders.length > 0) {
@@ -573,20 +683,43 @@ export async function runPmAgent(
                   toolCalls.push({ name: 'create_ticket', input, output: out })
                   return out
                 }
-                const { error: insertError } = await supabase.from('tickets').insert({
-                  id,
-                  filename,
-                  title: titleWithId,
-                  body_md: normalizedBodyMd,
-                  kanban_column_id: 'col-unassigned',
-                  kanban_position: 0,
-                  kanban_moved_at: now,
-                })
+                // New schema insert (0079). If DB isn't migrated, fall back to legacy insert.
+                let insertError: { code?: string; message?: string } | null = null
+                {
+                  const r = await supabase.from('tickets').insert({
+                    repo_full_name: repoFullName,
+                    ticket_number: candidateNum,
+                    display_id: displayId,
+                    id,
+                    filename,
+                    title: input.title.trim(),
+                    body_md: normalizedBodyMd,
+                    kanban_column_id: 'col-unassigned',
+                    kanban_position: 0,
+                    kanban_moved_at: now,
+                  } as any)
+                  insertError = (r.error as any) ?? null
+                  if (insertError && isUnknownColumnError(insertError)) {
+                    const legacy = await supabase.from('tickets').insert({
+                      id,
+                      filename,
+                      title: `${id} — ${input.title.trim()}`,
+                      body_md: normalizeTitleLineInBody(bodyMdTrimmed, id),
+                      kanban_column_id: 'col-unassigned',
+                      kanban_position: 0,
+                      kanban_moved_at: now,
+                    } as any)
+                    insertError = (legacy.error as any) ?? null
+                  }
+                }
                 if (!insertError) {
                   const readiness = evaluateTicketReady(normalizedBodyMd)
                   out = {
                     success: true,
                     id,
+                    display_id: displayId,
+                    ticket_number: candidateNum,
+                    repo_full_name: repoFullName,
                     filename,
                     filePath,
                     ...(attempt > 1 && { retried: true, attempts: attempt }),
@@ -629,35 +762,95 @@ export async function runPmAgent(
       )
       return tool({
         description:
-          'Fetch the full ticket content (body_md, title, id, kanban_column_id) for a ticket by id from Supabase. Supabase-only mode (0065). Use before evaluating readiness or when the user refers to a ticket by id.',
+          'Fetch the full ticket content (body_md, title, id/display_id, kanban_column_id) for a ticket from Supabase. Supabase-only mode (0065). In repo-scoped mode (0079), tickets are resolved by (repo_full_name, ticket_number).',
         parameters: z.object({
           ticket_id: z
             .string()
-            .describe('Ticket id (e.g. "0012" or "12"). Will be normalized to 4-digit id.'),
+            .describe('Ticket reference (e.g. "HAL-0012", "0012", or "12").'),
         }),
         execute: async (input: { ticket_id: string }) => {
-          const id = input.ticket_id.replace(/^0+/, '') || '0'
-          const normalizedId = id.padStart(4, '0')
+          const ticketNumber = parseTicketNumber(input.ticket_id)
+          const normalizedId = String(ticketNumber ?? 0).padStart(4, '0')
           type FetchResult =
-            | { success: true; id: string; title: string; body_md: string; kanban_column_id: string | null }
+            | {
+                success: true
+                id: string
+                display_id?: string
+                ticket_number?: number
+                repo_full_name?: string
+                title: string
+                body_md: string
+                kanban_column_id: string | null
+              }
             | { success: false; error: string }
           let out: FetchResult
           try {
-            const { data: row, error } = await supabase
-              .from('tickets')
-              .select('id, title, body_md, kanban_column_id')
-              .eq('id', normalizedId)
-              .maybeSingle()
-            if (!error && row) {
-              out = {
-                success: true,
-                id: row.id,
-                title: (row as { title?: string }).title ?? '',
-                body_md: (row as { body_md?: string }).body_md ?? '',
-                kanban_column_id: (row as { kanban_column_id?: string | null }).kanban_column_id ?? null,
-              }
+            if (!ticketNumber) {
+              out = { success: false, error: `Could not parse ticket number from "${input.ticket_id}".` }
               toolCalls.push({ name: 'fetch_ticket_content', input, output: out })
               return out
+            }
+
+            const repoFullName =
+              typeof config.projectId === 'string' && config.projectId.trim() ? config.projectId.trim() : ''
+            if (repoFullName) {
+              const { data: row, error } = await supabase
+                .from('tickets')
+                .select('id, display_id, ticket_number, repo_full_name, title, body_md, kanban_column_id')
+                .eq('repo_full_name', repoFullName)
+                .eq('ticket_number', ticketNumber)
+                .maybeSingle()
+              if (!error && row) {
+                out = {
+                  success: true,
+                  id: (row as any).id,
+                  display_id: (row as any).display_id ?? undefined,
+                  ticket_number: (row as any).ticket_number ?? undefined,
+                  repo_full_name: (row as any).repo_full_name ?? undefined,
+                  title: (row as any).title ?? '',
+                  body_md: (row as any).body_md ?? '',
+                  kanban_column_id: (row as any).kanban_column_id ?? null,
+                }
+                toolCalls.push({ name: 'fetch_ticket_content', input, output: out })
+                return out
+              }
+              if (error && isUnknownColumnError(error)) {
+                // Legacy schema fallback: global id
+                const { data: legacyRow, error: legacyErr } = await supabase
+                  .from('tickets')
+                  .select('id, title, body_md, kanban_column_id')
+                  .eq('id', normalizedId)
+                  .maybeSingle()
+                if (!legacyErr && legacyRow) {
+                  out = {
+                    success: true,
+                    id: (legacyRow as any).id,
+                    title: (legacyRow as any).title ?? '',
+                    body_md: (legacyRow as any).body_md ?? '',
+                    kanban_column_id: (legacyRow as any).kanban_column_id ?? null,
+                  }
+                  toolCalls.push({ name: 'fetch_ticket_content', input, output: out })
+                  return out
+                }
+              }
+            } else {
+              // If no repo is connected, keep legacy behavior (global id) so "legacy/unknown" tickets remain reachable.
+              const { data: legacyRow, error: legacyErr } = await supabase
+                .from('tickets')
+                .select('id, title, body_md, kanban_column_id')
+                .eq('id', normalizedId)
+                .maybeSingle()
+              if (!legacyErr && legacyRow) {
+                out = {
+                  success: true,
+                  id: (legacyRow as any).id,
+                  title: (legacyRow as any).title ?? '',
+                  body_md: (legacyRow as any).body_md ?? '',
+                  kanban_column_id: (legacyRow as any).kanban_column_id ?? null,
+                }
+                toolCalls.push({ name: 'fetch_ticket_content', input, output: out })
+                return out
+              }
             }
             // Supabase-only mode (0065): no fallback to docs/tickets
             out = { success: false, error: `Ticket ${normalizedId} not found in Supabase. Supabase-only mode requires Supabase connection.` }
@@ -705,7 +898,10 @@ export async function runPmAgent(
             ),
         }),
         execute: async (input: { ticket_id: string; body_md: string }) => {
-          const normalizedId = input.ticket_id.replace(/^0+/, '0').padStart(4, '0')
+          const ticketNumber = parseTicketNumber(input.ticket_id)
+          const normalizedId = String(ticketNumber ?? 0).padStart(4, '0')
+          const repoFullName =
+            typeof config.projectId === 'string' && config.projectId.trim() ? config.projectId.trim() : ''
           type UpdateResult =
             | { success: true; ticketId: string; ready: boolean; missingItems?: string[] }
             | { success: false; error: string; detectedPlaceholders?: string[] }
@@ -725,11 +921,34 @@ export async function runPmAgent(
               return out
             }
 
-            const { data: row, error: fetchError } = await supabase
-              .from('tickets')
-              .select('id')
-              .eq('id', normalizedId)
-              .maybeSingle()
+            if (!ticketNumber) {
+              out = { success: false, error: `Could not parse ticket number from "${input.ticket_id}".` }
+              toolCalls.push({ name: 'update_ticket_body', input, output: out })
+              return out
+            }
+
+            let row: any = null
+            let fetchError: any = null
+            if (repoFullName) {
+              const r = await supabase
+                .from('tickets')
+                .select('pk, id, display_id')
+                .eq('repo_full_name', repoFullName)
+                .eq('ticket_number', ticketNumber)
+                .maybeSingle()
+              row = r.data
+              fetchError = r.error
+              if (fetchError && isUnknownColumnError(fetchError)) {
+                const legacy = await supabase.from('tickets').select('id').eq('id', normalizedId).maybeSingle()
+                row = legacy.data
+                fetchError = legacy.error
+              }
+            } else {
+              const legacy = await supabase.from('tickets').select('id').eq('id', normalizedId).maybeSingle()
+              row = legacy.data
+              fetchError = legacy.error
+            }
+
             if (fetchError) {
               out = { success: false, error: `Supabase fetch: ${fetchError.message}` }
               toolCalls.push({ name: 'update_ticket_body', input, output: out })
@@ -741,7 +960,8 @@ export async function runPmAgent(
               return out
             }
             // Normalize Title line in body_md to include ID prefix (0054)
-            const normalizedBodyMd = normalizeTitleLineInBody(bodyMdTrimmed, normalizedId)
+            const displayId = row.display_id ?? normalizedId
+            const normalizedBodyMd = normalizeTitleLineInBody(bodyMdTrimmed, displayId)
             // Re-validate after normalization (normalization shouldn't introduce placeholders, but check anyway)
             const normalizedPlaceholders = normalizedBodyMd.match(PLACEHOLDER_RE) ?? []
             if (normalizedPlaceholders.length > 0) {
@@ -754,10 +974,10 @@ export async function runPmAgent(
               toolCalls.push({ name: 'update_ticket_body', input, output: out })
               return out
             }
-            const { error: updateError } = await supabase
-              .from('tickets')
-              .update({ body_md: normalizedBodyMd })
-              .eq('id', normalizedId)
+            const updateQ = supabase.from('tickets').update({ body_md: normalizedBodyMd })
+            const { error: updateError } = row.pk
+              ? await updateQ.eq('pk', row.pk)
+              : await updateQ.eq('id', normalizedId)
             if (updateError) {
               out = { success: false, error: `Supabase update: ${updateError.message}` }
             } else {
@@ -831,17 +1051,51 @@ export async function runPmAgent(
           ticket_id: z.string().describe('Ticket id (e.g. "0012").'),
         }),
         execute: async (input: { ticket_id: string }) => {
-          const normalizedId = input.ticket_id.replace(/^0+/, '0').padStart(4, '0')
+          const ticketNumber = parseTicketNumber(input.ticket_id)
+          const normalizedId = String(ticketNumber ?? 0).padStart(4, '0')
+          const repoFullName =
+            typeof config.projectId === 'string' && config.projectId.trim() ? config.projectId.trim() : ''
           type MoveResult =
             | { success: true; ticketId: string; fromColumn: string; toColumn: string }
             | { success: false; error: string }
           let out: MoveResult
           try {
-            const { data: row, error: fetchError } = await supabase
-              .from('tickets')
-              .select('id, kanban_column_id, kanban_position')
-              .eq('id', normalizedId)
-              .maybeSingle()
+            if (!ticketNumber) {
+              out = { success: false, error: `Could not parse ticket number from "${input.ticket_id}".` }
+              toolCalls.push({ name: 'kanban_move_ticket_to_todo', input, output: out })
+              return out
+            }
+
+            let row: any = null
+            let fetchError: any = null
+            if (repoFullName) {
+              const r = await supabase
+                .from('tickets')
+                .select('pk, id, kanban_column_id, kanban_position')
+                .eq('repo_full_name', repoFullName)
+                .eq('ticket_number', ticketNumber)
+                .maybeSingle()
+              row = r.data
+              fetchError = r.error
+              if (fetchError && isUnknownColumnError(fetchError)) {
+                const legacy = await supabase
+                  .from('tickets')
+                  .select('id, kanban_column_id, kanban_position')
+                  .eq('id', normalizedId)
+                  .maybeSingle()
+                row = legacy.data
+                fetchError = legacy.error
+              }
+            } else {
+              const legacy = await supabase
+                .from('tickets')
+                .select('id, kanban_column_id, kanban_position')
+                .eq('id', normalizedId)
+                .maybeSingle()
+              row = legacy.data
+              fetchError = legacy.error
+            }
+
             if (fetchError) {
               out = { success: false, error: `Supabase fetch: ${fetchError.message}` }
               toolCalls.push({ name: 'kanban_move_ticket_to_todo', input, output: out })
@@ -863,26 +1117,66 @@ export async function runPmAgent(
               toolCalls.push({ name: 'kanban_move_ticket_to_todo', input, output: out })
               return out
             }
-            const { data: todoRows } = await supabase
-              .from('tickets')
-              .select('kanban_position')
-              .eq('kanban_column_id', COL_TODO)
-              .order('kanban_position', { ascending: false })
-              .limit(1)
+            let todoRows: any[] | null = null
+            if (repoFullName) {
+              const r = await supabase
+                .from('tickets')
+                .select('kanban_position')
+                .eq('kanban_column_id', COL_TODO)
+                .eq('repo_full_name', repoFullName)
+                .order('kanban_position', { ascending: false })
+                .limit(1)
+              if (r.error && isUnknownColumnError(r.error)) {
+                const legacy = await supabase
+                  .from('tickets')
+                  .select('kanban_position')
+                  .eq('kanban_column_id', COL_TODO)
+                  .order('kanban_position', { ascending: false })
+                  .limit(1)
+                if (legacy.error) {
+                  out = { success: false, error: `Supabase fetch: ${legacy.error.message}` }
+                  toolCalls.push({ name: 'kanban_move_ticket_to_todo', input, output: out })
+                  return out
+                }
+                todoRows = legacy.data as any[] | null
+              } else if (r.error) {
+                out = { success: false, error: `Supabase fetch: ${r.error.message}` }
+                toolCalls.push({ name: 'kanban_move_ticket_to_todo', input, output: out })
+                return out
+              } else {
+                todoRows = r.data as any[] | null
+              }
+            } else {
+              const legacy = await supabase
+                .from('tickets')
+                .select('kanban_position')
+                .eq('kanban_column_id', COL_TODO)
+                .order('kanban_position', { ascending: false })
+                .limit(1)
+              if (legacy.error) {
+                out = { success: false, error: `Supabase fetch: ${legacy.error.message}` }
+                toolCalls.push({ name: 'kanban_move_ticket_to_todo', input, output: out })
+                return out
+              }
+              todoRows = legacy.data as any[] | null
+            }
+
             const maxPos = (todoRows ?? []).reduce(
               (acc, r) => Math.max(acc, (r as { kanban_position?: number }).kanban_position ?? 0),
               0
             )
             const newPosition = maxPos + 1
             const now = new Date().toISOString()
-            const { error: updateError } = await supabase
+            const updateQ = supabase
               .from('tickets')
               .update({
                 kanban_column_id: COL_TODO,
                 kanban_position: newPosition,
                 kanban_moved_at: now,
               })
-              .eq('id', normalizedId)
+            const { error: updateError } = row.pk
+              ? await updateQ.eq('pk', row.pk)
+              : await updateQ.eq('id', normalizedId)
             if (updateError) {
               out = { success: false, error: `Supabase update: ${updateError.message}` }
             } else {
@@ -933,11 +1227,33 @@ export async function runPmAgent(
             | { success: false; error: string }
           let out: ListResult
           try {
-            const { data: rows, error: fetchError } = await supabase
-              .from('tickets')
-              .select('id, title, kanban_column_id')
-              .eq('kanban_column_id', input.column_id)
-              .order('id', { ascending: true })
+            const repoFullName =
+              typeof config.projectId === 'string' && config.projectId.trim() ? config.projectId.trim() : ''
+
+            const r = repoFullName
+              ? await supabase
+                  .from('tickets')
+                  .select('id, display_id, ticket_number, title, kanban_column_id')
+                  .eq('repo_full_name', repoFullName)
+                  .eq('kanban_column_id', input.column_id)
+                  .order('ticket_number', { ascending: true })
+              : await supabase
+                  .from('tickets')
+                  .select('id, title, kanban_column_id')
+                  .eq('kanban_column_id', input.column_id)
+                  .order('id', { ascending: true })
+            let rows = r.data as any[] | null
+            let fetchError = r.error as any
+
+            if (fetchError && isUnknownColumnError(fetchError) && repoFullName) {
+              const legacy = await supabase
+                .from('tickets')
+                .select('id, title, kanban_column_id')
+                .eq('kanban_column_id', input.column_id)
+                .order('id', { ascending: true })
+              rows = legacy.data as any[] | null
+              fetchError = legacy.error as any
+            }
 
             if (fetchError) {
               out = { success: false, error: `Supabase fetch: ${fetchError.message}` }
@@ -946,7 +1262,7 @@ export async function runPmAgent(
             }
 
             const tickets = (rows ?? []).map((r) => ({
-              id: (r as { id: string }).id,
+              id: (r as any).display_id ?? (r as { id: string }).id,
               title: (r as { title?: string }).title ?? '',
               column: input.column_id,
             }))
@@ -972,6 +1288,10 @@ export async function runPmAgent(
   // Helper to use file access API when project folder is connected, otherwise use direct file system
   const hasProjectFolder = typeof config.projectId === 'string' && config.projectId.trim() !== ''
   const fileAccessApiUrl = config.fileAccessApiUrl ?? 'http://localhost:5173'
+  const fileAccessSessionId =
+    typeof config.fileAccessSessionId === 'string' && config.fileAccessSessionId.trim()
+      ? config.fileAccessSessionId.trim()
+      : null
   
   const readFileTool = tool({
     description: hasProjectFolder
@@ -985,12 +1305,19 @@ export async function runPmAgent(
       if (hasProjectFolder) {
         // Use file access API
         try {
+          if (!fileAccessSessionId) {
+            out = { error: 'File access session is not configured. Reconnect the project folder and try again.' }
+            toolCalls.push({ name: 'read_file', input, output: out })
+            return JSON.stringify(out)
+          }
           const requestId = `read-${Date.now()}-${Math.random().toString(36).slice(2)}`
           const res = await fetch(`${fileAccessApiUrl}/api/pm/file-access`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               requestId,
+              sessionId: fileAccessSessionId,
+              projectId: config.projectId,
               type: 'read_file',
               path: input.path,
               maxLines: 500,
@@ -1033,12 +1360,19 @@ export async function runPmAgent(
       if (hasProjectFolder) {
         // Use file access API
         try {
+          if (!fileAccessSessionId) {
+            out = { error: 'File access session is not configured. Reconnect the project folder and try again.' }
+            toolCalls.push({ name: 'search_files', input, output: out })
+            return JSON.stringify(out)
+          }
           const requestId = `search-${Date.now()}-${Math.random().toString(36).slice(2)}`
           const res = await fetch(`${fileAccessApiUrl}/api/pm/file-access`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               requestId,
+              sessionId: fileAccessSessionId,
+              projectId: config.projectId,
               type: 'search_files',
               pattern: input.pattern,
               glob: input.glob ?? '**/*',

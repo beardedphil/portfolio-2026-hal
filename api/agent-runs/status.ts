@@ -1,0 +1,167 @@
+import type { IncomingMessage, ServerResponse } from 'http'
+import { appendProgress, getCursorApiKey, getServerSupabase, humanReadableCursorError, type AgentType } from './_shared.ts'
+
+function json(res: ServerResponse, statusCode: number, body: unknown) {
+  res.statusCode = statusCode
+  res.setHeader('Content-Type', 'application/json')
+  res.end(JSON.stringify(body))
+}
+
+function getQueryParam(req: IncomingMessage, name: string): string | null {
+  try {
+    const url = new URL(req.url ?? '', 'http://localhost')
+    const v = url.searchParams.get(name)
+    return v ? v : null
+  } catch {
+    return null
+  }
+}
+
+export default async function handler(req: IncomingMessage, res: ServerResponse) {
+  if (req.method !== 'GET') {
+    res.statusCode = 405
+    res.end('Method Not Allowed')
+    return
+  }
+
+  try {
+    const runId = (getQueryParam(req, 'runId') ?? '').trim()
+    if (!runId) {
+      json(res, 400, { error: 'runId is required' })
+      return
+    }
+
+    const supabase = getServerSupabase()
+    const { data: run, error: runErr } = await supabase
+      .from('hal_agent_runs')
+      .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, cursor_agent_id, cursor_status, pr_url, summary, error, status, progress')
+      .eq('run_id', runId)
+      .maybeSingle()
+
+    if (runErr) {
+      json(res, 500, { error: `Supabase fetch failed: ${runErr.message}` })
+      return
+    }
+    if (!run) {
+      json(res, 404, { error: 'Unknown runId' })
+      return
+    }
+
+    const status = (run as any).status as string
+    const cursorAgentId = (run as any).cursor_agent_id as string | null
+
+    // Terminal states: return without calling Cursor
+    if (status === 'finished' || status === 'failed') {
+      json(res, 200, run)
+      return
+    }
+
+    if (!cursorAgentId) {
+      json(res, 200, run)
+      return
+    }
+
+    const cursorKey = getCursorApiKey()
+    const auth = Buffer.from(`${cursorKey}:`).toString('base64')
+
+    const statusRes = await fetch(`https://api.cursor.com/v0/agents/${cursorAgentId}`, {
+      method: 'GET',
+      headers: { Authorization: `Basic ${auth}` },
+    })
+    const statusText = await statusRes.text()
+    if (!statusRes.ok) {
+      const msg = humanReadableCursorError(statusRes.status, statusText)
+      const nextProgress = appendProgress((run as any).progress, `Poll failed: ${msg}`)
+      await supabase
+        .from('hal_agent_runs')
+        .update({ status: 'failed', error: msg, progress: nextProgress, finished_at: new Date().toISOString() })
+        .eq('run_id', runId)
+      json(res, 200, { ...(run as any), status: 'failed', error: msg, progress: nextProgress })
+      return
+    }
+
+    let statusData: { status?: string; summary?: string; target?: { prUrl?: string } }
+    try {
+      statusData = JSON.parse(statusText) as typeof statusData
+    } catch {
+      const msg = 'Invalid response when polling agent status.'
+      const nextProgress = appendProgress((run as any).progress, msg)
+      await supabase
+        .from('hal_agent_runs')
+        .update({ status: 'failed', error: msg, progress: nextProgress, finished_at: new Date().toISOString() })
+        .eq('run_id', runId)
+      json(res, 200, { ...(run as any), status: 'failed', error: msg, progress: nextProgress })
+      return
+    }
+
+    const cursorStatus = statusData.status ?? (run as any).cursor_status ?? 'RUNNING'
+    let nextStatus = 'polling'
+    let summary: string | null = null
+    let prUrl: string | null = (run as any).pr_url ?? null
+    let errMsg: string | null = null
+    let finishedAt: string | null = null
+
+    if (cursorStatus === 'FINISHED') {
+      nextStatus = 'finished'
+      summary = statusData.summary ?? 'Completed.'
+      prUrl = statusData.target?.prUrl ?? prUrl
+      finishedAt = new Date().toISOString()
+    } else if (cursorStatus === 'FAILED' || cursorStatus === 'CANCELLED' || cursorStatus === 'ERROR') {
+      nextStatus = 'failed'
+      errMsg = statusData.summary ?? `Agent ended with status ${cursorStatus}.`
+      finishedAt = new Date().toISOString()
+    }
+
+    const progress = appendProgress((run as any).progress, `Status: ${cursorStatus}`)
+
+    // If finished and Implementation: move ticket to QA (best-effort)
+    if (nextStatus === 'finished' && ((run as any).agent_type as AgentType) === 'implementation') {
+      const repoFullName = (run as any).repo_full_name as string
+      const ticketPk = (run as any).ticket_pk as string | null
+      if (repoFullName && ticketPk) {
+        try {
+          const { data: inColumn } = await supabase
+            .from('tickets')
+            .select('kanban_position')
+            .eq('repo_full_name', repoFullName)
+            .eq('kanban_column_id', 'col-qa')
+            .order('kanban_position', { ascending: false })
+            .limit(1)
+          const nextPosition = inColumn?.length ? ((inColumn[0] as any)?.kanban_position ?? -1) + 1 : 0
+          const movedAt = new Date().toISOString()
+          await supabase
+            .from('tickets')
+            .update({ kanban_column_id: 'col-qa', kanban_position: nextPosition, kanban_moved_at: movedAt })
+            .eq('pk', ticketPk)
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    const { data: updated, error: updErr } = await supabase
+      .from('hal_agent_runs')
+      .update({
+        cursor_status: cursorStatus,
+        status: nextStatus,
+        ...(summary != null ? { summary } : {}),
+        ...(prUrl != null ? { pr_url: prUrl } : {}),
+        ...(errMsg != null ? { error: errMsg } : {}),
+        progress,
+        ...(finishedAt ? { finished_at: finishedAt } : {}),
+      })
+      .eq('run_id', runId)
+      .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, cursor_agent_id, cursor_status, pr_url, summary, error, status, progress, created_at, updated_at, finished_at')
+      .maybeSingle()
+
+    if (updErr) {
+      json(res, 500, { error: `Supabase update failed: ${updErr.message}` })
+      return
+    }
+
+    json(res, 200, updated ?? run)
+  } catch (err) {
+    json(res, 500, { error: err instanceof Error ? err.message : String(err) })
+  }
+}
+

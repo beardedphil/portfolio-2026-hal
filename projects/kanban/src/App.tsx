@@ -28,9 +28,6 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import {
   parseFrontmatter,
-  getKanbanFromFrontmatter,
-  updateKanbanInContent,
-  type KanbanFrontmatter,
 } from './frontmatter'
 import { createClient } from '@supabase/supabase-js'
 import ReactMarkdown from 'react-markdown'
@@ -39,10 +36,11 @@ type LogEntry = { id: number; message: string; at: string }
 type Card = { id: string; title: string }
 type Column = { id: string; title: string; cardIds: string[] }
 
-type TicketFile = { name: string; path: string }
-
 /** Supabase tickets table row (read-only v0) */
 type SupabaseTicketRow = {
+  /** Internal unique row id (0079). */
+  pk: string
+  /** Legacy id (pre-0079). Not globally unique after repo-scoped migration. */
   id: string
   filename: string
   title: string
@@ -51,6 +49,12 @@ type SupabaseTicketRow = {
   kanban_position: number | null
   kanban_moved_at: string | null
   updated_at: string
+  /** Repo scope (0079). */
+  repo_full_name?: string
+  /** Per-repo ticket number (0079). */
+  ticket_number?: number
+  /** Human-facing display id like HAL-0079 (0079). */
+  display_id?: string
 }
 
 /** Supabase kanban_columns table row (0020) */
@@ -62,47 +66,8 @@ type SupabaseKanbanColumnRow = {
   updated_at: string
 }
 
-/** Parsed ticket from docs/tickets/*.md for import */
-type ParsedDocTicket = {
-  id: string
-  filename: string
-  title: string
-  body_md: string
-  kanban_column_id: string | null
-  kanban_position: number | null
-  kanban_moved_at: string | null
-}
-
-/** Single file result from scan: either parsed or fail */
-type DocFileResult =
-  | { ok: true; data: ParsedDocTicket }
-  | { ok: false; filename: string; reason: string }
-
-/** Planned action for one file in import */
-type ImportPlanItem = {
-  filename: string
-  id: string
-  action: 'create' | 'update' | 'skip' | 'fail'
-  reason?: string
-}
-
-/** Preview result: totals + per-file list */
-type ImportPreviewResult = {
-  found: number
-  create: number
-  update: number
-  skip: number
-  fail: number
-  items: ImportPlanItem[]
-}
-
-/** Sync preview: docs→DB plan + DB→docs (rows to write to docs) */
-type SyncPreviewResult = {
-  docsToDb: ImportPreviewResult
-  dbToDocs: { id: string; filename: string }[]
-}
-
 const SUPABASE_CONFIG_KEY = 'supabase-ticketstore-config'
+const CONNECTED_REPO_KEY = 'hal-connected-repo'
 /** Polling interval when Supabase board is active (0013); 10s */
 const SUPABASE_POLL_INTERVAL_MS = 10_000
 /** Delay before refetch after a move so DB write is visible; avoids stale read overwriting last moves */
@@ -144,6 +109,29 @@ function extractTicketId(filename: string): string | null {
   return match ? match[1] : null
 }
 
+function normalizeTicketRow(row: Partial<SupabaseTicketRow> & { id?: string }): SupabaseTicketRow {
+  const legacyId = String(row.id ?? '').trim() || '0000'
+  const pk = typeof row.pk === 'string' && row.pk.trim() ? row.pk.trim() : legacyId
+  const displayId =
+    typeof row.display_id === 'string' && row.display_id.trim()
+      ? row.display_id.trim()
+      : `LEG-${legacyId.padStart(4, '0')}`
+  return {
+    pk,
+    id: legacyId,
+    filename: String(row.filename ?? ''),
+    title: String(row.title ?? ''),
+    body_md: String(row.body_md ?? ''),
+    kanban_column_id: (row.kanban_column_id ?? null) as string | null,
+    kanban_position: (row.kanban_position ?? null) as number | null,
+    kanban_moved_at: (row.kanban_moved_at ?? null) as string | null,
+    updated_at: String(row.updated_at ?? ''),
+    repo_full_name: row.repo_full_name,
+    ticket_number: row.ticket_number,
+    display_id: displayId,
+  }
+}
+
 /** Normalize Title line in body_md to include ID prefix: "<ID> — <title>". Returns { normalized, wasNormalized }. */
 function normalizeTitleLineInBody(bodyMd: string, ticketId: string): { normalized: string; wasNormalized: boolean } {
   if (!bodyMd || !ticketId) return { normalized: bodyMd, wasNormalized: false }
@@ -161,8 +149,8 @@ function normalizeTitleLineInBody(bodyMd: string, ticketId: string): { normalize
     return { normalized: bodyMd, wasNormalized: false }
   }
   
-  // Remove any existing ID prefix (e.g. "0048 — " or "0048 - ")
-  titleValue = titleValue.replace(/^\d{4}\s*[—–-]\s*/, '')
+  // Remove any existing ID prefix (e.g. "0048 — " or "HAL-0048 - ")
+  titleValue = titleValue.replace(/^(?:[A-Za-z0-9]{2,10}-)?\d{4}\s*[—–-]\s*/, '')
   
   // Prepend the correct ID prefix
   const normalizedTitle = `${idPrefix}${titleValue}`
@@ -170,118 +158,6 @@ function normalizeTitleLineInBody(bodyMd: string, ticketId: string): { normalize
   const normalized = bodyMd.replace(titleLineRegex, normalizedLine)
   
   return { normalized, wasNormalized: true }
-}
-
-/** Best-effort title: "- **Title**: ..." in content, else filename without .md. Strips ID prefix if present. */
-function extractTitleFromContent(content: string, filename: string): string {
-  const m = content.match(/\*\*Title\*\*:\s*(.+?)(?:\n|$)/)
-  if (m) {
-    let title = m[1].trim()
-    // Strip ID prefix if present (e.g. "0048 — Title" → "Title")
-    title = title.replace(/^\d{4}\s*[—–-]\s*/, '')
-    return title
-  }
-  return filename.replace(/\.md$/i, '')
-}
-
-/** Scan docs/tickets from project root; return parsed or fail per file. */
-async function scanDocsTickets(root: FileSystemDirectoryHandle): Promise<DocFileResult[]> {
-  const results: DocFileResult[] = []
-  const docs = await root.getDirectoryHandle('docs')
-  const tickets = await docs.getDirectoryHandle('tickets')
-  const files: { name: string }[] = []
-  for await (const [name, entry] of tickets.entries()) {
-    if (entry.kind === 'file' && name.endsWith('.md')) files.push({ name })
-  }
-  files.sort((a, b) => a.name.localeCompare(b.name))
-  for (const { name } of files) {
-    const id = extractTicketId(name)
-    if (!id) {
-      results.push({ ok: false, filename: name, reason: 'Filename must start with 4 digits (e.g. 0009-...)' })
-      continue
-    }
-    try {
-      const fileHandle = await tickets.getFileHandle(name)
-      const file = await fileHandle.getFile()
-      const body_md = await file.text()
-      const title = extractTitleFromContent(body_md, name)
-      const { frontmatter } = parseFrontmatter(body_md)
-      const kanban = getKanbanFromFrontmatter(frontmatter)
-      results.push({
-        ok: true,
-        data: {
-          id,
-          filename: name,
-          title,
-          body_md,
-          kanban_column_id: kanban.kanbanColumnId ?? null,
-          kanban_position: kanban.kanbanPosition ?? null,
-          kanban_moved_at: kanban.kanbanMovedAt ?? null,
-        },
-      })
-    } catch (e) {
-      results.push({
-        ok: false,
-        filename: name,
-        reason: e instanceof Error ? e.message : String(e),
-      })
-    }
-  }
-  return results
-}
-
-/** Build import plan from scan results and existing Supabase rows. */
-function buildImportPlan(
-  scanResults: DocFileResult[],
-  existingRows: SupabaseTicketRow[]
-): ImportPreviewResult {
-  const byId = new Map(existingRows.map((r) => [r.id, r]))
-  const items: ImportPlanItem[] = []
-  let create = 0,
-    update = 0,
-    skip = 0,
-    fail = 0
-  for (const r of scanResults) {
-    if (!r.ok) {
-      items.push({ filename: r.filename, id: '', action: 'fail', reason: r.reason })
-      fail++
-      continue
-    }
-    const d = r.data
-    const existing = byId.get(d.id)
-    if (!existing) {
-      items.push({ filename: d.filename, id: d.id, action: 'create' })
-      create++
-    } else if (existing.body_md !== d.body_md) {
-      items.push({ filename: d.filename, id: d.id, action: 'update' })
-      update++
-    } else {
-      items.push({ filename: d.filename, id: d.id, action: 'skip', reason: 'Unchanged' })
-      skip++
-    }
-  }
-  return {
-    found: scanResults.length,
-    create,
-    update,
-    skip,
-    fail,
-    items,
-  }
-}
-
-/** Build sync preview: docs→DB plan + DB rows to write to docs (id not in doc ids). */
-function buildSyncPreview(
-  scanResults: DocFileResult[],
-  existingRows: SupabaseTicketRow[]
-): SyncPreviewResult {
-  const docIds = new Set<string>()
-  for (const r of scanResults) {
-    if (r.ok) docIds.add(r.data.id)
-  }
-  const docsToDb = buildImportPlan(scanResults, existingRows)
-  const dbToDocs = existingRows.filter((r) => !docIds.has(r.id)).map((r) => ({ id: r.id, filename: r.filename }))
-  return { docsToDb, dbToDocs }
 }
 
 const DEFAULT_COLUMNS: Column[] = [
@@ -711,42 +587,6 @@ function SortableColumn({
   )
 }
 
-function _DraggableTicketItem({
-  path,
-  name,
-  onClick,
-  isSelected,
-}: {
-  path: string
-  name: string
-  onClick: () => void
-  isSelected: boolean
-}) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: path,
-    data: { type: 'ticket-from-list', path },
-  })
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    opacity: isDragging ? 0.5 : 1,
-  }
-  return (
-    <li ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <button
-        type="button"
-        className="ticket-file-btn"
-        onClick={(e) => {
-          e.stopPropagation()
-          onClick()
-        }}
-        aria-pressed={isSelected}
-      >
-        {name}
-      </button>
-    </li>
-  )
-}
-
 /** Draggable Supabase ticket list item (0013): id is ticket id for DnD. */
 function _DraggableSupabaseTicketItem({
   row,
@@ -758,13 +598,15 @@ function _DraggableSupabaseTicketItem({
   isSelected: boolean
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: row.id,
-    data: { type: 'supabase-ticket-from-list', id: row.id },
+    id: row.pk,
+    data: { type: 'supabase-ticket-from-list', id: row.pk },
   })
   const style = {
     transform: CSS.Transform.toString(transform),
     opacity: isDragging ? 0.5 : 1,
   }
+  const displayId = row.display_id ?? row.id
+  const cleanTitle = row.title.replace(/^(?:[A-Za-z0-9]{2,10}-)?\d{4}\s*[—–-]\s*/, '')
   return (
     <li ref={setNodeRef} style={style} {...attributes} {...listeners}>
       <button
@@ -776,7 +618,7 @@ function _DraggableSupabaseTicketItem({
         }}
         aria-pressed={isSelected}
       >
-        {row.title} ({row.id})
+        {displayId} — {cleanTitle}
       </button>
     </li>
   )
@@ -791,7 +633,7 @@ function App() {
     setActionLog((prev) => [...prev.slice(-19), { id, message, at }])
   }, [])
   const [runtimeError, _setRuntimeError] = useState<string | null>(null)
-  const [columns, setColumns] = useState<Column[]>(() => EMPTY_KANBAN_COLUMNS)
+  const [columns] = useState<Column[]>(() => EMPTY_KANBAN_COLUMNS)
   const [cards] = useState<Record<string, Card>>({})
   const [showAddColumnForm, setShowAddColumnForm] = useState(false)
   const [newColumnTitle, setNewColumnTitle] = useState('')
@@ -827,6 +669,13 @@ function App() {
   // Supabase (read-only v0)
   const [supabaseProjectUrl, setSupabaseProjectUrl] = useState('')
   const [supabaseAnonKey, setSupabaseAnonKey] = useState('')
+  const [connectedRepoFullName, setConnectedRepoFullName] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(CONNECTED_REPO_KEY)
+    } catch {
+      return null
+    }
+  })
   const [supabaseConnectionStatus, setSupabaseConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected')
   const [supabaseLastError, setSupabaseLastError] = useState<string | null>(null)
   const [supabaseTickets, setSupabaseTickets] = useState<SupabaseTicketRow[]>([])
@@ -838,12 +687,7 @@ function App() {
   const [_supabaseNotInitialized, setSupabaseNotInitialized] = useState(false)
   const [_selectedSupabaseTicketId, setSelectedSupabaseTicketId] = useState<string | null>(null)
   const [_selectedSupabaseTicketContent, setSelectedSupabaseTicketContent] = useState<string | null>(null)
-  // Sync with Docs (docs↔DB; replaces one-way Import)
-  const [_syncPreview, setSyncPreview] = useState<SyncPreviewResult | null>(null)
-  const [_syncInProgress, setSyncInProgress] = useState(false)
-  const [_syncSummary, setSyncSummary] = useState<string | null>(null)
-  const [_syncProgressText, setSyncProgressText] = useState<string | null>(null)
-  const [supabaseLastSyncError, setSupabaseLastSyncError] = useState<string | null>(null)
+  // Sync with Docs removed (Supabase-only) (0065)
   const [supabaseLastDeleteError, setSupabaseLastDeleteError] = useState<string | null>(null)
   const [deleteSuccessMessage, setDeleteSuccessMessage] = useState<string | null>(null)
   // Ticket persistence tracking (0047)
@@ -876,9 +720,9 @@ function App() {
           ? firstColumnId
           : columnIds.has(t.kanban_column_id)
             ? t.kanban_column_id
-            : (unknownIds.push(t.id), firstColumnId)
+            : (unknownIds.push(t.pk), firstColumnId)
       const pos = typeof t.kanban_position === 'number' ? t.kanban_position : 0
-      byColumn[colId].push({ id: t.id, position: pos })
+      byColumn[colId].push({ id: t.pk, position: pos })
     }
     for (const id of Object.keys(byColumn)) {
       byColumn[id].sort((a, b) => a.position - b.position)
@@ -893,7 +737,9 @@ function App() {
   const supabaseCards = useMemo(() => {
     const map: Record<string, Card> = {}
     for (const t of supabaseTickets) {
-      map[t.id] = { id: t.id, title: t.title }
+      const cleanTitle = t.title.replace(/^(?:[A-Za-z0-9]{2,10}-)?\d{4}\s*[—–-]\s*/, '')
+      const display = t.display_id ? `${t.display_id} — ${cleanTitle}` : t.title
+      map[t.pk] = { id: t.pk, title: display }
     }
     return map
   }, [supabaseTickets])
@@ -931,18 +777,42 @@ function App() {
         setSupabaseColumnsRows([])
         return
       }
-      const { data: rows, error } = await client
-        .from('tickets')
-        .select('id, filename, title, body_md, kanban_column_id, kanban_position, kanban_moved_at, updated_at')
-        .order('id')
+      // Repo-scoped schema (0079). If columns don't exist yet, show a clear migration error.
+      let rows: unknown[] | null = null
+      let error: { code?: string; message?: string } | null = null
+      if (connectedRepoFullName) {
+        const r = await client
+          .from('tickets')
+          .select('pk, id, repo_full_name, ticket_number, display_id, filename, title, body_md, kanban_column_id, kanban_position, kanban_moved_at, updated_at')
+          .eq('repo_full_name', connectedRepoFullName)
+          .order('ticket_number', { ascending: true })
+        rows = (r.data ?? null) as unknown[] | null
+        error = (r.error as typeof error) ?? null
+      } else {
+        const r = await client
+          .from('tickets')
+          .select('pk, id, repo_full_name, ticket_number, display_id, filename, title, body_md, kanban_column_id, kanban_position, kanban_moved_at, updated_at')
+          .order('ticket_number', { ascending: true })
+        rows = (r.data ?? null) as unknown[] | null
+        error = (r.error as typeof error) ?? null
+      }
       if (error) {
-        setSupabaseLastError(error.message ?? String(error))
+        const eAny = error as any
+        const msg = eAny?.message ?? String(error)
+        const looksLikeOldSchema =
+          eAny?.code === '42703' ||
+          (msg.toLowerCase().includes('column') && msg.toLowerCase().includes('does not exist'))
+        setSupabaseLastError(
+          looksLikeOldSchema
+            ? 'Supabase schema needs migration for repo-scoped tickets (0079). Run docs/process/supabase-migrations/0079-repo-scoped-tickets.sql'
+            : msg
+        )
         setSupabaseConnectionStatus('disconnected')
         setSupabaseTickets([])
         setSupabaseColumnsRows([])
         return
       }
-      setSupabaseTickets((rows ?? []) as SupabaseTicketRow[])
+      setSupabaseTickets(((rows ?? []) as any[]).map((r) => normalizeTicketRow(r)))
 
       // Fetch kanban_columns (0020); init defaults if empty
       setSupabaseColumnsLastError(null)
@@ -951,8 +821,9 @@ function App() {
         .select('id, title, position, created_at, updated_at')
         .order('position', { ascending: true })
       if (colError) {
-        const code = (colError as { code?: string }).code
-        const msg = colError.message ?? String(colError)
+        const eAny = colError as any
+        const code = eAny?.code as string | undefined
+        const msg = (eAny?.message as string | undefined) ?? String(colError)
         const lower = msg.toLowerCase()
         const isTableMissing =
           code === '42P01' ||
@@ -1093,13 +964,27 @@ function App() {
       // Only accept messages from parent origin
       if (event.source !== window.parent) return
       
-      const data = event.data as { type?: string; url?: string; key?: string; theme?: string }
+      const data = event.data as { type?: string; url?: string; key?: string; theme?: string; repoFullName?: string }
       
       if (data.type === 'HAL_CONNECT_SUPABASE' && data.url && data.key) {
         setProjectName('HAL-connected')
         connectSupabase(data.url, data.key)
+      } else if (data.type === 'HAL_CONNECT_REPO' && data.repoFullName) {
+        setConnectedRepoFullName(data.repoFullName)
+        setProjectName(data.repoFullName)
+        try {
+          localStorage.setItem(CONNECTED_REPO_KEY, data.repoFullName)
+        } catch {
+          // ignore
+        }
       } else if (data.type === 'HAL_DISCONNECT') {
         setProjectName(null)
+        setConnectedRepoFullName(null)
+        try {
+          localStorage.removeItem(CONNECTED_REPO_KEY)
+        } catch {
+          // ignore
+        }
         setSupabaseConnectionStatus('disconnected')
         setSupabaseTickets([])
         setSupabaseColumnsRows([])
@@ -1127,30 +1012,30 @@ function App() {
     }
     const { ticketId } = detailModal
     if (supabaseBoardActive) {
-      const row = supabaseTickets.find((t) => t.id === ticketId)
+      const row = supabaseTickets.find((t) => t.pk === ticketId)
       if (row) {
         // Normalize Title line if needed (0054)
-        const { normalized, wasNormalized } = normalizeTitleLineInBody(row.body_md, ticketId)
+        const displayId = row.display_id ?? row.id
+        const { normalized, wasNormalized } = normalizeTitleLineInBody(row.body_md, displayId)
         if (wasNormalized) {
           // Update in Supabase and show diagnostic
           const url = supabaseProjectUrl.trim()
           const key = supabaseAnonKey.trim()
           if (url && key) {
             const client = createClient(url, key)
-            client
-              .from('tickets')
-              .update({ body_md: normalized })
-              .eq('id', ticketId)
-              .then(() => {
-                addLog(`Ticket ${ticketId}: Title normalized to include ID prefix`)
+            ;(async () => {
+              try {
+                const { error } = await client.from('tickets').update({ body_md: normalized }).eq('pk', row.pk)
+                if (error) throw error
+                addLog(`Ticket ${displayId}: Title normalized to include ID prefix`)
                 // Update local state
                 setSupabaseTickets((prev) =>
-                  prev.map((t) => (t.id === ticketId ? { ...t, body_md: normalized } : t))
+                  prev.map((t) => (t.pk === row.pk ? { ...t, body_md: normalized } : t))
                 )
-              })
-              .catch((err) => {
-                console.warn(`Failed to normalize ticket ${ticketId}:`, err)
-              })
+              } catch (err) {
+                console.warn(`Failed to normalize ticket ${displayId}:`, err)
+              }
+            })()
           }
         }
         setDetailModalBody(normalized)
@@ -1184,7 +1069,7 @@ function App() {
   }, [supabaseProjectUrl, supabaseAnonKey, connectSupabase])
 
   const _handleSelectSupabaseTicket = useCallback((row: SupabaseTicketRow) => {
-    setSelectedSupabaseTicketId(row.id)
+    setSelectedSupabaseTicketId(row.pk)
     setSelectedSupabaseTicketContent(row.body_md ?? '')
   }, [])
 
@@ -1195,32 +1080,48 @@ function App() {
     if (!url || !key) return false
     try {
       const client = createClient(url, key)
-      const { data: rows, error } = await client
-        .from('tickets')
-        .select('id, filename, title, body_md, kanban_column_id, kanban_position, kanban_moved_at, updated_at')
-        .order('id')
+      let rows: unknown[] | null = null
+      let error: { code?: string; message?: string } | null = null
+      if (connectedRepoFullName) {
+        const r = await client
+          .from('tickets')
+          .select('pk, id, repo_full_name, ticket_number, display_id, filename, title, body_md, kanban_column_id, kanban_position, kanban_moved_at, updated_at')
+          .eq('repo_full_name', connectedRepoFullName)
+          .order('ticket_number', { ascending: true })
+        rows = (r.data ?? null) as unknown[] | null
+        error = (r.error as typeof error) ?? null
+      } else {
+        const r = await client
+          .from('tickets')
+          .select('pk, id, repo_full_name, ticket_number, display_id, filename, title, body_md, kanban_column_id, kanban_position, kanban_moved_at, updated_at')
+          .order('ticket_number', { ascending: true })
+        rows = (r.data ?? null) as unknown[] | null
+        error = (r.error as typeof error) ?? null
+      }
       if (error) {
-        setSupabaseLastError(error.message ?? String(error))
+        const eAny = error as any
+        setSupabaseLastError((eAny?.message as string | undefined) ?? String(error))
         return false
       }
       
       // Normalize Title lines and update DB if needed (0054)
       const normalizedRows: SupabaseTicketRow[] = []
       const normalizationPromises: Promise<void>[] = []
-      for (const row of (rows ?? []) as SupabaseTicketRow[]) {
-        const { normalized, wasNormalized } = normalizeTitleLineInBody(row.body_md, row.id)
+      for (const rawRow of (rows ?? []) as any[]) {
+        const row = normalizeTicketRow(rawRow)
+        const displayId = row.display_id ?? row.id
+        const { normalized, wasNormalized } = normalizeTitleLineInBody(row.body_md, displayId)
         if (wasNormalized) {
           // Update ticket in Supabase with normalized body_md
-          const updatePromise = client
-            .from('tickets')
-            .update({ body_md: normalized })
-            .eq('id', row.id)
-            .then(() => {
-              addLog(`Ticket ${row.id}: Title normalized to include ID prefix`)
-            })
-            .catch((err) => {
-              console.warn(`Failed to normalize ticket ${row.id}:`, err)
-            })
+          const updatePromise = (async () => {
+            try {
+              const { error } = await client.from('tickets').update({ body_md: normalized }).eq('pk', row.pk)
+              if (error) throw error
+              addLog(`Ticket ${displayId}: Title normalized to include ID prefix`)
+            } catch (err) {
+              console.warn(`Failed to normalize ticket ${displayId}:`, err)
+            }
+          })()
           normalizationPromises.push(updatePromise)
           normalizedRows.push({ ...row, body_md: normalized })
         } else {
@@ -1231,23 +1132,23 @@ function App() {
       // Don't overwrite tickets that have pending moves (0047)
       if (skipPendingMoves && pendingMoves.size > 0) {
         setSupabaseTickets((prev) => {
-          const newMap = new Map(normalizedRows.map((r) => [r.id, r]))
+          const newMap = new Map(normalizedRows.map((r) => [r.pk, r]))
           // Preserve optimistic updates for pending moves, update others from DB
           const result: SupabaseTicketRow[] = []
           const processedIds = new Set<string>()
           // First, add all existing tickets (preserving pending moves)
           for (const t of prev) {
-            if (pendingMoves.has(t.id)) {
+            if (pendingMoves.has(t.pk)) {
               result.push(t) // Keep optimistic update
-              processedIds.add(t.id)
-            } else if (newMap.has(t.id)) {
-              result.push(newMap.get(t.id)!) // Update from DB
-              processedIds.add(t.id)
+              processedIds.add(t.pk)
+            } else if (newMap.has(t.pk)) {
+              result.push(newMap.get(t.pk)!) // Update from DB
+              processedIds.add(t.pk)
             }
           }
           // Then, add any new tickets from DB that weren't in prev
           for (const row of normalizedRows) {
-            if (!processedIds.has(row.id)) {
+            if (!processedIds.has(row.pk)) {
               result.push(row)
             }
           }
@@ -1278,12 +1179,12 @@ function App() {
     } catch {
       return false
     }
-  }, [supabaseProjectUrl, supabaseAnonKey, pendingMoves])
+  }, [supabaseProjectUrl, supabaseAnonKey, pendingMoves, connectedRepoFullName])
 
   /** Update one ticket's kanban fields in Supabase (0013). Returns { ok: true } or { ok: false, error: string }. */
   const updateSupabaseTicketKanban = useCallback(
     async (
-      id: string,
+      pk: string,
       updates: { kanban_column_id?: string; kanban_position?: number; kanban_moved_at?: string }
     ): Promise<{ ok: true } | { ok: false; error: string }> => {
       const url = supabaseProjectUrl.trim()
@@ -1295,7 +1196,7 @@ function App() {
       }
       try {
         const client = createClient(url, key)
-        const { error } = await client.from('tickets').update(updates).eq('id', id)
+        const { error } = await client.from('tickets').update(updates).eq('pk', pk)
         if (error) {
           const msg = error.message ?? String(error)
           setSupabaseLastError(msg)
@@ -1311,9 +1212,9 @@ function App() {
     [supabaseProjectUrl, supabaseAnonKey]
   )
 
-  /** Delete a ticket from Supabase and run sync to remove local file (0030, 0039). */
+  /** Delete a ticket from Supabase (Supabase-only mode, 0065). */
   const handleDeleteTicket = useCallback(
-    async (ticketId: string) => {
+    async (ticketPk: string) => {
       const url = supabaseProjectUrl.trim()
       const key = supabaseAnonKey.trim()
       if (!url || !key) {
@@ -1321,8 +1222,8 @@ function App() {
         setTimeout(() => setSupabaseLastDeleteError(null), 5000)
         return
       }
-      const card = supabaseCards[ticketId]
-      const label = card ? `"${card.title}" (${ticketId})` : ticketId
+      const card = supabaseCards[ticketPk]
+      const label = card ? `"${card.title}"` : ticketPk
       if (!window.confirm(`Delete ticket ${label}? This cannot be undone.`)) return
 
       setSupabaseLastDeleteError(null)
@@ -1331,19 +1232,17 @@ function App() {
         const res = await fetch(`${HAL_API_BASE}/api/tickets/delete`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ticketId, supabaseUrl: url, supabaseAnonKey: key }),
+          body: JSON.stringify({ ticketPk, supabaseUrl: url, supabaseAnonKey: key }),
         })
         const data = (await res.json()) as { success?: boolean; error?: string }
         if (data.success) {
           // Optimistically remove from state so the board updates immediately
-          setSupabaseTickets((prev) => prev.filter((t) => t.id !== ticketId))
+          setSupabaseTickets((prev) => prev.filter((t) => t.pk !== ticketPk))
           setDeleteSuccessMessage(`Deleted ticket ${label}`)
           setTimeout(() => setDeleteSuccessMessage(null), 5000)
-          // Wait 1.5s for file deletion to complete before refetch
-          setTimeout(async () => {
-            await refetchSupabaseTickets()
-          }, 1500)
-          addLog(`Deleted ticket ${ticketId}`)
+          // Refetch to confirm server-side delete is reflected
+          await refetchSupabaseTickets()
+          addLog(`Deleted ticket ${label}`)
           if (typeof window !== 'undefined' && window.parent !== window) {
             window.parent.postMessage({ type: 'HAL_SYNC_COMPLETED' }, '*')
           }
@@ -1666,48 +1565,48 @@ function App() {
         !sourceColumn &&
         supabaseBoardActive &&
         overColumn &&
-        supabaseTickets.some((t) => t.id === active.id)
+        supabaseTickets.some((t) => t.pk === String(active.id))
       ) {
-        const ticketId = String(active.id)
+        const ticketPk = String(active.id)
         let overIndex = overColumn.cardIds.indexOf(String(effectiveOverId))
         if (overIndex < 0) overIndex = overColumn.cardIds.length
         const movedAt = new Date().toISOString()
         // Optimistic update (0047)
-        setPendingMoves((prev) => new Set(prev).add(ticketId))
+        setPendingMoves((prev) => new Set(prev).add(ticketPk))
         setSupabaseTickets((prev) =>
           prev.map((t) =>
-            t.id === ticketId
+            t.pk === ticketPk
               ? { ...t, kanban_column_id: overColumn.id, kanban_position: overIndex, kanban_moved_at: movedAt }
               : t
           )
         )
-        const result = await updateSupabaseTicketKanban(ticketId, {
+        const result = await updateSupabaseTicketKanban(ticketPk, {
           kanban_column_id: overColumn.id,
           kanban_position: overIndex,
           kanban_moved_at: movedAt,
         })
         if (result.ok) {
-          setLastMovePersisted({ success: true, timestamp: new Date(), ticketId })
-          addLog(`Supabase ticket ${ticketId} dropped into ${overColumn.title}`)
+          setLastMovePersisted({ success: true, timestamp: new Date(), ticketId: ticketPk })
+          addLog(`Supabase ticket dropped into ${overColumn.title}`)
           // Remove from pending after delay to allow DB write to be visible
           setTimeout(() => {
             setPendingMoves((prev) => {
               const next = new Set(prev)
-              next.delete(ticketId)
+              next.delete(ticketPk)
               return next
             })
             refetchSupabaseTickets(false) // Full refetch after move is persisted
           }, REFETCH_AFTER_MOVE_MS)
         } else {
           // Revert optimistic update on failure (0047)
-          setLastMovePersisted({ success: false, timestamp: new Date(), ticketId, error: result.error })
+          setLastMovePersisted({ success: false, timestamp: new Date(), ticketId: ticketPk, error: result.error })
           setPendingMoves((prev) => {
             const next = new Set(prev)
-            next.delete(ticketId)
+            next.delete(ticketPk)
             return next
           })
           refetchSupabaseTickets(false) // Full refetch to restore correct state
-          addLog(`Supabase update failed for ${ticketId}: ${result.error}`)
+          addLog(`Supabase update failed: ${result.error}`)
         }
         return
       }
@@ -1726,93 +1625,93 @@ function App() {
           if (activeIndex === overIndex) return
           const newOrder = arrayMove(sourceCardIds, activeIndex, overIndex)
           const movedAt = new Date().toISOString()
-          const ticketId = String(active.id)
+          const ticketPk = String(active.id)
           // Optimistic update (0047)
-          setPendingMoves((prev) => new Set(prev).add(ticketId))
+          setPendingMoves((prev) => new Set(prev).add(ticketPk))
           setSupabaseTickets((prev) =>
             prev.map((t) => {
-              const i = newOrder.indexOf(t.id)
+              const i = newOrder.indexOf(t.pk)
               if (i < 0) return t
               return {
                 ...t,
                 kanban_position: i,
-                ...(t.id === active.id ? { kanban_moved_at: movedAt } : {}),
+                ...(t.pk === ticketPk ? { kanban_moved_at: movedAt } : {}),
               }
             })
           )
           let allSucceeded = true
           let firstError: string | undefined
           for (let i = 0; i < newOrder.length; i++) {
-            const id = newOrder[i]
-            const result = await updateSupabaseTicketKanban(id, {
+            const pk = newOrder[i]
+            const result = await updateSupabaseTicketKanban(pk, {
               kanban_position: i,
-              ...(id === active.id ? { kanban_moved_at: movedAt } : {}),
+              ...(pk === ticketPk ? { kanban_moved_at: movedAt } : {}),
             })
             if (!result.ok) {
               allSucceeded = false
               if (!firstError) firstError = result.error
-              addLog(`Supabase reorder failed for ${id}: ${result.error}`)
+              addLog(`Supabase reorder failed: ${result.error}`)
             }
           }
           if (allSucceeded) {
-            setLastMovePersisted({ success: true, timestamp: new Date(), ticketId })
-            addLog(`Supabase ticket ${active.id} reordered in ${sourceColumn.title}`)
+            setLastMovePersisted({ success: true, timestamp: new Date(), ticketId: ticketPk })
+            addLog(`Supabase ticket reordered in ${sourceColumn.title}`)
             setTimeout(() => {
               setPendingMoves((prev) => {
                 const next = new Set(prev)
-                next.delete(ticketId)
+                next.delete(ticketPk)
                 return next
               })
               refetchSupabaseTickets(false) // Full refetch after move is persisted
             }, REFETCH_AFTER_MOVE_MS)
           } else {
             // Revert optimistic update on failure (0047)
-            setLastMovePersisted({ success: false, timestamp: new Date(), ticketId, error: firstError })
+            setLastMovePersisted({ success: false, timestamp: new Date(), ticketId: ticketPk, error: firstError })
             setPendingMoves((prev) => {
               const next = new Set(prev)
-              next.delete(ticketId)
+              next.delete(ticketPk)
               return next
             })
             refetchSupabaseTickets(false) // Full refetch to restore correct state
           }
         } else {
           const movedAt = new Date().toISOString()
-          const ticketId = String(active.id)
+          const ticketPk = String(active.id)
           // Optimistic update (0047)
-          setPendingMoves((prev) => new Set(prev).add(ticketId))
+          setPendingMoves((prev) => new Set(prev).add(ticketPk))
           setSupabaseTickets((prev) =>
             prev.map((t) =>
-              t.id === active.id
+              t.pk === ticketPk
                 ? { ...t, kanban_column_id: overColumn.id, kanban_position: overIndex, kanban_moved_at: movedAt }
                 : t
             )
           )
-          const result = await updateSupabaseTicketKanban(String(active.id), {
+          const result = await updateSupabaseTicketKanban(ticketPk, {
             kanban_column_id: overColumn.id,
             kanban_position: overIndex,
             kanban_moved_at: movedAt,
           })
           if (result.ok) {
-            setLastMovePersisted({ success: true, timestamp: new Date(), ticketId })
-            addLog(`Supabase ticket ${active.id} moved to ${overColumn.title}`)
+            setLastMovePersisted({ success: true, timestamp: new Date(), ticketId: ticketPk })
+            addLog(`Supabase ticket moved to ${overColumn.title}`)
             setTimeout(() => {
               setPendingMoves((prev) => {
                 const next = new Set(prev)
-                next.delete(ticketId)
+                next.delete(ticketPk)
                 return next
               })
               refetchSupabaseTickets(false) // Full refetch after move is persisted
             }, REFETCH_AFTER_MOVE_MS)
           } else {
             // Revert optimistic update on failure (0047)
-            setLastMovePersisted({ success: false, timestamp: new Date(), ticketId, error: result.error })
+            setLastMovePersisted({ success: false, timestamp: new Date(), ticketId: ticketPk, error: result.error })
             setPendingMoves((prev) => {
               const next = new Set(prev)
-              next.delete(ticketId)
+              next.delete(ticketPk)
               return next
             })
             refetchSupabaseTickets(false) // Full refetch to restore correct state
-            addLog(`Supabase ticket ${active.id} move failed: ${result.error}`)
+            addLog(`Supabase ticket move failed: ${result.error}`)
           }
         }
         return
@@ -2274,7 +2173,6 @@ function App() {
               <p>Polling: {supabaseBoardActive ? `${SUPABASE_POLL_INTERVAL_MS / 1000}s` : 'off'}</p>
               <p>Last tickets refresh: {supabaseLastRefresh ? supabaseLastRefresh.toLocaleTimeString() : 'never'}</p>
               <p>Last poll error: {supabaseLastError ?? 'none'}</p>
-              <p>Last sync error: {supabaseLastSyncError ?? 'none'}</p>
               <p>Last delete error: {supabaseLastDeleteError ?? 'none'}</p>
               {/* Ticket persistence status (0047) */}
               {lastMovePersisted ? (

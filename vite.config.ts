@@ -1210,22 +1210,24 @@ export default defineConfig({
           try {
             const body = (await readJsonBody(req)) as {
               ticketId?: string
+              ticketPk?: string
               supabaseUrl?: string
               supabaseAnonKey?: string
               projectRoot?: string
             }
             const ticketId = typeof body.ticketId === 'string' ? body.ticketId.trim() || undefined : undefined
+            const ticketPk = typeof body.ticketPk === 'string' ? body.ticketPk.trim() || undefined : undefined
             const supabaseUrl = typeof body.supabaseUrl === 'string' ? body.supabaseUrl.trim() || undefined : undefined
             const supabaseAnonKey = typeof body.supabaseAnonKey === 'string' ? body.supabaseAnonKey.trim() || undefined : undefined
             const projectRoot = typeof body.projectRoot === 'string' ? body.projectRoot.trim() || undefined : undefined
 
-            if (!ticketId || !supabaseUrl || !supabaseAnonKey) {
+            if ((!ticketId && !ticketPk) || !supabaseUrl || !supabaseAnonKey) {
               res.statusCode = 400
               res.setHeader('Content-Type', 'application/json')
               res.end(
                 JSON.stringify({
                   success: false,
-                  error: 'ticketId, supabaseUrl, and supabaseAnonKey are required.',
+                  error: 'ticketPk (preferred) or ticketId, plus supabaseUrl and supabaseAnonKey are required.',
                 })
               )
               return
@@ -1235,71 +1237,22 @@ export default defineConfig({
             const { createClient } = await import('@supabase/supabase-js')
             const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-            // Fetch filename before delete so we can remove the file if sync fails
-            const { data: ticketRow, error: fetchErr } = await supabase
-              .from('tickets')
-              .select('filename')
-              .eq('id', ticketId)
-              .single()
-            if (fetchErr || !ticketRow?.filename) {
-              res.statusCode = 200
-              res.setHeader('Content-Type', 'application/json')
-              res.end(
-                JSON.stringify({
-                  success: false,
-                  error: `Ticket not found: ${fetchErr?.message ?? 'no row'}`,
-                })
-              )
-              return
-            }
-            const filename = ticketRow.filename
-
-            // CRITICAL: Remove the file BEFORE deleting from DB so sync (Docs→DB first) cannot re-insert the ticket
-            const rootForDocs = projectRoot ? path.resolve(projectRoot) : repoRoot
-            const filePath = path.join(rootForDocs, 'docs', 'tickets', filename)
-            let fileDeleteError: string | null = null
-            if (fs.existsSync(filePath)) {
-              try {
-                fs.unlinkSync(filePath)
-              } catch (unlinkErr) {
-                fileDeleteError = unlinkErr instanceof Error ? unlinkErr.message : String(unlinkErr)
-                // Log but continue to DB delete - better to have orphaned file than inconsistent state
-                console.error(`[DELETE] Failed to delete file ${filePath}:`, fileDeleteError)
-              }
-            }
-
-            const { error: deleteError } = await supabase.from('tickets').delete().eq('id', ticketId)
+            // Supabase-only (0065): repo ticket files removed; delete from DB only.
+            const del = ticketPk
+              ? await supabase.from('tickets').delete().eq('pk', ticketPk)
+              : await supabase.from('tickets').delete().eq('id', ticketId!)
+            const deleteError = del.error
             if (deleteError) {
               res.statusCode = 200
               res.setHeader('Content-Type', 'application/json')
               res.end(
                 JSON.stringify({
                   success: false,
-                  error: `Supabase delete failed: ${deleteError.message}${fileDeleteError ? `. File delete also failed: ${fileDeleteError}` : ''}`,
+                  error: `Supabase delete failed: ${deleteError.message}`,
                 })
               )
               return
             }
-
-            const syncScriptPath = path.resolve(repoRoot, 'scripts', 'sync-tickets.js')
-            const syncEnv = {
-              ...process.env,
-              SUPABASE_URL: supabaseUrl,
-              SUPABASE_ANON_KEY: supabaseAnonKey,
-              ...(projectRoot ? { PROJECT_ROOT: projectRoot } : {}),
-            }
-            await new Promise<{ success: boolean; stderr?: string }>((resolve) => {
-              const child = spawn('node', [syncScriptPath], {
-                cwd: repoRoot,
-                env: syncEnv,
-                stdio: ['ignore', 'pipe', 'pipe'],
-              })
-              let stderr = ''
-              child.stderr?.on('data', (d) => {
-                stderr += String(d)
-              })
-              child.on('close', (code) => resolve({ success: code === 0, stderr: stderr || undefined }))
-            })
 
             res.statusCode = 200
             res.setHeader('Content-Type', 'application/json')
