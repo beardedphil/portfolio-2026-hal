@@ -564,6 +564,21 @@ function App() {
     }
   }, [theme, kanbanLoaded])
 
+  // When Kanban iframe loads, push current repo + Supabase so it syncs (iframe may load after user connected)
+  useEffect(() => {
+    if (!kanbanLoaded || !kanbanIframeRef.current?.contentWindow) return
+    const win = kanbanIframeRef.current.contentWindow
+    const origin = window.location.origin
+    const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
+    const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
+    if (url && key) {
+      win.postMessage({ type: 'HAL_CONNECT_SUPABASE', url, key }, origin)
+    }
+    if (connectedGithubRepo?.fullName) {
+      win.postMessage({ type: 'HAL_CONNECT_REPO', repoFullName: connectedGithubRepo.fullName }, origin)
+    }
+  }, [kanbanLoaded, connectedGithubRepo, supabaseUrl, supabaseAnonKey])
+
   // Persist chat width to localStorage (0060)
   useEffect(() => {
     try {
