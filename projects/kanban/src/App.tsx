@@ -748,18 +748,27 @@ function App() {
   const connectSupabase = useCallback(async (url: string, key: string) => {
     setSupabaseLastError(null)
     setSupabaseNotInitialized(false)
-    if (!url || !key) {
-      setSupabaseLastError('Project URL and Anon key are required.')
+    const u = url?.trim()
+    const k = key?.trim()
+    if (!u || !k) {
+      setSupabaseLastError('Supabase project URL and anon key are required. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env (or in Vercel env for production).')
       return
     }
     setSupabaseConnectionStatus('connecting')
     try {
-      const client = createClient(url, key)
+      const client = createClient(u, k)
       const { error: testError } = await client.from('tickets').select('id').limit(1)
       if (testError) {
         const code = (testError as { code?: string }).code
         const msg = testError.message ?? String(testError)
         const lower = msg.toLowerCase()
+        if (lower.includes('no api key') || lower.includes('apikey')) {
+          setSupabaseLastError('Supabase anon key missing or invalid. Set VITE_SUPABASE_ANON_KEY in .env (or in Vercel env for production) and reconnect.')
+          setSupabaseConnectionStatus('disconnected')
+          setSupabaseTickets([])
+          setSupabaseColumnsRows([])
+          return
+        }
         const isTableMissing =
           code === '42P01' ||
           lower.includes('relation') ||

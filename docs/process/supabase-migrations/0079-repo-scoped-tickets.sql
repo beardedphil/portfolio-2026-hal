@@ -63,3 +63,7 @@ alter table public.tickets
 create index if not exists tickets_repo_full_name_idx on public.tickets (repo_full_name);
 create index if not exists tickets_repo_col_pos_idx on public.tickets (repo_full_name, kanban_column_id, kanban_position);
 
+-- If existing tickets were backfilled as repo_full_name = 'legacy/unknown' and they all belong to one repo,
+-- run from project root: node scripts/backfill-repo-full-name.js <owner/repo>
+-- e.g. node scripts/backfill-repo-full-name.js beardedphil/portfolio-2026-hal
+
