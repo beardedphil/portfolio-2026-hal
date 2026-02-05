@@ -2643,6 +2643,10 @@ function App() {
               </div>
             </>
           )}
+          </>
+          )}
+          </>
+          )}
 
           {/* Configuration Status Panel (0042) */}
           <div className="config-status-panel" role="region" aria-label="Configuration Status">
