@@ -88,6 +88,27 @@ type DiagnosticsInfo = {
   lastSendPayloadSummary: string | null
 }
 
+type GithubAuthMe = {
+  authenticated: boolean
+  login: string | null
+  scope: string | null
+}
+
+type GithubRepo = {
+  id: number
+  full_name: string
+  private: boolean
+  default_branch: string
+  html_url: string
+}
+
+type ConnectedGithubRepo = {
+  fullName: string
+  defaultBranch: string
+  htmlUrl: string
+  private: boolean
+}
+
 // localStorage helpers for conversation persistence (fallback when no project DB)
 const CONVERSATION_STORAGE_PREFIX = 'hal-chat-conversations-'
 /** Cap on character count for recent conversation so long technical messages don't dominate (~3k tokens). */
@@ -229,6 +250,23 @@ function getMessageAuthorLabel(agent: Message['agent']): string {
 type Theme = 'light' | 'dark'
 
 const THEME_STORAGE_KEY = 'hal-theme'
+const FILE_ACCESS_SESSION_ID_KEY = 'hal-file-access-session-id'
+
+function getOrCreateFileAccessSessionId(): string {
+  try {
+    const existing = localStorage.getItem(FILE_ACCESS_SESSION_ID_KEY)
+    if (existing && existing.trim()) return existing.trim()
+    const id =
+      (typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (crypto as any).randomUUID()
+        : `sess-${Date.now()}-${Math.random().toString(36).slice(2)}`) as string
+    localStorage.setItem(FILE_ACCESS_SESSION_ID_KEY, id)
+    return id
+  } catch {
+    return `sess-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  }
+}
 
 function getInitialTheme(): Theme {
   const stored = localStorage.getItem(THEME_STORAGE_KEY)
@@ -269,6 +307,13 @@ function App() {
   const [supabaseAnonKey, setSupabaseAnonKey] = useState<string | null>(null)
   const [lastSendPayloadSummary, setLastSendPayloadSummary] = useState<string | null>(null)
   const [projectFolderHandle, setProjectFolderHandle] = useState<FileSystemDirectoryHandle | null>(null)
+  const fileAccessSessionIdRef = useRef<string>(getOrCreateFileAccessSessionId())
+  const [githubAuth, setGithubAuth] = useState<GithubAuthMe | null>(null)
+  const [githubRepos, setGithubRepos] = useState<GithubRepo[] | null>(null)
+  const [githubRepoPickerOpen, setGithubRepoPickerOpen] = useState(false)
+  const [githubRepoQuery, setGithubRepoQuery] = useState('')
+  const [connectedGithubRepo, setConnectedGithubRepo] = useState<ConnectedGithubRepo | null>(null)
+  const [githubConnectError, setGithubConnectError] = useState<string | null>(null)
   const [outboundRequestExpanded, setOutboundRequestExpanded] = useState(false)
   const [toolCallsExpanded, setToolCallsExpanded] = useState(false)
   const messageIdRef = useRef(0)
@@ -308,6 +353,24 @@ function App() {
     | 'completed'
     | 'failed'
   >('idle')
+  const IMPL_AGENT_RUN_ID_KEY = 'hal-impl-agent-run-id'
+  const QA_AGENT_RUN_ID_KEY = 'hal-qa-agent-run-id'
+  const [implAgentRunId, setImplAgentRunId] = useState<string | null>(() => {
+    try {
+      const v = localStorage.getItem(IMPL_AGENT_RUN_ID_KEY)
+      return v && v.trim() ? v.trim() : null
+    } catch {
+      return null
+    }
+  })
+  const [qaAgentRunId, setQaAgentRunId] = useState<string | null>(() => {
+    try {
+      const v = localStorage.getItem(QA_AGENT_RUN_ID_KEY)
+      return v && v.trim() ? v.trim() : null
+    } catch {
+      return null
+    }
+  })
   /** Progress messages for Implementation Agent (0050). */
   const [implAgentProgress, setImplAgentProgress] = useState<Array<{ timestamp: Date; message: string }>>([])
   /** Last error message for Implementation Agent (0050). */
@@ -364,6 +427,132 @@ function App() {
       // ignore localStorage errors
     }
   }, [theme])
+
+  // Load connected GitHub repo from localStorage (0079)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('hal-github-repo')
+      if (!raw) return
+      const parsed = JSON.parse(raw) as ConnectedGithubRepo
+      if (parsed?.fullName && parsed?.defaultBranch) {
+        setConnectedGithubRepo(parsed)
+      }
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  const refreshGithubAuth = useCallback(async () => {
+    try {
+      setGithubConnectError(null)
+      const res = await fetch('/api/auth/me', { credentials: 'include' })
+      const text = await res.text()
+      if (!res.ok) {
+        setGithubAuth(null)
+        setGithubConnectError(text.slice(0, 200) || 'Failed to check GitHub auth status.')
+        return
+      }
+      const json = JSON.parse(text) as GithubAuthMe
+      setGithubAuth(json)
+    } catch (err) {
+      setGithubAuth(null)
+      setGithubConnectError(err instanceof Error ? err.message : String(err))
+    }
+  }, [])
+
+  // On load, check whether GitHub session already exists (0079)
+  useEffect(() => {
+    refreshGithubAuth().catch(() => {})
+  }, [refreshGithubAuth])
+
+  const loadGithubRepos = useCallback(async () => {
+    try {
+      setGithubConnectError(null)
+      const res = await fetch('/api/github/repos', { credentials: 'include' })
+      const text = await res.text()
+      if (!res.ok) {
+        setGithubRepos(null)
+        setGithubConnectError(text.slice(0, 200) || 'Failed to load repos.')
+        return
+      }
+      const json = JSON.parse(text) as { repos: GithubRepo[] }
+      setGithubRepos(Array.isArray(json.repos) ? json.repos : [])
+    } catch (err) {
+      setGithubRepos(null)
+      setGithubConnectError(err instanceof Error ? err.message : String(err))
+    }
+  }, [])
+
+  const handleGithubConnect = useCallback(async () => {
+    setGithubConnectError(null)
+    // If already authenticated, open picker and load repos
+    if (githubAuth?.authenticated) {
+      setGithubRepoPickerOpen(true)
+      if (!githubRepos) {
+        await loadGithubRepos()
+      }
+      return
+    }
+    // Start OAuth flow (redirect)
+    window.location.href = '/api/auth/github/start'
+  }, [githubAuth?.authenticated, githubRepos, loadGithubRepos])
+
+  const handleGithubDisconnect = useCallback(async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
+    } catch {
+      // ignore
+    }
+    setGithubAuth(null)
+    setGithubRepos(null)
+    setGithubRepoPickerOpen(false)
+    setGithubRepoQuery('')
+  }, [])
+
+  const handleSelectGithubRepo = useCallback((repo: GithubRepo) => {
+    const selected: ConnectedGithubRepo = {
+      fullName: repo.full_name,
+      defaultBranch: repo.default_branch,
+      htmlUrl: repo.html_url,
+      private: repo.private,
+    }
+    setConnectedGithubRepo(selected)
+    try {
+      localStorage.setItem('hal-github-repo', JSON.stringify(selected))
+    } catch {
+      // ignore
+    }
+
+    // Use repo full_name as the project id for persistence + ticket flows (0079)
+    setConnectedProject(repo.full_name)
+
+    // Tell Kanban iframe which repo is connected (0079)
+    if (kanbanIframeRef.current?.contentWindow) {
+      kanbanIframeRef.current.contentWindow.postMessage(
+        { type: 'HAL_CONNECT_REPO', repoFullName: repo.full_name },
+        window.location.origin
+      )
+    }
+
+    // If Supabase isn't set yet, use Vercel-provided VITE_ env as default (hosted path)
+    if (!supabaseUrl || !supabaseAnonKey) {
+      const envUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
+      const envKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
+      if (envUrl && envKey) {
+        setSupabaseUrl(envUrl)
+        setSupabaseAnonKey(envKey)
+        // Send creds to kanban iframe so it can load immediately
+        if (kanbanIframeRef.current?.contentWindow) {
+          kanbanIframeRef.current.contentWindow.postMessage(
+            { type: 'HAL_CONNECT_SUPABASE', url: envUrl, key: envKey },
+            window.location.origin
+          )
+        }
+      }
+    }
+
+    setGithubRepoPickerOpen(false)
+  }, [supabaseUrl, supabaseAnonKey])
 
   // Send theme to Kanban iframe when theme changes or iframe loads (0078)
   useEffect(() => {
@@ -529,6 +718,15 @@ function App() {
     }
   }, [implAgentRunStatus])
 
+  useEffect(() => {
+    try {
+      if (!implAgentRunId) localStorage.removeItem(IMPL_AGENT_RUN_ID_KEY)
+      else localStorage.setItem(IMPL_AGENT_RUN_ID_KEY, implAgentRunId)
+    } catch {
+      // ignore
+    }
+  }, [implAgentRunId])
+
   // Save progress to localStorage whenever it changes (0050)
   useEffect(() => {
     try {
@@ -571,6 +769,15 @@ function App() {
     }
   }, [qaAgentRunStatus])
 
+  useEffect(() => {
+    try {
+      if (!qaAgentRunId) localStorage.removeItem(QA_AGENT_RUN_ID_KEY)
+      else localStorage.setItem(QA_AGENT_RUN_ID_KEY, qaAgentRunId)
+    } catch {
+      // ignore
+    }
+  }, [qaAgentRunId])
+
   // Save QA Agent progress to localStorage whenever it changes (0062)
   useEffect(() => {
     try {
@@ -607,7 +814,10 @@ function App() {
     let pollInterval: number | null = null
     const poll = async () => {
       try {
-        const res = await fetch('/api/pm/file-access/pending')
+        const sessionId = fileAccessSessionIdRef.current
+        const projectId = connectedProject ?? ''
+        const qs = new URLSearchParams({ sessionId, ...(projectId ? { projectId } : {}) }).toString()
+        const res = await fetch(`/api/pm/file-access/pending?${qs}`)
         if (!res.ok) return
         const data = (await res.json()) as { pending: Array<{ requestId: string; type: string; path?: string; pattern?: string; glob?: string; maxLines?: number }> }
         for (const req of data.pending) {
@@ -619,6 +829,7 @@ function App() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 requestId: req.requestId,
+                sessionId: fileAccessSessionIdRef.current,
                 success: 'content' in result,
                 content: 'content' in result ? result.content : undefined,
                 error: 'error' in result ? result.error : undefined,
@@ -632,6 +843,7 @@ function App() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 requestId: req.requestId,
+                sessionId: fileAccessSessionIdRef.current,
                 success: 'matches' in result,
                 matches: 'matches' in result ? result.matches : undefined,
                 error: 'error' in result ? result.error : undefined,
@@ -650,7 +862,7 @@ function App() {
     return () => {
       if (pollInterval != null) clearInterval(pollInterval)
     }
-  }, [projectFolderHandle])
+  }, [projectFolderHandle, connectedProject])
 
   // Get active messages from selected conversation (0070)
   // For PM and Standup, always use default conversation; for Implementation/QA, use selected conversation if modal is open
@@ -991,13 +1203,17 @@ function App() {
         setAgentTypingTarget('project-manager')
         ;(async () => {
           try {
-            let body: { message: string; conversationHistory?: Array<{ role: string; content: string }>; previous_response_id?: string; projectId?: string; supabaseUrl?: string; supabaseAnonKey?: string; images?: Array<{ dataUrl: string; filename: string; mimeType: string }> } = { message: content }
+            let body: { message: string; conversationHistory?: Array<{ role: string; content: string }>; previous_response_id?: string; projectId?: string; supabaseUrl?: string; supabaseAnonKey?: string; fileAccessSessionId?: string; images?: Array<{ dataUrl: string; filename: string; mimeType: string }> } = { message: content }
             if (pmLastResponseId) body.previous_response_id = pmLastResponseId
             if (connectedProject) body.projectId = connectedProject
             // Always send Supabase creds when we have them so create_ticket is available (0011)
             if (supabaseUrl && supabaseAnonKey) {
               body.supabaseUrl = supabaseUrl
               body.supabaseAnonKey = supabaseAnonKey
+            }
+            // Session-scoped file access bridge (0080)
+            if (projectFolderHandle && connectedProject) {
+              body.fileAccessSessionId = fileAccessSessionIdRef.current
             }
             // Include image attachments if present
             if (imageAttachments && imageAttachments.length > 0) {
@@ -1135,7 +1351,6 @@ function App() {
           return
         }
 
-        const isImplementTicket = /implement\s+ticket\s+\d{4}/i.test(content)
         const ticketId = extractTicketId(content)
         if (ticketId) {
           setImplAgentTicketId(ticketId)
@@ -1155,157 +1370,94 @@ function App() {
         setOrphanedCompletionSummary(null)
 
         ;(async () => {
-          setImplAgentRunStatus(isImplementTicket ? 'fetching_ticket' : 'preparing')
           const addProgress = (message: string) => {
             const progressEntry = { timestamp: new Date(), message }
             setImplAgentProgress((prev) => [...prev, progressEntry])
-            // Also add as a system message to the conversation (0050)
             addMessage(convId, 'system', `[Progress] ${message}`)
           }
 
           try {
-            const body: { message: string; supabaseUrl?: string; supabaseAnonKey?: string; images?: Array<{ dataUrl: string; filename: string; mimeType: string }> } = { message: content }
-            if (supabaseUrl && supabaseAnonKey) {
-              body.supabaseUrl = supabaseUrl
-              body.supabaseAnonKey = supabaseAnonKey
-            }
-            // Include image attachments if present
-            if (imageAttachments && imageAttachments.length > 0) {
-              body.images = imageAttachments.map((img) => ({
-                dataUrl: img.dataUrl,
-                filename: img.filename,
-                mimeType: img.file.type,
-              }))
-            }
-            const res = await fetch('/api/implementation-agent/run', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(body),
-            })
-
-            if (!res.body) {
+            if (!ticketId) {
               setImplAgentRunStatus('failed')
-              const errorMsg = 'No response body from server.'
-              setImplAgentError(errorMsg)
-              addMessage(
-                convId,
-                'implementation-agent',
-                `[Implementation Agent] ${errorMsg}`
-              )
+              const msg = 'Say "Implement ticket NNNN" (e.g. Implement ticket 0046).'
+              setImplAgentError(msg)
+              addMessage(convId, 'implementation-agent', `[Implementation Agent] ${msg}`)
+              setTimeout(() => setAgentTypingTarget(null), 500)
+              return
+            }
+            if (!connectedGithubRepo?.fullName) {
+              setImplAgentRunStatus('failed')
+              const msg = 'No GitHub repo connected. Use "Connect GitHub Repo" first.'
+              setImplAgentError(msg)
+              addMessage(convId, 'implementation-agent', `[Implementation Agent] ${msg}`)
               setTimeout(() => setAgentTypingTarget(null), 500)
               return
             }
 
-            const reader = res.body.getReader()
-            const decoder = new TextDecoder()
-            let buffer = ''
-            let lastStage = ''
-            let finalContent = ''
-            let finalError = ''
-            let lastProgressTime = Date.now()
-            const PROGRESS_INTERVAL = 10000 // 10 seconds
+            setImplAgentRunStatus('launching')
+            addProgress('Launching cloud agent (async run)...')
 
-            while (true) {
-              const { done, value } = await reader.read()
-              if (done) break
-              buffer += decoder.decode(value, { stream: true })
-              const lines = buffer.split('\n')
-              buffer = lines.pop() ?? ''
-              for (const line of lines) {
-                const trimmed = line.trim()
-                if (!trimmed) continue
-                try {
-                  const data = JSON.parse(trimmed) as {
-                    stage?: string
-                    cursorStatus?: string
-                    success?: boolean
-                    content?: string
-                    error?: string
-                    status?: string
-                  }
-                  const stage = data.stage ?? ''
-                  if (stage) lastStage = stage
-                  
-                  // Update status and emit progress messages (0050)
-                  if (stage === 'fetching_ticket') {
-                    setImplAgentRunStatus('fetching_ticket')
-                    addProgress('Fetching ticket from database...')
-                  } else if (stage === 'resolving_repo') {
-                    setImplAgentRunStatus('resolving_repo')
-                    addProgress('Resolving GitHub repository...')
-                  } else if (stage === 'launching') {
-                    setImplAgentRunStatus('launching')
-                    addProgress('Launching cloud agent...')
-                  } else if (stage === 'polling') {
-                    setImplAgentRunStatus('polling')
-                    const cursorStatus = data.cursorStatus ?? 'RUNNING'
-                    const now = Date.now()
-                    // Emit progress when entering polling stage or every ~10 seconds while polling (0050)
-                    if (lastStage !== 'polling' || now - lastProgressTime >= PROGRESS_INTERVAL) {
-                      addProgress(`Agent is running (status: ${cursorStatus})...`)
-                      lastProgressTime = now
-                    }
-                  } else if (stage === 'completed') {
-                    setImplAgentRunStatus('completed')
-                    finalContent = data.content ?? 'Implementation completed.'
-                    addProgress('Implementation completed successfully.')
-                    
-                    // Auto-move ticket to QA (0061)
-                    const currentTicketId = implAgentTicketId || extractTicketId(finalContent) || extractTicketId(content)
-                    if (currentTicketId) {
-                      moveTicketToColumn(currentTicketId, 'col-qa', 'implementation').catch(() => {
-                        // Error already logged via addAutoMoveDiagnostic
-                      })
-                    } else {
-                      addAutoMoveDiagnostic(
-                        `Implementation Agent completion: Could not determine ticket ID from message. Auto-move skipped.`,
-                        'error'
-                      )
-                    }
-                  } else if (stage === 'failed') {
-                    setImplAgentRunStatus('failed')
-                    finalError = data.error ?? 'Unknown error'
-                    setImplAgentError(finalError)
-                    addProgress(`Implementation failed: ${finalError}`)
-                  }
-                } catch {
-                  // skip malformed lines
-                }
-              }
+            const launchRes = await fetch('/api/agent-runs/launch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                agentType: 'implementation',
+                repoFullName: connectedGithubRepo.fullName,
+                ticketNumber: parseInt(ticketId, 10),
+              }),
+            })
+            const launchData = (await launchRes.json()) as { runId?: string; status?: string; error?: string }
+            if (!launchRes.ok || !launchData.runId) {
+              const msg = launchData.error ?? `Launch failed (HTTP ${launchRes.status})`
+              setImplAgentRunStatus('failed')
+              setImplAgentError(msg)
+              addMessage(convId, 'implementation-agent', `[Implementation Agent] ${msg}`)
+              setTimeout(() => setAgentTypingTarget(null), 500)
+              return
             }
 
-            if (finalContent) {
-              // Add completion summary with label (0067)
-              const agentType = cursorRunAgentType || 'implementation-agent'
-              if (agentType === 'implementation-agent' || agentType === 'qa-agent') {
-                addMessage(convId, agentType, `**Completion summary**\n\n${finalContent}`)
-              } else {
-                // Missing agent type: show diagnostic and retain raw summary (0067)
-                addAutoMoveDiagnostic(
-                  `Completion summary received but agent type is missing (expected 'implementation-agent' or 'qa-agent', got: ${agentType ?? 'null'}). Raw summary retained for troubleshooting.`,
-                  'error'
-                )
-                setOrphanedCompletionSummary(finalContent)
+            setImplAgentRunId(launchData.runId)
+            setImplAgentRunStatus('polling')
+            addProgress(`Run launched. Polling status (runId: ${launchData.runId.slice(0, 8)}...)`)
+
+            const poll = async () => {
+              const r = await fetch(`/api/agent-runs/status?runId=${encodeURIComponent(launchData.runId!)}`)
+              const data = (await r.json()) as any
+              const s = String(data.status ?? '')
+              const cursorStatus = String(data.cursor_status ?? '')
+              if (s === 'failed') {
+                setImplAgentRunStatus('failed')
+                const msg = String(data.error ?? 'Unknown error')
+                setImplAgentError(msg)
+                addProgress(`Failed: ${msg}`)
+                addMessage(convId, 'implementation-agent', `[Implementation Agent] ${msg}`)
+                setAgentTypingTarget(null)
+                return false
               }
-              // Reset ticket ID after completion
-              setImplAgentTicketId(null)
-              setCursorRunAgentType(null)
-            } else if (finalError) {
-              addMessage(
-                convId,
-                'implementation-agent',
-                `[Implementation Agent] ${finalError}`
-              )
-            } else if (lastStage === 'failed') {
-              const errorMsg = 'Request failed. Check that Cursor API is configured and the project has a GitHub remote.'
-              setImplAgentError(errorMsg)
-              addMessage(
-                convId,
-                'implementation-agent',
-                `[Implementation Agent] ${errorMsg}`
-              )
+              if (s === 'finished') {
+                setImplAgentRunStatus('completed')
+                const summary = String(data.summary ?? 'Implementation completed.')
+                const prUrl = data.pr_url ? String(data.pr_url) : ''
+                const full = prUrl ? `${summary}\n\nPull request: ${prUrl}` : summary
+                addProgress('Implementation completed successfully.')
+                addMessage(convId, 'implementation-agent', `**Completion summary**\n\n${full}`)
+                setImplAgentRunId(null)
+                setImplAgentTicketId(null)
+                setCursorRunAgentType(null)
+                setAgentTypingTarget(null)
+                return false
+              }
+              setImplAgentRunStatus('polling')
+              if (cursorStatus) addProgress(`Agent is running (status: ${cursorStatus})...`)
+              return true
             }
-            setTimeout(() => setAgentTypingTarget(null), 500)
+
+            // Poll loop (client-side) until terminal state
+            for (;;) {
+              const keep = await poll()
+              if (!keep) break
+              await new Promise((r) => setTimeout(r, 4000))
+            }
           } catch (err) {
             setImplAgentRunStatus('failed')
             const msg = err instanceof Error ? err.message : String(err)
@@ -1325,7 +1477,6 @@ function App() {
           return
         }
 
-        const isQaTicket = /qa\s+ticket\s+\d{4}/i.test(content)
         const ticketId = extractTicketId(content)
         if (ticketId) {
           setQaAgentTicketId(ticketId)
@@ -1345,217 +1496,97 @@ function App() {
         setOrphanedCompletionSummary(null)
 
         ;(async () => {
-          setQaAgentRunStatus(isQaTicket ? 'fetching_ticket' : 'preparing')
           const addProgress = (message: string) => {
             const progressEntry = { timestamp: new Date(), message }
             setQaAgentProgress((prev) => [...prev, progressEntry])
-            // Also add as a system message to the conversation (0062)
             addMessage(convId, 'system', `[Progress] ${message}`)
           }
-          try {
-            const body: { message: string; supabaseUrl?: string; supabaseAnonKey?: string; images?: Array<{ dataUrl: string; filename: string; mimeType: string }> } = { message: content }
-            if (supabaseUrl && supabaseAnonKey) {
-              body.supabaseUrl = supabaseUrl
-              body.supabaseAnonKey = supabaseAnonKey
-            }
-            // Include image attachments if present
-            if (imageAttachments && imageAttachments.length > 0) {
-              body.images = imageAttachments.map((img) => ({
-                dataUrl: img.dataUrl,
-                filename: img.filename,
-                mimeType: img.file.type,
-              }))
-            }
-            const res = await fetch('/api/qa-agent/run', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(body),
-            })
 
-            if (!res.body) {
+          try {
+            if (!ticketId) {
               setQaAgentRunStatus('failed')
-              const errorMsg = 'No response body from server.'
-              setQaAgentError(errorMsg)
-              addMessage(
-                convId,
-                'qa-agent',
-                `[QA Agent] ${errorMsg}`
-              )
+              const msg = 'Say "QA ticket NNNN" (e.g. QA ticket 0046).'
+              setQaAgentError(msg)
+              addMessage(convId, 'qa-agent', `[QA Agent] ${msg}`)
+              setTimeout(() => setAgentTypingTarget(null), 500)
+              return
+            }
+            if (!connectedGithubRepo?.fullName) {
+              setQaAgentRunStatus('failed')
+              const msg = 'No GitHub repo connected. Use "Connect GitHub Repo" first.'
+              setQaAgentError(msg)
+              addMessage(convId, 'qa-agent', `[QA Agent] ${msg}`)
               setTimeout(() => setAgentTypingTarget(null), 500)
               return
             }
 
-            const reader = res.body.getReader()
-            const decoder = new TextDecoder()
-            let buffer = ''
-            let lastStage = ''
-            let finalContent = ''
-            let finalError = ''
+            setQaAgentRunStatus('launching')
+            addProgress('Launching QA agent (async run)...')
 
-            while (true) {
-              const { done, value } = await reader.read()
-              if (done) break
-              buffer += decoder.decode(value, { stream: true })
-              const lines = buffer.split('\n')
-              buffer = lines.pop() ?? ''
-              for (const line of lines) {
-                const trimmed = line.trim()
-                if (!trimmed) continue
-                try {
-                  const data = JSON.parse(trimmed) as {
-                    stage?: string
-                    cursorStatus?: string
-                    success?: boolean
-                    content?: string
-                    error?: string
-                    status?: string
-                    verdict?: 'PASS' | 'FAIL'
-                  }
-                  const stage = data.stage ?? ''
-                  if (stage) lastStage = stage
-                  
-                  // Update status and emit progress messages (0062)
-                  if (stage === 'fetching_ticket') {
-                    setQaAgentRunStatus('fetching_ticket')
-                    addProgress('Fetching ticket from database...')
-                  } else if (stage === 'fetching_branch') {
-                    setQaAgentRunStatus('fetching_branch')
-                    addProgress('Finding feature branch...')
-                  } else if (stage === 'launching') {
-                    setQaAgentRunStatus('launching')
-                    addProgress('Launching QA agent...')
-                  } else if (stage === 'polling') {
-                    setQaAgentRunStatus('polling')
-                    const cursorStatus = data.cursorStatus ?? 'RUNNING'
-                    addProgress(`QA agent is running (status: ${cursorStatus})...`)
-                  } else if (stage === 'generating_report') {
-                    setQaAgentRunStatus('generating_report')
-                    addProgress('Generating QA report...')
-                  } else if (stage === 'merging') {
-                    setQaAgentRunStatus('merging')
-                    addProgress('Merging to main...')
-                  } else if (stage === 'moving_ticket') {
-                    setQaAgentRunStatus('moving_ticket')
-                    addProgress('Moving ticket to Human in the Loop...')
-                  } else if (stage === 'completed') {
-                    setQaAgentRunStatus('completed')
-                    finalContent = data.content ?? 'QA completed.'
-                    addProgress('QA completed successfully.')
-                    
-                    // Auto-move ticket to Human in the Loop if PASS (0061)
-                    const verdict = data.verdict
-                    const isPass = verdict === 'PASS' || (data.success === true && verdict !== 'FAIL') || /pass|ok.*merge|verified.*main/i.test(finalContent)
-                    if (isPass) {
-                      const currentTicketId = qaAgentTicketId || extractTicketId(finalContent) || extractTicketId(content)
-                      if (currentTicketId) {
-                        moveTicketToColumn(currentTicketId, 'col-human-in-the-loop', 'qa').catch(() => {
-                          // Error already logged via addAutoMoveDiagnostic
-                        })
-                      } else {
-                        addAutoMoveDiagnostic(
-                          `QA Agent completion (PASS): Could not determine ticket ID from message. Auto-move skipped.`,
-                          'error'
-                        )
-                      }
-                    }
-                    
-                    // Reset to idle after delay to avoid stale "running" indicators (0062)
-                    setTimeout(() => {
-                      setQaAgentRunStatus('idle')
-                      setQaAgentProgress([])
-                      setQaAgentError(null)
-                    }, 5000) // 5 seconds delay
-                  } else if (stage === 'failed') {
-                    setQaAgentRunStatus('failed')
-                    finalError = data.error ?? 'Unknown error'
-                    setQaAgentError(finalError)
-                    addProgress(`QA failed: ${finalError}`)
-                    
-                    // Reset to idle after delay to avoid stale "running" indicators (0062)
-                    setTimeout(() => {
-                      setQaAgentRunStatus('idle')
-                      setQaAgentProgress([])
-                      setQaAgentError(null)
-                    }, 5000) // 5 seconds delay
-                  }
-                } catch {
-                  // skip malformed lines
-                }
-              }
+            const launchRes = await fetch('/api/agent-runs/launch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                agentType: 'qa',
+                repoFullName: connectedGithubRepo.fullName,
+                ticketNumber: parseInt(ticketId, 10),
+              }),
+            })
+            const launchData = (await launchRes.json()) as { runId?: string; status?: string; error?: string }
+            if (!launchRes.ok || !launchData.runId) {
+              const msg = launchData.error ?? `Launch failed (HTTP ${launchRes.status})`
+              setQaAgentRunStatus('failed')
+              setQaAgentError(msg)
+              addMessage(convId, 'qa-agent', `[QA Agent] ${msg}`)
+              setTimeout(() => setAgentTypingTarget(null), 500)
+              return
             }
 
-            if (finalContent) {
-              // Add completion summary with label (0067)
-              const agentType = cursorRunAgentType || 'qa-agent'
-              if (agentType === 'implementation-agent' || agentType === 'qa-agent') {
-                addMessage(convId, agentType, `**Completion summary**\n\n${finalContent}`)
-              } else {
-                // Missing agent type: show diagnostic and retain raw summary (0067)
-                addAutoMoveDiagnostic(
-                  `Completion summary received but agent type is missing (expected 'implementation-agent' or 'qa-agent', got: ${agentType ?? 'null'}). Raw summary retained for troubleshooting.`,
-                  'error'
-                )
-                setOrphanedCompletionSummary(finalContent)
+            setQaAgentRunId(launchData.runId)
+            setQaAgentRunStatus('polling')
+            addProgress(`Run launched. Polling status (runId: ${launchData.runId.slice(0, 8)}...)`)
+
+            const poll = async () => {
+              const r = await fetch(`/api/agent-runs/status?runId=${encodeURIComponent(launchData.runId!)}`)
+              const data = (await r.json()) as any
+              const s = String(data.status ?? '')
+              const cursorStatus = String(data.cursor_status ?? '')
+              if (s === 'failed') {
+                setQaAgentRunStatus('failed')
+                const msg = String(data.error ?? 'Unknown error')
+                setQaAgentError(msg)
+                addProgress(`Failed: ${msg}`)
+                addMessage(convId, 'qa-agent', `[QA Agent] ${msg}`)
+                setAgentTypingTarget(null)
+                return false
               }
-              
-              // Auto-move ticket when QA completion message is detected (0061)
-              // Check if this is a completion message with PASS verdict
-              const isQaCompletion = /qa.*complete|qa.*report|qa.*pass|verdict.*pass|move.*human.*loop|verified.*main|pass.*ok.*merge/i.test(finalContent)
-              if (isQaCompletion) {
-                const verdict = /pass|ok.*merge|verified.*main|verdict.*pass/i.test(finalContent) && !/fail|verdict.*fail/i.test(finalContent)
-                if (verdict) {
-                  const currentTicketId = qaAgentTicketId || extractTicketId(finalContent) || extractTicketId(content)
-                  if (currentTicketId) {
-                    moveTicketToColumn(currentTicketId, 'col-human-in-the-loop', 'qa').catch(() => {
-                      // Error already logged via addAutoMoveDiagnostic
-                    })
-                  } else {
-                    addAutoMoveDiagnostic(
-                      `QA Agent completion (PASS): Could not determine ticket ID from completion message. Auto-move skipped.`,
-                      'error'
-                    )
-                  }
-                }
+              if (s === 'finished') {
+                setQaAgentRunStatus('completed')
+                const summary = String(data.summary ?? 'QA completed.')
+                addProgress('QA completed successfully.')
+                addMessage(convId, 'qa-agent', `**Completion summary**\n\n${summary}`)
+                setQaAgentRunId(null)
+                setQaAgentTicketId(null)
+                setCursorRunAgentType(null)
+                setAgentTypingTarget(null)
+                return false
               }
-              
-              // Reset ticket ID after completion
-              setQaAgentTicketId(null)
-              setCursorRunAgentType(null)
-            } else if (finalError) {
-              setQaAgentError(finalError)
-              addMessage(
-                convId,
-                'qa-agent',
-                `[QA Agent] ${finalError}`
-              )
-            } else if (lastStage === 'failed') {
-              const errorMsg = 'Request failed. Check that Cursor API is configured and the project has a GitHub remote.'
-              setQaAgentError(errorMsg)
-              addMessage(
-                convId,
-                'qa-agent',
-                `[QA Agent] ${errorMsg}`
-              )
-              // Reset to idle after delay to avoid stale "running" indicators (0062)
-              setTimeout(() => {
-                setQaAgentRunStatus('idle')
-                setQaAgentProgress([])
-                setQaAgentError(null)
-              }, 5000) // 5 seconds delay
+              setQaAgentRunStatus('polling')
+              if (cursorStatus) addProgress(`QA agent is running (status: ${cursorStatus})...`)
+              return true
             }
-            setTimeout(() => setAgentTypingTarget(null), 500)
+
+            for (;;) {
+              const keep = await poll()
+              if (!keep) break
+              await new Promise((r) => setTimeout(r, 4000))
+            }
           } catch (err) {
             setQaAgentRunStatus('failed')
             const msg = err instanceof Error ? err.message : String(err)
             setQaAgentError(msg)
             addMessage(convId, 'qa-agent', `[QA Agent] ${msg}`)
             setTimeout(() => setAgentTypingTarget(null), 500)
-            // Reset to idle after delay to avoid stale "running" indicators (0062)
-            setTimeout(() => {
-              setQaAgentRunStatus('idle')
-              setQaAgentProgress([])
-              setQaAgentError(null)
-            }, 5000) // 5 seconds delay
           }
         })()
       }
@@ -2003,6 +2034,19 @@ function App() {
         <div className="hal-header-actions">
           <button
             type="button"
+            className="github-connect"
+            onClick={handleGithubConnect}
+            title={githubAuth?.authenticated ? 'GitHub connected' : 'Sign in with GitHub'}
+          >
+            {githubAuth?.authenticated ? `GitHub: ${githubAuth.login ?? 'connected'}` : 'Sign in GitHub'}
+          </button>
+          {githubAuth?.authenticated && (
+            <button type="button" className="github-logout" onClick={handleGithubDisconnect} title="Sign out of GitHub">
+              Sign out
+            </button>
+          )}
+          <button
+            type="button"
             className="theme-toggle"
             onClick={handleThemeToggle}
             aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} theme`}
@@ -2013,6 +2057,69 @@ function App() {
         </div>
       </header>
 
+      {githubConnectError && (
+        <div className="connect-error" role="alert">
+          {githubConnectError}
+        </div>
+      )}
+
+      {githubRepoPickerOpen && (
+        <div className="conversation-modal-overlay" onClick={() => setGithubRepoPickerOpen(false)}>
+          <div className="conversation-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="conversation-modal-header">
+              <h3>Select GitHub repository</h3>
+              <button type="button" className="conversation-modal-close" onClick={() => setGithubRepoPickerOpen(false)} aria-label="Close repo picker">
+                ×
+              </button>
+            </div>
+            <div className="conversation-modal-content">
+              <div style={{ padding: '12px' }}>
+                <input
+                  type="text"
+                  value={githubRepoQuery}
+                  onChange={(e) => setGithubRepoQuery(e.target.value)}
+                  placeholder="Filter repos (owner/name)"
+                  style={{ width: '100%', padding: '10px', marginBottom: '12px' }}
+                />
+                {!githubRepos ? (
+                  <div>Loading repos…</div>
+                ) : githubRepos.length === 0 ? (
+                  <div>No repos found.</div>
+                ) : (
+                  <div style={{ maxHeight: '50vh', overflow: 'auto' }}>
+                    {githubRepos
+                      .filter((r) => r.full_name.toLowerCase().includes(githubRepoQuery.trim().toLowerCase()))
+                      .slice(0, 200)
+                      .map((r) => (
+                        <button
+                          key={r.id}
+                          type="button"
+                          onClick={() => handleSelectGithubRepo(r)}
+                          style={{
+                            display: 'block',
+                            width: '100%',
+                            textAlign: 'left',
+                            padding: '10px',
+                            marginBottom: '8px',
+                            borderRadius: '8px',
+                            border: '1px solid rgba(0,0,0,0.15)',
+                            background: 'transparent',
+                          }}
+                        >
+                          <div style={{ fontWeight: 600 }}>{r.full_name}</div>
+                          <div style={{ fontSize: '0.9em', opacity: 0.8 }}>
+                            {r.private ? 'Private' : 'Public'} • default: {r.default_branch}
+                          </div>
+                        </button>
+                      ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <main className="hal-main">
         {/* Left column: Kanban board */}
         <section className="hal-kanban-region" aria-label="Kanban board">
@@ -2020,16 +2127,26 @@ function App() {
             <h2>Kanban Board</h2>
             <div className="kanban-header-actions">
               {!connectedProject ? (
-                <button
-                  type="button"
-                  className="connect-project-btn"
-                  onClick={handleConnectProjectFolder}
-                >
-                  Connect Project Folder
-                </button>
+                <>
+                  <button
+                    type="button"
+                    className="connect-project-btn"
+                    onClick={handleConnectProjectFolder}
+                  >
+                    Connect Project Folder
+                  </button>
+                  <button type="button" className="connect-project-btn" onClick={handleGithubConnect}>
+                    Connect GitHub Repo
+                  </button>
+                </>
               ) : (
                 <div className="project-info">
                   <span className="project-name">{connectedProject}</span>
+                  {connectedGithubRepo && (
+                    <span className="project-name" style={{ marginLeft: '8px', opacity: 0.85 }}>
+                      Repo: {connectedGithubRepo.fullName}
+                    </span>
+                  )}
                   <button
                     type="button"
                     className="disconnect-btn"

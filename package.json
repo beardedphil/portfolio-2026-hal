@@ -9,7 +9,7 @@
     "dev:hal": "npm run build:agents && vite --port 5173 --strictPort",
     "build:agents": "npm run build --prefix projects/hal-agents",
     "dev:kanban": "npm --prefix projects/kanban run dev -- --port 5174 --strictPort",
-    "build": "tsc -b && vite build",
+    "build": "npm run build:agents && tsc -b && vite build",
     "preview": "vite preview",
     "sync-tickets": "node scripts/sync-tickets.js",
     "update-ticket-body": "node scripts/update-ticket-body-in-supabase.js"
@@ -17,6 +17,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.93.3",
     "dotenv": "^17.2.3",
+    "iron-session": "^8.0.4",
     "portfolio-2026-hal-agents": "file:projects/hal-agents",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
