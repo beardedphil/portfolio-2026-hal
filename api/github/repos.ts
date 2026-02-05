@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http'
-import { getSession } from '../../server/github/session.ts'
-import { listRepos } from '../../server/github/githubApi.ts'
+import { getSession } from '../../_lib/github/session.js'
+import { listRepos } from '../../_lib/github/githubApi.js'
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   try {

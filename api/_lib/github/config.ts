@@ -32,4 +32,3 @@ export function getOrigin(req: RequestLike): string {
   if (!host) throw new Error('Cannot determine origin. Set APP_ORIGIN in Vercel (e.g. https://your-app.vercel.app).')
   return `${proto}://${host}`.replace(/\/+$/, '')
 }
-

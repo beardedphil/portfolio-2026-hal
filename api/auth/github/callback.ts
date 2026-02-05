@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http'
-import { getOrigin } from '../../../server/github/config.ts'
-import { exchangeCodeForToken, getViewer } from '../../../server/github/githubApi.ts'
-import { getSession } from '../../../server/github/session.ts'
+import { getOrigin } from '../../../_lib/github/config.js'
+import { exchangeCodeForToken, getViewer } from '../../../_lib/github/githubApi.js'
+import { getSession } from '../../../_lib/github/session.js'
 
 const AUTH_SECRET_MIN = 32
 

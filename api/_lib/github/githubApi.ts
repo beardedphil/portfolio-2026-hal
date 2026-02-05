@@ -1,4 +1,4 @@
-import { requireEnv } from './config.ts'
+import { requireEnv } from './config.js'
 
 export type GithubTokenResponse = {
   access_token: string
@@ -84,4 +84,3 @@ export async function listRepos(token: string, page = 1): Promise<GithubRepo[]> 
   url.searchParams.set('affiliation', 'owner,collaborator,organization_member')
   return githubFetch<GithubRepo[]>(token, url.toString(), { method: 'GET' })
 }
-
