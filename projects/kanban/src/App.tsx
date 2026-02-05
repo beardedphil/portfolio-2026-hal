@@ -816,12 +816,9 @@ function App() {
         rows = (r.data ?? null) as unknown[] | null
         error = (r.error as typeof error) ?? null
       } else {
-        const r = await client
-          .from('tickets')
-          .select('pk, id, repo_full_name, ticket_number, display_id, filename, title, body_md, kanban_column_id, kanban_position, kanban_moved_at, updated_at')
-          .order('ticket_number', { ascending: true })
-        rows = (r.data ?? null) as unknown[] | null
-        error = (r.error as typeof error) ?? null
+        // No repo connected: show no tickets (repo-scoped 0079)
+        rows = []
+        error = null
       }
       if (error) {
         const eAny = error as any
@@ -1120,12 +1117,9 @@ function App() {
         rows = (r.data ?? null) as unknown[] | null
         error = (r.error as typeof error) ?? null
       } else {
-        const r = await client
-          .from('tickets')
-          .select('pk, id, repo_full_name, ticket_number, display_id, filename, title, body_md, kanban_column_id, kanban_position, kanban_moved_at, updated_at')
-          .order('ticket_number', { ascending: true })
-        rows = (r.data ?? null) as unknown[] | null
-        error = (r.error as typeof error) ?? null
+        // No repo connected: show no tickets (repo-scoped 0079)
+        rows = []
+        error = null
       }
       if (error) {
         const eAny = error as any
