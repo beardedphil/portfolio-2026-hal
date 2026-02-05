@@ -3,6 +3,14 @@ import { getOrigin } from '../../../server/github/config.ts'
 import { exchangeCodeForToken, getViewer } from '../../../server/github/githubApi.ts'
 import { getSession } from '../../../server/github/session.ts'
 
+const AUTH_SECRET_MIN = 32
+
+function sendJson(res: ServerResponse, status: number, body: object) {
+  res.statusCode = status
+  res.setHeader('Content-Type', 'application/json')
+  res.end(JSON.stringify(body))
+}
+
 function redirect(res: ServerResponse, location: string) {
   res.statusCode = 302
   res.setHeader('Location', location)
@@ -17,7 +25,21 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
-    const origin = getOrigin(req)
+    const secret = process.env.AUTH_SESSION_SECRET?.trim()
+    if (!secret || secret.length < AUTH_SECRET_MIN) {
+      sendJson(res, 503, {
+        error: 'Auth not configured. Set AUTH_SESSION_SECRET (32+ characters) in Vercel Environment Variables.',
+      })
+      return
+    }
+
+    let origin: string
+    try {
+      origin = getOrigin(req)
+    } catch (e) {
+      sendJson(res, 503, { error: e instanceof Error ? e.message : 'Cannot determine origin.' })
+      return
+    }
     const url = new URL(req.url ?? '/', origin)
     const code = url.searchParams.get('code')
     const state = url.searchParams.get('state')
@@ -26,9 +48,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const expected = session.oauthState
 
     if (!code || !state || !expected || state !== expected) {
-      res.statusCode = 400
-      res.setHeader('Content-Type', 'application/json')
-      res.end(JSON.stringify({ error: 'Invalid OAuth callback (missing or mismatched state).' }))
+      sendJson(res, 400, { error: 'Invalid OAuth callback (missing or mismatched state).' })
       return
     }
 
@@ -47,9 +67,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     redirect(res, `${origin}/?github=connected`)
   } catch (err) {
-    res.statusCode = 500
-    res.setHeader('Content-Type', 'application/json')
-    res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }))
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('[api/auth/github/callback]', msg, err)
+    sendJson(res, 500, { error: msg })
   }
 }
 
