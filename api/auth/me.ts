@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'http'
-import { getSession } from '../../_lib/github/session.js'
+import { getSession } from '../_lib/github/session.js'
 
 const AUTH_SECRET_MIN = 32
 
