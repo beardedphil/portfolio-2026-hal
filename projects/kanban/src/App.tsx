@@ -678,6 +678,24 @@ function App() {
   })
   const [supabaseConnectionStatus, setSupabaseConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected')
   const [supabaseLastError, setSupabaseLastError] = useState<string | null>(null)
+
+  // Restore Supabase url/key from localStorage on mount so key is in state before any refetch (iframe refresh or late HAL message)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SUPABASE_CONFIG_KEY)
+      if (!raw) return
+      const parsed = JSON.parse(raw) as { projectUrl?: string; anonKey?: string }
+      const url = (parsed?.projectUrl ?? '').trim()
+      const key = (parsed?.anonKey ?? '').trim()
+      if (url && key) {
+        setSupabaseProjectUrl(url)
+        setSupabaseAnonKey(key)
+        connectSupabase(url, key)
+      }
+    } catch {
+      // ignore
+    }
+  }, [])
   const [supabaseTickets, setSupabaseTickets] = useState<SupabaseTicketRow[]>([])
   const [supabaseColumnsRows, setSupabaseColumnsRows] = useState<SupabaseKanbanColumnRow[]>([])
   const [supabaseLastRefresh, setSupabaseLastRefresh] = useState<Date | null>(null)
@@ -977,6 +995,8 @@ function App() {
       
       if (data.type === 'HAL_CONNECT_SUPABASE' && data.url && data.key) {
         setProjectName('HAL-connected')
+        setSupabaseProjectUrl(data.url)
+        setSupabaseAnonKey(data.key)
         connectSupabase(data.url, data.key)
       } else if (data.type === 'HAL_CONNECT_REPO' && data.repoFullName) {
         setConnectedRepoFullName(data.repoFullName)
