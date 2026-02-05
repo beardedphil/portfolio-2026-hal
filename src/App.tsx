@@ -88,6 +88,27 @@ type DiagnosticsInfo = {
   lastSendPayloadSummary: string | null
 }
 
+type GithubAuthMe = {
+  authenticated: boolean
+  login: string | null
+  scope: string | null
+}
+
+type GithubRepo = {
+  id: number
+  full_name: string
+  private: boolean
+  default_branch: string
+  html_url: string
+}
+
+type ConnectedGithubRepo = {
+  fullName: string
+  defaultBranch: string
+  htmlUrl: string
+  private: boolean
+}
+
 // localStorage helpers for conversation persistence (fallback when no project DB)
 const CONVERSATION_STORAGE_PREFIX = 'hal-chat-conversations-'
 /** Cap on character count for recent conversation so long technical messages don't dominate (~3k tokens). */
@@ -269,6 +290,12 @@ function App() {
   const [supabaseAnonKey, setSupabaseAnonKey] = useState<string | null>(null)
   const [lastSendPayloadSummary, setLastSendPayloadSummary] = useState<string | null>(null)
   const [projectFolderHandle, setProjectFolderHandle] = useState<FileSystemDirectoryHandle | null>(null)
+  const [githubAuth, setGithubAuth] = useState<GithubAuthMe | null>(null)
+  const [githubRepos, setGithubRepos] = useState<GithubRepo[] | null>(null)
+  const [githubRepoPickerOpen, setGithubRepoPickerOpen] = useState(false)
+  const [githubRepoQuery, setGithubRepoQuery] = useState('')
+  const [connectedGithubRepo, setConnectedGithubRepo] = useState<ConnectedGithubRepo | null>(null)
+  const [githubConnectError, setGithubConnectError] = useState<string | null>(null)
   const [outboundRequestExpanded, setOutboundRequestExpanded] = useState(false)
   const [toolCallsExpanded, setToolCallsExpanded] = useState(false)
   const messageIdRef = useRef(0)
@@ -364,6 +391,124 @@ function App() {
       // ignore localStorage errors
     }
   }, [theme])
+
+  // Load connected GitHub repo from localStorage (0079)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('hal-github-repo')
+      if (!raw) return
+      const parsed = JSON.parse(raw) as ConnectedGithubRepo
+      if (parsed?.fullName && parsed?.defaultBranch) {
+        setConnectedGithubRepo(parsed)
+      }
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  const refreshGithubAuth = useCallback(async () => {
+    try {
+      setGithubConnectError(null)
+      const res = await fetch('/api/auth/me', { credentials: 'include' })
+      const text = await res.text()
+      if (!res.ok) {
+        setGithubAuth(null)
+        setGithubConnectError(text.slice(0, 200) || 'Failed to check GitHub auth status.')
+        return
+      }
+      const json = JSON.parse(text) as GithubAuthMe
+      setGithubAuth(json)
+    } catch (err) {
+      setGithubAuth(null)
+      setGithubConnectError(err instanceof Error ? err.message : String(err))
+    }
+  }, [])
+
+  // On load, check whether GitHub session already exists (0079)
+  useEffect(() => {
+    refreshGithubAuth().catch(() => {})
+  }, [refreshGithubAuth])
+
+  const loadGithubRepos = useCallback(async () => {
+    try {
+      setGithubConnectError(null)
+      const res = await fetch('/api/github/repos', { credentials: 'include' })
+      const text = await res.text()
+      if (!res.ok) {
+        setGithubRepos(null)
+        setGithubConnectError(text.slice(0, 200) || 'Failed to load repos.')
+        return
+      }
+      const json = JSON.parse(text) as { repos: GithubRepo[] }
+      setGithubRepos(Array.isArray(json.repos) ? json.repos : [])
+    } catch (err) {
+      setGithubRepos(null)
+      setGithubConnectError(err instanceof Error ? err.message : String(err))
+    }
+  }, [])
+
+  const handleGithubConnect = useCallback(async () => {
+    setGithubConnectError(null)
+    // If already authenticated, open picker and load repos
+    if (githubAuth?.authenticated) {
+      setGithubRepoPickerOpen(true)
+      if (!githubRepos) {
+        await loadGithubRepos()
+      }
+      return
+    }
+    // Start OAuth flow (redirect)
+    window.location.href = '/api/auth/github/start'
+  }, [githubAuth?.authenticated, githubRepos, loadGithubRepos])
+
+  const handleGithubDisconnect = useCallback(async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
+    } catch {
+      // ignore
+    }
+    setGithubAuth(null)
+    setGithubRepos(null)
+    setGithubRepoPickerOpen(false)
+    setGithubRepoQuery('')
+  }, [])
+
+  const handleSelectGithubRepo = useCallback((repo: GithubRepo) => {
+    const selected: ConnectedGithubRepo = {
+      fullName: repo.full_name,
+      defaultBranch: repo.default_branch,
+      htmlUrl: repo.html_url,
+      private: repo.private,
+    }
+    setConnectedGithubRepo(selected)
+    try {
+      localStorage.setItem('hal-github-repo', JSON.stringify(selected))
+    } catch {
+      // ignore
+    }
+
+    // Use repo full_name as the project id for persistence + ticket flows (0079)
+    setConnectedProject(repo.full_name)
+
+    // If Supabase isn't set yet, use Vercel-provided VITE_ env as default (hosted path)
+    if (!supabaseUrl || !supabaseAnonKey) {
+      const envUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
+      const envKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
+      if (envUrl && envKey) {
+        setSupabaseUrl(envUrl)
+        setSupabaseAnonKey(envKey)
+        // Send creds to kanban iframe so it can load immediately
+        if (kanbanIframeRef.current?.contentWindow) {
+          kanbanIframeRef.current.contentWindow.postMessage(
+            { type: 'HAL_CONNECT_SUPABASE', url: envUrl, key: envKey },
+            window.location.origin
+          )
+        }
+      }
+    }
+
+    setGithubRepoPickerOpen(false)
+  }, [supabaseUrl, supabaseAnonKey])
 
   // Send theme to Kanban iframe when theme changes or iframe loads (0078)
   useEffect(() => {
@@ -2003,6 +2148,19 @@ function App() {
         <div className="hal-header-actions">
           <button
             type="button"
+            className="github-connect"
+            onClick={handleGithubConnect}
+            title={githubAuth?.authenticated ? 'GitHub connected' : 'Sign in with GitHub'}
+          >
+            {githubAuth?.authenticated ? `GitHub: ${githubAuth.login ?? 'connected'}` : 'Sign in GitHub'}
+          </button>
+          {githubAuth?.authenticated && (
+            <button type="button" className="github-logout" onClick={handleGithubDisconnect} title="Sign out of GitHub">
+              Sign out
+            </button>
+          )}
+          <button
+            type="button"
             className="theme-toggle"
             onClick={handleThemeToggle}
             aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} theme`}
@@ -2013,6 +2171,69 @@ function App() {
         </div>
       </header>
 
+      {githubConnectError && (
+        <div className="connect-error" role="alert">
+          {githubConnectError}
+        </div>
+      )}
+
+      {githubRepoPickerOpen && (
+        <div className="conversation-modal-overlay" onClick={() => setGithubRepoPickerOpen(false)}>
+          <div className="conversation-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="conversation-modal-header">
+              <h3>Select GitHub repository</h3>
+              <button type="button" className="conversation-modal-close" onClick={() => setGithubRepoPickerOpen(false)} aria-label="Close repo picker">
+                ×
+              </button>
+            </div>
+            <div className="conversation-modal-content">
+              <div style={{ padding: '12px' }}>
+                <input
+                  type="text"
+                  value={githubRepoQuery}
+                  onChange={(e) => setGithubRepoQuery(e.target.value)}
+                  placeholder="Filter repos (owner/name)"
+                  style={{ width: '100%', padding: '10px', marginBottom: '12px' }}
+                />
+                {!githubRepos ? (
+                  <div>Loading repos…</div>
+                ) : githubRepos.length === 0 ? (
+                  <div>No repos found.</div>
+                ) : (
+                  <div style={{ maxHeight: '50vh', overflow: 'auto' }}>
+                    {githubRepos
+                      .filter((r) => r.full_name.toLowerCase().includes(githubRepoQuery.trim().toLowerCase()))
+                      .slice(0, 200)
+                      .map((r) => (
+                        <button
+                          key={r.id}
+                          type="button"
+                          onClick={() => handleSelectGithubRepo(r)}
+                          style={{
+                            display: 'block',
+                            width: '100%',
+                            textAlign: 'left',
+                            padding: '10px',
+                            marginBottom: '8px',
+                            borderRadius: '8px',
+                            border: '1px solid rgba(0,0,0,0.15)',
+                            background: 'transparent',
+                          }}
+                        >
+                          <div style={{ fontWeight: 600 }}>{r.full_name}</div>
+                          <div style={{ fontSize: '0.9em', opacity: 0.8 }}>
+                            {r.private ? 'Private' : 'Public'} • default: {r.default_branch}
+                          </div>
+                        </button>
+                      ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <main className="hal-main">
         {/* Left column: Kanban board */}
         <section className="hal-kanban-region" aria-label="Kanban board">
@@ -2020,16 +2241,26 @@ function App() {
             <h2>Kanban Board</h2>
             <div className="kanban-header-actions">
               {!connectedProject ? (
-                <button
-                  type="button"
-                  className="connect-project-btn"
-                  onClick={handleConnectProjectFolder}
-                >
-                  Connect Project Folder
-                </button>
+                <>
+                  <button
+                    type="button"
+                    className="connect-project-btn"
+                    onClick={handleConnectProjectFolder}
+                  >
+                    Connect Project Folder
+                  </button>
+                  <button type="button" className="connect-project-btn" onClick={handleGithubConnect}>
+                    Connect GitHub Repo
+                  </button>
+                </>
               ) : (
                 <div className="project-info">
                   <span className="project-name">{connectedProject}</span>
+                  {connectedGithubRepo && (
+                    <span className="project-name" style={{ marginLeft: '8px', opacity: 0.85 }}>
+                      Repo: {connectedGithubRepo.fullName}
+                    </span>
+                  )}
                   <button
                     type="button"
                     className="disconnect-btn"
