@@ -1262,6 +1262,12 @@ function App() {
     [supabaseProjectUrl, supabaseAnonKey, supabaseCards, refetchSupabaseTickets, addLog]
   )
 
+  // When connected repo changes or we connect to Supabase with a repo already set, refetch tickets (0079).
+  useEffect(() => {
+    if (!supabaseBoardActive || !supabaseProjectUrl?.trim() || !supabaseAnonKey?.trim()) return
+    refetchSupabaseTickets(false)
+  }, [connectedRepoFullName, supabaseBoardActive, refetchSupabaseTickets])
+
   // Polling when Supabase board is active (0013); skip pending moves to avoid overwriting optimistic updates (0047)
   useEffect(() => {
     if (!supabaseBoardActive) return
