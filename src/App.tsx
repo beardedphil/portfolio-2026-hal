@@ -428,19 +428,7 @@ function App() {
     }
   }, [theme])
 
-  // Load connected GitHub repo from localStorage (0079)
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem('hal-github-repo')
-      if (!raw) return
-      const parsed = JSON.parse(raw) as ConnectedGithubRepo
-      if (parsed?.fullName && parsed?.defaultBranch) {
-        setConnectedGithubRepo(parsed)
-      }
-    } catch {
-      // ignore
-    }
-  }, [])
+  // Do not restore connected GitHub repo from localStorage on load (0079). User must connect a repo this session so Kanban does not fetch tickets before any connection.
 
   const refreshGithubAuth = useCallback(async () => {
     try {
