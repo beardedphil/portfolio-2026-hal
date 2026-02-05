@@ -2038,7 +2038,7 @@ function App() {
             onClick={handleGithubConnect}
             title={githubAuth?.authenticated ? 'GitHub connected' : 'Sign in with GitHub'}
           >
-            {githubAuth?.authenticated ? `GitHub: ${githubAuth.login ?? 'connected'}` : 'Sign in GitHub'}
+            {githubAuth?.authenticated ? `GitHub: ${githubAuth.login ?? 'connected'}` : 'Sign into GitHub'}
           </button>
           {githubAuth?.authenticated && (
             <button type="button" className="github-logout" onClick={handleGithubDisconnect} title="Sign out of GitHub">

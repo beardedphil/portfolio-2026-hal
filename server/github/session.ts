@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http'
-import { getIronSession, type IronSessionOptions } from 'iron-session'
+import * as IronSession from 'iron-session'
+import type { IronSessionOptions } from 'iron-session'
 import { requireEnv } from './config'
 
 export type GithubSession = {
@@ -33,6 +34,7 @@ function sessionOptions(): IronSessionOptions {
 }
 
 export async function getSession(req: IncomingMessage, res: ServerResponse) {
-  return getIronSession(req, res, sessionOptions())
+  // Use namespace import for CJS/ESM interop on serverless runtimes.
+  return IronSession.getIronSession(req, res, sessionOptions())
 }
 
