@@ -656,7 +656,7 @@ function App() {
   // For PM and Standup, always use default conversation; for Implementation/QA, use selected conversation if modal is open
   const activeMessages = (() => {
     if (selectedChatTarget === 'project-manager' || selectedChatTarget === 'standup') {
-      const defaultConvId = getDefaultConversationId('project-manager')
+      const defaultConvId = getConversationId('project-manager', 1)
       return conversations.has(defaultConvId) ? conversations.get(defaultConvId)!.messages : []
     }
     if (selectedConversationId && conversations.has(selectedConversationId)) {
