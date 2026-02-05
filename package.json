@@ -8,8 +8,10 @@
     "dev": "concurrently -n hal,kanban -c blue,yellow \"npm run dev:hal\" \"npm run dev:kanban\"",
     "dev:hal": "npm run build:agents && vite --port 5173 --strictPort",
     "build:agents": "npm run build --prefix projects/hal-agents",
+    "build:hal": "tsc -b && vite build",
+    "build:kanban": "npm --prefix projects/kanban run build",
     "dev:kanban": "npm --prefix projects/kanban run dev -- --port 5174 --strictPort",
-    "build": "npm run build:agents && tsc -b && vite build",
+    "build": "node scripts/build-vercel.js",
     "preview": "vite preview",
     "sync-tickets": "node scripts/sync-tickets.js",
     "update-ticket-body": "node scripts/update-ticket-body-in-supabase.js"

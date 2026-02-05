@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import path from 'path'
 import { pathToFileURL } from 'url'
-import { getOrigin } from '../../server/github/config'
+import { getOrigin } from '../../server/github/config.ts'
 
 type PmAgentResponse = {
   reply: string

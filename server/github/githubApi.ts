@@ -1,4 +1,4 @@
-import { requireEnv } from './config'
+import { requireEnv } from './config.ts'
 
 export type GithubTokenResponse = {
   access_token: string

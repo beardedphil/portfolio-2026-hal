@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import crypto from 'crypto'
-import { getOrigin } from '../../../server/github/config'
-import { getSession } from '../../../server/github/session'
+import { getOrigin } from '../../../server/github/config.ts'
+import { getSession } from '../../../server/github/session.ts'
 
 function redirect(res: ServerResponse, location: string) {
   res.statusCode = 302

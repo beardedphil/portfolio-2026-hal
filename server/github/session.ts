@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import * as IronSession from 'iron-session'
 import type { IronSessionOptions } from 'iron-session'
-import { requireEnv } from './config'
+import { requireEnv } from './config.ts'
 
 export type GithubSession = {
   accessToken: string
