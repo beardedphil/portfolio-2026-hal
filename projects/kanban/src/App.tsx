@@ -1385,7 +1385,7 @@ function App() {
     [columnsForDisplay]
   )
 
-  const collisionDetection: CollisionDetection = useCallback(
+  const collisionDetection = useCallback<CollisionDetection>(
     (args) => {
       const pointerIntersections = pointerWithin(args)
       const intersections =

@@ -35,8 +35,11 @@ function rmIfExists(p) {
 function main() {
   const repoRoot = process.cwd()
 
+  console.log('[build-vercel] build:agents')
   runNpm(['run', 'build:agents'], { cwd: repoRoot })
+  console.log('[build-vercel] build:hal')
   runNpm(['run', 'build:hal'], { cwd: repoRoot })
+  console.log('[build-vercel] build:kanban')
   runNpm(['run', 'build:kanban'], { cwd: repoRoot })
 
   const from = path.join(repoRoot, 'projects', 'kanban', 'dist')
@@ -44,6 +47,7 @@ function main() {
   rmIfExists(to)
   fs.mkdirSync(path.dirname(to), { recursive: true })
   fs.cpSync(from, to, { recursive: true })
+  console.log('[build-vercel] copied kanban dist -> dist/kanban-app')
 }
 
 main()
