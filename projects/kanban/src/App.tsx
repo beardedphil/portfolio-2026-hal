@@ -669,17 +669,11 @@ function App() {
   // Supabase (read-only v0)
   const [supabaseProjectUrl, setSupabaseProjectUrl] = useState('')
   const [supabaseAnonKey, setSupabaseAnonKey] = useState('')
-  const [connectedRepoFullName, setConnectedRepoFullName] = useState<string | null>(() => {
-    try {
-      return localStorage.getItem(CONNECTED_REPO_KEY)
-    } catch {
-      return null
-    }
-  })
+  const [connectedRepoFullName, setConnectedRepoFullName] = useState<string | null>(null)
   const [supabaseConnectionStatus, setSupabaseConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected')
   const [supabaseLastError, setSupabaseLastError] = useState<string | null>(null)
 
-  // Restore Supabase url/key from localStorage on mount so key is in state before any refetch (iframe refresh or late HAL message)
+  // Restore Supabase url/key to state only on mount (no auto-connect). Ensures key is in state when HAL sends HAL_CONNECT_SUPABASE; avoids showing tickets before user has connected this session.
   useEffect(() => {
     try {
       const raw = localStorage.getItem(SUPABASE_CONFIG_KEY)
@@ -690,7 +684,6 @@ function App() {
       if (url && key) {
         setSupabaseProjectUrl(url)
         setSupabaseAnonKey(key)
-        connectSupabase(url, key)
       }
     } catch {
       // ignore
