@@ -66,6 +66,18 @@ type SupabaseKanbanColumnRow = {
   updated_at: string
 }
 
+/** Supabase agent_artifacts table row (0082) */
+type SupabaseAgentArtifactRow = {
+  artifact_id: string
+  ticket_pk: string
+  repo_full_name: string
+  agent_type: 'implementation' | 'qa' | 'human-in-the-loop' | 'other'
+  title: string
+  body_md: string
+  created_at: string
+  updated_at: string
+}
+
 const SUPABASE_CONFIG_KEY = 'supabase-ticketstore-config'
 const CONNECTED_REPO_KEY = 'hal-connected-repo'
 /** Polling interval when Supabase board is active (0013); 10s */
@@ -259,6 +271,196 @@ function extractPriority(frontmatter: Record<string, string>, body: string): str
   return null
 }
 
+/** Get display name for agent type (0082) */
+function getAgentTypeDisplayName(agentType: string): string {
+  switch (agentType) {
+    case 'implementation':
+      return 'Implementation report'
+    case 'qa':
+      return 'QA report'
+    case 'human-in-the-loop':
+      return 'Human-in-the-Loop report'
+    case 'other':
+      return 'Other agent report'
+    default:
+      return `${agentType} report`
+  }
+}
+
+/** Artifact report viewer modal (0082) */
+function ArtifactReportViewer({
+  open,
+  onClose,
+  artifact,
+}: {
+  open: boolean
+  onClose: () => void
+  artifact: SupabaseAgentArtifactRow | null
+}) {
+  const modalRef = useRef<HTMLDivElement>(null)
+  const closeBtnRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (!open || !modalRef.current) return
+    const el = closeBtnRef.current ?? modalRef.current.querySelector<HTMLElement>('button, [href], input, select, textarea')
+    el?.focus()
+  }, [open])
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+        return
+      }
+      if (e.key !== 'Tab' || !modalRef.current) return
+      const focusable = modalRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )
+      const list = Array.from(focusable)
+      const first = list[0]
+      const last = list[list.length - 1]
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault()
+          last?.focus()
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault()
+          first?.focus()
+        }
+      }
+    },
+    [onClose]
+  )
+
+  if (!open || !artifact) return null
+
+  const createdAt = new Date(artifact.created_at)
+  const displayName = getAgentTypeDisplayName(artifact.agent_type)
+
+  return (
+    <div
+      className="ticket-detail-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="artifact-viewer-title"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+      onKeyDown={handleKeyDown}
+    >
+      <div className="ticket-detail-modal" ref={modalRef}>
+        <div className="ticket-detail-header">
+          <h2 id="artifact-viewer-title" className="ticket-detail-title">
+            {artifact.title}
+          </h2>
+          <button
+            type="button"
+            className="ticket-detail-close"
+            onClick={onClose}
+            ref={closeBtnRef}
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+        <div className="ticket-detail-meta">
+          <span className="ticket-detail-id">Agent type: {displayName}</span>
+          <span className="ticket-detail-priority">Created: {createdAt.toLocaleString()}</span>
+        </div>
+        <div className="ticket-detail-body-wrap">
+          <div className="ticket-detail-body">
+            {artifact.body_md ? (
+              <ReactMarkdown>{artifact.body_md}</ReactMarkdown>
+            ) : (
+              <p className="ticket-detail-empty">No content.</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Artifacts section component (0082) */
+function ArtifactsSection({
+  artifacts,
+  loading,
+  onOpenArtifact,
+}: {
+  artifacts: SupabaseAgentArtifactRow[]
+  loading: boolean
+  onOpenArtifact: (artifact: SupabaseAgentArtifactRow) => void
+}) {
+  if (loading) {
+    return (
+      <div className="artifacts-section">
+        <h3 className="artifacts-section-title">Artifacts</h3>
+        <p className="artifacts-loading">Loading artifacts…</p>
+      </div>
+    )
+  }
+
+  if (artifacts.length === 0) {
+    return (
+      <div className="artifacts-section">
+        <h3 className="artifacts-section-title">Artifacts</h3>
+        <p className="artifacts-empty">No artifacts available for this ticket.</p>
+      </div>
+    )
+  }
+
+  // Group artifacts by agent type, showing most recent first
+  const grouped = artifacts.reduce((acc, artifact) => {
+    if (!acc[artifact.agent_type]) {
+      acc[artifact.agent_type] = []
+    }
+    acc[artifact.agent_type].push(artifact)
+    return acc
+  }, {} as Record<string, SupabaseAgentArtifactRow[]>)
+
+  // Sort each group by created_at descending
+  for (const key in grouped) {
+    grouped[key].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+  }
+
+  return (
+    <div className="artifacts-section">
+      <h3 className="artifacts-section-title">Artifacts</h3>
+      <ul className="artifacts-list">
+        {Object.entries(grouped).map(([agentType, typeArtifacts]) => {
+          // Show the most recent artifact for each type
+          const artifact = typeArtifacts[0]
+          const displayName = getAgentTypeDisplayName(agentType)
+          return (
+            <li key={artifact.artifact_id} className="artifacts-item">
+              <button
+                type="button"
+                className="artifacts-item-button"
+                onClick={() => onOpenArtifact(artifact)}
+                aria-label={`Open ${displayName}: ${artifact.title}`}
+              >
+                <span className="artifacts-item-title">{displayName}</span>
+                <span className="artifacts-item-meta">
+                  {new Date(artifact.created_at).toLocaleString()}
+                </span>
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
 /** Ticket detail modal (0033): title, metadata, markdown body, close/escape/backdrop, scroll lock, focus trap */
 function TicketDetailModal({
   open,
@@ -269,6 +471,11 @@ function TicketDetailModal({
   loading,
   error,
   onRetry,
+  artifacts,
+  artifactsLoading,
+  onOpenArtifact,
+  supabaseUrl,
+  supabaseAnonKey,
 }: {
   open: boolean
   onClose: () => void
@@ -278,6 +485,9 @@ function TicketDetailModal({
   loading: boolean
   error: string | null
   onRetry?: () => void
+  artifacts: SupabaseAgentArtifactRow[]
+  artifactsLoading: boolean
+  onOpenArtifact: (artifact: SupabaseAgentArtifactRow) => void
 }) {
   const modalRef = useRef<HTMLDivElement>(null)
   const closeBtnRef = useRef<HTMLButtonElement>(null)
@@ -379,13 +589,20 @@ function TicketDetailModal({
             </div>
           )}
           {!loading && !error && (
-            <div className="ticket-detail-body">
-              {markdownBody ? (
-                <ReactMarkdown>{markdownBody}</ReactMarkdown>
-              ) : (
-                <p className="ticket-detail-empty">No content.</p>
-              )}
-            </div>
+            <>
+              <div className="ticket-detail-body">
+                {markdownBody ? (
+                  <ReactMarkdown>{markdownBody}</ReactMarkdown>
+                ) : (
+                  <p className="ticket-detail-empty">No content.</p>
+                )}
+              </div>
+              <ArtifactsSection
+                artifacts={artifacts}
+                loading={artifactsLoading}
+                onOpenArtifact={onOpenArtifact}
+              />
+            </>
           )}
         </div>
       </div>
@@ -713,6 +930,11 @@ function App() {
   const [detailModalError, setDetailModalError] = useState<string | null>(null)
   const [detailModalLoading, setDetailModalLoading] = useState(false)
   const [detailModalRetryTrigger, setDetailModalRetryTrigger] = useState(0)
+  
+  // Agent artifacts (0082)
+  const [detailModalArtifacts, setDetailModalArtifacts] = useState<SupabaseAgentArtifactRow[]>([])
+  const [detailModalArtifactsLoading, setDetailModalArtifactsLoading] = useState(false)
+  const [artifactViewer, setArtifactViewer] = useState<SupabaseAgentArtifactRow | null>(null)
 
   // Supabase board: when connected, board is driven by supabaseTickets + supabaseColumnsRows (0020)
   const supabaseBoardActive = supabaseConnectionStatus === 'connected'
@@ -1024,12 +1246,40 @@ function App() {
   const columnsForDisplay = supabaseBoardActive ? supabaseColumns : columns
   const cardsForDisplay = supabaseBoardActive ? supabaseCards : cards
 
+  /** Fetch artifacts for a ticket (0082) */
+  const fetchTicketArtifacts = useCallback(
+    async (ticketPk: string): Promise<SupabaseAgentArtifactRow[]> => {
+      const url = supabaseProjectUrl.trim()
+      const key = supabaseAnonKey.trim()
+      if (!url || !key) return []
+      try {
+        const client = createClient(url, key)
+        const { data, error } = await client
+          .from('agent_artifacts')
+          .select('artifact_id, ticket_pk, repo_full_name, agent_type, title, body_md, created_at, updated_at')
+          .eq('ticket_pk', ticketPk)
+          .order('created_at', { ascending: false })
+        if (error) {
+          console.warn('Failed to fetch artifacts:', error)
+          return []
+        }
+        return (data ?? []) as SupabaseAgentArtifactRow[]
+      } catch (e) {
+        console.warn('Failed to fetch artifacts:', e)
+        return []
+      }
+    },
+    [supabaseProjectUrl, supabaseAnonKey]
+  )
+
   // Resolve ticket detail modal content when modal opens (0033); Supabase-only (0065)
   useEffect(() => {
     if (!detailModal) {
       setDetailModalBody(null)
       setDetailModalError(null)
       setDetailModalLoading(false)
+      setDetailModalArtifacts([])
+      setDetailModalArtifactsLoading(false)
       return
     }
     const { ticketId } = detailModal
@@ -1061,8 +1311,20 @@ function App() {
           }
         }
         setDetailModalBody(normalized)
+        
+        // Fetch artifacts (0082)
+        setDetailModalArtifactsLoading(true)
+        fetchTicketArtifacts(ticketId).then((artifacts) => {
+          setDetailModalArtifacts(artifacts)
+          setDetailModalArtifactsLoading(false)
+        }).catch(() => {
+          setDetailModalArtifacts([])
+          setDetailModalArtifactsLoading(false)
+        })
       } else {
         setDetailModalBody('')
+        setDetailModalArtifacts([])
+        setDetailModalArtifactsLoading(false)
       }
       setDetailModalError(null)
       setDetailModalLoading(false)
@@ -1071,8 +1333,10 @@ function App() {
       setDetailModalError('Supabase not connected. Connect project folder to view ticket details.')
       setDetailModalBody(null)
       setDetailModalLoading(false)
+      setDetailModalArtifacts([])
+      setDetailModalArtifactsLoading(false)
     }
-  }, [detailModal, supabaseBoardActive, supabaseTickets, supabaseProjectUrl, supabaseAnonKey, detailModalRetryTrigger, addLog])
+  }, [detailModal, supabaseBoardActive, supabaseTickets, supabaseProjectUrl, supabaseAnonKey, detailModalRetryTrigger, addLog, fetchTicketArtifacts])
 
   const handleOpenTicketDetail = useCallback(
     (cardId: string) => {
@@ -1081,8 +1345,15 @@ function App() {
     },
     [cardsForDisplay]
   )
-  const handleCloseTicketDetail = useCallback(() => setDetailModal(null), [])
+  const handleCloseTicketDetail = useCallback(() => {
+    setDetailModal(null)
+    setArtifactViewer(null)
+  }, [])
   const handleRetryTicketDetail = useCallback(() => setDetailModalRetryTrigger((n) => n + 1), [])
+  const handleOpenArtifact = useCallback((artifact: SupabaseAgentArtifactRow) => {
+    setArtifactViewer(artifact)
+  }, [])
+  const handleCloseArtifact = useCallback(() => setArtifactViewer(null), [])
 
   // File system mode removed (0065): Supabase-only
 
@@ -2069,8 +2340,17 @@ function App() {
           loading={detailModalLoading}
           error={detailModalError}
           onRetry={detailModalError ? handleRetryTicketDetail : undefined}
+          artifacts={detailModalArtifacts}
+          artifactsLoading={detailModalArtifactsLoading}
+          onOpenArtifact={handleOpenArtifact}
         />
       )}
+      
+      <ArtifactReportViewer
+        open={artifactViewer !== null}
+        onClose={handleCloseArtifact}
+        artifact={artifactViewer}
+      />
 
       <DndContext
         sensors={sensors}

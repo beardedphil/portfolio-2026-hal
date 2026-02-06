@@ -520,6 +520,81 @@ h1 {
   font-style: italic;
 }
 
+/* Artifacts section (0082) */
+.artifacts-section {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--kanban-border);
+}
+.artifacts-section-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem 0;
+  color: var(--kanban-text);
+}
+.artifacts-loading,
+.artifacts-empty {
+  margin: 0.5rem 0;
+  color: var(--kanban-text-muted);
+  font-style: italic;
+  font-size: 0.9rem;
+}
+.artifacts-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.artifacts-item {
+  margin: 0 0 0.5rem 0;
+}
+.artifacts-item:last-child {
+  margin-bottom: 0;
+}
+.artifacts-item-button {
+  width: 100%;
+  padding: 0.75rem;
+  text-align: left;
+  background: var(--kanban-surface-alt);
+  border: 1px solid var(--kanban-border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.artifacts-item-button:hover {
+  background: var(--kanban-surface);
+  border-color: var(--kanban-primary);
+}
+.artifacts-item-button:focus {
+  outline: none;
+}
+.artifacts-item-button:focus-visible {
+  outline: 2px solid var(--kanban-primary);
+  outline-offset: 2px;
+}
+.artifacts-item-title {
+  font-weight: 500;
+  color: var(--kanban-text);
+  font-size: 0.95rem;
+}
+.artifacts-item-meta {
+  font-size: 0.85rem;
+  color: var(--kanban-text-muted);
+  font-family: ui-monospace, monospace;
+}
+
+/* Dark theme adjustments for artifacts */
+[data-theme="dark"] .artifacts-item-button {
+  background: var(--kanban-surface-alt);
+  border-color: var(--kanban-border);
+}
+[data-theme="dark"] .artifacts-item-button:hover {
+  background: var(--kanban-surface);
+  border-color: var(--kanban-primary);
+}
+
 .column-work-button {
   align-self: flex-start;
   padding: 0.25rem 0.5rem;
