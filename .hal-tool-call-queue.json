@@ -1,5 +1,12 @@
 [
   {
+    "tool": "update_ticket_body",
+    "params": {
+      "ticketId": "0093",
+      "body_md": "# Ticket HAL-0093\n\n## Goal\nUpdate the QA agent instruction set so QA automatically fails a ticket when required implementation artifacts are missing and records a clear failure message on the ticket explaining what is missing.\n\n## Human-verifiable deliverable\nWhen a QA agent starts/executes QA on a ticket that lacks the required implementation artifacts, the ticket is visibly marked as QA Fail and a QA comment/message is added to the ticket detailing which required artifacts were missing.\n\n## Acceptance criteria\n- [x] The QA agent instruction set explicitly lists the required implementation artifacts that must be present on a ticket before QA can pass.\n- [x] When a QA agent runs on a ticket and detects one or more required artifacts are missing, it records a QA Fail outcome (without attempting to \"guess\"/recreate the missing artifacts).\n- [x] On this auto-fail, the QA agent adds a visible message/comment to the ticket stating that QA failed due to missing implementation artifacts.\n- [x] The message enumerates the specific missing artifacts (not just a generic failure).\n- [x] The message is visible to humans and to future agents when they open the ticket.\n- [x] If all required artifacts are present, QA proceeds normally (no auto-fail message is added).\n\n## QA\n**Branch:** `ticket/0093-implementation` (merged to main)\n\n**Note:** Implementation complete. All required artifacts are stored in Supabase via tool calls in `.hal-tool-call-queue.json`. Merged to main for QA access.\n\n## Implementation Summary\n\n- Added `get_artifacts` tool to HAL's agent tools API\n- Updated QA agent instruction set (`.cursor/rules/qa-audit-report.mdc`) to:\n  - Explicitly list all 6 required implementation artifacts\n  - Add auto-fail instructions when artifacts are missing\n  - Require QA to enumerate specific missing artifacts\n- Updated documentation and QA agent prompt\n- All changes committed, pushed, and merged to main"
+    }
+  },
+  {
     "tool": "insert_implementation_artifact",
     "params": {
       "ticketId": "0093",
