@@ -240,8 +240,6 @@ function App() {
   const [selectedChatTarget, setSelectedChatTarget] = useState<ChatTarget>('project-manager')
   // Selected conversation ID (0070) - null means showing conversation list
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
-  // Modal open state for viewing conversation thread (0070)
-  const [conversationModalOpen, setConversationModalOpen] = useState(false)
   // Chat open state (0087) - when a chat is open, it replaces the Kanban iframe
   const [openChatTarget, setOpenChatTarget] = useState<ChatTarget | string | null>(null) // string = conversation ID
   // Collapsible group states (0087)
@@ -1702,7 +1700,6 @@ function App() {
       if (data.chatTarget === 'implementation-agent' || data.chatTarget === 'qa-agent') {
         conversationId = getOrCreateConversation(data.chatTarget)
         setSelectedConversationId(conversationId)
-        setConversationModalOpen(true)
       } else {
         // For PM and standup, use default conversation
         conversationId = getDefaultConversationId(data.chatTarget === 'project-manager' ? 'project-manager' : 'project-manager')
@@ -2484,7 +2481,6 @@ function App() {
                   setOpenChatTarget('project-manager')
                   setSelectedChatTarget('project-manager')
                   setSelectedConversationId(null)
-                  setConversationModalOpen(false)
                   setUnreadByTarget((prev) => ({ ...prev, 'project-manager': 0 }))
                 }}
                 role="button"
@@ -2495,7 +2491,6 @@ function App() {
                     setOpenChatTarget('project-manager')
                     setSelectedChatTarget('project-manager')
                     setSelectedConversationId(null)
-                    setConversationModalOpen(false)
                     setUnreadByTarget((prev) => ({ ...prev, 'project-manager': 0 }))
                   }
                 }}
@@ -2516,7 +2511,6 @@ function App() {
                   setOpenChatTarget('standup')
                   setSelectedChatTarget('standup')
                   setSelectedConversationId(null)
-                  setConversationModalOpen(false)
                   setUnreadByTarget((prev) => ({ ...prev, standup: 0 }))
                 }}
                 role="button"
@@ -2527,7 +2521,6 @@ function App() {
                     setOpenChatTarget('standup')
                     setSelectedChatTarget('standup')
                     setSelectedConversationId(null)
-                    setConversationModalOpen(false)
                     setUnreadByTarget((prev) => ({ ...prev, standup: 0 }))
                   }
                 }}
@@ -2575,7 +2568,6 @@ function App() {
                             setOpenChatTarget(conv.id)
                             setSelectedChatTarget('qa-agent')
                             setSelectedConversationId(conv.id)
-                            setConversationModalOpen(false)
                           }}
                           role="button"
                           tabIndex={0}
@@ -2585,7 +2577,6 @@ function App() {
                               setOpenChatTarget(conv.id)
                               setSelectedChatTarget('qa-agent')
                               setSelectedConversationId(conv.id)
-                              setConversationModalOpen(false)
                             }
                           }}
                         >
@@ -2634,7 +2625,6 @@ function App() {
                             setOpenChatTarget(conv.id)
                             setSelectedChatTarget('implementation-agent')
                             setSelectedConversationId(conv.id)
-                            setConversationModalOpen(false)
                           }}
                           role="button"
                           tabIndex={0}
@@ -2644,7 +2634,6 @@ function App() {
                               setOpenChatTarget(conv.id)
                               setSelectedChatTarget('implementation-agent')
                               setSelectedConversationId(conv.id)
-                              setConversationModalOpen(false)
                             }
                           }}
                         >
