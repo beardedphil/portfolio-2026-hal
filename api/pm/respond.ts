@@ -19,6 +19,16 @@ type PmAgentResponse = {
     syncError?: string
     retried?: boolean
     attempts?: number
+    /** True when ticket was automatically moved to To Do (0083). */
+    movedToTodo?: boolean
+    /** Error message if auto-move to To Do failed (0083). */
+    moveError?: string
+    /** True if ticket is ready to start (0083). */
+    ready?: boolean
+    /** Missing items if ticket is not ready (0083). */
+    missingItems?: string[]
+    /** True if ticket was auto-fixed (formatting issues resolved) (0095). */
+    autoFixed?: boolean
   }
   createTicketAvailable?: boolean
   agentRunner?: string
@@ -273,6 +283,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         filePath: String(out.filePath ?? ''),
         syncSuccess: true,
         ...(out.retried && out.attempts != null && { retried: true, attempts: out.attempts }),
+        ...(out.movedToTodo && { movedToTodo: true }),
+        ...(out.moveError && { moveError: String(out.moveError) }),
+        ...(typeof out.ready === 'boolean' && { ready: out.ready }),
+        ...(Array.isArray(out.missingItems) && out.missingItems.length > 0 && { missingItems: out.missingItems }),
+        ...(out.autoFixed && { autoFixed: true }),
       }
     }
 
