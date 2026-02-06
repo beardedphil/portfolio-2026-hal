@@ -69,12 +69,18 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     // Filter tool calls for this ticket
+    // Normalize ticket IDs: remove "HAL-" prefix if present for comparison
+    const normalizeTicketId = (id: string): string => {
+      return id.replace(/^HAL-?/i, '').trim()
+    }
+    const normalizedTicketId = normalizeTicketId(ticketId)
+    
     const ticketToolCalls = queue.filter(
       (toolCall) => 
         toolCall.params && 
         typeof toolCall.params === 'object' &&
         'ticketId' in toolCall.params &&
-        String(toolCall.params.ticketId) === ticketId
+        normalizeTicketId(String(toolCall.params.ticketId)) === normalizedTicketId
     )
 
     json(res, 200, {
