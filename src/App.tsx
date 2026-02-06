@@ -1440,6 +1440,13 @@ function App() {
         const ticketId = extractTicketId(content)
         if (ticketId) {
           setImplAgentTicketId(ticketId)
+          // Notify Kanban iframe about agent assignment (0114)
+          if (kanbanIframeRef.current?.contentWindow) {
+            kanbanIframeRef.current.contentWindow.postMessage(
+              { type: 'HAL_AGENT_ASSIGNMENT', ticketId, agentName: 'Implementation Agent', assigned: true },
+              '*'
+            )
+          }
         }
 
         // Show run start status with ticket ID
@@ -1565,6 +1572,13 @@ function App() {
                 }
                 
                 setImplAgentRunId(null)
+                // Notify Kanban iframe about agent unassignment (0114)
+                if (implAgentTicketId && kanbanIframeRef.current?.contentWindow) {
+                  kanbanIframeRef.current.contentWindow.postMessage(
+                    { type: 'HAL_AGENT_ASSIGNMENT', ticketId: implAgentTicketId, agentName: 'Implementation Agent', assigned: false },
+                    '*'
+                  )
+                }
                 setImplAgentTicketId(null)
                 setCursorRunAgentType(null)
                 setAgentTypingTarget(null)
@@ -1603,6 +1617,13 @@ function App() {
         const ticketId = extractTicketId(content)
         if (ticketId) {
           setQaAgentTicketId(ticketId)
+          // Notify Kanban iframe about agent assignment (0114)
+          if (kanbanIframeRef.current?.contentWindow) {
+            kanbanIframeRef.current.contentWindow.postMessage(
+              { type: 'HAL_AGENT_ASSIGNMENT', ticketId, agentName: 'QA Agent', assigned: true },
+              '*'
+            )
+          }
         }
 
         // Show run start status with ticket ID
@@ -1716,6 +1737,13 @@ function App() {
                 addProgress('QA completed successfully.')
                 addMessage(convId, 'qa-agent', `**Completion summary**\n\n${summary}`)
                 setQaAgentRunId(null)
+                // Notify Kanban iframe about agent unassignment (0114)
+                if (qaAgentTicketId && kanbanIframeRef.current?.contentWindow) {
+                  kanbanIframeRef.current.contentWindow.postMessage(
+                    { type: 'HAL_AGENT_ASSIGNMENT', ticketId: qaAgentTicketId, agentName: 'QA Agent', assigned: false },
+                    '*'
+                  )
+                }
                 setQaAgentTicketId(null)
                 setCursorRunAgentType(null)
                 setAgentTypingTarget(null)
