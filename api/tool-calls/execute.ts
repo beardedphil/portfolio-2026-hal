@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'http'
 import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { createClient } from '@supabase/supabase-js'
+import { addExecutions } from './recent-executions.js'
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []
@@ -262,6 +263,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       writeFileSync(queuePath, JSON.stringify(remainingQueue, null, 2), 'utf8')
     } catch (err) {
       console.error('Failed to update tool call queue file:', err)
+    }
+
+    // Store executions for Tools Agent chat logging (0107)
+    if (executedToolCalls.length > 0) {
+      addExecutions(executedToolCalls)
     }
 
     json(res, 200, {
