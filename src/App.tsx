@@ -50,6 +50,8 @@ type TicketCreationResult = {
   ready?: boolean
   /** Missing items if ticket is not ready (0083). */
   missingItems?: string[]
+  /** True if ticket was auto-fixed (formatting issues resolved) (0095). */
+  autoFixed?: boolean
 }
 
 type PmAgentResponse = {
@@ -1326,18 +1328,19 @@ function App() {
             setLastAgentError(null)
             if (data.responseId != null) setPmLastResponseId(data.responseId)
 
-            // When reply is empty but a ticket was just created, show ticket creation summary (0011, 0083)
+            // When reply is empty but a ticket was just created, show ticket creation summary (0011, 0083, 0095)
             let reply = data.reply || ''
             if (!reply.trim() && data.ticketCreationResult) {
               const t = data.ticketCreationResult
+              const autoFixNote = t.autoFixed ? ' (formatting issues were automatically fixed)' : ''
               if (t.movedToTodo) {
                 reply = t.syncSuccess
-                  ? `Created ticket **${t.id}** at \`${t.filePath}\`. The ticket is ready and has been automatically moved to **To Do**.`
-                  : `Created ticket **${t.id}** at \`${t.filePath}\`. The ticket is ready and has been automatically moved to **To Do**. Sync to repo failed: ${t.syncError ?? 'unknown'}. You can run \`npm run sync-tickets\` from the repo root.`
+                  ? `Created ticket **${t.id}** at \`${t.filePath}\`. The ticket is **Ready-to-start**${autoFixNote} and has been automatically moved to **To Do**.`
+                  : `Created ticket **${t.id}** at \`${t.filePath}\`. The ticket is **Ready-to-start**${autoFixNote} and has been automatically moved to **To Do**. Sync to repo failed: ${t.syncError ?? 'unknown'}. You can run \`npm run sync-tickets\` from the repo root.`
               } else if (t.moveError) {
-                reply = `Created ticket **${t.id}** at \`${t.filePath}\`. The ticket is ready but could not be moved to To Do: ${t.moveError}. It remains in Unassigned.`
+                reply = `Created ticket **${t.id}** at \`${t.filePath}\`. The ticket is **Ready-to-start**${autoFixNote} but could not be moved to To Do: ${t.moveError}. It remains in Unassigned. Please try moving it manually or check the error details.`
               } else if (t.ready === false && t.missingItems && t.missingItems.length > 0) {
-                reply = `Created ticket **${t.id}** at \`${t.filePath}\`. The ticket is not yet ready for To Do: ${t.missingItems.join('; ')}. It remains in Unassigned.`
+                reply = `Created ticket **${t.id}** at \`${t.filePath}\`. The ticket is **not Ready-to-start**: ${t.missingItems.join('; ')}. It remains in Unassigned. Please update the ticket content to make it ready, then use "Prepare top ticket" or ask me to move it to To Do.`
               } else {
                 reply = t.syncSuccess
                   ? `Created ticket **${t.id}** at \`${t.filePath}\`. It should appear in Unassigned.`

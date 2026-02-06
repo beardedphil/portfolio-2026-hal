@@ -345,6 +345,7 @@ export default defineConfig({
                 moveError?: string
                 ready?: boolean
                 missingItems?: string[]
+                autoFixed?: boolean
               }
               ticketCreationResult = {
                 id: out.id,
@@ -356,6 +357,7 @@ export default defineConfig({
                 ...(out.moveError && { moveError: out.moveError }),
                 ...(out.ready !== undefined && { ready: out.ready }),
                 ...(out.missingItems && { missingItems: out.missingItems }),
+                ...(out.autoFixed && { autoFixed: true }),
               }
               const syncScriptPath = path.resolve(repoRoot, 'scripts', 'sync-tickets.js')
               try {

@@ -423,6 +423,8 @@ You have access to read-only tools to explore the repository. Use them to answer
 
 **Moving a ticket to To Do:** When the user asks to move a ticket to To Do (e.g. "move this to To Do", "move ticket 0012 to To Do"), you MUST (1) fetch the ticket content with fetch_ticket_content (by ticket id), (2) evaluate readiness with evaluate_ticket_ready (pass the body_md from the fetch result). If the ticket is NOT ready, do NOT call kanban_move_ticket_to_todo; instead reply with a clear list of what is missing (use the missingItems from the evaluate_ticket_ready result). If the ticket IS ready, call kanban_move_ticket_to_todo with the ticket id. Then confirm in chat that the ticket was moved. The readiness checklist is in docs/process/ready-to-start-checklist.md (Goal, Human-verifiable deliverable, Acceptance criteria checkboxes, Constraints, Non-goals, no unresolved placeholders).
 
+**Preparing a ticket (Definition of Ready):** When the user asks to "prepare ticket X" or "get ticket X ready" (e.g. from "Prepare top ticket" button), you MUST (1) fetch the ticket content with fetch_ticket_content, (2) evaluate readiness with evaluate_ticket_ready. If the ticket is NOT ready, use update_ticket_body to fix formatting issues (normalize headings, convert bullets to checkboxes in Acceptance criteria if needed, ensure all required sections exist). After updating, re-evaluate with evaluate_ticket_ready. If the ticket IS ready (after fixes if needed), automatically call kanban_move_ticket_to_todo to move it to To Do. Then confirm in chat that the ticket is Ready-to-start and has been moved to To Do. If the ticket cannot be made ready (e.g. missing required content that cannot be auto-generated), clearly explain what is missing and that the ticket remains in Unassigned.
+
 **Listing tickets by column:** When the user asks to see tickets in a specific Kanban column (e.g. "list tickets in QA column", "what tickets are in QA", "show me tickets in the QA column"), use list_tickets_by_column with the appropriate column_id (e.g. "col-qa" for QA, "col-todo" for To Do, "col-unassigned" for Unassigned, "col-human-in-the-loop" for Human in the Loop). Format the results clearly in your reply, showing ticket ID and title for each ticket. This helps you see which tickets are currently in a given column so you can update other tickets without asking the user for IDs.
 
 **Supabase is the source of truth for ticket content.** When the user asks to edit or fix a ticket, you must update the ticket in the database (do not suggest editing docs/tickets/*.md only). Use update_ticket_body to write the corrected body_md directly to Supabase. The change propagates out: the Kanban UI reflects it within ~10 seconds (poll interval). To propagate the same content to docs/tickets/*.md in the repo, use the sync_tickets tool (if available) after updating—sync writes from DB to docs so the repo files match Supabase.
@@ -734,9 +736,47 @@ export async function runPmAgent(
                   }
                 }
                 if (!insertError) {
-                  const readiness = evaluateTicketReady(normalizedBodyMd)
+                  // Auto-fix: normalize and re-evaluate (0095)
+                  let finalBodyMd = normalizedBodyMd
+                  let readiness = evaluateTicketReady(finalBodyMd)
+                  let autoFixed = false
                   
-                  // Auto-move to To Do if ready (0083)
+                  // If not ready after normalization, try to auto-fix common formatting issues
+                  if (!readiness.ready) {
+                    // Try to fix missing checkboxes in Acceptance criteria
+                    const acSection = sectionContent(finalBodyMd, 'Acceptance criteria (UI-only)')
+                    if (acSection && !/-\s*\[\s*\]/.test(acSection) && /^[\s]*[-*+]\s+/m.test(acSection)) {
+                      // If AC section exists, has bullets but no checkboxes, convert bullets to checkboxes
+                      const fixedAc = acSection.replace(/^(\s*)[-*+]\s+/gm, '$1- [ ] ')
+                      const acRegex = new RegExp(
+                        `(##\\s+Acceptance criteria \\(UI-only\\)\\s*\\n)([\\s\\S]*?)(?=\\n## |$)`,
+                        'i'
+                      )
+                      const match = finalBodyMd.match(acRegex)
+                      if (match) {
+                        finalBodyMd = finalBodyMd.replace(acRegex, `$1${fixedAc}\n`)
+                        autoFixed = true
+                        // Re-evaluate after fix
+                        readiness = evaluateTicketReady(finalBodyMd)
+                        
+                        // If fix made it ready, update the ticket in DB
+                        if (readiness.ready) {
+                          const updateQ = supabase.from('tickets').update({ body_md: finalBodyMd })
+                          const updateResult = repoFullName !== 'legacy/unknown' && candidateNum
+                            ? await updateQ.eq('repo_full_name', repoFullName).eq('ticket_number', candidateNum)
+                            : await updateQ.eq('id', id)
+                          if (updateResult.error) {
+                            // Fix worked but update failed - revert to original
+                            finalBodyMd = normalizedBodyMd
+                            readiness = evaluateTicketReady(finalBodyMd)
+                            autoFixed = false
+                          }
+                        }
+                      }
+                    }
+                  }
+                  
+                  // Auto-move to To Do if ready (0083, 0095)
                   let movedToTodo = false
                   let moveError: string | undefined = undefined
                   if (readiness.ready) {
@@ -815,6 +855,7 @@ export async function runPmAgent(
                     ...(attempt > 1 && { retried: true, attempts: attempt }),
                     ready: readiness.ready,
                     ...(readiness.missingItems.length > 0 && { missingItems: readiness.missingItems }),
+                    ...(autoFixed && { autoFixed: true }),
                     ...(movedToTodo && { movedToTodo: true }),
                     ...(moveError && { moveError }),
                   }
