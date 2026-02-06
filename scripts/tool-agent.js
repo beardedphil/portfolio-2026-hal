@@ -1,17 +1,13 @@
 #!/usr/bin/env node
 /**
- * Tool Agent: Polls every ~30 seconds to execute pending tool calls from the shared queue.
+ * Tool Agent: DEPRECATED - This script is no longer used.
  * 
- * This agent runs continuously and executes tool calls that are queued in
- * .hal-tool-call-queue.json. It uses the same claim/lease/idempotency semantics
- * as the manual "Run tool calls" button to prevent double execution.
+ * HAL now runs as an API-driven app. Tool calls are executed directly from agent messages
+ * via the API, not through a queue/poller system.
  * 
- * Usage:
- *   node scripts/tool-agent.js [--disable]
+ * This file is kept for reference but should not be executed.
  * 
- * Environment variables:
- *   HAL_API_URL - Base URL for HAL API (default: http://localhost:5173)
- *   TOOL_AGENT_ENABLED - Set to 'false' to disable polling (default: 'true')
+ * @deprecated Removed in ticket 0112 - HAL is now API-driven only
  */
 
 const { readFileSync, writeFileSync, existsSync, unlinkSync } = require('fs')
@@ -22,8 +18,9 @@ const LOCK_FILE = join(process.cwd(), '.hal-tool-call-execution.lock')
 const LOCK_TIMEOUT_MS = 60_000 // 60 seconds max execution time
 const QUEUE_FILE = join(process.cwd(), '.hal-tool-call-queue.json')
 
+// DEPRECATED: Tool agent is disabled - HAL is now API-driven only
 const halApiUrl = process.env.HAL_API_URL || process.env.APP_ORIGIN || 'http://localhost:5173'
-const enabled = process.env.TOOL_AGENT_ENABLED !== 'false' && !process.argv.includes('--disable')
+const enabled = false // Always disabled - tool agent removed in ticket 0112
 
 function acquireLock() {
   try {
@@ -119,8 +116,8 @@ async function executeAllToolCalls() {
 
 async function pollLoop() {
   if (!enabled) {
-    console.log('[Tool Agent] Disabled. Set TOOL_AGENT_ENABLED=true or remove --disable flag to enable.')
-    return
+    console.log('[Tool Agent] DEPRECATED - Tool agent removed in ticket 0112. HAL is now API-driven only.')
+    process.exit(0)
   }
 
   console.log(`[Tool Agent] Starting poll loop (every ${POLL_INTERVAL_MS / 1000}s). API: ${halApiUrl}`)

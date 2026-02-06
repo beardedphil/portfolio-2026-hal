@@ -183,26 +183,6 @@ body {
   align-items: center;
 }
 
-.run-tool-calls-btn {
-  padding: 0.4rem 0.9rem;
-  font-size: 0.9rem;
-  cursor: pointer;
-  background: var(--hal-primary);
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-  font-weight: 500;
-  transition: background 0.2s, opacity 0.2s;
-}
-
-.run-tool-calls-btn:hover:not(:disabled) {
-  background: var(--hal-primary-hover, #2563eb);
-}
-
-.run-tool-calls-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
 
 .kanban-header-actions {
   display: flex;
@@ -1353,7 +1333,7 @@ body {
   color: var(--hal-status-error);
 }
 
-/* Diagnostics subsections (for PM outbound request, tool calls) */
+/* Diagnostics subsections (for PM outbound request) */
 .diag-section {
   margin-top: 0.75rem;
   border-top: 1px solid var(--hal-border);

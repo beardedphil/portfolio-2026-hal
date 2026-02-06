@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
-type Agent = 'project-manager' | 'implementation-agent' | 'qa-agent' | 'tools-agent' | 'process-review-agent'
+type Agent = 'project-manager' | 'implementation-agent' | 'qa-agent' | 'process-review-agent'
 type ChatTarget = Agent | 'standup'
 
 type ImageAttachment = {
@@ -149,7 +149,7 @@ function getConversationId(agentRole: Agent, instanceNumber: number): string {
 
 // Parse conversation ID to get agent role and instance number (0070)
 function parseConversationId(conversationId: string): { agentRole: Agent; instanceNumber: number } | null {
-  const match = conversationId.match(/^(project-manager|implementation-agent|qa-agent|tools-agent|process-review-agent)-(\d+)$/)
+  const match = conversationId.match(/^(project-manager|implementation-agent|qa-agent|process-review-agent)-(\d+)$/)
   if (!match) return null
   return {
     agentRole: match[1] as Agent,
@@ -239,7 +239,6 @@ const CHAT_OPTIONS: { id: ChatTarget; label: string }[] = [
   { id: 'project-manager', label: 'Project Manager' },
   { id: 'implementation-agent', label: 'Implementation Agent' },
   { id: 'qa-agent', label: 'QA' },
-  { id: 'tools-agent', label: 'Tools Agent' },
   { id: 'process-review-agent', label: 'Process Review' },
   { id: 'standup', label: 'Standup (all agents)' },
 ]
@@ -255,7 +254,7 @@ function formatTime(date: Date): string {
 
 function getMessageAuthorLabel(agent: Message['agent']): string {
   if (agent === 'user') return 'You'
-  if (agent === 'project-manager' || agent === 'implementation-agent' || agent === 'qa-agent' || agent === 'tools-agent' || agent === 'process-review-agent') return 'HAL'
+  if (agent === 'project-manager' || agent === 'implementation-agent' || agent === 'qa-agent' || agent === 'process-review-agent') return 'HAL'
   return 'System'
 }
 
@@ -316,16 +315,11 @@ function App() {
   const transcriptRef = useRef<HTMLDivElement>(null)
   const kanbanIframeRef = useRef<HTMLIFrameElement>(null)
   const selectedChatTargetRef = useRef<ChatTarget>(selectedChatTarget)
-  // Tool call queue state (0103)
-  const [hasPendingToolCalls, setHasPendingToolCalls] = useState(false)
-  const [toolCallsExecuting, setToolCallsExecuting] = useState(false)
-  const [toolCallsChecking, setToolCallsChecking] = useState(false)
   
   const [unreadByTarget, setUnreadByTarget] = useState<Record<ChatTarget, number>>(() => ({
     'project-manager': 0,
     'implementation-agent': 0,
     'qa-agent': 0,
-    'tools-agent': 0,
     'process-review-agent': 0,
     standup: 0,
   }))
@@ -661,39 +655,6 @@ function App() {
     }
   }, [theme, kanbanLoaded])
 
-  // Check for pending tool calls (0103)
-  const checkPendingToolCalls = useCallback(async () => {
-    try {
-      setToolCallsChecking(true)
-      const response = await fetch('/api/tool-calls/check-all', {
-        method: 'GET',
-      })
-      const result = await response.json()
-      if (result.success) {
-        setHasPendingToolCalls(result.hasPendingToolCalls === true)
-      }
-    } catch (err) {
-      console.error('Failed to check pending tool calls:', err)
-    } finally {
-      setToolCallsChecking(false)
-    }
-  }, [])
-
-  // Poll for pending tool calls periodically (0103)
-  useEffect(() => {
-    // Initial check
-    checkPendingToolCalls()
-    // Poll every 10 seconds
-    const interval = setInterval(checkPendingToolCalls, 10_000)
-    return () => clearInterval(interval)
-  }, [checkPendingToolCalls])
-
-  // Poll for recent tool call executions and log to Tools Agent chat (0107)
-  // Note: checkRecentExecutions is defined after logToolCallToToolsAgent to avoid forward reference
-  const [lastExecutionTimestamp, setLastExecutionTimestamp] = useState(() => {
-    // Initialize to current timestamp to avoid loading all historical executions on first load
-    return Date.now()
-  })
 
   // When Kanban iframe loads, push current repo + Supabase so it syncs (iframe may load after user connected)
   useEffect(() => {
@@ -961,10 +922,6 @@ function App() {
       const defaultConvId = getConversationId('project-manager', 1)
       return conversations.has(defaultConvId) ? conversations.get(defaultConvId)!.messages : []
     }
-    if (selectedChatTarget === 'tools-agent') {
-      const defaultConvId = getConversationId('tools-agent', 1)
-      return conversations.has(defaultConvId) ? conversations.get(defaultConvId)!.messages : []
-    }
     if (selectedChatTarget === 'process-review-agent') {
       const defaultConvId = getConversationId('process-review-agent', 1)
       return conversations.has(defaultConvId) ? conversations.get(defaultConvId)!.messages : []
@@ -994,7 +951,6 @@ function App() {
       'project-manager': 'Project Manager',
       'implementation-agent': 'Implementation',
       'qa-agent': 'QA',
-      'tools-agent': 'Tools Agent',
       'process-review-agent': 'Process Review',
     }
     return `${roleLabels[conv.agentRole]} #${conv.instanceNumber}`
@@ -1008,16 +964,10 @@ function App() {
     return firstLine.length > 100 ? firstLine.substring(0, 100) + '...' : firstLine
   }, [])
 
-  // Get preview text for PM, Standup, or Tools Agent chat (0087, 0107)
+  // Get preview text for PM or Standup chat (0087)
   const getChatTargetPreview = useCallback((target: ChatTarget): string => {
     if (target === 'project-manager' || target === 'standup') {
       const defaultConvId = getConversationId('project-manager', 1)
-      if (conversations.has(defaultConvId)) {
-        const conv = conversations.get(defaultConvId)!
-        return getConversationPreview(conv)
-      }
-    } else if (target === 'tools-agent') {
-      const defaultConvId = getConversationId('tools-agent', 1)
       if (conversations.has(defaultConvId)) {
         const conv = conversations.get(defaultConvId)!
         return getConversationPreview(conv)
@@ -1207,9 +1157,6 @@ function App() {
             for (const toolCall of toolCalls) {
               const result = await executeToolCall(toolCall, halApiUrl)
               
-              // Log to Tools Agent chat (0107)
-              logToolCallToToolsAgent(toolCall, result)
-              
               // Add system message with tool call result
               let resultMsg: string
               if (result.success) {
@@ -1286,77 +1233,6 @@ function App() {
     }
   }, [qaAgentTicketId, extractTicketId, moveTicketToColumn, addAutoMoveDiagnostic])
 
-  // Log tool call to Tools Agent chat (0107)
-  const logToolCallToToolsAgent = useCallback((toolCall: { tool: string; params: Record<string, unknown> }, result: { success: boolean; result?: unknown; error?: string }) => {
-    try {
-      const toolsAgentConvId = getDefaultConversationId('tools-agent')
-      const timestamp = new Date()
-      
-      // Format tool call entry
-      const paramsSummary = Object.keys(toolCall.params).length > 0
-        ? JSON.stringify(toolCall.params, null, 2)
-        : '(no parameters)'
-      
-      let outcomeText: string
-      if (result.success) {
-        const resultSummary = result.result
-          ? typeof result.result === 'object'
-            ? JSON.stringify(result.result, null, 2)
-            : String(result.result)
-          : 'Success'
-        outcomeText = `✅ Success\n\`\`\`json\n${resultSummary}\n\`\`\``
-      } else {
-        outcomeText = `❌ Failed: ${result.error || 'Unknown error'}`
-      }
-      
-      const toolCallEntry = `**Tool:** \`${toolCall.tool}\`\n**Timestamp:** ${formatTime(timestamp)}\n**Request:**\n\`\`\`json\n${paramsSummary}\n\`\`\`\n**Outcome:**\n${outcomeText}`
-      
-      addMessage(toolsAgentConvId, 'system', toolCallEntry)
-    } catch (err) {
-      // Non-fatal: log error but don't block tool execution
-      console.error('Failed to log tool call to Tools Agent:', err)
-    }
-  }, [getDefaultConversationId, addMessage])
-
-  // Poll for recent tool call executions and log to Tools Agent chat (0107) - defined after logToolCallToToolsAgent
-  const checkRecentExecutions = useCallback(async () => {
-    try {
-      const response = await fetch(`/api/tool-calls/recent-executions?since=${lastExecutionTimestamp}`)
-      const result = await response.json()
-      if (result.success && result.executions && result.executions.length > 0) {
-        // Log each execution to Tools Agent chat
-        for (const exec of result.executions) {
-          logToolCallToToolsAgent(
-            { tool: exec.tool, params: exec.params },
-            exec.result
-          )
-        }
-        // Mark executions as logged
-        const loggedIds = result.executions.map((e: { id: string }) => e.id)
-        await fetch('/api/tool-calls/recent-executions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ loggedIds }),
-        })
-        // Update timestamp
-        if (result.latestTimestamp > lastExecutionTimestamp) {
-          setLastExecutionTimestamp(result.latestTimestamp)
-        }
-      }
-    } catch (err) {
-      // Non-fatal: log error but don't block
-      console.error('Failed to check recent tool call executions:', err)
-    }
-  }, [lastExecutionTimestamp, logToolCallToToolsAgent])
-
-  // Ensure Tools Agent conversation exists when chat is opened (0107)
-  useEffect(() => {
-    if (selectedChatTarget === 'tools-agent' || openChatTarget === 'tools-agent') {
-      // Initialize Tools Agent conversation if it doesn't exist
-      getDefaultConversationId('tools-agent')
-    }
-  }, [selectedChatTarget, openChatTarget, getDefaultConversationId])
-
   // Ensure Process Review Agent conversation exists when chat is opened (0111)
   useEffect(() => {
     if (selectedChatTarget === 'process-review-agent' || openChatTarget === 'process-review-agent') {
@@ -1364,65 +1240,6 @@ function App() {
       getDefaultConversationId('process-review-agent')
     }
   }, [selectedChatTarget, openChatTarget, getDefaultConversationId])
-
-  // Poll for recent executions every 5 seconds (0107)
-  useEffect(() => {
-    let mounted = true
-    // Initial check - fetch latest timestamp first to avoid loading all historical executions
-    ;(async () => {
-      try {
-        const response = await fetch('/api/tool-calls/recent-executions?since=0')
-        const result = await response.json()
-        if (mounted && result.success && result.latestTimestamp) {
-          // Set timestamp to latest, so we only get new executions going forward
-          setLastExecutionTimestamp(result.latestTimestamp)
-        }
-      } catch (err) {
-        console.error('Failed to initialize execution timestamp:', err)
-      }
-      // Then start polling (only if still mounted)
-      if (mounted) {
-        checkRecentExecutions()
-      }
-    })()
-    // Poll every 5 seconds
-    const interval = setInterval(() => {
-      if (mounted) {
-        checkRecentExecutions()
-      }
-    }, 5_000)
-    return () => {
-      mounted = false
-      clearInterval(interval)
-    }
-  }, [checkRecentExecutions])
-
-  // Execute all pending tool calls (0103) - defined after logToolCallToToolsAgent to avoid forward reference
-  const executeAllToolCalls = useCallback(async () => {
-    if (toolCallsExecuting) return
-    try {
-      setToolCallsExecuting(true)
-      const response = await fetch('/api/tool-calls/execute-all', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      })
-      const result = await response.json()
-      if (result.success) {
-        // Log executed tool calls to Tools Agent chat (0107)
-        if (result.executedToolCalls && Array.isArray(result.executedToolCalls)) {
-          for (const { tool, params, result: toolResult } of result.executedToolCalls) {
-            logToolCallToToolsAgent({ tool, params }, toolResult)
-          }
-        }
-        // Recheck after execution
-        await checkPendingToolCalls()
-      }
-    } catch (err) {
-      console.error('Failed to execute tool calls:', err)
-    } finally {
-      setToolCallsExecuting(false)
-    }
-  }, [toolCallsExecuting, checkPendingToolCalls, logToolCallToToolsAgent])
 
   type CheckUnassignedResult = {
     moved: string[]
@@ -2538,7 +2355,7 @@ function App() {
     setLastCreateTicketAvailable(null)
     setSupabaseUrl(null)
     setSupabaseAnonKey(null)
-    setUnreadByTarget({ 'project-manager': 0, 'implementation-agent': 0, 'qa-agent': 0, 'tools-agent': 0, 'process-review-agent': 0, standup: 0 })
+    setUnreadByTarget({ 'project-manager': 0, 'implementation-agent': 0, 'qa-agent': 0, 'process-review-agent': 0, standup: 0 })
     // Do NOT clear agent status on disconnect (0097: preserve agent status across disconnect/reconnect)
     // Status boxes are gated by connectedProject, so they'll be hidden anyway
     // Only clear ticket IDs and diagnostics (these are per-session)
@@ -2693,15 +2510,6 @@ function App() {
           <div className="kanban-header">
             <h2>Kanban Board</h2>
             <div className="kanban-header-center">
-              <button
-                type="button"
-                className="run-tool-calls-btn"
-                onClick={executeAllToolCalls}
-                disabled={!hasPendingToolCalls || toolCallsExecuting || toolCallsChecking}
-                title={hasPendingToolCalls ? 'Execute all pending tool calls' : 'No pending tool calls'}
-              >
-                {toolCallsExecuting ? 'Running...' : toolCallsChecking ? 'Checking...' : 'Run tool calls'}
-              </button>
             </div>
             <div className="kanban-header-actions">
               {!connectedProject ? (
@@ -2749,8 +2557,6 @@ function App() {
                       ? 'Project Manager'
                       : openChatTarget === 'standup'
                       ? 'Standup (all agents)'
-                      : openChatTarget === 'tools-agent'
-                      ? 'Tools Agent'
                       : openChatTarget === 'process-review-agent'
                       ? 'Process Review'
                       : 'Chat'}
@@ -3096,12 +2902,12 @@ function App() {
                           value={inputValue}
                           onChange={(e) => setInputValue(e.target.value)}
                           onKeyDown={handleKeyDown}
-                          placeholder={selectedChatTarget === 'tools-agent' || selectedChatTarget === 'process-review-agent' ? 'Process Review chat is read-only' : 'Type a message... (Enter to send)'}
+                          placeholder={selectedChatTarget === 'process-review-agent' ? 'Process Review chat is read-only' : 'Type a message... (Enter to send)'}
                           rows={2}
-                          disabled={selectedChatTarget === 'tools-agent' || selectedChatTarget === 'process-review-agent'}
+                          disabled={selectedChatTarget === 'process-review-agent'}
                         />
                         <div className="composer-actions">
-                          <label className="attach-image-btn" title="Attach image" style={{ display: selectedChatTarget === 'tools-agent' || selectedChatTarget === 'process-review-agent' ? 'none' : 'block' }}>
+                          <label className="attach-image-btn" title="Attach image" style={{ display: selectedChatTarget === 'process-review-agent' ? 'none' : 'block' }}>
                             <input
                               type="file"
                               accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
@@ -3111,7 +2917,7 @@ function App() {
                             />
                             📎
                           </label>
-                          <button type="button" className="send-btn" onClick={handleSend} disabled={!!imageError || selectedChatTarget === 'tools-agent' || selectedChatTarget === 'process-review-agent'}>
+                          <button type="button" className="send-btn" onClick={handleSend} disabled={!!imageError || selectedChatTarget === 'process-review-agent'}>
                             Send
                           </button>
                         </div>
@@ -3235,36 +3041,6 @@ function App() {
                   )}
                 </div>
                 <div className="chat-preview-text">{getChatTargetPreview('standup')}</div>
-              </div>
-
-              {/* Tools Agent (0107) */}
-              <div
-                className={`chat-preview-pane ${openChatTarget === 'tools-agent' ? 'chat-preview-active' : ''}`}
-                onClick={() => {
-                  setOpenChatTarget('tools-agent')
-                  setSelectedChatTarget('tools-agent')
-                  setSelectedConversationId(null)
-                  setUnreadByTarget((prev) => ({ ...prev, 'tools-agent': 0 }))
-                }}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault()
-                    setOpenChatTarget('tools-agent')
-                    setSelectedChatTarget('tools-agent')
-                    setSelectedConversationId(null)
-                    setUnreadByTarget((prev) => ({ ...prev, 'tools-agent': 0 }))
-                  }
-                }}
-              >
-                <div className="chat-preview-header">
-                  <span className="chat-preview-name">Tools Agent</span>
-                  {unreadByTarget['tools-agent'] > 0 && (
-                    <span className="chat-preview-unread">{unreadByTarget['tools-agent']}</span>
-                  )}
-                </div>
-                <div className="chat-preview-text">{getChatTargetPreview('tools-agent')}</div>
               </div>
 
               {/* Process Review Agent (0111) */}
