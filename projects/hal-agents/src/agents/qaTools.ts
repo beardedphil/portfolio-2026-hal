@@ -72,7 +72,7 @@ export function createQaTools(config: QaToolsConfig): Record<string, any> {
         }
       }
     },
-  })
+  }) as any
 
   // Insert/update implementation artifacts
   tools.insert_implementation_artifact = tool({
@@ -122,7 +122,7 @@ export function createQaTools(config: QaToolsConfig): Record<string, any> {
         }
       }
     },
-  })
+  }) as any
 
   // Move ticket to any column
   tools.move_ticket_column = tool({
@@ -171,7 +171,7 @@ export function createQaTools(config: QaToolsConfig): Record<string, any> {
         }
       }
     },
-  })
+  }) as any
 
   // Update ticket body
   tools.update_ticket_body = tool({
@@ -213,7 +213,7 @@ export function createQaTools(config: QaToolsConfig): Record<string, any> {
         }
       }
     },
-  })
+  }) as any
 
   // Get ticket content
   tools.fetch_ticket_content = tool({
@@ -252,7 +252,7 @@ export function createQaTools(config: QaToolsConfig): Record<string, any> {
         }
       }
     },
-  })
+  }) as any
 
   return tools
 }
