@@ -4,10 +4,13 @@
  * This script:
  * - Scans all audit folders in docs/audit/
  * - Reads all audit files (plan.md, worklog.md, changed-files.md, decisions.md, verification.md, pm-review.md, qa-report.md)
- * - Finds corresponding tickets in Supabase
+ * - Finds corresponding tickets in Supabase (supports legacy tickets with LEG- prefix)
  * - Creates artifacts in Supabase for each file
  * 
- * Usage: node scripts/migrate-audit-files-to-supabase.js [--dry-run]
+ * Usage: node scripts/migrate-audit-files-to-supabase.js [--dry-run] [--repo REPO_FULL_NAME]
+ *   --dry-run  Show what would be migrated without actually creating artifacts
+ *   --repo     Filter tickets by repo_full_name (e.g. beardedphil/portfolio-2026-hal)
+ *              If not specified, searches across all repos
  * 
  * Requires .env with SUPABASE_URL and SUPABASE_ANON_KEY.
  */
@@ -36,6 +39,10 @@ if (!url || !key) {
 }
 
 const isDryRun = process.argv.includes('--dry-run')
+const repoArgIndex = process.argv.indexOf('--repo')
+const repoFilter = repoArgIndex >= 0 && process.argv[repoArgIndex + 1] 
+  ? process.argv[repoArgIndex + 1] 
+  : null
 
 // Map of audit file names to agent types and titles
 const auditFileMap = {
@@ -82,12 +89,18 @@ async function main() {
     
     console.log(`\nProcessing ${folderName} (ticket ${ticketId})...`)
     
-    // Find ticket in Supabase
-    const { data: ticket, error: ticketError } = await supabase
+    // Find ticket in Supabase - try multiple ID formats (including legacy)
+    let ticketQuery = supabase
       .from('tickets')
       .select('pk, repo_full_name, display_id')
-      .or(`id.eq.${ticketId},display_id.eq.${ticketId},display_id.eq.HAL-${ticketId}`)
-      .maybeSingle()
+      .or(`id.eq.${ticketId},display_id.eq.${ticketId},display_id.eq.HAL-${ticketId},display_id.eq.LEG-${ticketId.padStart(4, '0')}`)
+    
+    // Filter by repo if specified
+    if (repoFilter) {
+      ticketQuery = ticketQuery.eq('repo_full_name', repoFilter)
+    }
+    
+    const { data: ticket, error: ticketError } = await ticketQuery.maybeSingle()
     
     if (ticketError) {
       console.error(`  Error fetching ticket: ${ticketError.message}`)
