@@ -258,8 +258,6 @@ function normalizeTitle(title: string): string {
   return title.trim().toLowerCase()
 }
 
-const HAL_API_BASE = (import.meta.env.VITE_HAL_API_URL as string) || 'http://localhost:5173'
-
 /** Best-effort priority from frontmatter or body (e.g. **Priority**: P1 or # Priority) */
 function extractPriority(frontmatter: Record<string, string>, body: string): string | null {
   const p = frontmatter.Priority ?? frontmatter.priority
@@ -1869,7 +1867,8 @@ function App() {
       setSupabaseLastDeleteError(null)
       setDeleteSuccessMessage(null)
       try {
-        const res = await fetch(`${HAL_API_BASE}/api/tickets/delete`, {
+        const base = (import.meta.env.VITE_HAL_API_URL as string) || 'http://localhost:5173'
+        const res = await fetch(`${base}/api/tickets/delete`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ticketPk, supabaseUrl: url, supabaseAnonKey: key }),
