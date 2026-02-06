@@ -102,6 +102,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     let executed = 0
     const errors: string[] = []
     const executedTools = new Set<string>()
+    const executedToolCalls: Array<{ tool: string; params: Record<string, unknown>; result: { success: boolean; result?: unknown; error?: string } }> = [] // 0107: Return executed tool calls for Tools Agent logging
 
     for (const toolCall of otherCalls) {
       try {
@@ -113,15 +114,31 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             params: toolCall.params,
           }),
         })
-        const toolResult = (await toolResponse.json()) as { success?: boolean; error?: string }
+        const toolResult = (await toolResponse.json()) as { success?: boolean; error?: string; [key: string]: unknown }
         if (!toolResult.success) {
           errors.push(`Tool call ${toolCall.tool} failed: ${toolResult.error || 'Unknown error'}`)
+          executedToolCalls.push({
+            tool: toolCall.tool,
+            params: toolCall.params,
+            result: { success: false, error: toolResult.error || 'Unknown error' },
+          })
         } else {
           executed++
           executedTools.add(toolCall.tool)
+          executedToolCalls.push({
+            tool: toolCall.tool,
+            params: toolCall.params,
+            result: { success: true, result: toolResult },
+          })
         }
       } catch (err) {
-        errors.push(`Failed to execute tool call ${toolCall.tool}: ${err instanceof Error ? err.message : String(err)}`)
+        const errorMsg = err instanceof Error ? err.message : String(err)
+        errors.push(`Failed to execute tool call ${toolCall.tool}: ${errorMsg}`)
+        executedToolCalls.push({
+          tool: toolCall.tool,
+          params: toolCall.params,
+          result: { success: false, error: errorMsg },
+        })
       }
     }
 
@@ -167,12 +184,22 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
                   },
                 }),
               })
-              const moveResult = (await moveResponse.json()) as { success?: boolean; error?: string }
+              const moveResult = (await moveResponse.json()) as { success?: boolean; error?: string; [key: string]: unknown }
               if (moveResult.success) {
                 executed++
                 executedTools.add('move_ticket_column')
+                executedToolCalls.push({
+                  tool: 'move_ticket_column',
+                  params: { ticketId: normalizedTicketId, columnId: nextColumnId },
+                  result: { success: true, result: moveResult },
+                })
               } else {
                 errors.push(`Failed to move ticket to ${nextColumnId}: ${moveResult.error || 'Unknown error'}`)
+                executedToolCalls.push({
+                  tool: 'move_ticket_column',
+                  params: { ticketId: normalizedTicketId, columnId: nextColumnId },
+                  result: { success: false, error: moveResult.error || 'Unknown error' },
+                })
               }
             }
           }
@@ -192,15 +219,31 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
               params: toolCall.params,
             }),
           })
-          const toolResult = (await toolResponse.json()) as { success?: boolean; error?: string }
+          const toolResult = (await toolResponse.json()) as { success?: boolean; error?: string; [key: string]: unknown }
           if (!toolResult.success) {
             errors.push(`Tool call ${toolCall.tool} failed: ${toolResult.error || 'Unknown error'}`)
+            executedToolCalls.push({
+              tool: toolCall.tool,
+              params: toolCall.params,
+              result: { success: false, error: toolResult.error || 'Unknown error' },
+            })
           } else {
             executed++
             executedTools.add(toolCall.tool)
+            executedToolCalls.push({
+              tool: toolCall.tool,
+              params: toolCall.params,
+              result: { success: true, result: toolResult },
+            })
           }
         } catch (err) {
-          errors.push(`Failed to execute tool call ${toolCall.tool}: ${err instanceof Error ? err.message : String(err)}`)
+          const errorMsg = err instanceof Error ? err.message : String(err)
+          errors.push(`Failed to execute tool call ${toolCall.tool}: ${errorMsg}`)
+          executedToolCalls.push({
+            tool: toolCall.tool,
+            params: toolCall.params,
+            result: { success: false, error: errorMsg },
+          })
         }
       }
     }
@@ -226,6 +269,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       executed,
       total: ticketToolCalls.length,
       errors: errors.length > 0 ? errors : undefined,
+      executedToolCalls, // 0107: Return executed tool calls for Tools Agent logging
     })
   } catch (err) {
     json(res, 500, {
