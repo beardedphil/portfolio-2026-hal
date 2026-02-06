@@ -198,6 +198,36 @@ function saveConversationsToStorage(
   }
 }
 
+function loadConversationsFromStorage(
+  projectName: string
+): { success: boolean; conversations?: Map<string, Conversation>; error?: string } {
+  try {
+    const stored = localStorage.getItem(getStorageKey(projectName))
+    if (!stored) {
+      return { success: true, conversations: new Map() }
+    }
+    const serialized = JSON.parse(stored) as SerializedConversation[]
+    const conversations = new Map<string, Conversation>()
+    for (const ser of serialized) {
+      conversations.set(ser.id, {
+        id: ser.id,
+        agentRole: ser.agentRole,
+        instanceNumber: ser.instanceNumber,
+        createdAt: new Date(ser.createdAt),
+        messages: ser.messages.map((msg) => ({
+          ...msg,
+          timestamp: new Date(msg.timestamp),
+          imageAttachments: msg.imageAttachments,
+        })),
+      })
+    }
+    return { success: true, conversations }
+  } catch (e) {
+    const errMsg = e instanceof Error ? e.message : String(e)
+    return { success: false, error: `Failed to load conversations: ${errMsg}` }
+  }
+}
+
 function getEmptyConversations(): Map<string, Conversation> {
   return new Map()
 }
@@ -499,7 +529,54 @@ function App() {
       }
     }
 
-    // Load PM conversations from Supabase (HAL_SYNC_COMPLETED will trigger unassigned check when Kanban syncs)
+    // Restore agent status from localStorage (0097: preserve agent status across disconnect/reconnect)
+    try {
+      const savedImplStatus = localStorage.getItem('hal-impl-agent-status')
+      if (savedImplStatus && ['preparing', 'fetching_ticket', 'resolving_repo', 'launching', 'polling', 'completed', 'failed'].includes(savedImplStatus)) {
+        setImplAgentRunStatus(savedImplStatus as typeof implAgentRunStatus)
+      }
+      const savedImplProgress = localStorage.getItem('hal-impl-agent-progress')
+      if (savedImplProgress) {
+        try {
+          const parsed = JSON.parse(savedImplProgress) as Array<{ timestamp: string; message: string }>
+          setImplAgentProgress(parsed.map((p) => ({ timestamp: new Date(p.timestamp), message: p.message })))
+        } catch {
+          // ignore parse errors
+        }
+      }
+      const savedImplError = localStorage.getItem('hal-impl-agent-error')
+      if (savedImplError) {
+        setImplAgentError(savedImplError)
+      }
+      const savedQaStatus = localStorage.getItem('hal-qa-agent-status')
+      if (savedQaStatus && ['preparing', 'fetching_ticket', 'fetching_branch', 'launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(savedQaStatus)) {
+        setQaAgentRunStatus(savedQaStatus as typeof qaAgentRunStatus)
+      }
+      const savedQaProgress = localStorage.getItem('hal-qa-agent-progress')
+      if (savedQaProgress) {
+        try {
+          const parsed = JSON.parse(savedQaProgress) as Array<{ timestamp: string; message: string }>
+          setQaAgentProgress(parsed.map((p) => ({ timestamp: new Date(p.timestamp), message: p.message })))
+        } catch {
+          // ignore parse errors
+        }
+      }
+      const savedQaError = localStorage.getItem('hal-qa-agent-error')
+      if (savedQaError) {
+        setQaAgentError(savedQaError)
+      }
+    } catch {
+      // ignore localStorage errors
+    }
+
+    // Load conversations from localStorage first (0097: preserve chats across disconnect/reconnect)
+    const loadResult = loadConversationsFromStorage(repo.full_name)
+    let restoredConversations = loadResult.conversations || new Map<string, Conversation>()
+    if (loadResult.error) {
+      setPersistenceError(loadResult.error)
+    }
+
+    // Load PM conversations from Supabase and merge (Supabase takes precedence for PM) (HAL_SYNC_COMPLETED will trigger unassigned check when Kanban syncs)
     if (url && key) {
       ;(async () => {
         try {
@@ -528,15 +605,20 @@ function App() {
               messages: msgs,
               createdAt: msgs.length > 0 ? msgs[0].timestamp : new Date(),
             }
-            const convs = new Map<string, Conversation>()
-            convs.set(pmConvId, pmConversation)
-            setConversations(convs)
-            setPersistenceError(null)
+            // Merge: Supabase PM conversation takes precedence, but keep other agent conversations from localStorage
+            restoredConversations.set(pmConvId, pmConversation)
           }
+          // Set merged conversations (PM from Supabase if available, others from localStorage)
+          setConversations(restoredConversations)
+          setPersistenceError(null)
         } catch {
-          // ignore
+          // If Supabase load fails, still use localStorage conversations
+          setConversations(restoredConversations)
         }
       })()
+    } else {
+      // No Supabase, just use localStorage conversations
+      setConversations(restoredConversations)
     }
 
     setGithubRepoPickerOpen(false)
@@ -1887,6 +1969,7 @@ function App() {
         window.location.origin
       )
     }
+    // Clear conversations from state (UI will show placeholder), but keep in localStorage for reconnect (0097)
     setConversations(getEmptyConversations())
     messageIdRef.current = 0
     pmMaxSequenceRef.current = 0
@@ -1899,29 +1982,16 @@ function App() {
     setSupabaseUrl(null)
     setSupabaseAnonKey(null)
     setUnreadByTarget({ 'project-manager': 0, 'implementation-agent': 0, 'qa-agent': 0, standup: 0 })
-    // Clear Implementation Agent state on disconnect (0050)
-    setImplAgentRunStatus('idle')
-    setImplAgentProgress([])
-    setImplAgentError(null)
+    // Do NOT clear agent status on disconnect (0097: preserve agent status across disconnect/reconnect)
+    // Status boxes are gated by connectedProject, so they'll be hidden anyway
+    // Only clear ticket IDs and diagnostics (these are per-session)
     setImplAgentTicketId(null)
-    // Clear QA Agent state on disconnect (0062)
-    setQaAgentRunStatus('idle')
-    setQaAgentProgress([])
-    setQaAgentError(null)
     setQaAgentTicketId(null)
     setAutoMoveDiagnostics([])
     setCursorRunAgentType(null)
     setOrphanedCompletionSummary(null)
-    try {
-      localStorage.removeItem(IMPL_AGENT_STATUS_KEY)
-      localStorage.removeItem(IMPL_AGENT_PROGRESS_KEY)
-      localStorage.removeItem(IMPL_AGENT_ERROR_KEY)
-      localStorage.removeItem(QA_AGENT_STATUS_KEY)
-      localStorage.removeItem(QA_AGENT_PROGRESS_KEY)
-      localStorage.removeItem(QA_AGENT_ERROR_KEY)
-    } catch {
-      // ignore localStorage errors
-    }
+    // Do NOT remove localStorage items on disconnect (0097: preserve chats and agent status across disconnect/reconnect)
+    // They will be restored when reconnecting to the same repo
   }, [])
 
   const previousResponseIdInLastRequest =
