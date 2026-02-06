@@ -19,7 +19,7 @@ function json(res: ServerResponse, statusCode: number, body: unknown) {
 
 // HAL's internal tools for Supabase operations
 async function insertImplementationArtifact(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   params: { ticketId: string; artifactType: string; title: string; body_md: string }
 ) {
   const ticketNumber = parseInt(params.ticketId, 10)
@@ -100,7 +100,7 @@ async function insertImplementationArtifact(
 }
 
 async function insertQaArtifact(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   params: { ticketId: string; title: string; body_md: string }
 ) {
   const ticketNumber = parseInt(params.ticketId, 10)
@@ -181,7 +181,7 @@ async function insertQaArtifact(
 }
 
 async function updateTicketBody(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   params: { ticketId: string; body_md: string }
 ) {
   const ticketNumber = parseInt(params.ticketId, 10)
@@ -214,7 +214,7 @@ async function updateTicketBody(
 }
 
 async function moveTicketColumn(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   params: { ticketId: string; columnId: string }
 ) {
   const ticketNumber = parseInt(params.ticketId, 10)
@@ -277,7 +277,7 @@ async function moveTicketColumn(
 }
 
 async function getTicketContent(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   params: { ticketId: string }
 ) {
   const ticketNumber = parseInt(params.ticketId, 10)
