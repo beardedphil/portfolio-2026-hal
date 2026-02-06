@@ -126,45 +126,47 @@ Fetch a ticket's content from Supabase.
 
 ## How to Send Tool Calls
 
-**For agents running through HAL's system** (implementation-agent, qa-agent via HAL API):
-- Include tool calls in your response message as JSON blocks. HAL will parse and execute them automatically when processing your message.
+**MANDATORY:** All agents (implementation-agent, qa-agent, PM agents, local Cursor agents, cloud agents) **MUST** write tool calls to `.hal-tool-call-queue.json` in the repo root. **DO NOT** put tool calls in chat messages. HAL will check this file when tickets move columns and execute pending tool calls, then clear the queue.
 
-**For cloud agents or local Cursor agents** (when tool calls in messages aren't processed):
-- **Method 1 (Preferred):** Include tool calls in your completion/summary message. HAL's `toolCallParser.ts` will parse JSON blocks from agent messages and execute them.
-- **Method 2 (Fallback):** Write tool calls to `.hal-tool-call-queue.json` in the repo root. HAL will check this file when tickets move columns and execute pending tool calls.
+### Required Method: Tool Call Queue File
 
-### Method 1: Tool Calls in Response Message
+**ALWAYS** write tool calls to `.hal-tool-call-queue.json` in the repo root. This is the **ONLY** method agents should use. The file format is a JSON array:
 
-Include tool calls as JSON blocks in your message:
-
-```
-I've completed the QA review. Here's my tool call to store the QA report:
-
-{
-  "tool": "insert_qa_artifact",
-  "params": {
-    "ticketId": "0076",
-    "title": "QA report for ticket 0076",
-    "body_md": "# QA Report\n\n..."
+```json
+[
+  {
+    "tool": "insert_qa_artifact",
+    "params": {
+      "ticketId": "0076",
+      "title": "QA report for ticket 0076",
+      "body_md": "# QA Report\n\n..."
+    }
+  },
+  {
+    "tool": "move_ticket_column",
+    "params": {
+      "ticketId": "0076",
+      "columnId": "col-human-in-the-loop"
+    }
   }
-}
-
-Now moving the ticket to Human in the Loop:
-
-{
-  "tool": "move_ticket_column",
-  "params": {
-    "ticketId": "0076",
-    "columnId": "col-human-in-the-loop"
-  }
-}
+]
 ```
 
-HAL will parse these from your message and execute them automatically.
+HAL will check this file when tickets move columns and execute all pending tool calls, then clear the queue.
 
-### Method 2: Tool Call Queue File (Fallback)
+**FORBIDDEN:** Do not include tool calls as JSON blocks in chat messages. Always write them to `.hal-tool-call-queue.json` instead.
 
-If tool calls in messages aren't being processed, write them to `.hal-tool-call-queue.json`:
+### Legacy Method (Deprecated - Do Not Use)
+
+~~**Method 1 (Preferred):** Include tool calls in your completion/summary message. HAL's `toolCallParser.ts` will parse JSON blocks from agent messages and execute them.~~
+
+**This method is deprecated. Always use the queue file instead.**
+
+### Old Method 2 (Deprecated - Do Not Use)
+
+~~**Method 2 (Fallback):** Write tool calls to `.hal-tool-call-queue.json` in the repo root. HAL will check this file when tickets move columns and execute pending tool calls.~~
+
+**This is now the ONLY method. Always use it.**
 
 ```json
 [
