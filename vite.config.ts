@@ -768,39 +768,60 @@ export default defineConfig({
 
                     // Insert Implementation artifacts (0082) - create separate artifacts for each audit file
                     if (ticketData?.pk && ticketData?.repo_full_name) {
-                      // Try to read audit files and create separate artifacts
-                      const auditDirMatch = ticketFilename.match(/^(\d{4})-(.+)\.md$/)
-                      const shortTitle = auditDirMatch ? auditDirMatch[2] : 'unknown'
-                      const auditDir = path.join(repoRoot, 'docs', 'audit', `${ticketId}-${shortTitle}`)
+                      // Try to find audit directory - try multiple patterns
+                      let auditDir: string | null = null
+                      const possibleDirs = [
+                        // Direct pattern: 0083-implementation
+                        path.join(repoRoot, 'docs', 'audit', `${ticketId}-implementation`),
+                        // From ticket filename if it exists
+                        ticketFilename ? (() => {
+                          const auditDirMatch = ticketFilename.match(/^(\d{4})-(.+)\.md$/)
+                          if (auditDirMatch) {
+                            return path.join(repoRoot, 'docs', 'audit', `${ticketId}-${auditDirMatch[2]}`)
+                          }
+                          return null
+                        })() : null,
+                      ].filter(Boolean) as string[]
                       
-                      const auditFiles = [
-                        { name: 'plan.md', title: 'Plan' },
-                        { name: 'worklog.md', title: 'Worklog' },
-                        { name: 'changed-files.md', title: 'Changed Files' },
-                        { name: 'decisions.md', title: 'Decisions' },
-                        { name: 'verification.md', title: 'Verification' },
-                        { name: 'pm-review.md', title: 'PM Review' },
-                      ]
+                      for (const dir of possibleDirs) {
+                        if (fs.existsSync(dir) && fs.statSync(dir).isDirectory()) {
+                          auditDir = dir
+                          break
+                        }
+                      }
                       
-                      // Create artifacts for each audit file
-                      for (const file of auditFiles) {
-                        const filePath = path.join(auditDir, file.name)
-                        if (fs.existsSync(filePath)) {
-                          try {
-                            const content = fs.readFileSync(filePath, 'utf8')
-                            await insertAgentArtifact(
-                              supabaseUrl,
-                              supabaseAnonKey,
-                              ticketData.pk,
-                              ticketData.repo_full_name,
-                              'implementation',
-                              `${file.title} for ticket ${ticketId}`,
-                              content
-                            )
-                          } catch {
-                            // Ignore if file can't be read
+                      if (auditDir) {
+                        const auditFiles = [
+                          { name: 'plan.md', title: 'Plan' },
+                          { name: 'worklog.md', title: 'Worklog' },
+                          { name: 'changed-files.md', title: 'Changed Files' },
+                          { name: 'decisions.md', title: 'Decisions' },
+                          { name: 'verification.md', title: 'Verification' },
+                          { name: 'pm-review.md', title: 'PM Review' },
+                        ]
+                        
+                        // Create artifacts for each audit file
+                        for (const file of auditFiles) {
+                          const filePath = path.join(auditDir, file.name)
+                          if (fs.existsSync(filePath)) {
+                            try {
+                              const content = fs.readFileSync(filePath, 'utf8')
+                              await insertAgentArtifact(
+                                supabaseUrl,
+                                supabaseAnonKey,
+                                ticketData.pk,
+                                ticketData.repo_full_name,
+                                'implementation',
+                                `${file.title} for ticket ${ticketId}`,
+                                content
+                              )
+                            } catch (err) {
+                              console.error(`[Implementation Agent] Failed to insert ${file.name} artifact:`, err)
+                            }
                           }
                         }
+                      } else {
+                        console.warn(`[Implementation Agent] Audit directory not found for ticket ${ticketId}. Tried: ${possibleDirs.join(', ')}`)
                       }
                     }
 
