@@ -369,6 +369,8 @@ function App() {
   const rafIdRef = useRef<number | null>(null)
   /** Current mouse position during drag (0076). */
   const mouseXRef = useRef<number | null>(null)
+  /** Reference to main container element for width calculations (0076). */
+  const mainElementRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     selectedChatTargetRef.current = selectedChatTarget
@@ -596,8 +598,14 @@ function App() {
     const updateWidth = () => {
       if (mouseXRef.current === null) return
       
-      const mainElement = document.querySelector('.hal-main')
+      // Use cached ref or query DOM (fallback for first frame)
+      const mainElement = mainElementRef.current || document.querySelector('.hal-main')
       if (!mainElement) return
+      
+      // Cache the element reference for subsequent frames
+      if (!mainElementRef.current) {
+        mainElementRef.current = mainElement
+      }
       
       const mainRect = mainElement.getBoundingClientRect()
       // Calculate chat width: distance from mouse (divider center) to right edge
@@ -647,6 +655,8 @@ function App() {
         cancelAnimationFrame(rafIdRef.current)
         rafIdRef.current = null
       }
+      // Clear main element ref when drag ends
+      mainElementRef.current = null
     }
   }, [isDragging])
 
