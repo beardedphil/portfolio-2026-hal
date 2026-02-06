@@ -324,6 +324,7 @@ function App() {
     'project-manager': 0,
     'implementation-agent': 0,
     'qa-agent': 0,
+    'tools-agent': 0,
     standup: 0,
   }))
   const [agentTypingTarget, setAgentTypingTarget] = useState<ChatTarget | null>(null)
