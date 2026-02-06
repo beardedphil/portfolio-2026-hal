@@ -1030,8 +1030,7 @@ function SortableColumn({
   supabaseTickets = [],
   updateSupabaseTicketKanban,
   refetchSupabaseTickets,
-  ticketPendingToolCalls,
-  agentAssignments = {},
+  fetchTicketArtifacts,
 }: {
   col: Column
   cards: Record<string, Card>
@@ -1043,8 +1042,7 @@ function SortableColumn({
   supabaseTickets?: SupabaseTicketRow[]
   updateSupabaseTicketKanban?: (pk: string, updates: { kanban_column_id?: string; kanban_position?: number; kanban_moved_at?: string }) => Promise<{ ok: true } | { ok: false; error: string }>
   refetchSupabaseTickets?: (skipPendingMoves?: boolean) => Promise<boolean>
-  ticketPendingToolCalls?: Record<string, boolean>
-  agentAssignments?: Record<string, string>
+  fetchTicketArtifacts?: (ticketPk: string) => Promise<SupabaseAgentArtifactRow[]>
 }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
     id: col.id,
@@ -2941,7 +2939,6 @@ ${notes || '(none provided)'}
                   updateSupabaseTicketKanban={updateSupabaseTicketKanban}
                   agentAssignments={agentAssignments}
                   refetchSupabaseTickets={refetchSupabaseTickets}
-                  ticketPendingToolCalls={ticketPendingToolCalls}
                 />
               ))}
             </div>

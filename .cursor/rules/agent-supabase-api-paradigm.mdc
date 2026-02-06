@@ -1,5 +1,5 @@
 ---
-description: All agents send tool calls to HAL via direct API or queue file
+description: All agents send tool calls to HAL via direct API
 alwaysApply: true
 ---
 
@@ -51,9 +51,7 @@ const res = await fetch(`${baseUrl}/api/tickets/move`, {
 
 Call the API **immediately** when you have artifact content or a column move—do not wait for merge. This way artifacts and ticket moves appear in Supabase and on the Kanban without merging to main.
 
-### Fallback: Queue file
-
-If `.hal/api-base-url` is missing or you cannot perform HTTP requests, write tool calls to **`.hal-tool-call-queue.json`** in the repo root (JSON array of `{ tool, params }`). HAL will execute them when the queue is run (e.g. "Run tool calls" or Tool Agent). Prefer the direct API when the base URL is present so results appear without merge.
+**Note:** HAL runs as an API-driven app. All tool calls must be sent via direct API calls. The `.hal/api-base-url` file must be present for agents to function properly.
 
 ## Available Tools
 
@@ -177,23 +175,11 @@ Fetch all artifacts for a ticket from Supabase.
 }
 ```
 
-### Queue file format (fallback)
-
-When using the queue file, use a JSON array of `{ tool, params }` in `.hal-tool-call-queue.json`:
-
-```json
-[
-  { "tool": "insert_implementation_artifact", "params": { "ticketId": "0097", "artifactType": "plan", "title": "Plan for ticket 0097", "body_md": "# Plan\n\n..." } },
-  { "tool": "move_ticket_column", "params": { "ticketId": "0097", "columnId": "col-human-in-the-loop" } }
-]
-```
-
 ## Benefits
 
-1. **Direct API (when `.hal/api-base-url` exists)** - Artifacts and ticket moves apply immediately without merging to main; no credentials in agent environment.
+1. **Direct API** - Artifacts and ticket moves apply immediately without merging to main; no credentials in agent environment.
 2. **No credentials needed** - HAL server uses its own Supabase credentials.
-3. **Queue fallback** - When the base URL is not available, write to `.hal-tool-call-queue.json` and HAL will run the queue later.
-4. **Same contract** - Same tool names and params for both API and queue.
+3. **API-driven workflow** - All tool calls are executed immediately via HTTP requests to HAL's API endpoints.
 
 ## Implementation Agent Requirements
 
