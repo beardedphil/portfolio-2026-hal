@@ -1279,12 +1279,48 @@ export default defineConfig({
                   res.end()
                   return
                 } else if (verdict === 'FAIL') {
+                  // Move ticket back to To Do on FAIL
+                  if (supabaseUrl && supabaseAnonKey) {
+                    writeStage({ stage: 'moving_ticket', content: 'Moving ticket back to To Do...' })
+                    try {
+                      const { createClient } = await import('@supabase/supabase-js')
+                      const supabase = createClient(supabaseUrl, supabaseAnonKey)
+                      const { data: inColumn } = await supabase
+                        .from('tickets')
+                        .select('kanban_position')
+                        .eq('kanban_column_id', 'col-todo')
+                        .order('kanban_position', { ascending: false })
+                        .limit(1)
+                      const nextPosition = inColumn?.length ? ((inColumn[0]?.kanban_position ?? -1) + 1) : 0
+                      const movedAt = new Date().toISOString()
+
+                      await supabase
+                        .from('tickets')
+                        .update({
+                          kanban_column_id: 'col-todo',
+                          kanban_position: nextPosition,
+                          kanban_moved_at: movedAt,
+                        })
+                        .eq('id', ticketId)
+
+                      const syncScriptPath = path.resolve(repoRoot, 'scripts', 'sync-tickets.js')
+                      spawn('node', [syncScriptPath], {
+                        cwd: repoRoot,
+                        env: { ...process.env, SUPABASE_URL: supabaseUrl, SUPABASE_ANON_KEY: supabaseAnonKey },
+                        stdio: ['ignore', 'ignore', 'ignore'],
+                      }).on('error', () => {})
+                    } catch (moveErr) {
+                      console.error('[QA Agent] Move to To Do failed:', moveErr)
+                    }
+                  }
+
                   const contentParts = [
                     `**QA FAILED** for ticket ${ticketId}`,
                     '',
                     summary,
                     '',
                     'The ticket was not merged. Review the qa-report.md for details and create a bugfix ticket if needed.',
+                    `Ticket ${ticketId} has been moved back to To Do.`,
                   ]
                   writeStage({ stage: 'completed', success: false, content: contentParts.join('\n'), verdict: 'FAIL', status: 'completed' })
                   res.end()
