@@ -602,8 +602,9 @@ function App() {
       if (!mainElement) return
       
       const mainRect = mainElement.getBoundingClientRect()
-      // Calculate chat width: distance from mouse to right edge, accounting for divider (4px)
-      const newWidth = mainRect.right - mouseXRef.current - 4
+      // Calculate chat width: distance from mouse (divider center) to right edge
+      // Divider is 4px wide, so chat starts at mouseX + 2px (half divider width)
+      const newWidth = mainRect.right - mouseXRef.current - 2
       // Clamp between min and max widths
       const clampedWidth = Math.max(320, Math.min(800, newWidth))
       setChatWidth(clampedWidth)
@@ -613,7 +614,7 @@ function App() {
     }
 
     const handleMouseMove = (e: MouseEvent) => {
-      // Update mouse position immediately
+      // Update mouse position immediately for smooth tracking
       mouseXRef.current = e.clientX
       // Start animation loop if not already running
       if (rafIdRef.current === null) {

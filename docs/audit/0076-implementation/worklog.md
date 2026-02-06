@@ -26,3 +26,8 @@
 4. **Optimized event handling**
    - Changed mousemove listener to use `{ passive: true }` for better performance
    - Ensured proper cleanup of event listeners and animation frames
+
+5. **Fixed width calculation accuracy**
+   - Corrected chat width calculation from `mainRect.right - mouseX - 4` to `mainRect.right - mouseX - 2`
+   - Divider is 4px wide, so chat starts at mouseX + 2px (half divider width), not + 4px
+   - This ensures the divider tracks the pointer position accurately

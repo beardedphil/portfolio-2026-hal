@@ -9,6 +9,7 @@
   - Mouse position updates immediately in mousemove handler
   - Width state updates via animation frame loop
   - Proper cleanup of animation frames
+  - Fixed width calculation: `mainRect.right - mouseX - 2` (accounts for 4px divider, chat starts at mouseX + 2px)
 - Added diagnostics rows in Diagnostics panel:
   - "Chat width (px)": Current width in pixels
   - "Chat width (%)": Calculated percentage of container width
