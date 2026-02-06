@@ -10,10 +10,10 @@ For any coding task assigned to an implementation agent, the work must be **full
 ## Standard Prompt Format (Supabase source of truth)
 
 - All new stories/tasks must be **tickets** stored in **Supabase** (source of truth). **Do not create or edit ticket files** under `docs/tickets/` directly; tickets are created via the HAL app (PM agent) or a script that writes to the Supabase `tickets` table. The app uses Supabase-only mode (0065) and does not read from `docs/tickets/*.md`.
-- **Kanban is Supabase-backed (Supabase-only mode, 0065).** For any ticket change (create, update body, move column): **update the DB directly**. The Kanban UI reflects changes within the polling interval (~10s). Use `node scripts/move-ticket-column.js <ticketId> <columnId>` for column moves. Never update ticket files locally — the app does not read them.
+- **Kanban is Supabase-backed (Supabase-only mode, 0065).** For any ticket change (create, update body, move column): **update the DB directly via HAL API**. The Kanban UI reflects changes within the polling interval (~10s). Use `POST /api/tickets/move` for column moves. Never update ticket files locally — the app does not read them.
 - Use the workspace template for **content structure** when creating a ticket (in-app or via script):
   - `docs/templates/ticket.template.md`
-- The ticket in Supabase (and, after sync, in `docs/tickets/<task-id>-<short-title>.md`) is the canonical “prompt” (we do **not** create a `prompt.md` artifact).
+- The ticket in Supabase (and, after sync, in `docs/tickets/<task-id>-<short-title>.md`) is the canonical "prompt" (we do **not** create a `prompt.md` artifact).
 
 ## Task ID Convention (Uniqueness)
 
@@ -22,75 +22,86 @@ For any coding task assigned to an implementation agent, the work must be **full
 
 ## Required Artifacts (per task)
 
-Create a task folder under `docs/audit/`:
+All artifacts are stored in **Supabase's `agent_artifacts` table**, not in `docs/audit/` folders. Use HAL API endpoints to store artifacts:
 
 - Ticket in Supabase (not `docs/tickets/*.md` — Supabase-only mode, 0065)
-  - Canonical ticket used to brief the implementation agent (includes acceptance criteria). Fetched from Supabase.
-- `docs/audit/<task-id>-<short-title>/plan.md`
+  - Canonical ticket used to brief the implementation agent (includes acceptance criteria). Fetch using tool call `get_ticket_content`.
+- **Plan artifact** (agent_type: `implementation`, title: `Plan for ticket <ticket-id>`)
   - 3–10 bullets: intended approach and file touchpoints.
-- `docs/audit/<task-id>-<short-title>/worklog.md`
+  - Store via tool call: `insert_implementation_artifact` with `artifactType: "plan"`
+- **Worklog artifact** (agent_type: `implementation`, title: `Worklog for ticket <ticket-id>`)
   - Timestamped (rough) notes of what was done, in order.
-- `docs/audit/<task-id>-<short-title>/changed-files.md`
+  - Store via tool call: `insert_implementation_artifact` with `artifactType: "worklog"`
+- **Changed Files artifact** (agent_type: `implementation`, title: `Changed Files for ticket <ticket-id>`)
   - List of files created/modified/deleted with 1–2 line purpose each.
-- `docs/audit/<task-id>-<short-title>/decisions.md`
+  - Store via tool call: `insert_implementation_artifact` with `artifactType: "changed-files"`
+- **Decisions artifact** (agent_type: `implementation`, title: `Decisions for ticket <ticket-id>`)
   - Any trade-offs/assumptions + why.
-- `docs/audit/<task-id>-<short-title>/verification.md`
+  - Store via tool call: `insert_implementation_artifact` with `artifactType: "decisions"`
+- **Verification artifact** (agent_type: `implementation`, title: `Verification for ticket <ticket-id>`)
   - QA verification steps: code review + automated checks (build, lint). No manual UI testing at QA stage — user tests in Human in the Loop after merge.
   - If verification involves visuals, include screenshot filenames.
+  - Store via tool call: `insert_implementation_artifact` with `artifactType: "verification"`
+- **PM Review artifact** (agent_type: `implementation`, title: `PM Review for ticket <ticket-id>`)
+  - Likelihood of success (0–100%), potential failures, and how to diagnose them.
+  - Store via tool call: `insert_implementation_artifact` with `artifactType: "pm-review"`
+- **QA Report artifact** (agent_type: `qa`, title: `QA report for ticket <ticket-id>`)
+  - Created by QA agent after code review and verification.
+  - Store via tool call: `insert_qa_artifact`
 
-## Artifact Format: Source of Truth (No “Copy From Old Audits”)
+## Artifact Format: Source of Truth (No "Copy From Old Audits")
 
 - The source of truth for artifact **format and required files** is:
   - `.cursor/rules/*.mdc` (workspace rules)
   - `docs/templates/ticket.template.md`
   - `docs/process/ticket-verification-rules.md`
-- Do **not** determine artifact format by inspecting prior folders in `docs/audit/`.
-  - You may reference older audits only as **examples** after you have already checked the rules/templates.
-  - Avoid narration like “Checking an existing audit folder for format”; instead confirm you are following the rules/templates above.
+- Do **not** determine artifact format by inspecting prior artifacts in Supabase.
+  - You may reference older artifacts only as **examples** after you have already checked the rules/templates.
+  - Avoid narration like "Checking an existing artifact for format"; instead confirm you are following the rules/templates above.
 
 ## QA (Commit + Push → Human in the Loop)
 
-- An implementation agent must **commit** all work for the ticket and **push** it to the remote before claiming the ticket is “done” or “ready for verification.”
-- “Ready for verification” additionally requires a **clean + synced repo**:
+- An implementation agent must **commit** all work for the ticket and **push** it to the remote before claiming the ticket is "done" or "ready for verification."
+- "Ready for verification" additionally requires a **clean + synced repo**:
   - working tree is clean (no uncommitted changes, no untracked files created by the task)
   - branch is synced with remote (not ahead/behind)
-- “Ready for verification” must happen on a **feature branch** (not `main`) for ticketed work.
+- "Ready for verification" must happen on a **feature branch** (not `main`) for ticketed work.
 - If any untracked/modified files remain, the agent must either:
   - commit them (if they belong to the ticket), or
-  - delete/ignore/revert them (if they are accidental/generated), before claiming “ready.”
+  - delete/ignore/revert them (if they are accidental/generated), before claiming "ready."
 - The ticket must exist in **Supabase** (Supabase-only mode, 0065):
   - Ticket must exist in Supabase. `docs/tickets/*.md` files are not used by the app.
 
-- “Ready for verification” instructions must be **UI-only**:
-  - Do not ask the user/PM to commit, push, or otherwise “finish” the task.
-  - If the agent still needs to commit/push or update audit artifacts, the task is **not** ready.
+- "Ready for verification" instructions must be **UI-only**:
+  - Do not ask the user/PM to commit, push, or otherwise "finish" the task.
+  - If the agent still needs to commit/push or store artifacts, the task is **not** ready.
 
 - The completion message to the user/PM must include:
   - the **feature branch name** (so QA can review and merge), and
   - the exact `git status -sb` output.
 - The implementation agent **must add the branch name to the ticket** when claiming "ready for QA" (see ticket template: QA → Branch).
-- The implementation agent **must add an "Artifacts" section to the ticket body** when marking ready for QA (see `done-means-pushed.mdc` for the required format and artifact list).
+- The implementation agent **must store all required artifacts in Supabase** when marking ready for QA (see "Required Artifacts" above). Send tool calls in your messages to store artifacts.
 
-- Audit artifacts must be **in git**:
-  - `docs/audit/<task-id>-<short-title>/` must be committed and pushed before claiming “ready.”
-  - `worklog.md` must not contain “handoff chores” (e.g. “after you commit…”).
+- Artifacts must be **stored in Supabase**:
+  - All artifacts must be stored via tool calls in your messages before claiming "ready."
+  - Include tool calls as JSON blocks in your messages; HAL will parse and execute them.
+  - Artifacts are linked to tickets via `ticket_pk` in the `agent_artifacts` table.
 
-## PM Review is required before “ready”
+## PM Review is required before "ready"
 
-- Before claiming “ready for verification,” the agent must ensure:
-  - `docs/audit/<task-id>-<short-title>/pm-review.md` exists,
-  - it is committed and pushed, and
-  - it reflects the actual implementation state (no placeholders).
+- Before claiming "ready for verification," the agent must ensure:
+  - PM Review artifact exists in Supabase (stored via `POST /api/artifacts/insert-implementation`),
+  - and it reflects the actual implementation state (no placeholders).
 
 ## Commit message linkage (no commit hashes in docs)
 
 - Every commit that belongs to a ticket must include the ticket ID in the commit subject (e.g. `feat(0010): ...`, `fix(0008): ...`, `docs(0009): ...`).
-- This includes “supporting” commits that are still part of delivering the ticket (examples: `chore`, `docs(rules)`, submodule pointer updates, dependency updates).
+- This includes "supporting" commits that are still part of delivering the ticket (examples: `chore`, `docs(rules)`, submodule pointer updates, dependency updates).
 - If a commit is **not** part of the ticket, it must be:
-  - separated (not bundled into the ticket’s commits), and
-  - documented in the ticket’s `decisions.md` under **Unrequested changes (required)** if it was unavoidable.
+  - separated (not bundled into the ticket's commits), and
+  - documented in the ticket's Decisions artifact under **Unrequested changes (required)** if it was unavoidable.
  
-Note: Workspace-wide, the definition of “done” for **all agents** is enforced by `.cursor/rules/done-means-pushed.mdc`.
+Note: Workspace-wide, the definition of "done" for **all agents** is enforced by `.cursor/rules/done-means-pushed.mdc`.
 
 ## In-App Trace Requirement
 
@@ -99,13 +110,53 @@ Note: Workspace-wide, the definition of “done” for **all agents** is enforce
 
 ## Scope
 
-- These artifacts live at the **workspace level** (not inside individual project folders).
+- All artifacts are stored in **Supabase**, not in `docs/audit/` folders.
 - Keep each artifact concise; prefer bullets over prose.
 
 ## PM Review Artifact (after implementation completes)
 
-- Create `docs/audit/<task-id>-<short-title>/pm-review.md` using:
-  - `docs/templates/pm-review.template.md`
+- Store PM Review artifact in Supabase via tool call `insert_implementation_artifact` with `artifactType: "pm-review"`.
+- Use format from `docs/templates/pm-review.template.md` as reference.
 - The PM review must include:
   - **likelihood of success** (0–100%)
   - a ranked list of **potential failures** and how to diagnose them using **in-app** diagnostics
+
+## HAL Tool Call Contract
+
+All artifact and ticket operations are sent to HAL as **tool calls** in your messages. HAL parses and executes them automatically.
+
+**Available tools:**
+
+- **`insert_implementation_artifact`** — Store implementation artifact
+  - Params: `{ ticketId: string, artifactType: string, title: string, body_md: string }`
+
+- **`insert_qa_artifact`** — Store QA artifact
+  - Params: `{ ticketId: string, title: string, body_md: string }`
+
+- **`get_ticket_content`** — Fetch ticket content
+  - Params: `{ ticketId: string }`
+
+- **`update_ticket_body`** — Update ticket body
+  - Params: `{ ticketId: string, body_md: string }`
+
+- **`move_ticket_column`** — Move ticket to different column
+  - Params: `{ ticketId: string, columnId: string }`
+
+**How to use:** Include tool calls as JSON blocks in your messages. HAL will parse and execute them. You don't need API URLs or credentials.
+
+**Example:**
+```
+I've completed the plan. Here's my tool call:
+
+{
+  "tool": "insert_implementation_artifact",
+  "params": {
+    "ticketId": "0076",
+    "artifactType": "plan",
+    "title": "Plan for ticket 0076",
+    "body_md": "# Plan\n\n..."
+  }
+}
+```
+
+See `.cursor/rules/agent-supabase-api-paradigm.mdc` for full documentation.

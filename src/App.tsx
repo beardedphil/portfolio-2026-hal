@@ -1024,6 +1024,62 @@ function App() {
       })
       return next
     })
+    
+    // Parse and execute tool calls from agent messages (implementation-agent, qa-agent)
+    if ((agent === 'implementation-agent' || agent === 'qa-agent') && content) {
+      ;(async () => {
+        try {
+          const { parseToolCalls, executeToolCall } = await import('./toolCallParser.js')
+          const toolCalls = parseToolCalls(content)
+          
+          if (toolCalls.length > 0) {
+            // Determine HAL API URL (use current origin for relative requests)
+            const halApiUrl = window.location.origin
+            
+            // Execute each tool call
+            for (const toolCall of toolCalls) {
+              const result = await executeToolCall(toolCall, halApiUrl)
+              
+              // Add system message with tool call result
+              let resultMsg: string
+              if (result.success) {
+                const action = (result.result as { action?: string })?.action
+                const artifactId = (result.result as { artifact_id?: string })?.artifact_id
+                if (toolCall.tool === 'insert_implementation_artifact' || toolCall.tool === 'insert_qa_artifact') {
+                  resultMsg = `[Tool] ${toolCall.tool} executed successfully (${action || 'inserted'}). Artifact stored in Supabase.`
+                } else if (toolCall.tool === 'move_ticket_column') {
+                  const position = (result.result as { position?: number })?.position
+                  resultMsg = `[Tool] ${toolCall.tool} executed successfully. Ticket moved to ${toolCall.params.columnId} at position ${position ?? '?'}.`
+                } else if (toolCall.tool === 'update_ticket_body') {
+                  resultMsg = `[Tool] ${toolCall.tool} executed successfully. Ticket body updated in Supabase.`
+                } else if (toolCall.tool === 'get_ticket_content') {
+                  resultMsg = `[Tool] ${toolCall.tool} executed successfully. Ticket content retrieved.`
+                } else {
+                  resultMsg = `[Tool] ${toolCall.tool} executed successfully.`
+                }
+              } else {
+                resultMsg = `[Tool] ${toolCall.tool} failed: ${result.error || 'Unknown error'}`
+              }
+              
+              const resultId = ++messageIdRef.current
+              setConversations((prev) => {
+                const next = new Map(prev)
+                const conv = next.get(conversationId)
+                if (!conv) return next
+                next.set(conversationId, {
+                  ...conv,
+                  messages: [...conv.messages, { id: resultId, agent: 'system', content: resultMsg, timestamp: new Date() }],
+                })
+                return next
+              })
+            }
+          }
+        } catch (err) {
+          // Non-fatal: log error but don't block message addition
+          console.error('Failed to parse/execute tool calls:', err)
+        }
+      })()
+    }
     // Auto-move ticket when QA completion message is detected in QA Agent chat (0061, 0086)
     const parsed = parseConversationId(conversationId)
     if (parsed && parsed.agentRole === 'qa-agent' && agent === 'qa-agent') {

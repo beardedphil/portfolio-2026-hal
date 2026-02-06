@@ -1536,6 +1536,42 @@ export default defineConfig({
       },
     },
     {
+      name: 'agent-tools-execute-endpoint',
+      configureServer(server) {
+        server.middlewares.use(async (req, res, next) => {
+          if (req.url !== '/api/agent-tools/execute' || (req.method !== 'POST' && req.method !== 'OPTIONS')) {
+            next()
+            return
+          }
+
+          // CORS: Allow cross-origin requests
+          res.setHeader('Access-Control-Allow-Origin', '*')
+          res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+          res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+
+          if (req.method === 'OPTIONS') {
+            res.statusCode = 204
+            res.end()
+            return
+          }
+
+          try {
+            const handler = await import('./api/agent-tools/execute.js')
+            await handler.default(req, res)
+          } catch (err) {
+            res.statusCode = 500
+            res.setHeader('Content-Type', 'application/json')
+            res.end(
+              JSON.stringify({
+                success: false,
+                error: err instanceof Error ? err.message : String(err),
+              })
+            )
+          }
+        })
+      },
+    },
+    {
       name: 'pm-check-unassigned-endpoint',
       configureServer(server) {
         server.middlewares.use(async (req, res, next) => {

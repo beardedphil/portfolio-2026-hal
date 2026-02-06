@@ -5,7 +5,7 @@ alwaysApply: true
 
 # Agent Runs Terminal Commands
 
-- **Tickets (Supabase-backed Kanban):** All ticket changes (create, update body, move column) must be made **in the DB first**, then run the sync script so docs and UI stay in sync. Do not create or edit ticket files under `docs/tickets/` directly. After Supabase changes, run `npm run sync-tickets` (or use `node scripts/move-ticket-column.js <ticketId> <columnId>` for column moves; it updates DB then runs sync).
+- **Tickets (Supabase-backed Kanban):** All ticket changes (create, update body, move column) must be made via **HAL API endpoints**, which update Supabase directly. Do not create or edit ticket files under `docs/tickets/` directly. Use `POST /api/tickets/update` for body updates and `POST /api/tickets/move` for column moves. The Kanban UI reflects changes within ~10 seconds (polling interval).
 - When a task requires running a terminal command (e.g. `npm run dev`, `npm run build`, `npm run sync-tickets`, restarting a dev server, `git status`, `git add`, `git commit`, `git push`), the **agent must run the command itself** when it has the ability to do so.
 - **Do not ask the user** to run terminal commands that the agent can run (e.g. "Please run `npm run dev`", "Restart the HAL dev server", "Run `npm run sync-tickets` from the repo root").
 - Only suggest the user run a command when the action truly requires user context (e.g. picking a folder, approving a destructive operation, or when the agent environment cannot execute the command).

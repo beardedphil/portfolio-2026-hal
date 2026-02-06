@@ -13,13 +13,13 @@ alwaysApply: true
 ## Required documentation when deviations are unavoidable
 
 - If you must make a change not explicitly requested:
-  - add it to `docs/audit/<task-id>-<short-title>/decisions.md` under **Unrequested changes (required)**:
+  - add it to the Decisions artifact in Supabase (stored via `POST /api/artifacts/insert-implementation` with `artifactType: "decisions"`) under **Unrequested changes (required)**:
     - what changed
     - why it was necessary
     - how a human can verify it in the UI
 
 ## Verification quality bar
 
-- `docs/audit/<task-id>-<short-title>/verification.md` must include checks that confirm:
+- The Verification artifact in Supabase (stored via `POST /api/artifacts/insert-implementation` with `artifactType: "verification"`) must include checks that confirm:
   - the requested change works, AND
   - adjacent UI did **not** regress (basic smoke checks).

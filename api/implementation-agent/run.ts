@@ -146,6 +146,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const goal = (goalMatch?.[1] ?? '').trim()
     const deliverable = (deliverableMatch?.[1] ?? '').trim()
     const criteria = (criteriaMatch?.[1] ?? '').trim()
+    
+    // Determine HAL API URL (use environment variable or default to localhost)
+    const halApiUrl = process.env.HAL_API_URL || process.env.APP_ORIGIN || 'http://localhost:5173'
+    
     const promptText = [
       'Implement this ticket.',
       '',
@@ -161,6 +165,56 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       '',
       '## Acceptance criteria',
       criteria || '(not specified)',
+      '',
+      '## HAL Tool Call Contract',
+      '',
+      '**IMPORTANT:** All Supabase operations (storing artifacts, updating tickets, moving tickets) must be sent to HAL as **tool calls** in your messages. HAL will parse and execute them automatically.',
+      '',
+      '**Send tool calls as JSON blocks in your messages:**',
+      '',
+      '```json',
+      '{',
+      '  "tool": "tool_name",',
+      '  "params": {',
+      '    "param1": "value1"',
+      '  }',
+      '}',
+      '```',
+      '',
+      '**Available tools:**',
+      '',
+      '1. **`insert_implementation_artifact`** - Store implementation artifact',
+      '   - Params: `{ ticketId: string, artifactType: string, title: string, body_md: string }`',
+      '   - Artifact types: `"plan"`, `"worklog"`, `"changed-files"`, `"decisions"`, `"verification"`, `"pm-review"`',
+      '   - Store ALL required artifacts before marking ticket ready for QA',
+      '',
+      '2. **`update_ticket_body`** - Update ticket body',
+      '   - Params: `{ ticketId: string, body_md: string }`',
+      '   - Use to add branch name, merge notes, etc.',
+      '',
+      '3. **`move_ticket_column`** - Move ticket to different column',
+      '   - Params: `{ ticketId: string, columnId: string }`',
+      '',
+      '4. **`get_ticket_content`** - Fetch ticket content',
+      '   - Params: `{ ticketId: string }`',
+      '',
+      '**Example:** Include tool calls in your message:',
+      '',
+      '```',
+      'I\'ve completed the plan. Here\'s my tool call:',
+      '',
+      '{',
+      '  "tool": "insert_implementation_artifact",',
+      '  "params": {',
+      '    "ticketId": "0076",',
+      '    "artifactType": "plan",',
+      '    "title": "Plan for ticket 0076",',
+      '    "body_md": "# Plan\\n\\n..."',
+      '  }',
+      '}',
+      '```',
+      '',
+      'HAL will parse and execute the tool call automatically. You don\'t need API URLs or credentials.',
     ].join('\n')
 
     writeStage({ stage: 'resolving_repo' })

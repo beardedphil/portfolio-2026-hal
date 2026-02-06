@@ -1,0 +1,156 @@
+# HAL Tool Call Contract
+
+## Overview
+
+Agents communicate with HAL by sending **tool call requests** in a simple JSON format. HAL parses these requests and executes the corresponding tools using its server-side Supabase credentials. Agents don't need to know API URLs, make HTTP requests, or have any Supabase credentials.
+
+## Contract Format
+
+Agents send tool call requests to HAL in this format:
+
+```json
+{
+  "tool": "tool_name",
+  "params": {
+    "param1": "value1",
+    "param2": "value2"
+  }
+}
+```
+
+HAL responds with:
+
+```json
+{
+  "success": true,
+  "result": { ... }
+}
+```
+
+or
+
+```json
+{
+  "success": false,
+  "error": "error message"
+}
+```
+
+## Available Tools
+
+### `insert_implementation_artifact`
+
+Store an implementation artifact in Supabase.
+
+**Params:**
+- `ticketId` (string): Ticket ID (e.g. "0076")
+- `artifactType` (string): One of "plan", "worklog", "changed-files", "decisions", "verification", "pm-review"
+- `title` (string): Artifact title (e.g. "Plan for ticket 0076")
+- `body_md` (string): Full markdown content of the artifact
+
+**Response:**
+```json
+{
+  "success": true,
+  "artifact_id": "uuid",
+  "action": "inserted" | "updated"
+}
+```
+
+### `insert_qa_artifact`
+
+Store a QA artifact in Supabase.
+
+**Params:**
+- `ticketId` (string): Ticket ID (e.g. "0076")
+- `title` (string): Artifact title (e.g. "QA report for ticket 0076")
+- `body_md` (string): Full markdown content of the QA report
+
+**Response:**
+```json
+{
+  "success": true,
+  "artifact_id": "uuid",
+  "action": "inserted" | "updated"
+}
+```
+
+### `update_ticket_body`
+
+Update a ticket's body_md in Supabase.
+
+**Params:**
+- `ticketId` (string): Ticket ID (e.g. "0076")
+- `body_md` (string): Full markdown body of the ticket
+
+**Response:**
+```json
+{
+  "success": true,
+  "ticketId": "0076"
+}
+```
+
+### `move_ticket_column`
+
+Move a ticket to a different Kanban column.
+
+**Params:**
+- `ticketId` (string): Ticket ID (e.g. "0076")
+- `columnId` (string): Target column ID (e.g. "col-qa", "col-human-in-the-loop", "col-todo")
+
+**Response:**
+```json
+{
+  "success": true,
+  "position": 0,
+  "movedAt": "2026-02-06T20:00:00.000Z"
+}
+```
+
+### `get_ticket_content`
+
+Fetch a ticket's content from Supabase.
+
+**Params:**
+- `ticketId` (string): Ticket ID (e.g. "0076")
+
+**Response:**
+```json
+{
+  "success": true,
+  "body_md": "# Ticket content..."
+}
+```
+
+## How Agents Send Tool Calls
+
+Agents send tool calls to HAL through the conversation. HAL parses tool call requests from agent messages and executes them.
+
+**Example agent message:**
+```
+I need to store the QA report. Here's my tool call:
+
+{
+  "tool": "insert_qa_artifact",
+  "params": {
+    "ticketId": "0076",
+    "title": "QA report for ticket 0076",
+    "body_md": "# QA Report\n\n..."
+  }
+}
+```
+
+HAL will parse this, execute the tool, and respond with the result.
+
+## Benefits
+
+1. **No API URLs needed** - Agents don't need to know HAL's API endpoint
+2. **No credentials needed** - HAL uses server-side Supabase credentials
+3. **Simple JSON contract** - Easy to parse and execute
+4. **Works in any environment** - Cloud agents, local agents, all the same
+5. **HAL handles reliability** - HAL ensures Supabase operations succeed
+
+## Implementation
+
+HAL's tool execution endpoint is at `/api/agent-tools/execute` (for internal use). Agents send tool calls through the conversation, and HAL's conversation handler parses and executes them.

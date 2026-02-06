@@ -1,11 +1,11 @@
 ---
-description: QA agents must add a qa-report to the ticket audit folder
+description: QA agents must store QA reports in Supabase via HAL API
 alwaysApply: true
 ---
 
 # QA Audit Report (QA Agents)
 
-When you **QA a ticket** (e.g. user asks to "QA", "verify", or "check" a ticket that is allegedly complete), you **must** add a QA report to that ticket’s audit folder.
+When you **QA a ticket** (e.g. user asks to "QA", "verify", or "check" a ticket that is allegedly complete), you **must** store a QA report in Supabase via HAL's API endpoints.
 
 ## Cloud QA workflow context
 
@@ -18,31 +18,46 @@ In cloud environments, QA agents may not have access to feature branches (only `
   - Do **not** attempt to locate, check out, or use the feature branch.
   - **Step 1:** Pull the latest `main` branch: `git checkout main && git pull origin main`
   - **Step 2:** Perform QA on `main` (code review and verification).
-  - **Step 3:** Record in `qa-report.md` that verification was performed against `main` (e.g. "Verified on `main`; implementation was merged to main for QA access.").
-  - **Step 4:** After verification, commit the qa-report to `main` (do not merge again — the change is already on `main`).
-  - **Step 5:** Move ticket to Human in the Loop (DB-first), then provide summary.
+  - **Step 3:** Record in the QA report that verification was performed against `main` (e.g. "Verified on `main`; implementation was merged to main for QA access.").
+  - **Step 4:** Store the QA report in Supabase via HAL API (see "Storing QA report" below).
+  - **Step 5:** Move ticket to Human in the Loop via HAL API, then provide summary.
 - **Otherwise:** use the feature branch named in the ticket's QA → Branch field (or the branch you were launched on). Perform QA on that branch, then follow the full workflow (merge to main, delete branch, etc.).
 
-**Important:** When QA cannot access feature branches (cloud QA workflow), the implementation agent merges the feature branch to `main` before QA. In this case, QA must verify from `main` and record this in both the `qa-report.md` and note it in the ticket artifacts/links.
+**Important:** When QA cannot access feature branches (cloud QA workflow), the implementation agent merges the feature branch to `main` before QA. In this case, QA must verify from `main` and record this in the QA report stored in Supabase.
 
 ## Required artifact
 
-- **Path:** `docs/audit/<task-id>-<short-title>/qa-report.md`
+- **Storage:** Supabase `agent_artifacts` table (via HAL API endpoint `/api/artifacts/insert-qa`)
 - **When:** After performing QA (code review and, if possible, UI verification) for a ticket.
+- **Agent type:** `qa`
+- **Title format:** `QA report for ticket <ticket-id>`
 
-## qa-report.md structure
+## QA report structure
 
 1. **Ticket & deliverable** — One-line goal, deliverable, and acceptance criteria from the ticket.
-2. **Audit artifacts** — Confirm all required audit files are present (plan, worklog, changed-files, decisions, verification, pm-review).
+2. **Audit artifacts** — Confirm all required implementation artifacts are present in Supabase (plan, worklog, changed-files, decisions, verification, pm-review).
 3. **Code review** — PASS/FAIL with brief evidence (e.g. table of requirement vs implementation; file and line refs if helpful).
-4. **UI verification** — What was run: automated and/or manual steps from `verification.md`. If automated UI was not run (e.g. native dialogs, login, or pickers), state that and list the manual steps the user should run.
+4. **UI verification** — What was run: automated and/or manual steps. If automated UI was not run (e.g. native dialogs, login, or pickers), state that and list the manual steps the user should run.
 5. **Verdict** — Implementation complete? OK to merge? Any blocking manual verification?
 
-## Example location
+## Storing QA report
 
-For ticket `docs/tickets/0026-kanban-tickets-persist-column-on-refresh.md`, the QA report is:
+**Send a tool call to HAL in your message:**
 
-`docs/audit/0026-kanban-tickets-persist-column-on-refresh/qa-report.md`
+Include this JSON block in your message:
+
+```json
+{
+  "tool": "insert_qa_artifact",
+  "params": {
+    "ticketId": "0076",
+    "title": "QA report for ticket 0076",
+    "body_md": "# QA Report\n\n..."
+  }
+}
+```
+
+HAL will parse this from your message, execute it, and store the artifact in Supabase. You don't need API URLs or credentials - just include the JSON in your message.
 
 ## QA completion: do not hand off to the user
 
@@ -62,59 +77,77 @@ When the verdict is **PASS (OK to merge)**, QA must **complete the full workflow
 
 **If you are verifying from the feature branch** (normal workflow):
 
-1. **Commit and push** the qa-report (and any rule changes) to the feature branch.
-2. **Update the ticket's "Artifacts" section** — Update the ticket body (in Supabase, then run `npm run sync-tickets`) to add or update the **"Artifacts" section** (see "Artifacts section requirement" below) to include:
-   - Link/path to `docs/audit/<ticket-id>-<short-title>/qa-report.md`
-   - All other required audit artifact links (plan, worklog, changed-files, decisions, verification, pm-review)
-3. **Move ticket to Human in the Loop** — update the ticket **in the DB**, then run sync. Use `node scripts/move-ticket-column.js <ticketId> col-human-in-the-loop` from the repo root (e.g. `node scripts/move-ticket-column.js 0047 col-human-in-the-loop`). Requires `.env` with `SUPABASE_URL` and `SUPABASE_ANON_KEY`. The script updates Supabase, then the ticket file frontmatter, then runs `sync-tickets`. **Do not** add or edit YAML frontmatter in the ticket file by hand — Kanban is Supabase-backed; always update DB first, then sync.
+1. **Store QA report in Supabase** — Include a tool call in your message:
+   ```json
+   {
+     "tool": "insert_qa_artifact",
+     "params": {
+       "ticketId": "0076",
+       "title": "QA report for ticket 0076",
+       "body_md": "# QA Report\n\n..."
+     }
+   }
+   ```
+2. **Update ticket body** (optional) — If needed, include a tool call to update the ticket body:
+   ```json
+   {
+     "tool": "update_ticket_body",
+     "params": {
+       "ticketId": "0076",
+       "body_md": "# Updated ticket body..."
+     }
+   }
+   ```
+3. **Move ticket to Human in the Loop** — Include a tool call:
+   ```json
+   {
+     "tool": "move_ticket_column",
+     "params": {
+       "ticketId": "0076",
+       "columnId": "col-human-in-the-loop"
+     }
+   }
+   ```
 4. **Merge to main** — checkout `main`, merge the feature branch, push `main`.
 5. **Delete the feature branch** — local and remote (see `delete-branch-after-merge.mdc`).
 6. **Then** give your summary to the user. **The final message must include:** `QA RESULT: PASS — <ticket-id>` (see "Completion message format requirement" above).
 
 **If you are verifying from `main`** (implementation was merged to main for QA access):
 
-1. **Commit and push** the qa-report (and any rule changes) to **`main`**. 
-   - Do **not** merge again — the change is already on `main`. 
-   - Do **not** delete any branch (the feature branch may still exist, but QA does not manage it in this workflow).
-2. **Update the ticket's "Artifacts" section** — Update the ticket body (in Supabase, then run `npm run sync-tickets`) to add or update the **"Artifacts" section** (see "Artifacts section requirement" below) to include:
-   - Link/path to `docs/audit/<ticket-id>-<short-title>/qa-report.md`
-   - All other required audit artifact links (plan, worklog, changed-files, decisions, verification, pm-review)
-   - Note that verification was performed against `main` (not the feature branch) — add this note in the Artifacts section or nearby
-3. **Move ticket to Human in the Loop** — Update the ticket **in the DB first**, then run sync. Use `node scripts/move-ticket-column.js <ticketId> col-human-in-the-loop` from the repo root (e.g. `node scripts/move-ticket-column.js 0047 col-human-in-the-loop`). Requires `.env` with `SUPABASE_URL` and `SUPABASE_ANON_KEY`. The script updates Supabase, then the ticket file frontmatter, then runs `sync-tickets`. **Do not** add or edit YAML frontmatter in the ticket file by hand — Kanban is Supabase-backed; always update DB first, then sync.
+1. **Store QA report in Supabase** — Include a tool call in your message. Include a note in the report that verification was performed against `main`.
+2. **Update ticket body** (optional) — If needed, include a tool call to note that verification was performed against `main`.
+3. **Move ticket to Human in the Loop** — Include a tool call to move the ticket.
 4. **Then** give your summary to the user. **The final message must include:** `QA RESULT: PASS — <ticket-id>` (see "Completion message format requirement" above).
 
 Do not give a summary with "next steps" or "run these commands" — QA performs the merge (or confirms main) and branch deletion where applicable. The user receives the completed result.
 
 - Use a commit subject that includes the ticket ID (e.g. `qa(0033): add QA report, move to Human in the Loop`).
-- **If verdict is FAIL:** Do not merge. Commit and push the qa-report only; summarize findings and recommend a bugfix ticket (see `bugfix-tracking.mdc`). **The final message must include:** `QA RESULT: FAIL — <ticket-id>` (see "Completion message format requirement" above).
+- **If verdict is FAIL:** Do not merge. Store the QA report in Supabase only; summarize findings and recommend a bugfix ticket (see `bugfix-tracking.mdc`). **The final message must include:** `QA RESULT: FAIL — <ticket-id>` (see "Completion message format requirement" above).
 
-## Artifacts section requirement (QA agent)
+## HAL Tool Call Contract
 
-- **When QA is complete:** The QA agent **must** add or update the **"Artifacts" section** in the ticket body (in Supabase, then run `npm run sync-tickets`).
-- **Required format:** The "Artifacts" section must list links/paths to all required audit files under `docs/audit/<task-id>-<short-title>/`:
-  - `plan.md`
-  - `worklog.md`
-  - `changed-files.md`
-  - `decisions.md`
-  - `verification.md`
-  - `pm-review.md`
-  - `qa-report.md` (added by QA)
-- **Link format:** Paths are acceptable as "links" (they are clickable in most editors). Paths must match the canonical folder naming: `<task-id>-<short-title-kebab>` (e.g., `docs/audit/0056-implementation/qa-report.md`).
-- **Example Artifacts section:**
-  ```
-  ## Artifacts
-  
-  - [plan.md](docs/audit/0056-implementation/plan.md)
-  - [worklog.md](docs/audit/0056-implementation/worklog.md)
-  - [changed-files.md](docs/audit/0056-implementation/changed-files.md)
-  - [decisions.md](docs/audit/0056-implementation/decisions.md)
-  - [verification.md](docs/audit/0056-implementation/verification.md)
-  - [pm-review.md](docs/audit/0056-implementation/pm-review.md)
-  - [qa-report.md](docs/audit/0056-implementation/qa-report.md)
-  ```
-- **Why:** This ensures all audit artifacts (including the QA report) are traceable from the Kanban UI, making work fully auditable without requiring access to the repo structure.
+All Supabase operations are sent to HAL as **tool calls** in your messages. HAL parses and executes them automatically.
+
+**Available tools:**
+
+- **`insert_qa_artifact`** — Store QA report in Supabase
+  - Params: `{ ticketId: string, title: string, body_md: string }`
+
+- **`update_ticket_body`** — Update ticket body in Supabase
+  - Params: `{ ticketId: string, body_md: string }`
+
+- **`move_ticket_column`** — Move ticket to different column
+  - Params: `{ ticketId: string, columnId: string }`
+
+- **`get_ticket_content`** — Fetch ticket content
+  - Params: `{ ticketId: string }`
+
+**How to use:** Include tool calls as JSON blocks in your messages. HAL will parse and execute them. You don't need API URLs or credentials.
+
+See `.cursor/rules/agent-supabase-api-paradigm.mdc` for full documentation.
 
 ## Scope
 
-- Applies to any QA or verification of a **ticketed** task (ticket under `docs/tickets/` with a matching folder under `docs/audit/`).
+- Applies to any QA or verification of a **ticketed** task (ticket in Supabase).
 - Keep the report concise; use bullets and tables where appropriate.
+- All artifacts are stored in Supabase, not in `docs/audit/` folders.
