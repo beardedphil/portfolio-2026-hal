@@ -38,7 +38,7 @@ if (!url || !key) {
 const isDryRun = process.argv.includes('--dry-run')
 
 // Map of audit file names to agent types and titles
-const auditFileMap: Record<string, { agentType: 'implementation' | 'qa' | 'human-in-the-loop' | 'other'; titlePrefix: string }> = {
+const auditFileMap = {
   'plan.md': { agentType: 'implementation', titlePrefix: 'Plan' },
   'worklog.md': { agentType: 'implementation', titlePrefix: 'Worklog' },
   'changed-files.md': { agentType: 'implementation', titlePrefix: 'Changed Files' },
