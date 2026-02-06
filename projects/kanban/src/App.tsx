@@ -289,6 +289,53 @@ function getAgentTypeDisplayName(agentType: string): string {
   }
 }
 
+/** Extract feature branch name from ticket body (0113) */
+function extractFeatureBranch(bodyMd: string): string | null {
+  if (!bodyMd) return null
+  // Look for "**Branch**: `ticket/...`" or "**Branch**: ticket/..." in QA section
+  const branchMatch = bodyMd.match(/\*\*Branch\*\*:\s*`?([^`\n]+)`?/i)
+  if (branchMatch && branchMatch[1]) {
+    return branchMatch[1].trim()
+  }
+  return null
+}
+
+/** Extract merge status from ticket body (0113) */
+function extractMergeStatus(bodyMd: string): { merged: boolean; timestamp: string | null } {
+  if (!bodyMd) return { merged: false, timestamp: null }
+  // Look for "Merged to main" or "Merged to `main`" patterns
+  // Also check for "merged to main for QA" patterns
+  const mergedPatterns = [
+    /merged\s+to\s+`?main`?\s*[:\-]?\s*yes/i,
+    /merged\s+to\s+`?main`?\s*[:\-]?\s*true/i,
+    /\*\*Merged\s+to\s+main\*\*:\s*yes/i,
+    /\*\*Merged\s+to\s+main\*\*:\s*true/i,
+    /merged\s+to\s+`?main`?\s+for\s+QA/i, // "merged to main for QA"
+    /already\s+merged\s+to\s+`?main`?/i, // "already merged to main"
+  ]
+  const isMerged = mergedPatterns.some((pattern) => pattern.test(bodyMd))
+  
+  // Try to extract timestamp if present (ISO format or common date formats)
+  let timestamp: string | null = null
+  if (isMerged) {
+    // Look for ISO timestamp near merge mention
+    const timestampPatterns = [
+      /merged\s+to\s+`?main`?[^]*?(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:\.\d{3})?(?:Z|[+-]\d{2}:\d{2})?)/i,
+      /merged\s+to\s+`?main`?[^]*?(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/i,
+      /merged\s+at[^]*?(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2})/i,
+    ]
+    for (const pattern of timestampPatterns) {
+      const match = bodyMd.match(pattern)
+      if (match && match[1]) {
+        timestamp = match[1].trim()
+        break
+      }
+    }
+  }
+  
+  return { merged: isMerged, timestamp }
+}
+
 /** Artifact report viewer modal (0082) */
 function ArtifactReportViewer({
   open,
@@ -742,6 +789,81 @@ function ArtifactsSection({
   )
 }
 
+/** QA section component (0113): displays feature branch and merge status */
+function QASection({
+  featureBranch,
+  mergeStatus,
+  artifacts,
+}: {
+  featureBranch: string | null
+  mergeStatus: { merged: boolean; timestamp: string | null }
+  artifacts: SupabaseAgentArtifactRow[]
+}) {
+  const implementationArtifacts = artifacts.filter((a) => a.agent_type === 'implementation')
+  
+  return (
+    <div className="qa-section">
+      <h3 className="qa-section-title">QA Information</h3>
+      
+      <div className="qa-section-fields">
+        <div className="qa-section-field">
+          <span className="qa-section-label">Feature branch:</span>
+          <span className="qa-section-value">
+            {featureBranch ? (
+              <code className="qa-section-branch">{featureBranch}</code>
+            ) : (
+              <span className="qa-section-missing">Not specified</span>
+            )}
+          </span>
+        </div>
+        
+        <div className="qa-section-field">
+          <span className="qa-section-label">Merged to main:</span>
+          <span className="qa-section-value">
+            {mergeStatus.merged ? (
+              <span className="qa-section-merged">
+                ✓ Yes
+                {mergeStatus.timestamp && (
+                  <span className="qa-section-timestamp"> ({mergeStatus.timestamp})</span>
+                )}
+              </span>
+            ) : (
+              <span className="qa-section-not-merged">✗ No</span>
+            )}
+          </span>
+        </div>
+      </div>
+      
+      {implementationArtifacts.length > 0 && (
+        <div className="qa-section-artifacts">
+          <h4 className="qa-section-subtitle">Implementation artifacts</h4>
+          <ul className="qa-section-artifacts-list">
+            {implementationArtifacts.map((artifact) => {
+              const displayName = artifact.title || getAgentTypeDisplayName(artifact.agent_type)
+              return (
+                <li key={artifact.artifact_id} className="qa-section-artifact-item">
+                  <span className="qa-section-artifact-name">{displayName}</span>
+                  <span className="qa-section-artifact-meta">
+                    {new Date(artifact.created_at).toLocaleString()}
+                  </span>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      )}
+      
+      {!mergeStatus.merged && (
+        <div className="qa-section-warning" role="alert">
+          <p>
+            <strong>⚠️ Warning:</strong> This ticket cannot be moved to Human in the Loop until the feature branch is merged to main.
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 /** Ticket detail modal (0033): title, metadata, markdown body, close/escape/backdrop, scroll lock, focus trap */
 function TicketDetailModal({
   open,
@@ -883,6 +1005,11 @@ function TicketDetailModal({
   const markdownBody = body ? bodyOnly : ''
   const showValidationSection = columnId === 'col-human-in-the-loop'
   const showProcessReviewSection = columnId === 'col-process-review'
+  const showQASection = columnId === 'col-qa'
+  
+  // Extract QA information from ticket body (0113)
+  const featureBranch = body ? extractFeatureBranch(body) : null
+  const mergeStatus = body ? extractMergeStatus(body) : { merged: false, timestamp: null }
 
   return (
     <div
@@ -952,6 +1079,13 @@ function TicketDetailModal({
                   <p className="ticket-detail-empty">No content.</p>
                 )}
               </div>
+              {showQASection && (
+                <QASection
+                  featureBranch={featureBranch}
+                  mergeStatus={mergeStatus}
+                  artifacts={artifacts}
+                />
+              )}
               <ArtifactsSection
                 artifacts={artifacts}
                 loading={artifactsLoading}
@@ -2365,6 +2499,23 @@ function App() {
         supabaseTickets.some((t) => t.pk === String(active.id))
       ) {
         const ticketPk = String(active.id)
+        const ticket = supabaseTickets.find((t) => t.pk === ticketPk)
+        
+        // Validation: prevent QA → Human in the Loop without merge confirmation (0113)
+        if (ticket && ticket.kanban_column_id === 'col-qa' && overColumn.id === 'col-human-in-the-loop') {
+          const mergeStatus = extractMergeStatus(ticket.body_md)
+          if (!mergeStatus.merged) {
+            addLog(
+              `Move blocked: Ticket ${ticket.display_id || ticket.pk} cannot be moved from QA to Human in the Loop until the feature branch is merged to main.`
+            )
+            // Show alert to user
+            alert(
+              `Cannot move ticket to Human in the Loop: The feature branch must be merged to main first. Please ensure the ticket body includes "Merged to main: Yes" before moving.`
+            )
+            return
+          }
+        }
+        
         let overIndex = overColumn.cardIds.indexOf(String(effectiveOverId))
         if (overIndex < 0) overIndex = overColumn.cardIds.length
         const movedAt = new Date().toISOString()
@@ -2472,6 +2623,24 @@ function App() {
             refetchSupabaseTickets(false) // Full refetch to restore correct state
           }
         } else {
+          // Validation: prevent QA → Human in the Loop without merge confirmation (0113)
+          if (sourceColumn.id === 'col-qa' && overColumn.id === 'col-human-in-the-loop') {
+            const ticket = supabaseTickets.find((t) => t.pk === String(active.id))
+            if (ticket) {
+              const mergeStatus = extractMergeStatus(ticket.body_md)
+              if (!mergeStatus.merged) {
+                addLog(
+                  `Move blocked: Ticket ${ticket.display_id || ticket.pk} cannot be moved from QA to Human in the Loop until the feature branch is merged to main.`
+                )
+                // Show alert to user
+                alert(
+                  `Cannot move ticket to Human in the Loop: The feature branch must be merged to main first. Please ensure the ticket body includes "Merged to main: Yes" before moving.`
+                )
+                return
+              }
+            }
+          }
+          
           const movedAt = new Date().toISOString()
           const ticketPk = String(active.id)
           // Optimistic update (0047)

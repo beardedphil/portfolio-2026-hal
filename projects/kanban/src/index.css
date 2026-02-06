@@ -656,6 +656,138 @@ h1 {
   background: #da190b;
 }
 
+/* QA section (0113) */
+.qa-section {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 2px solid #ff9800;
+  background: #fff8f0;
+  padding: 1.5rem;
+  border-radius: 8px;
+  margin-left: -1rem;
+  margin-right: -1rem;
+}
+.qa-section-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0 0 1rem 0;
+  color: #ff9800;
+}
+.qa-section-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.qa-section-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.qa-section-label {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--kanban-text);
+}
+.qa-section-value {
+  font-size: 0.95rem;
+  color: var(--kanban-text);
+}
+.qa-section-branch {
+  font-family: ui-monospace, monospace;
+  background: var(--kanban-surface-alt);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid var(--kanban-border);
+  font-size: 0.9rem;
+}
+.qa-section-missing {
+  color: var(--kanban-text-muted);
+  font-style: italic;
+}
+.qa-section-merged {
+  color: var(--kanban-success);
+  font-weight: 500;
+}
+.qa-section-not-merged {
+  color: var(--kanban-error);
+  font-weight: 500;
+}
+.qa-section-timestamp {
+  font-size: 0.85rem;
+  color: var(--kanban-text-muted);
+  font-weight: normal;
+  margin-left: 0.25rem;
+}
+.qa-section-artifacts {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--kanban-border);
+}
+.qa-section-subtitle {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem 0;
+  color: var(--kanban-text);
+}
+.qa-section-artifacts-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.qa-section-artifact-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  background: var(--kanban-surface-alt);
+  border: 1px solid var(--kanban-border);
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+}
+.qa-section-artifact-item:last-child {
+  margin-bottom: 0;
+}
+.qa-section-artifact-name {
+  font-weight: 500;
+  color: var(--kanban-text);
+  font-size: 0.9rem;
+}
+.qa-section-artifact-meta {
+  font-size: 0.85rem;
+  color: var(--kanban-text-muted);
+  font-family: ui-monospace, monospace;
+}
+.qa-section-warning {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: var(--kanban-warning-bg);
+  border: 1px solid var(--kanban-warning-border);
+  border-radius: 6px;
+  color: var(--kanban-warning-text);
+}
+.qa-section-warning p {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+.qa-section-warning strong {
+  font-weight: 600;
+}
+
+/* Dark theme adjustments for QA section */
+[data-theme="dark"] .qa-section {
+  background: #2a1f0f;
+  border-top-color: #ff9800;
+}
+[data-theme="dark"] .qa-section-title {
+  color: #ffb74d;
+}
+[data-theme="dark"] .qa-section-branch {
+  background: var(--kanban-surface-alt);
+  border-color: var(--kanban-border);
+}
+
 /* Process Review section (0094) */
 .process-review-section {
   margin-top: 1.5rem;
