@@ -25,20 +25,91 @@ In cloud environments, QA agents may not have access to feature branches (only `
 
 **Important:** When QA cannot access feature branches (cloud QA workflow), the implementation agent merges the feature branch to `main` before QA. In this case, QA must verify from `main` and record this in the QA report stored in Supabase.
 
-## Required artifact
+## Required implementation artifacts (must be present before QA)
+
+**MANDATORY:** Before performing any QA work, you **must** verify that all required implementation artifacts are present in Supabase. If any are missing, QA **must fail immediately** without attempting code review or verification.
+
+**Required implementation artifacts:**
+1. **Plan artifact** (`artifactType: "plan"`, title: `Plan for ticket <ticket-id>`)
+2. **Worklog artifact** (`artifactType: "worklog"`, title: `Worklog for ticket <ticket-id>`)
+3. **Changed Files artifact** (`artifactType: "changed-files"`, title: `Changed Files for ticket <ticket-id>`)
+4. **Decisions artifact** (`artifactType: "decisions"`, title: `Decisions for ticket <ticket-id>`)
+5. **Verification artifact** (`artifactType: "verification"`, title: `Verification for ticket <ticket-id>`)
+6. **PM Review artifact** (`artifactType: "pm-review"`, title: `PM Review for ticket <ticket-id>`)
+
+**How to check for artifacts:**
+1. Use the `get_artifacts` tool to fetch all artifacts for the ticket:
+   ```json
+   {
+     "tool": "get_artifacts",
+     "params": {
+       "ticketId": "0076"
+     }
+   }
+   ```
+2. Filter the returned artifacts to find implementation artifacts (where `agent_type === "implementation"`).
+3. Check that all 6 required artifact types are present by matching artifact titles:
+   - `Plan for ticket <ticket-id>`
+   - `Worklog for ticket <ticket-id>`
+   - `Changed Files for ticket <ticket-id>`
+   - `Decisions for ticket <ticket-id>`
+   - `Verification for ticket <ticket-id>`
+   - `PM Review for ticket <ticket-id>`
+
+**Auto-fail when artifacts are missing:**
+- **If any required artifact is missing:** QA **must fail immediately**.
+- **Do NOT** attempt code review, verification, or any other QA work.
+- **Do NOT** attempt to "guess" or recreate missing artifacts.
+- **Record a QA Fail outcome** by storing a QA report that clearly states the failure reason.
+- **The QA report must enumerate the specific missing artifacts** (not just a generic "artifacts missing" message).
+- **Store the QA report in Supabase** using `insert_qa_artifact` tool.
+- **The final message must include:** `QA RESULT: FAIL — <ticket-id>` (see "Completion message format requirement" below).
+
+**Example QA report when artifacts are missing:**
+```markdown
+# QA Report for ticket 0076
+
+## Ticket & Deliverable
+[Brief summary from ticket]
+
+## Missing Required Implementation Artifacts
+
+**QA FAILED:** Required implementation artifacts are missing. QA cannot proceed without complete implementation artifacts.
+
+**Missing artifacts:**
+- Plan artifact (`Plan for ticket 0076`)
+- PM Review artifact (`PM Review for ticket 0076`)
+
+**Present artifacts:**
+- Worklog artifact
+- Changed Files artifact
+- Decisions artifact
+- Verification artifact
+
+## Verdict
+
+**FAIL** — Implementation artifacts incomplete. Implementation agent must store all required artifacts before QA can proceed.
+
+QA RESULT: FAIL — 0076
+```
+
+**If all required artifacts are present:** Proceed with normal QA workflow (code review, verification, etc.).
+
+## Required artifact (QA report)
 
 - **Storage:** Supabase `agent_artifacts` table (via HAL API endpoint `/api/artifacts/insert-qa`)
-- **When:** After performing QA (code review and, if possible, UI verification) for a ticket.
+- **When:** After performing QA (code review and, if possible, UI verification) for a ticket, OR when auto-failing due to missing implementation artifacts.
 - **Agent type:** `qa`
 - **Title format:** `QA report for ticket <ticket-id>`
 
 ## QA report structure
 
 1. **Ticket & deliverable** — One-line goal, deliverable, and acceptance criteria from the ticket.
-2. **Audit artifacts** — Confirm all required implementation artifacts are present in Supabase (plan, worklog, changed-files, decisions, verification, pm-review).
-3. **Code review** — PASS/FAIL with brief evidence (e.g. table of requirement vs implementation; file and line refs if helpful).
-4. **UI verification** — What was run: automated and/or manual steps. If automated UI was not run (e.g. native dialogs, login, or pickers), state that and list the manual steps the user should run.
-5. **Verdict** — Implementation complete? OK to merge? Any blocking manual verification?
+2. **Missing Required Implementation Artifacts** (if applicable) — List of missing artifacts. If artifacts are missing, this section must be present and QA must fail.
+3. **Audit artifacts** — Confirm all required implementation artifacts are present in Supabase (plan, worklog, changed-files, decisions, verification, pm-review). Only include this section if all artifacts are present.
+4. **Code review** — PASS/FAIL with brief evidence (e.g. table of requirement vs implementation; file and line refs if helpful). Only include if artifacts are present.
+5. **UI verification** — What was run: automated and/or manual steps. If automated UI was not run (e.g. native dialogs, login, or pickers), state that and list the manual steps the user should run. Only include if artifacts are present.
+6. **Verdict** — Implementation complete? OK to merge? Any blocking manual verification? Must clearly state PASS or FAIL.
 
 ## Storing QA report
 

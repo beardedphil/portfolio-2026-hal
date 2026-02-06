@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'fs'
 import { join } from 'path'
+import { addExecutions } from './recent-executions.js'
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []
@@ -183,6 +184,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     releaseLock()
+
+    // Store executions for Tools Agent chat logging (0107)
+    if (executedToolCalls.length > 0) {
+      addExecutions(executedToolCalls)
+    }
 
     json(res, 200, {
       success: true,

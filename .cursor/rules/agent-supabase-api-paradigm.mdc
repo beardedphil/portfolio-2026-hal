@@ -156,6 +156,27 @@ Fetch a ticket's content from Supabase.
 }
 ```
 
+### `get_artifacts`
+
+Fetch all artifacts for a ticket from Supabase.
+
+**Params:**
+- `ticketId` (string): Ticket ID (e.g. "0076")
+
+**Returns:**
+- `success` (boolean): Whether the operation succeeded
+- `artifacts` (array): Array of artifact objects with fields: `artifact_id`, `ticket_pk`, `agent_type`, `title`, `body_md`, `created_at`
+
+**Example:**
+```json
+{
+  "tool": "get_artifacts",
+  "params": {
+    "ticketId": "0076"
+  }
+}
+```
+
 ### Queue file format (fallback)
 
 When using the queue file, use a JSON array of `{ tool, params }` in `.hal-tool-call-queue.json`:
@@ -191,8 +212,10 @@ Use `insert_implementation_artifact` for each one.
 
 QA agents must:
 
-1. Store QA report using `insert_qa_artifact`
-2. Move ticket to Human in the Loop using `move_ticket_column`
+1. **Check for required implementation artifacts** using `get_artifacts` before proceeding
+2. **Auto-fail if artifacts are missing** — store QA report enumerating missing artifacts, do NOT proceed with code review
+3. **If all artifacts present:** Store QA report using `insert_qa_artifact` after completing code review and verification
+4. Move ticket to Human in the Loop using `move_ticket_column` (only if QA passes)
 
 See `.cursor/rules/qa-audit-report.mdc` for full workflow.
 
