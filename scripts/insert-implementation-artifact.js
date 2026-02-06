@@ -7,12 +7,14 @@
  */
 
 import { createClient } from '@supabase/supabase-js'
-import { config } from 'dotenv'
+import dotenv from 'dotenv'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
-config()
+// Try multiple .env file locations
+dotenv.config({ path: '.env' })
+dotenv.config({ path: '.env.local' })
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -29,7 +31,12 @@ const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const key = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY
 
 if (!url || !key) {
-  console.error('Set SUPABASE_URL and SUPABASE_ANON_KEY in .env')
+  console.error('Set SUPABASE_URL and SUPABASE_ANON_KEY in .env (or VITE_ variants)')
+  console.error('Current env check:')
+  console.error('  SUPABASE_URL:', process.env.SUPABASE_URL ? 'set' : 'not set')
+  console.error('  VITE_SUPABASE_URL:', process.env.VITE_SUPABASE_URL ? 'set' : 'not set')
+  console.error('  SUPABASE_ANON_KEY:', process.env.SUPABASE_ANON_KEY ? 'set' : 'not set')
+  console.error('  VITE_SUPABASE_ANON_KEY:', process.env.VITE_SUPABASE_ANON_KEY ? 'set' : 'not set')
   process.exit(1)
 }
 
@@ -48,7 +55,7 @@ async function main() {
     process.exit(1)
   }
   
-  // Try to read worklog if available
+  // Try to read all audit files if available
   const ticketFilename = ticket.title ? `${ticketId}-${ticket.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 50)}.md` : `${ticketId}-implementation.md`
   const auditDirMatch = ticketFilename.match(/^(\d{4})-(.+)\.md$/)
   const shortTitle = auditDirMatch ? auditDirMatch[2] : 'implementation'
@@ -56,14 +63,25 @@ async function main() {
   
   let artifactBody = `Implementation completed for ticket ${ticket.display_id || ticketId}.\n\n`
   
-  // Try to append worklog if available
-  const worklogPath = path.join(auditDir, 'worklog.md')
-  if (fs.existsSync(worklogPath)) {
-    try {
-      const worklog = fs.readFileSync(worklogPath, 'utf8')
-      artifactBody += `## Worklog\n\n${worklog}`
-    } catch {
-      // Ignore if worklog can't be read
+  // Read all audit files and include them in the artifact
+  const auditFiles = [
+    { name: 'plan.md', title: 'Plan' },
+    { name: 'worklog.md', title: 'Worklog' },
+    { name: 'changed-files.md', title: 'Changed Files' },
+    { name: 'decisions.md', title: 'Decisions' },
+    { name: 'verification.md', title: 'Verification' },
+    { name: 'pm-review.md', title: 'PM Review' },
+  ]
+  
+  for (const file of auditFiles) {
+    const filePath = path.join(auditDir, file.name)
+    if (fs.existsSync(filePath)) {
+      try {
+        const content = fs.readFileSync(filePath, 'utf8')
+        artifactBody += `## ${file.title}\n\n${content}\n\n`
+      } catch {
+        // Ignore if file can't be read
+      }
     }
   }
   
