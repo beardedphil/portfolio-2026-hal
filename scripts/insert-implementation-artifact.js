@@ -82,83 +82,81 @@ async function main() {
     }
   }
   
-  let artifactBody = `Implementation completed for ticket ${ticket.display_id || ticketId}.\n\n`
-  
-  // Read all audit files and include them in the artifact
+  // Read all audit files and create separate artifacts for each
   const auditFiles = [
-    { name: 'plan.md', title: 'Plan' },
-    { name: 'worklog.md', title: 'Worklog' },
-    { name: 'changed-files.md', title: 'Changed Files' },
-    { name: 'decisions.md', title: 'Decisions' },
-    { name: 'verification.md', title: 'Verification' },
-    { name: 'pm-review.md', title: 'PM Review' },
+    { name: 'plan.md', title: 'Plan', agentType: 'implementation' },
+    { name: 'worklog.md', title: 'Worklog', agentType: 'implementation' },
+    { name: 'changed-files.md', title: 'Changed Files', agentType: 'implementation' },
+    { name: 'decisions.md', title: 'Decisions', agentType: 'implementation' },
+    { name: 'verification.md', title: 'Verification', agentType: 'implementation' },
+    { name: 'pm-review.md', title: 'PM Review', agentType: 'implementation' },
   ]
   
-  if (auditDir) {
-    console.log(`Found audit directory: ${auditDir}`)
-    for (const file of auditFiles) {
-      const filePath = path.join(auditDir, file.name)
-      if (fs.existsSync(filePath)) {
-        try {
-          const content = fs.readFileSync(filePath, 'utf8')
-          artifactBody += `## ${file.title}\n\n${content}\n\n`
-          console.log(`  Included ${file.name}`)
-        } catch (err) {
-          console.warn(`  Failed to read ${file.name}:`, err.message)
+  if (!auditDir) {
+    console.warn(`Audit directory not found. Tried: ${possibleDirs.join(', ')}`)
+    process.exit(1)
+  }
+  
+  console.log(`Found audit directory: ${auditDir}`)
+  
+  // Create/update artifacts for each audit file
+  for (const file of auditFiles) {
+    const filePath = path.join(auditDir, file.name)
+    if (!fs.existsSync(filePath)) {
+      console.log(`  Skipping ${file.name} (not found)`)
+      continue
+    }
+    
+    try {
+      const content = fs.readFileSync(filePath, 'utf8')
+      const artifactTitle = `${file.title} for ticket ${ticket.display_id || ticketId}`
+      
+      // Check if artifact already exists
+      const { data: existing } = await supabase
+        .from('agent_artifacts')
+        .select('artifact_id')
+        .eq('ticket_pk', ticket.pk)
+        .eq('agent_type', file.agentType)
+        .ilike('title', `%${file.title}%`)
+        .maybeSingle()
+      
+      if (existing) {
+        // Update existing artifact
+        const { error: updateError } = await supabase
+          .from('agent_artifacts')
+          .update({
+            title: artifactTitle,
+            body_md: content,
+          })
+          .eq('artifact_id', existing.artifact_id)
+        
+        if (updateError) {
+          console.error(`  Failed to update ${file.name}:`, updateError.message)
+        } else {
+          console.log(`  Updated ${file.title} artifact`)
         }
       } else {
-        console.log(`  ${file.name} not found`)
+        // Insert new artifact
+        const { error: insertError } = await supabase.from('agent_artifacts').insert({
+          ticket_pk: ticket.pk,
+          repo_full_name: ticket.repo_full_name,
+          agent_type: file.agentType,
+          title: artifactTitle,
+          body_md: content,
+        })
+        
+        if (insertError) {
+          console.error(`  Failed to insert ${file.name}:`, insertError.message)
+        } else {
+          console.log(`  Inserted ${file.title} artifact`)
+        }
       }
+    } catch (err) {
+      console.error(`  Failed to process ${file.name}:`, err.message)
     }
-  } else {
-    console.warn(`Audit directory not found. Tried: ${possibleDirs.join(', ')}`)
   }
   
-  console.log(`Artifact body length: ${artifactBody.length} characters`)
-  
-  // Check if artifact already exists
-  const { data: existing } = await supabase
-    .from('agent_artifacts')
-    .select('artifact_id')
-    .eq('ticket_pk', ticket.pk)
-    .eq('agent_type', 'implementation')
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-  
-  if (existing) {
-    // Update existing artifact
-    const { error: updateError } = await supabase
-      .from('agent_artifacts')
-      .update({
-        title: `Implementation report for ticket ${ticket.display_id || ticketId}`,
-        body_md: artifactBody,
-      })
-      .eq('artifact_id', existing.artifact_id)
-    
-    if (updateError) {
-      console.error('Failed to update artifact:', updateError.message)
-      process.exit(1)
-    }
-    
-    console.log(`Updated Implementation artifact for ticket ${ticket.display_id || ticketId}`)
-  } else {
-    // Insert new artifact
-    const { error: insertError } = await supabase.from('agent_artifacts').insert({
-      ticket_pk: ticket.pk,
-      repo_full_name: ticket.repo_full_name,
-      agent_type: 'implementation',
-      title: `Implementation report for ticket ${ticket.display_id || ticketId}`,
-      body_md: artifactBody,
-    })
-    
-    if (insertError) {
-      console.error('Failed to insert artifact:', insertError.message)
-      process.exit(1)
-    }
-    
-    console.log(`Inserted Implementation artifact for ticket ${ticket.display_id || ticketId}`)
-  }
+  console.log(`\nCompleted processing artifacts for ticket ${ticket.display_id || ticketId}`)
 }
 
 main().catch((err) => {
