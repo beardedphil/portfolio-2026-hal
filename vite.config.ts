@@ -766,63 +766,24 @@ export default defineConfig({
                       })
                       .eq('id', ticketId)
 
-                    // Insert Implementation artifacts (0082) - create separate artifacts for each audit file
+                    // Insert Implementation artifact (0082) - create completion report directly in Supabase
                     if (ticketData?.pk && ticketData?.repo_full_name) {
-                      // Try to find audit directory - try multiple patterns
-                      let auditDir: string | null = null
-                      const possibleDirs = [
-                        // Direct pattern: 0083-implementation
-                        path.join(repoRoot, 'docs', 'audit', `${ticketId}-implementation`),
-                        // From ticket filename if it exists
-                        ticketFilename ? (() => {
-                          const auditDirMatch = ticketFilename.match(/^(\d{4})-(.+)\.md$/)
-                          if (auditDirMatch) {
-                            return path.join(repoRoot, 'docs', 'audit', `${ticketId}-${auditDirMatch[2]}`)
-                          }
-                          return null
-                        })() : null,
-                      ].filter(Boolean) as string[]
-                      
-                      for (const dir of possibleDirs) {
-                        if (fs.existsSync(dir) && fs.statSync(dir).isDirectory()) {
-                          auditDir = dir
-                          break
-                        }
+                      // Build completion report from agent summary and PR info
+                      let artifactBody = summary
+                      if (prUrl) {
+                        artifactBody += `\n\nPull request: ${prUrl}`
                       }
+                      artifactBody += `\n\nTicket ${ticketId} implementation completed and moved to QA.`
                       
-                      if (auditDir) {
-                        const auditFiles = [
-                          { name: 'plan.md', title: 'Plan' },
-                          { name: 'worklog.md', title: 'Worklog' },
-                          { name: 'changed-files.md', title: 'Changed Files' },
-                          { name: 'decisions.md', title: 'Decisions' },
-                          { name: 'verification.md', title: 'Verification' },
-                          { name: 'pm-review.md', title: 'PM Review' },
-                        ]
-                        
-                        // Create artifacts for each audit file
-                        for (const file of auditFiles) {
-                          const filePath = path.join(auditDir, file.name)
-                          if (fs.existsSync(filePath)) {
-                            try {
-                              const content = fs.readFileSync(filePath, 'utf8')
-                              await insertAgentArtifact(
-                                supabaseUrl,
-                                supabaseAnonKey,
-                                ticketData.pk,
-                                ticketData.repo_full_name,
-                                'implementation',
-                                `${file.title} for ticket ${ticketId}`,
-                                content
-                              )
-                            } catch (err) {
-                              console.error(`[Implementation Agent] Failed to insert ${file.name} artifact:`, err)
-                            }
-                          }
-                        }
-                      } else {
-                        console.warn(`[Implementation Agent] Audit directory not found for ticket ${ticketId}. Tried: ${possibleDirs.join(', ')}`)
-                      }
+                      await insertAgentArtifact(
+                        supabaseUrl,
+                        supabaseAnonKey,
+                        ticketData.pk,
+                        ticketData.repo_full_name,
+                        'implementation',
+                        `Implementation report for ticket ${ticketId}`,
+                        artifactBody
+                      )
                     }
 
                     const syncScriptPath = path.resolve(repoRoot, 'scripts', 'sync-tickets.js')
@@ -1208,7 +1169,7 @@ export default defineConfig({
                   // Report may not exist yet or be unreadable
                 }
 
-                // Insert QA artifact (0082) - create artifact from qa-report.md
+                // Insert QA artifact (0082) - create completion report directly in Supabase
                 if (supabaseUrl && supabaseAnonKey) {
                   try {
                     const { createClient } = await import('@supabase/supabase-js')
@@ -1222,12 +1183,16 @@ export default defineConfig({
                       .single()
                     
                     if (ticketData?.pk && ticketData?.repo_full_name) {
-                      // Use qa-report.md content if available, otherwise use summary
-                      const artifactBody = qaReportContent || summary
+                      // Build QA completion report from agent summary and verdict
                       const displayId = ticketData.display_id || ticketId
+                      let artifactBody = summary
                       
-                      if (!qaReportContent) {
-                        console.warn(`[QA Agent] qa-report.md not found for ticket ${ticketId}. Using summary only.`)
+                      if (verdict === 'PASS') {
+                        artifactBody += `\n\n**Verdict: PASS**\n\nTicket ${displayId} has been merged to main and moved to Human in the Loop.`
+                      } else if (verdict === 'FAIL') {
+                        artifactBody += `\n\n**Verdict: FAIL**\n\nThe ticket was not merged. Review the implementation and create a bugfix ticket if needed.`
+                      } else {
+                        artifactBody += `\n\n**Verdict: UNKNOWN**\n\nQA completed for ticket ${displayId}. Verdict could not be determined.`
                       }
                       
                       await insertAgentArtifact(
