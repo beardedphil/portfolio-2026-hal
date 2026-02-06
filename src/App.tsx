@@ -96,6 +96,8 @@ type DiagnosticsInfo = {
   themeSource: 'default' | 'saved'
   /** Last send payload summary (0077). */
   lastSendPayloadSummary: string | null
+  /** True when GitHub repo is connected; enables PM agent read_file/search_files via GitHub API. */
+  repoInspectionAvailable: boolean
 }
 
 type GithubAuthMe = {
@@ -196,41 +198,6 @@ function saveConversationsToStorage(
   }
 }
 
-function loadConversationsFromStorage(
-  projectName: string
-): { data: Map<string, Conversation> | null; error?: string } {
-  try {
-    const raw = localStorage.getItem(getStorageKey(projectName))
-    if (!raw) return { data: new Map() }
-    const parsed = JSON.parse(raw) as SerializedConversation[]
-    const result = new Map<string, Conversation>()
-    for (const conv of parsed) {
-      result.set(conv.id, {
-        id: conv.id,
-        agentRole: conv.agentRole,
-        instanceNumber: conv.instanceNumber,
-        createdAt: new Date(conv.createdAt),
-        messages: conv.messages.map((msg) => ({
-          ...msg,
-          timestamp: new Date(msg.timestamp),
-          // Note: imageAttachments from storage won't have File objects, only dataUrl and filename
-          // This is fine for display purposes, but won't work for sending new messages
-          imageAttachments: msg.imageAttachments?.map((img) => ({
-            dataUrl: img.dataUrl,
-            filename: img.filename,
-            // Create a dummy File object for type compatibility (won't be used for sending)
-            file: new File([], img.filename, { type: 'image/jpeg' }),
-          })),
-        })),
-      })
-    }
-    return { data: result }
-  } catch (e) {
-    const errMsg = e instanceof Error ? e.message : String(e)
-    return { data: null, error: `Failed to load conversations: ${errMsg}` }
-  }
-}
-
 function getEmptyConversations(): Map<string, Conversation> {
   return new Map()
 }
@@ -260,23 +227,6 @@ function getMessageAuthorLabel(agent: Message['agent']): string {
 type Theme = 'light' | 'dark'
 
 const THEME_STORAGE_KEY = 'hal-theme'
-const FILE_ACCESS_SESSION_ID_KEY = 'hal-file-access-session-id'
-
-function getOrCreateFileAccessSessionId(): string {
-  try {
-    const existing = localStorage.getItem(FILE_ACCESS_SESSION_ID_KEY)
-    if (existing && existing.trim()) return existing.trim()
-    const id =
-      (typeof crypto !== 'undefined' && 'randomUUID' in crypto
-        ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (crypto as any).randomUUID()
-        : `sess-${Date.now()}-${Math.random().toString(36).slice(2)}`) as string
-    localStorage.setItem(FILE_ACCESS_SESSION_ID_KEY, id)
-    return id
-  } catch {
-    return `sess-${Date.now()}-${Math.random().toString(36).slice(2)}`
-  }
-}
 
 function getInitialTheme(): Theme {
   const stored = localStorage.getItem(THEME_STORAGE_KEY)
@@ -310,7 +260,6 @@ function App() {
   const [kanbanLoaded, setKanbanLoaded] = useState(false)
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const [connectedProject, setConnectedProject] = useState<string | null>(null)
-  const [connectError, setConnectError] = useState<string | null>(null)
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
   const [lastPmOutboundRequest, setLastPmOutboundRequest] = useState<object | null>(null)
   const [lastPmToolCalls, setLastPmToolCalls] = useState<ToolCallRecord[] | null>(null)
@@ -321,8 +270,6 @@ function App() {
   const [supabaseUrl, setSupabaseUrl] = useState<string | null>(null)
   const [supabaseAnonKey, setSupabaseAnonKey] = useState<string | null>(null)
   const [lastSendPayloadSummary, setLastSendPayloadSummary] = useState<string | null>(null)
-  const [projectFolderHandle, setProjectFolderHandle] = useState<FileSystemDirectoryHandle | null>(null)
-  const fileAccessSessionIdRef = useRef<string>(getOrCreateFileAccessSessionId())
   const [githubAuth, setGithubAuth] = useState<GithubAuthMe | null>(null)
   const [githubRepos, setGithubRepos] = useState<GithubRepo[] | null>(null)
   const [githubRepoPickerOpen, setGithubRepoPickerOpen] = useState(false)
@@ -529,6 +476,9 @@ function App() {
     // Use repo full_name as the project id for persistence + ticket flows (0079)
     setConnectedProject(repo.full_name)
 
+    const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
+    const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
+
     // Tell Kanban iframe which repo is connected (0079)
     if (kanbanIframeRef.current?.contentWindow) {
       kanbanIframeRef.current.contentWindow.postMessage(
@@ -539,19 +489,56 @@ function App() {
 
     // If Supabase isn't set yet, use Vercel-provided VITE_ env as default (hosted path)
     if (!supabaseUrl || !supabaseAnonKey) {
-      const envUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
-      const envKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
-      if (envUrl && envKey) {
-        setSupabaseUrl(envUrl)
-        setSupabaseAnonKey(envKey)
-        // Send creds to kanban iframe so it can load immediately
+      if (url && key) {
+        setSupabaseUrl(url)
+        setSupabaseAnonKey(key)
         if (kanbanIframeRef.current?.contentWindow) {
           kanbanIframeRef.current.contentWindow.postMessage(
-            { type: 'HAL_CONNECT_SUPABASE', url: envUrl, key: envKey },
+            { type: 'HAL_CONNECT_SUPABASE', url, key },
             window.location.origin
           )
         }
       }
+    }
+
+    // Load PM conversations from Supabase (HAL_SYNC_COMPLETED will trigger unassigned check when Kanban syncs)
+    if (url && key) {
+      ;(async () => {
+        try {
+          const supabase = createClient(url, key)
+          const { data: rows, error } = await supabase
+            .from('hal_conversation_messages')
+            .select('role, content, sequence, created_at')
+            .eq('project_id', repo.full_name)
+            .eq('agent', PM_AGENT_ID)
+            .order('sequence', { ascending: true })
+          if (!error && rows && rows.length > 0) {
+            const msgs: Message[] = rows.map((r) => ({
+              id: r.sequence as number,
+              agent: r.role === 'user' ? 'user' : 'project-manager',
+              content: r.content ?? '',
+              timestamp: r.created_at ? new Date(r.created_at) : new Date(),
+            }))
+            const maxSeq = Math.max(...msgs.map((m) => m.id))
+            pmMaxSequenceRef.current = maxSeq
+            messageIdRef.current = maxSeq
+            const pmConvId = getConversationId('project-manager', 1)
+            const pmConversation: Conversation = {
+              id: pmConvId,
+              agentRole: 'project-manager',
+              instanceNumber: 1,
+              messages: msgs,
+              createdAt: msgs.length > 0 ? msgs[0].timestamp : new Date(),
+            }
+            const convs = new Map<string, Conversation>()
+            convs.set(pmConvId, pmConversation)
+            setConversations(convs)
+            setPersistenceError(null)
+          }
+        } catch {
+          // ignore
+        }
+      })()
     }
 
     setGithubRepoPickerOpen(false)
@@ -824,63 +811,6 @@ function App() {
       // ignore localStorage errors
     }
   }, [qaAgentError])
-
-  // Poll for pending file access requests and handle them (0052)
-  useEffect(() => {
-    if (!projectFolderHandle) return
-
-    let pollInterval: number | null = null
-    const poll = async () => {
-      try {
-        const sessionId = fileAccessSessionIdRef.current
-        const projectId = connectedProject ?? ''
-        const qs = new URLSearchParams({ sessionId, ...(projectId ? { projectId } : {}) }).toString()
-        const res = await fetch(`/api/pm/file-access/pending?${qs}`)
-        if (!res.ok) return
-        const data = (await res.json()) as { pending: Array<{ requestId: string; type: string; path?: string; pattern?: string; glob?: string; maxLines?: number }> }
-        for (const req of data.pending) {
-          if (req.type === 'read_file' && req.path) {
-            const { readFileFromHandle } = await import('./fileAccess')
-            const result = await readFileFromHandle(projectFolderHandle, req.path, req.maxLines ?? 500)
-            await fetch('/api/pm/file-access/result', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                requestId: req.requestId,
-                sessionId: fileAccessSessionIdRef.current,
-                success: 'content' in result,
-                content: 'content' in result ? result.content : undefined,
-                error: 'error' in result ? result.error : undefined,
-              }),
-            })
-          } else if (req.type === 'search_files' && req.pattern) {
-            const { searchFilesFromHandle } = await import('./fileAccess')
-            const result = await searchFilesFromHandle(projectFolderHandle, req.pattern, req.glob ?? '**/*')
-            await fetch('/api/pm/file-access/result', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                requestId: req.requestId,
-                sessionId: fileAccessSessionIdRef.current,
-                success: 'matches' in result,
-                matches: 'matches' in result ? result.matches : undefined,
-                error: 'error' in result ? result.error : undefined,
-              }),
-            })
-          }
-        }
-      } catch (err) {
-        // Silently fail - polling will retry
-      }
-    }
-
-    pollInterval = window.setInterval(poll, 500)
-    poll() // Initial poll
-
-    return () => {
-      if (pollInterval != null) clearInterval(pollInterval)
-    }
-  }, [projectFolderHandle, connectedProject])
 
   // Get active messages from selected conversation (0070)
   // For PM and Standup, always use default conversation; for Implementation/QA, use selected conversation if modal is open
@@ -1247,17 +1177,14 @@ function App() {
         setAgentTypingTarget('project-manager')
         ;(async () => {
           try {
-            let body: { message: string; conversationHistory?: Array<{ role: string; content: string }>; previous_response_id?: string; projectId?: string; supabaseUrl?: string; supabaseAnonKey?: string; fileAccessSessionId?: string; images?: Array<{ dataUrl: string; filename: string; mimeType: string }> } = { message: content }
+            let body: { message: string; conversationHistory?: Array<{ role: string; content: string }>; previous_response_id?: string; projectId?: string; repoFullName?: string; supabaseUrl?: string; supabaseAnonKey?: string; images?: Array<{ dataUrl: string; filename: string; mimeType: string }> } = { message: content }
             if (pmLastResponseId) body.previous_response_id = pmLastResponseId
             if (connectedProject) body.projectId = connectedProject
+            if (connectedGithubRepo?.fullName) body.repoFullName = connectedGithubRepo.fullName
             // Always send Supabase creds when we have them so create_ticket is available (0011)
             if (supabaseUrl && supabaseAnonKey) {
               body.supabaseUrl = supabaseUrl
               body.supabaseAnonKey = supabaseAnonKey
-            }
-            // Session-scoped file access bridge (0080)
-            if (projectFolderHandle && connectedProject) {
-              body.fileAccessSessionId = fileAccessSessionIdRef.current
             }
             // Include image attachments if present
             if (imageAttachments && imageAttachments.length > 0) {
@@ -1935,127 +1862,6 @@ function App() {
     return () => window.clearTimeout(t)
   }, [kanbanLoaded])
 
-  /** Connect to project folder: pick folder, read .env, send credentials to kanban iframe */
-  const handleConnectProjectFolder = useCallback(async () => {
-    setConnectError(null)
-    if (typeof window.showDirectoryPicker !== 'function') {
-      setConnectError('Folder picker not supported in this browser.')
-      return
-    }
-    try {
-      const folderHandle = await window.showDirectoryPicker({ mode: 'read' })
-      
-      // Read .env file
-      let envFile: FileSystemFileHandle
-      try {
-        envFile = await folderHandle.getFileHandle('.env')
-      } catch {
-        setConnectError('No .env file found in selected folder.')
-        return
-      }
-      
-      const file = await envFile.getFile()
-      const envText = await file.text()
-      
-      // Parse .env for VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY
-      const urlMatch = envText.match(/^VITE_SUPABASE_URL\s*=\s*(.+)$/m)
-      const keyMatch = envText.match(/^VITE_SUPABASE_ANON_KEY\s*=\s*(.+)$/m)
-      
-      if (!urlMatch || !keyMatch) {
-        setConnectError('Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY in .env file.')
-        return
-      }
-      // Strip optional surrounding single/double quotes (common in .env files)
-      const stripQuotes = (s: string) => s.trim().replace(/^["']|["']$/g, '')
-      const url = stripQuotes(urlMatch[1])
-      const key = stripQuotes(keyMatch[1])
-      if (!url || !key) {
-        setConnectError('VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY must not be empty.')
-        return
-      }
-      
-      // Send credentials to kanban iframe via postMessage (same origin when using /kanban-app proxy)
-      if (kanbanIframeRef.current?.contentWindow) {
-        kanbanIframeRef.current.contentWindow.postMessage(
-          { type: 'HAL_CONNECT_SUPABASE', url, key },
-          window.location.origin
-        )
-        
-        const projectName = folderHandle.name
-        setSupabaseUrl(url)
-        setSupabaseAnonKey(key)
-        setProjectFolderHandle(folderHandle)
-        setConnectedProject(projectName)
-        setConnectError(null)
-        setPmLastResponseId(null)
-
-        // Load conversations: prefer project DB (Supabase), fallback to localStorage
-        try {
-          const supabase = createClient(url, key)
-          const { data: rows, error } = await supabase
-            .from('hal_conversation_messages')
-            .select('role, content, sequence, created_at')
-            .eq('project_id', projectName)
-            .eq('agent', PM_AGENT_ID)
-            .order('sequence', { ascending: true })
-          if (!error && rows && rows.length > 0) {
-            const msgs: Message[] = rows.map((r) => ({
-              id: r.sequence as number,
-              agent: r.role === 'user' ? 'user' : 'project-manager',
-              content: r.content ?? '',
-              timestamp: r.created_at ? new Date(r.created_at) : new Date(),
-            }))
-            const maxSeq = Math.max(...msgs.map((m) => m.id))
-            pmMaxSequenceRef.current = maxSeq
-            messageIdRef.current = maxSeq
-            // Create default PM conversation (0070)
-            const pmConvId = getConversationId('project-manager', 1)
-            const pmConversation: Conversation = {
-              id: pmConvId,
-              agentRole: 'project-manager',
-              instanceNumber: 1,
-              messages: msgs,
-              createdAt: msgs.length > 0 ? msgs[0].timestamp : new Date(),
-            }
-            const convs = new Map<string, Conversation>()
-            convs.set(pmConvId, pmConversation)
-            setConversations(convs)
-            setPersistenceError(null)
-          } else {
-            throw new Error(error?.message ?? 'no rows')
-          }
-        } catch {
-          const loadResult = loadConversationsFromStorage(projectName)
-        if (loadResult.error) setPersistenceError(loadResult.error)
-        else setPersistenceError(null)
-        if (loadResult.data) {
-          setConversations(loadResult.data)
-          let maxId = 0
-          for (const conv of loadResult.data.values()) {
-            for (const msg of conv.messages) {
-              if (msg.id > maxId) maxId = msg.id
-            }
-          }
-          messageIdRef.current = maxId
-        } else {
-          setConversations(getEmptyConversations())
-          messageIdRef.current = 0
-        }
-      }
-        runUnassignedCheck(url, key, projectName).catch(() => {})
-      } else {
-        setConnectError('Kanban iframe not ready.')
-      }
-      
-    } catch (e) {
-      const err = e as { name?: string }
-      if (err.name === 'AbortError') {
-        return
-      }
-      setConnectError(err instanceof Error ? err.message : 'Failed to connect to project folder.')
-    }
-  }, [runUnassignedCheck])
-
   const handleThemeToggle = useCallback(() => {
     setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))
   }, [])
@@ -2072,7 +1878,7 @@ function App() {
     pmMaxSequenceRef.current = 0
     setPersistenceError(null)
     setConnectedProject(null)
-    setProjectFolderHandle(null)
+    setConnectedGithubRepo(null)
     setPmLastResponseId(null)
     setLastTicketCreationResult(null)
     setLastCreateTicketAvailable(null)
@@ -2143,6 +1949,7 @@ function App() {
     theme,
     themeSource,
     lastSendPayloadSummary,
+    repoInspectionAvailable: !!connectedGithubRepo?.fullName,
   }
 
   return (
@@ -2246,18 +2053,9 @@ function App() {
             <h2>Kanban Board</h2>
             <div className="kanban-header-actions">
               {!connectedProject ? (
-                <>
-                  <button
-                    type="button"
-                    className="connect-project-btn"
-                    onClick={handleConnectProjectFolder}
-                  >
-                    Connect Project Folder
-                  </button>
-                  <button type="button" className="connect-project-btn" onClick={handleGithubConnect}>
-                    Connect GitHub Repo
-                  </button>
-                </>
+                <button type="button" className="connect-project-btn" onClick={handleGithubConnect}>
+                  Connect GitHub Repo
+                </button>
               ) : (
                 <div className="project-info">
                   <span className="project-name">{connectedProject}</span>
@@ -2277,9 +2075,9 @@ function App() {
               )}
             </div>
           </div>
-          {connectError && (
+          {githubConnectError && (
             <div className="connect-error" role="alert">
-              {connectError}
+              {githubConnectError}
             </div>
           )}
           {lastError && (
@@ -2850,7 +2648,7 @@ function App() {
             <div className="chat-placeholder">
               <p className="chat-placeholder-text">Connect a project to enable chat</p>
               <p className="chat-placeholder-hint">
-                Use the "Connect Project Folder" button above to connect a project and start chatting with agents.
+                Use the "Connect GitHub Repo" button above to connect a project and start chatting with agents.
               </p>
             </div>
           ) : (
@@ -3498,6 +3296,12 @@ function App() {
                   <span className="diag-label">Connected project:</span>
                   <span className="diag-value">
                     {diagnostics.connectedProject ?? 'none'}
+                  </span>
+                </div>
+                <div className="diag-row">
+                  <span className="diag-label">Repo inspection (GitHub):</span>
+                  <span className="diag-value" data-status={diagnostics.repoInspectionAvailable ? 'ok' : 'error'} title={diagnostics.repoInspectionAvailable ? 'PM agent can read/search repo via GitHub API' : 'Connect GitHub Repo for read_file/search_files'}>
+                    {diagnostics.repoInspectionAvailable ? 'available' : 'not available'}
                   </span>
                 </div>
                 <div className="diag-row">

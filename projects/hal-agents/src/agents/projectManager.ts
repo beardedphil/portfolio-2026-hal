@@ -381,12 +381,17 @@ export interface PmAgentConfig {
   /** When set with supabaseAnonKey, enables create_ticket tool (store ticket to Supabase, then sync writes to repo). */
   supabaseUrl?: string
   supabaseAnonKey?: string
-  /** When set, indicates a project folder is connected and file access should use the file access API. */
+  /** Project identifier (e.g. repo full_name when connected via GitHub). */
   projectId?: string
-  /** Base URL for file access API (defaults to http://localhost:5173). */
-  fileAccessApiUrl?: string
-  /** Per-browser session token used to scope file-access requests. */
-  fileAccessSessionId?: string
+  /** Repo full_name (owner/repo) when connected via GitHub. Enables read_file/search_files via GitHub API. */
+  repoFullName?: string
+  /** Read file from connected GitHub repo. When set, used instead of local FS for project files. */
+  githubReadFile?: (path: string, maxLines?: number) => Promise<{ content: string } | { error: string }>
+  /** Search code in connected GitHub repo. When set, used instead of local FS for project search. */
+  githubSearchCode?: (
+    pattern: string,
+    glob?: string
+  ) => Promise<{ matches: Array<{ path: string; line: number; text: string }> } | { error: string }>
   /** Image attachments to include in the request (base64 data URLs). */
   images?: Array<{ dataUrl: string; filename: string; mimeType: string }>
 }
@@ -412,9 +417,9 @@ const PM_SYSTEM_INSTRUCTIONS = `You are the Project Manager agent for HAL. Your 
 You have access to read-only tools to explore the repository. Use them to answer questions about code, tickets, and project state.
 
 **Repository access:** 
-- When a project folder is connected (user clicked "Connect Project Folder"), you can use read_file and search_files to inspect files in the connected project folder. These tools access files through the File System Access API.
-- If no project folder is connected, these tools will only access the HAL repository itself (the workspace where HAL runs).
-- If you try to use read_file or search_files when no project folder is connected and the user's question is about their project (not HAL itself), clearly explain: "I don't have access to your project folder. Please click 'Connect Project Folder' in the HAL app to enable repository inspection. Once connected, I can search and read files from your project to answer questions about the codebase."
+- When a GitHub repo is connected (user clicked "Connect GitHub Repo"), you can use read_file and search_files to inspect the connected repo via GitHub API (committed code on the default branch).
+- If no repo is connected, these tools will only access the HAL repository itself (the workspace where HAL runs).
+- If the user's question is about their project and no repo is connected, explain: "Connect a GitHub repository in the HAL app to enable repository inspection. Once connected, I can search and read files from your repo."
 - Always cite specific file paths when referencing code or content (e.g., "In src/App.tsx line 42...").
 
 **Conversation context:** When "Conversation so far" is present, the "User message" is the user's latest reply in that conversation. Short replies (e.g. "Entirely, in all states", "Yes", "The first one", "inside the embedded kanban UI") are almost always answers to the question you (the assistant) just asked—interpret them in that context. Do not treat short user replies as a new top-level request about repo rules, process, or "all states" enforcement unless the conversation clearly indicates otherwise.
@@ -1420,59 +1425,24 @@ export async function runPmAgent(
       })
     })()
 
-  // Helper to use file access API when project folder is connected, otherwise use direct file system
-  const hasProjectFolder = typeof config.projectId === 'string' && config.projectId.trim() !== ''
-  const fileAccessApiUrl = config.fileAccessApiUrl ?? 'http://localhost:5173'
-  const fileAccessSessionId =
-    typeof config.fileAccessSessionId === 'string' && config.fileAccessSessionId.trim()
-      ? config.fileAccessSessionId.trim()
-      : null
-  
+  // Helper: use GitHub API when githubReadFile is provided (Connect GitHub Repo); otherwise use HAL repo (direct FS)
+  const hasGitHubRepo =
+    typeof config.repoFullName === 'string' &&
+    config.repoFullName.trim() !== '' &&
+    typeof config.githubReadFile === 'function'
+
   const readFileTool = tool({
-    description: hasProjectFolder
-      ? 'Read file contents from the connected project folder. Path is relative to project root. Max 500 lines.'
-      : 'Read file contents. Path is relative to repo root. Max 500 lines.',
+    description: hasGitHubRepo
+      ? 'Read file contents from the connected GitHub repo. Path is relative to repo root. Max 500 lines. Uses committed code on default branch.'
+      : 'Read file contents from HAL repo. Path is relative to repo root. Max 500 lines.',
     parameters: z.object({
       path: z.string().describe('File path (relative to repo/project root)'),
     }),
     execute: async (input) => {
       let out: { content: string } | { error: string }
-      if (hasProjectFolder) {
-        // Use file access API
-        try {
-          if (!fileAccessSessionId) {
-            out = { error: 'File access session is not configured. Reconnect the project folder and try again.' }
-            toolCalls.push({ name: 'read_file', input, output: out })
-            return JSON.stringify(out)
-          }
-          const requestId = `read-${Date.now()}-${Math.random().toString(36).slice(2)}`
-          const res = await fetch(`${fileAccessApiUrl}/api/pm/file-access`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              requestId,
-              sessionId: fileAccessSessionId,
-              projectId: config.projectId,
-              type: 'read_file',
-              path: input.path,
-              maxLines: 500,
-            }),
-          })
-          if (!res.ok) {
-            out = { error: `File access API error: ${res.status} ${res.statusText}` }
-          } else {
-            const data = (await res.json()) as { success: boolean; content?: string; error?: string }
-            if (data.success && data.content) {
-              out = { content: data.content }
-            } else {
-              out = { error: data.error ?? 'Unknown error reading file' }
-            }
-          }
-        } catch (err) {
-          out = { error: err instanceof Error ? err.message : String(err) }
-        }
+      if (hasGitHubRepo && config.githubReadFile) {
+        out = await config.githubReadFile(input.path, 500)
       } else {
-        // Use direct file system access
         out = await readFile(ctx, input)
       }
       toolCalls.push({ name: 'read_file', input, output: out })
@@ -1483,51 +1453,18 @@ export async function runPmAgent(
   })
 
   const searchFilesTool = tool({
-    description: hasProjectFolder
-      ? 'Regex search across files in the connected project folder. Pattern is JavaScript regex.'
-      : 'Regex search across files. Pattern is JavaScript regex.',
+    description: hasGitHubRepo
+      ? 'Search code in the connected GitHub repo. Pattern is used as search term (GitHub does not support full regex).'
+      : 'Regex search across files in HAL repo. Pattern is JavaScript regex.',
     parameters: z.object({
       pattern: z.string().describe('Regex pattern to search for'),
       glob: z.string().describe('Glob pattern to filter files (e.g. "**/*" for all, "**/*.ts" for TypeScript)'),
     }),
     execute: async (input) => {
       let out: { matches: Array<{ path: string; line: number; text: string }> } | { error: string }
-      if (hasProjectFolder) {
-        // Use file access API
-        try {
-          if (!fileAccessSessionId) {
-            out = { error: 'File access session is not configured. Reconnect the project folder and try again.' }
-            toolCalls.push({ name: 'search_files', input, output: out })
-            return JSON.stringify(out)
-          }
-          const requestId = `search-${Date.now()}-${Math.random().toString(36).slice(2)}`
-          const res = await fetch(`${fileAccessApiUrl}/api/pm/file-access`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              requestId,
-              sessionId: fileAccessSessionId,
-              projectId: config.projectId,
-              type: 'search_files',
-              pattern: input.pattern,
-              glob: input.glob ?? '**/*',
-            }),
-          })
-          if (!res.ok) {
-            out = { error: `File access API error: ${res.status} ${res.statusText}` }
-          } else {
-            const data = (await res.json()) as { success: boolean; matches?: Array<{ path: string; line: number; text: string }>; error?: string }
-            if (data.success && data.matches) {
-              out = { matches: data.matches }
-            } else {
-              out = { error: data.error ?? 'Unknown error searching files' }
-            }
-          }
-        } catch (err) {
-          out = { error: err instanceof Error ? err.message : String(err) }
-        }
+      if (hasGitHubRepo && config.githubSearchCode) {
+        out = await config.githubSearchCode(input.pattern, input.glob)
       } else {
-        // Use direct file system access
         out = await searchFiles(ctx, { pattern: input.pattern, glob: input.glob })
       }
       toolCalls.push({ name: 'search_files', input, output: out })
@@ -1539,9 +1476,9 @@ export async function runPmAgent(
 
   const tools = {
     list_directory: tool({
-      description: hasProjectFolder
-        ? 'List files in a directory in the connected project folder. Path is relative to project root.'
-        : 'List files in a directory. Path is relative to repo root.',
+      description: hasGitHubRepo
+        ? 'List files in a directory in the connected GitHub repo. Path is relative to repo root.'
+        : 'List files in a directory in HAL repo. Path is relative to repo root.',
       parameters: z.object({
         path: z.string().describe('Directory path (relative to repo/project root)'),
       }),

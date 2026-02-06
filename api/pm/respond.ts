@@ -1,7 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import path from 'path'
 import { pathToFileURL } from 'url'
-import { getOrigin } from '../_lib/github/config.js'
+import { fetchFileContents, searchCode } from '../_lib/github/githubApi.js'
+import { getSession } from '../_lib/github/session.js'
 
 type PmAgentResponse = {
   reply: string
@@ -52,9 +53,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       conversationHistory?: Array<{ role: string; content: string }>
       previous_response_id?: string
       projectId?: string
+      repoFullName?: string
       supabaseUrl?: string
       supabaseAnonKey?: string
-      fileAccessSessionId?: string
       images?: Array<{ dataUrl: string; filename: string; mimeType: string }>
     }
 
@@ -70,15 +71,26 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const projectId =
       typeof body.projectId === 'string' ? body.projectId.trim() || undefined : undefined
+    const repoFullName =
+      typeof body.repoFullName === 'string' ? body.repoFullName.trim() || undefined : undefined
     const supabaseUrl =
       typeof body.supabaseUrl === 'string' ? body.supabaseUrl.trim() || undefined : undefined
     const supabaseAnonKey =
       typeof body.supabaseAnonKey === 'string'
         ? body.supabaseAnonKey.trim() || undefined
         : undefined
-    const fileAccessSessionId =
-      typeof body.fileAccessSessionId === 'string'
-        ? body.fileAccessSessionId.trim() || undefined
+
+    // GitHub API for repo inspection: need token (from session) + repoFullName
+    const session = await getSession(req, res)
+    const githubToken = session.github?.accessToken
+    const githubReadFile =
+      githubToken && repoFullName
+        ? (filePath: string, maxLines = 500) =>
+            fetchFileContents(githubToken, repoFullName, filePath, maxLines)
+        : undefined
+    const githubSearchCode =
+      githubToken && repoFullName
+        ? (pattern: string, glob?: string) => searchCode(githubToken, repoFullName, pattern, glob)
         : undefined
 
     // Allow empty message if images are present
@@ -235,8 +247,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         ? { supabaseUrl: supabaseUrl!, supabaseAnonKey: supabaseAnonKey! }
         : {}),
       ...(projectId ? { projectId } : {}),
-      ...(fileAccessSessionId ? { fileAccessSessionId } : {}),
-      fileAccessApiUrl: getOrigin(req),
+      ...(repoFullName ? { repoFullName } : {}),
+      ...(githubReadFile ? { githubReadFile } : {}),
+      ...(githubSearchCode ? { githubSearchCode } : {}),
       ...(images ? { images } : {}),
     })) as PmAgentResponse & {
       toolCalls: Array<{ name: string; input: unknown; output: unknown }>
