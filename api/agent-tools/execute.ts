@@ -360,7 +360,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         if (!p.ticketId || !p.artifactType || !p.title || !p.body_md) {
           result = { success: false, error: 'ticketId, artifactType, title, and body_md are required.' }
         } else {
-          result = await insertImplementationArtifact(supabase, p)
+          result = await insertImplementationArtifact(supabase, {
+            ticketId: p.ticketId,
+            artifactType: p.artifactType,
+            title: p.title,
+            body_md: p.body_md,
+          })
         }
         break
       }
@@ -369,7 +374,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         if (!p.ticketId || !p.title || !p.body_md) {
           result = { success: false, error: 'ticketId, title, and body_md are required.' }
         } else {
-          result = await insertQaArtifact(supabase, p)
+          result = await insertQaArtifact(supabase, {
+            ticketId: p.ticketId,
+            title: p.title,
+            body_md: p.body_md,
+          })
         }
         break
       }
@@ -378,7 +387,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         if (!p.ticketId || !p.body_md) {
           result = { success: false, error: 'ticketId and body_md are required.' }
         } else {
-          result = await updateTicketBody(supabase, p)
+          result = await updateTicketBody(supabase, {
+            ticketId: p.ticketId,
+            body_md: p.body_md,
+          })
         }
         break
       }
@@ -387,7 +399,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         if (!p.ticketId || !p.columnId) {
           result = { success: false, error: 'ticketId and columnId are required.' }
         } else {
-          result = await moveTicketColumn(supabase, p)
+          result = await moveTicketColumn(supabase, {
+            ticketId: p.ticketId,
+            columnId: p.columnId,
+          })
         }
         break
       }
@@ -396,7 +411,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         if (!p.ticketId) {
           result = { success: false, error: 'ticketId is required.' }
         } else {
-          result = await getTicketContent(supabase, p)
+          result = await getTicketContent(supabase, {
+            ticketId: p.ticketId,
+          })
         }
         break
       }
