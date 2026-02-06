@@ -16,8 +16,7 @@
     "sync-tickets": "node scripts/sync-tickets.js",
     "update-ticket-body": "node scripts/update-ticket-body-in-supabase.js",
     "supabase-list-tickets": "node scripts/supabase-list-tickets.js",
-    "supabase-get-ticket": "node scripts/supabase-get-ticket.js",
-    "tool-agent": "node scripts/tool-agent.js"
+    "supabase-get-ticket": "node scripts/supabase-get-ticket.js"
   },
   "dependencies": {
     "@ai-sdk/openai": "^1.2.0",
