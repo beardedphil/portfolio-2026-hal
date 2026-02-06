@@ -2913,12 +2913,10 @@ ${notes || '(none provided)'}
               handleCloseTicketDetail()
             }, REFETCH_AFTER_MOVE_MS + 100)
           }}
-          supabaseUrl={supabaseProjectUrl}
-          supabaseKey={supabaseAnonKey}
           onTicketUpdate={refetchSupabaseTickets}
         />
       )}
-      
+
       <ArtifactReportViewer
         open={artifactViewer !== null}
         onClose={handleCloseArtifact}
