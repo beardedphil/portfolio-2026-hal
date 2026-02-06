@@ -314,6 +314,11 @@ function App() {
   const transcriptRef = useRef<HTMLDivElement>(null)
   const kanbanIframeRef = useRef<HTMLIFrameElement>(null)
   const selectedChatTargetRef = useRef<ChatTarget>(selectedChatTarget)
+  // Tool call queue state (0103)
+  const [hasPendingToolCalls, setHasPendingToolCalls] = useState(false)
+  const [toolCallsExecuting, setToolCallsExecuting] = useState(false)
+  const [toolCallsChecking, setToolCallsChecking] = useState(false)
+  
   const [unreadByTarget, setUnreadByTarget] = useState<Record<ChatTarget, number>>(() => ({
     'project-manager': 0,
     'implementation-agent': 0,
@@ -636,6 +641,54 @@ function App() {
       )
     }
   }, [theme, kanbanLoaded])
+
+  // Check for pending tool calls (0103)
+  const checkPendingToolCalls = useCallback(async () => {
+    try {
+      setToolCallsChecking(true)
+      const response = await fetch('/api/tool-calls/check-all', {
+        method: 'GET',
+      })
+      const result = await response.json()
+      if (result.success) {
+        setHasPendingToolCalls(result.hasPendingToolCalls === true)
+      }
+    } catch (err) {
+      console.error('Failed to check pending tool calls:', err)
+    } finally {
+      setToolCallsChecking(false)
+    }
+  }, [])
+
+  // Execute all pending tool calls (0103)
+  const executeAllToolCalls = useCallback(async () => {
+    if (toolCallsExecuting) return
+    try {
+      setToolCallsExecuting(true)
+      const response = await fetch('/api/tool-calls/execute-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      const result = await response.json()
+      if (result.success) {
+        // Recheck after execution
+        await checkPendingToolCalls()
+      }
+    } catch (err) {
+      console.error('Failed to execute tool calls:', err)
+    } finally {
+      setToolCallsExecuting(false)
+    }
+  }, [toolCallsExecuting, checkPendingToolCalls])
+
+  // Poll for pending tool calls periodically (0103)
+  useEffect(() => {
+    // Initial check
+    checkPendingToolCalls()
+    // Poll every 10 seconds
+    const interval = setInterval(checkPendingToolCalls, 10_000)
+    return () => clearInterval(interval)
+  }, [checkPendingToolCalls])
 
   // When Kanban iframe loads, push current repo + Supabase so it syncs (iframe may load after user connected)
   useEffect(() => {
@@ -2193,6 +2246,17 @@ function App() {
         <section className="hal-kanban-region" aria-label="Kanban board">
           <div className="kanban-header">
             <h2>Kanban Board</h2>
+            <div className="kanban-header-center">
+              <button
+                type="button"
+                className="run-tool-calls-btn"
+                onClick={executeAllToolCalls}
+                disabled={!hasPendingToolCalls || toolCallsExecuting || toolCallsChecking}
+                title={hasPendingToolCalls ? 'Execute all pending tool calls' : 'No pending tool calls'}
+              >
+                {toolCallsExecuting ? 'Running...' : toolCallsChecking ? 'Checking...' : 'Run tool calls'}
+              </button>
+            </div>
             <div className="kanban-header-actions">
               {!connectedProject ? (
                 <button type="button" className="connect-project-btn" onClick={handleGithubConnect}>
