@@ -32,3 +32,8 @@
 - **Decision**: Cancel animation frame in cleanup function and on mouseup
 - **Rationale**: Prevents memory leaks and ensures animation stops immediately when drag ends
 - **Safety**: Multiple cleanup points (mouseup handler, effect cleanup) ensure frame is always cancelled
+
+### Width calculation accuracy
+- **Decision**: Calculate chat width as `mainRect.right - mouseX - 2` (not `- 4`)
+- **Rationale**: Divider is 4px wide; when mouse is at position X, the divider center is at X, so chat starts at X + 2px (half divider width)
+- **Fix**: Changed from `- 4` to `- 2` to ensure divider tracks pointer position accurately
