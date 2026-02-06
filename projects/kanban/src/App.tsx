@@ -541,6 +541,10 @@ function TicketDetailModal({
   supabaseUrl: _supabaseUrl,
   supabaseKey: _supabaseKey,
   onTicketUpdate: _onTicketUpdate,
+  hasPendingToolCalls,
+  toolCallsLoading,
+  toolCallsExecuting,
+  onExecuteToolCalls,
 }: {
   open: boolean
   onClose: () => void
@@ -759,6 +763,7 @@ function SortableCard({
   onDelete,
   showDelete = false,
   onOpenDetail,
+  hasPendingToolCalls = false,
 }: {
   card: Card
   columnId: string
