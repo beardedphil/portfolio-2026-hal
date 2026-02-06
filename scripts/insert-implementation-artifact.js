@@ -85,21 +85,49 @@ async function main() {
     }
   }
   
-  // Insert artifact
-  const { error: insertError } = await supabase.from('agent_artifacts').insert({
-    ticket_pk: ticket.pk,
-    repo_full_name: ticket.repo_full_name,
-    agent_type: 'implementation',
-    title: `Implementation report for ticket ${ticket.display_id || ticketId}`,
-    body_md: artifactBody,
-  })
+  // Check if artifact already exists
+  const { data: existing } = await supabase
+    .from('agent_artifacts')
+    .select('artifact_id')
+    .eq('ticket_pk', ticket.pk)
+    .eq('agent_type', 'implementation')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
   
-  if (insertError) {
-    console.error('Failed to insert artifact:', insertError.message)
-    process.exit(1)
+  if (existing) {
+    // Update existing artifact
+    const { error: updateError } = await supabase
+      .from('agent_artifacts')
+      .update({
+        title: `Implementation report for ticket ${ticket.display_id || ticketId}`,
+        body_md: artifactBody,
+      })
+      .eq('artifact_id', existing.artifact_id)
+    
+    if (updateError) {
+      console.error('Failed to update artifact:', updateError.message)
+      process.exit(1)
+    }
+    
+    console.log(`Updated Implementation artifact for ticket ${ticket.display_id || ticketId}`)
+  } else {
+    // Insert new artifact
+    const { error: insertError } = await supabase.from('agent_artifacts').insert({
+      ticket_pk: ticket.pk,
+      repo_full_name: ticket.repo_full_name,
+      agent_type: 'implementation',
+      title: `Implementation report for ticket ${ticket.display_id || ticketId}`,
+      body_md: artifactBody,
+    })
+    
+    if (insertError) {
+      console.error('Failed to insert artifact:', insertError.message)
+      process.exit(1)
+    }
+    
+    console.log(`Inserted Implementation artifact for ticket ${ticket.display_id || ticketId}`)
   }
-  
-  console.log(`Inserted Implementation artifact for ticket ${ticket.display_id || ticketId}`)
 }
 
 main().catch((err) => {
