@@ -285,6 +285,15 @@ body {
   min-width: 0;
 }
 
+/* Kanban visibility states (0096: keep mounted, hide/show with CSS) */
+.kanban-frame-container.kanban-frame-visible {
+  display: block;
+}
+
+.kanban-frame-container.kanban-frame-hidden {
+  display: none;
+}
+
 .kanban-iframe {
   position: absolute;
   inset: 0;
@@ -615,13 +624,23 @@ body {
   font-style: italic;
 }
 
-/* Chat Window (0087) - replaces Kanban when chat is open */
+/* Chat Window (0087) - overlays Kanban when chat is open (0096: keep Kanban mounted) */
 .chat-window-container {
   flex: 1;
   display: flex;
   flex-direction: column;
   background: var(--hal-surface);
   overflow: hidden;
+  position: relative;
+}
+
+/* Chat window visibility states (0096: keep Kanban mounted, hide/show with CSS) */
+.chat-window-container.chat-window-visible {
+  display: flex;
+}
+
+.chat-window-container.chat-window-hidden {
+  display: none;
 }
 
 .chat-window-header {
