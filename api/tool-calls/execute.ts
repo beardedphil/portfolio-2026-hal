@@ -113,7 +113,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             params: toolCall.params,
           }),
         })
-        const toolResult = await toolResponse.json()
+        const toolResult = (await toolResponse.json()) as { success?: boolean; error?: string }
         if (!toolResult.success) {
           errors.push(`Tool call ${toolCall.tool} failed: ${toolResult.error || 'Unknown error'}`)
         } else {
@@ -167,7 +167,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
                   },
                 }),
               })
-              const moveResult = await moveResponse.json()
+              const moveResult = (await moveResponse.json()) as { success?: boolean; error?: string }
               if (moveResult.success) {
                 executed++
                 executedTools.add('move_ticket_column')
@@ -192,7 +192,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
               params: toolCall.params,
             }),
           })
-          const toolResult = await toolResponse.json()
+          const toolResult = (await toolResponse.json()) as { success?: boolean; error?: string }
           if (!toolResult.success) {
             errors.push(`Tool call ${toolCall.tool} failed: ${toolResult.error || 'Unknown error'}`)
           } else {
