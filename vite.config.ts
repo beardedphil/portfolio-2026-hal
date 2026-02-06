@@ -1179,7 +1179,7 @@ export default defineConfig({
                   // Report may not exist yet or be unreadable
                 }
 
-                // Insert QA artifact (0082)
+                // Insert QA artifact (0082) - create artifact from qa-report.md
                 if (supabaseUrl && supabaseAnonKey) {
                   try {
                     const { createClient } = await import('@supabase/supabase-js')
@@ -1188,13 +1188,14 @@ export default defineConfig({
                     // Get ticket to retrieve pk and repo_full_name
                     const { data: ticketData } = await supabase
                       .from('tickets')
-                      .select('pk, repo_full_name')
+                      .select('pk, repo_full_name, display_id')
                       .eq('id', ticketId)
                       .single()
                     
                     if (ticketData?.pk && ticketData?.repo_full_name) {
                       // Use qa-report.md content if available, otherwise use summary
                       const artifactBody = qaReportContent || summary
+                      const displayId = ticketData.display_id || ticketId
                       
                       await insertAgentArtifact(
                         supabaseUrl,
@@ -1202,7 +1203,7 @@ export default defineConfig({
                         ticketData.pk,
                         ticketData.repo_full_name,
                         'qa',
-                        `QA report for ticket ${ticketId}`,
+                        `QA report for ticket ${displayId}`,
                         artifactBody
                       )
                     }
@@ -1211,9 +1212,14 @@ export default defineConfig({
                   }
                 }
 
-                if (verdict === 'PASS') {
-                  writeStage({ stage: 'merging', content: 'QA passed. Merging to main...' })
-                  // The Cursor agent should have already merged, but we verify
+                // Move ticket to Human in the Loop if PASS, or if verdict is UNKNOWN (QA completed but verdict unclear)
+                if (verdict === 'PASS' || verdict === 'UNKNOWN') {
+                  if (verdict === 'PASS') {
+                    writeStage({ stage: 'merging', content: 'QA passed. Merging to main...' })
+                  } else {
+                    writeStage({ stage: 'completed', content: 'QA completed. Moving to Human in the Loop...' })
+                  }
+                  
                   // Move ticket to Human in the Loop
                   if (supabaseUrl && supabaseAnonKey) {
                     writeStage({ stage: 'moving_ticket', content: 'Moving ticket to Human in the Loop...' })
@@ -1249,14 +1255,25 @@ export default defineConfig({
                     }
                   }
 
-                  const contentParts = [
-                    `**QA PASSED** for ticket ${ticketId}`,
-                    '',
-                    summary,
-                    '',
-                    `Ticket ${ticketId} has been merged to main and moved to Human in the Loop.`,
-                  ]
-                  writeStage({ stage: 'completed', success: true, content: contentParts.join('\n'), verdict: 'PASS', status: 'completed' })
+                  if (verdict === 'PASS') {
+                    const contentParts = [
+                      `**QA PASSED** for ticket ${ticketId}`,
+                      '',
+                      summary,
+                      '',
+                      `Ticket ${ticketId} has been merged to main and moved to Human in the Loop.`,
+                    ]
+                    writeStage({ stage: 'completed', success: true, content: contentParts.join('\n'), verdict: 'PASS', status: 'completed' })
+                  } else {
+                    const contentParts = [
+                      `**QA COMPLETED** for ticket ${ticketId}`,
+                      '',
+                      summary,
+                      '',
+                      `Ticket ${ticketId} has been moved to Human in the Loop. Verdict could not be determined from qa-report.md.`,
+                    ]
+                    writeStage({ stage: 'completed', success: true, content: contentParts.join('\n'), verdict: 'UNKNOWN', status: 'completed' })
+                  }
                   res.end()
                   return
                 } else if (verdict === 'FAIL') {
@@ -1268,11 +1285,6 @@ export default defineConfig({
                     'The ticket was not merged. Review the qa-report.md for details and create a bugfix ticket if needed.',
                   ]
                   writeStage({ stage: 'completed', success: false, content: contentParts.join('\n'), verdict: 'FAIL', status: 'completed' })
-                  res.end()
-                  return
-                } else {
-                  // Verdict unknown - agent may still be processing
-                  writeStage({ stage: 'completed', success: true, content: summary, verdict: 'UNKNOWN', status: 'completed' })
                   res.end()
                   return
                 }
