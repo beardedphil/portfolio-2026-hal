@@ -761,10 +761,6 @@ function TicketDetailModal({
   supabaseUrl,
   supabaseKey,
   onTicketUpdate: _onTicketUpdate,
-  hasPendingToolCalls,
-  toolCallsLoading,
-  toolCallsExecuting,
-  onExecuteToolCalls,
 }: {
   open: boolean
   onClose: () => void
@@ -783,10 +779,6 @@ function TicketDetailModal({
   supabaseUrl: string
   supabaseKey: string
   onTicketUpdate: () => void
-  hasPendingToolCalls?: boolean
-  toolCallsLoading?: boolean
-  toolCallsExecuting?: boolean
-  onExecuteToolCalls?: () => void
 }) {
   const [validationSteps, setValidationSteps] = useState('')
   const [validationNotes, setValidationNotes] = useState('')
@@ -911,17 +903,6 @@ function TicketDetailModal({
         <div className="ticket-detail-meta">
           <span className="ticket-detail-id">ID: {ticketId}</span>
           {priority != null && <span className="ticket-detail-priority">Priority: {priority}</span>}
-          {hasPendingToolCalls && onExecuteToolCalls && (
-            <button
-              type="button"
-              className="ticket-detail-run-tool-calls"
-              onClick={onExecuteToolCalls}
-              disabled={toolCallsExecuting || toolCallsLoading}
-              title="Run pending tool calls for this ticket"
-            >
-              {toolCallsExecuting ? 'Running...' : toolCallsLoading ? 'Checking...' : 'Run Tool Calls'}
-            </button>
-          )}
         </div>
         <div className="ticket-detail-body-wrap">
           {loading && <p className="ticket-detail-loading">Loading…</p>}
@@ -991,12 +972,10 @@ function SortableCard({
   card,
   columnId,
   onOpenDetail,
-  hasPendingToolCalls = false,
 }: {
   card: Card
   columnId: string
   onOpenDetail?: (cardId: string) => void
-  hasPendingToolCalls?: boolean
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
@@ -1026,11 +1005,6 @@ function SortableCard({
         aria-label={`Open ticket ${card.id}: ${card.title}`}
       >
         <span className="ticket-card-title">{card.title}</span>
-        {hasPendingToolCalls && (
-          <span className="ticket-card-tool-calls-indicator" title="Pending tool calls">
-            ⚙️
-          </span>
-        )}
       </button>
     </div>
   )
@@ -1193,7 +1167,6 @@ function SortableColumn({
                 card={card}
                 columnId={col.id}
                 onOpenDetail={onOpenDetail}
-                hasPendingToolCalls={ticketPendingToolCalls?.[card.id] === true}
               />
             )
           })}
@@ -1331,81 +1304,8 @@ function App() {
   const [detailModalArtifactsLoading, setDetailModalArtifactsLoading] = useState(false)
   const [artifactViewer, setArtifactViewer] = useState<SupabaseAgentArtifactRow | null>(null)
   
-  // Tool call queue (0097)
-  const [detailModalHasPendingToolCalls, setDetailModalHasPendingToolCalls] = useState(false)
-  const [detailModalToolCallsLoading, setDetailModalToolCallsLoading] = useState(false)
-  const [detailModalToolCallsExecuting, setDetailModalToolCallsExecuting] = useState(false)
-  const [ticketPendingToolCalls, setTicketPendingToolCalls] = useState<Record<string, boolean>>({})
-
   // Supabase board: when connected, board is driven by supabaseTickets + supabaseColumnsRows (0020)
   const supabaseBoardActive = supabaseConnectionStatus === 'connected'
-  
-  // Check for pending tool calls for a ticket (0097)
-  const checkPendingToolCalls = useCallback(async (ticketId: string): Promise<boolean> => {
-    try {
-      const halApiUrl = window.location.origin
-      const response = await fetch(`${halApiUrl}/api/tool-calls/check`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticketId }),
-      })
-      const result = await response.json()
-      return result.success && result.hasPendingToolCalls === true
-    } catch {
-      return false
-    }
-  }, [])
-  
-  // Execute tool calls for a ticket (0097)
-  const executeToolCalls = useCallback(async (ticketId: string): Promise<{ success: boolean; executed: number; error?: string }> => {
-    try {
-      const halApiUrl = window.location.origin
-      const response = await fetch(`${halApiUrl}/api/tool-calls/execute`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticketId }),
-      })
-      const result = await response.json()
-      return {
-        success: result.success === true,
-        executed: result.executed ?? 0,
-        error: result.error,
-      }
-    } catch (err) {
-      return {
-        success: false,
-        executed: 0,
-        error: err instanceof Error ? err.message : String(err),
-      }
-    }
-  }, [])
-  
-  // Check for pending tool calls for all tickets (0097)
-  useEffect(() => {
-    if (!supabaseBoardActive || supabaseTickets.length === 0) {
-      setTicketPendingToolCalls({})
-      return
-    }
-    
-    const checkAllTickets = async () => {
-      const pending: Record<string, boolean> = {}
-      for (const ticket of supabaseTickets) {
-        const displayId = ticket.display_id ?? ticket.id
-        try {
-          const hasPending = await checkPendingToolCalls(displayId)
-          pending[ticket.pk] = hasPending
-        } catch {
-          pending[ticket.pk] = false
-        }
-      }
-      setTicketPendingToolCalls(pending)
-    }
-    
-    checkAllTickets()
-    // Recheck periodically (every 30 seconds)
-    const interval = setInterval(checkAllTickets, 30000)
-    return () => clearInterval(interval)
-  }, [supabaseBoardActive, supabaseTickets, checkPendingToolCalls])
   const { columns: supabaseColumns, unknownColumnTicketIds: supabaseUnknownColumnTicketIds } = useMemo(() => {
     if (!supabaseBoardActive || supabaseColumnsRows.length === 0) {
       return { columns: EMPTY_KANBAN_COLUMNS, unknownColumnTicketIds: [] as string[] }
@@ -1748,16 +1648,6 @@ function App() {
           setDetailModalArtifacts([])
           setDetailModalArtifactsLoading(false)
         })
-        
-        // Check for pending tool calls (0097)
-        setDetailModalToolCallsLoading(true)
-        checkPendingToolCalls(displayId).then((hasPending) => {
-          setDetailModalHasPendingToolCalls(hasPending)
-          setDetailModalToolCallsLoading(false)
-        }).catch(() => {
-          setDetailModalHasPendingToolCalls(false)
-          setDetailModalToolCallsLoading(false)
-        })
       } else {
         setDetailModalBody('')
         setDetailModalArtifacts([])
@@ -1772,10 +1662,8 @@ function App() {
       setDetailModalLoading(false)
       setDetailModalArtifacts([])
       setDetailModalArtifactsLoading(false)
-      setDetailModalHasPendingToolCalls(false)
-      setDetailModalToolCallsLoading(false)
     }
-  }, [detailModal, supabaseBoardActive, supabaseTickets, supabaseProjectUrl, supabaseAnonKey, detailModalRetryTrigger, addLog, fetchTicketArtifacts, checkPendingToolCalls])
+  }, [detailModal, supabaseBoardActive, supabaseTickets, supabaseProjectUrl, supabaseAnonKey, detailModalRetryTrigger, addLog, fetchTicketArtifacts])
 
   const handleOpenTicketDetail = useCallback(
     (cardId: string) => {
@@ -1798,34 +1686,6 @@ function App() {
   }, [])
   const handleCloseArtifact = useCallback(() => setArtifactViewer(null), [])
   
-  // Execute tool calls for current ticket (0097)
-  const handleExecuteToolCalls = useCallback(async () => {
-    if (!detailModal) return
-    const ticket = supabaseTickets.find((t) => t.pk === detailModal.ticketId)
-    if (!ticket) return
-    const displayId = ticket.display_id ?? ticket.id
-    setDetailModalToolCallsExecuting(true)
-    try {
-      const result = await executeToolCalls(displayId)
-      if (result.success) {
-        addLog(`Executed ${result.executed} tool call(s) for ticket ${displayId}`)
-        // Refresh pending status
-        const hasPending = await checkPendingToolCalls(displayId)
-        setDetailModalHasPendingToolCalls(hasPending)
-        // Refresh artifacts in case tool calls created new ones
-        if (result.executed > 0) {
-          const artifacts = await fetchTicketArtifacts(detailModal.ticketId)
-          setDetailModalArtifacts(artifacts)
-        }
-      } else {
-        addLog(`Failed to execute tool calls: ${result.error || 'Unknown error'}`)
-      }
-    } catch (err) {
-      addLog(`Error executing tool calls: ${err instanceof Error ? err.message : String(err)}`)
-    } finally {
-      setDetailModalToolCallsExecuting(false)
-    }
-  }, [detailModal, supabaseTickets, executeToolCalls, checkPendingToolCalls, fetchTicketArtifacts, addLog])
 
   // File system mode removed (0065): Supabase-only
 
@@ -2836,10 +2696,6 @@ function App() {
           columnId={detailModal.columnId}
           supabaseUrl={supabaseProjectUrl || ''}
           supabaseKey={supabaseAnonKey || ''}
-          hasPendingToolCalls={detailModalHasPendingToolCalls}
-          toolCallsLoading={detailModalToolCallsLoading}
-          toolCallsExecuting={detailModalToolCallsExecuting}
-          onExecuteToolCalls={handleExecuteToolCalls}
           onValidationPass={async (ticketPk: string) => {
             // Move ticket to Process Review (0108)
             const targetColumn = supabaseColumns.find((c) => c.id === 'col-process-review')
