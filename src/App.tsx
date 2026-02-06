@@ -290,6 +290,11 @@ function App() {
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
   // Modal open state for viewing conversation thread (0070)
   const [conversationModalOpen, setConversationModalOpen] = useState(false)
+  // Chat open state (0087) - when a chat is open, it replaces the Kanban iframe
+  const [openChatTarget, setOpenChatTarget] = useState<ChatTarget | string | null>(null) // string = conversation ID
+  // Collapsible group states (0087)
+  const [qaGroupExpanded, setQaGroupExpanded] = useState(false)
+  const [implGroupExpanded, setImplGroupExpanded] = useState(false)
   const [conversations, setConversations] = useState<Map<string, Conversation>>(getEmptyConversations)
   const [inputValue, setInputValue] = useState('')
   const [imageAttachment, setImageAttachment] = useState<ImageAttachment | null>(null)
@@ -918,6 +923,18 @@ function App() {
     const firstLine = lastMsg.content.split('\n')[0]
     return firstLine.length > 100 ? firstLine.substring(0, 100) + '...' : firstLine
   }, [])
+
+  // Get preview text for PM or Standup chat (0087)
+  const getChatTargetPreview = useCallback((target: ChatTarget): string => {
+    if (target === 'project-manager' || target === 'standup') {
+      const defaultConvId = getConversationId('project-manager', 1)
+      if (conversations.has(defaultConvId)) {
+        const conv = conversations.get(defaultConvId)!
+        return getConversationPreview(conv)
+      }
+    }
+    return 'No messages yet'
+  }, [conversations, getConversationPreview])
 
   // Auto-scroll transcript to bottom when messages or typing indicator change
   useEffect(() => {
@@ -2267,25 +2284,348 @@ function App() {
               {lastError}
             </div>
           )}
-          <div className="kanban-frame-container">
-            <iframe
-              ref={kanbanIframeRef}
-              src={KANBAN_URL}
-              title="Kanban Board"
-              className="kanban-iframe"
-              onLoad={handleIframeLoad}
-              onError={handleIframeError}
-            />
-            {!kanbanLoaded && (
-              <div className="kanban-loading-overlay">
-                <p>Loading kanban board...</p>
-                <p className="kanban-hint">
-                  Run <code>npm run dev</code> from the repo root to start HAL and Kanban together.
-                </p>
-                {lastError && <p className="kanban-hint">{lastError}</p>}
+          {openChatTarget ? (
+            /* Chat Window (0087) - replaces Kanban when a chat is open */
+            <div className="chat-window-container">
+              <div className="chat-window-header">
+                <div className="chat-window-title">
+                  {typeof openChatTarget === 'string' && conversations.has(openChatTarget)
+                    ? getConversationLabel(conversations.get(openChatTarget)!)
+                    : openChatTarget === 'project-manager'
+                    ? 'Project Manager'
+                    : openChatTarget === 'standup'
+                    ? 'Standup (all agents)'
+                    : 'Chat'}
+                </div>
+                <div className="chat-window-actions">
+                  <button
+                    type="button"
+                    className="chat-window-return-link"
+                    onClick={() => {
+                      setOpenChatTarget(null)
+                    }}
+                  >
+                    Return to Kanban
+                  </button>
+                  <button
+                    type="button"
+                    className="chat-window-close"
+                    onClick={() => {
+                      setOpenChatTarget(null)
+                    }}
+                    aria-label="Close chat"
+                  >
+                    ×
+                  </button>
+                </div>
               </div>
-            )}
-          </div>
+              <div className="chat-window-content">
+                {/* Render the chat UI here - same as the right panel chat */}
+                {(() => {
+                  // Use activeMessages which is computed based on selectedChatTarget and selectedConversationId
+                  // These are set when opening a chat, so they should be correct
+                  const displayMessages = activeMessages
+                  const displayTarget = selectedChatTarget
+
+                  return (
+                    <>
+                      {/* Agent stub banners and status panels */}
+                      {displayTarget === 'implementation-agent' && (
+                        <>
+                          <div className="agent-stub-banner" role="status">
+                            <p className="agent-stub-title">Implementation Agent — Cursor Cloud Agents</p>
+                            <p className="agent-stub-hint">
+                              {import.meta.env.VITE_CURSOR_API_KEY
+                                ? 'Say "Implement ticket XXXX" (e.g. Implement ticket 0046) to fetch the ticket, launch a Cursor cloud agent, and move the ticket to QA when done.'
+                                : 'Cursor API is not configured. Set CURSOR_API_KEY and VITE_CURSOR_API_KEY in .env to enable.'}
+                            </p>
+                          </div>
+                          {(implAgentRunStatus !== 'idle' || implAgentError) && (
+                            <div className="impl-agent-status-panel" role="status" aria-live="polite">
+                              <div className="impl-agent-status-header">
+                                <span className="impl-agent-status-label">Status:</span>
+                                <span className={`impl-agent-status-value impl-status-${implAgentRunStatus}`}>
+                                  {implAgentRunStatus === 'preparing' ? 'Preparing' :
+                                   implAgentRunStatus === 'fetching_ticket' ? 'Fetching ticket' :
+                                   implAgentRunStatus === 'resolving_repo' ? 'Resolving repository' :
+                                   implAgentRunStatus === 'launching' ? 'Launching agent' :
+                                   implAgentRunStatus === 'polling' ? 'Running' :
+                                   implAgentRunStatus === 'completed' ? 'Completed' :
+                                   implAgentRunStatus === 'failed' ? 'Failed' : 'Idle'}
+                                </span>
+                              </div>
+                              {implAgentError && (
+                                <div className="impl-agent-error" role="alert">
+                                  <strong>Error:</strong> {implAgentError}
+                                </div>
+                              )}
+                              {implAgentProgress.length > 0 && (
+                                <div className="impl-agent-progress-feed">
+                                  <div className="impl-agent-progress-label">Progress:</div>
+                                  <div className="impl-agent-progress-items">
+                                    {implAgentProgress.slice(-5).map((p, idx) => (
+                                      <div key={idx} className="impl-agent-progress-item">
+                                        <span className="impl-agent-progress-time">[{formatTime(p.timestamp)}]</span>
+                                        <span className="impl-agent-progress-message">{p.message}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      )}
+                      {displayTarget === 'qa-agent' && (
+                        <>
+                          <div className="agent-stub-banner" role="status">
+                            <p className="agent-stub-title">QA Agent — Cursor Cloud Agents</p>
+                            <p className="agent-stub-hint">
+                              {import.meta.env.VITE_CURSOR_API_KEY
+                                ? 'Say "QA ticket XXXX" (e.g. QA ticket 0046) to review the ticket implementation, generate a QA report, and merge to main if it passes.'
+                                : 'Cursor API is not configured. Set CURSOR_API_KEY and VITE_CURSOR_API_KEY in .env to enable.'}
+                            </p>
+                          </div>
+                          {(qaAgentRunStatus !== 'idle' || qaAgentError) && (
+                            <div className="impl-agent-status-panel" role="status" aria-live="polite">
+                              <div className="impl-agent-status-header">
+                                <span className="impl-agent-status-label">Status:</span>
+                                <span className={`impl-agent-status-value impl-status-${qaAgentRunStatus}`}>
+                                  {qaAgentRunStatus === 'preparing' ? 'Preparing' :
+                                   qaAgentRunStatus === 'fetching_ticket' ? 'Fetching ticket' :
+                                   qaAgentRunStatus === 'fetching_branch' ? 'Finding branch' :
+                                   qaAgentRunStatus === 'launching' ? 'Launching QA' :
+                                   qaAgentRunStatus === 'polling' ? 'Reviewing' :
+                                   qaAgentRunStatus === 'generating_report' ? 'Generating report' :
+                                   qaAgentRunStatus === 'merging' ? 'Merging' :
+                                   qaAgentRunStatus === 'moving_ticket' ? 'Moving ticket' :
+                                   qaAgentRunStatus === 'completed' ? 'Completed' :
+                                   qaAgentRunStatus === 'failed' ? 'Failed' : 'Idle'}
+                                </span>
+                              </div>
+                              {qaAgentError && (
+                                <div className="impl-agent-error" role="alert">
+                                  <strong>Error:</strong> {qaAgentError}
+                                </div>
+                              )}
+                              {qaAgentProgress.length > 0 && (
+                                <div className="impl-agent-progress-feed">
+                                  <div className="impl-agent-progress-label">Progress:</div>
+                                  <div className="impl-agent-progress-items">
+                                    {qaAgentProgress.slice(-5).map((p, idx) => (
+                                      <div key={idx} className="impl-agent-progress-item">
+                                        <span className="impl-agent-progress-time">[{formatTime(p.timestamp)}]</span>
+                                        <span className="impl-agent-progress-message">{p.message}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      )}
+
+                      {/* Chat transcript */}
+                      <div className="chat-transcript" ref={transcriptRef}>
+                        {displayMessages.length === 0 && agentTypingTarget !== displayTarget ? (
+                          <p className="transcript-empty">No messages yet. Start a conversation.</p>
+                        ) : (
+                          <>
+                            {displayMessages.map((msg) => (
+                              <div
+                                key={msg.id}
+                                className={`message-row message-row-${msg.agent}`}
+                                data-agent={msg.agent}
+                              >
+                                <div className={`message message-${msg.agent}`}>
+                                  <div className="message-header">
+                                    <span className="message-author">{getMessageAuthorLabel(msg.agent)}</span>
+                                    <span className="message-time">[{formatTime(msg.timestamp)}]</span>
+                                    {msg.imageAttachments && msg.imageAttachments.length > 0 && (
+                                      <span className="message-image-indicator" title={`${msg.imageAttachments.length} image${msg.imageAttachments.length > 1 ? 's' : ''} attached`}>
+                                        📎 {msg.imageAttachments.length}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {msg.imageAttachments && msg.imageAttachments.length > 0 && (
+                                    <div className="message-images">
+                                      {msg.imageAttachments.map((img, idx) => (
+                                        <div key={idx} className="message-image-container">
+                                          <img src={img.dataUrl} alt={img.filename} className="message-image-thumbnail" />
+                                          <span className="message-image-filename">{img.filename}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {msg.content.trimStart().startsWith('{') ? (
+                                    <pre className="message-content message-json">{msg.content}</pre>
+                                  ) : (
+                                    <span className="message-content">{msg.content}</span>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                            {agentTypingTarget === displayTarget && (
+                              <div className="message-row message-row-typing" data-agent="typing" aria-live="polite">
+                                <div className="message message-typing">
+                                  <div className="message-header">
+                                    <span className="message-author">HAL</span>
+                                  </div>
+                                  {displayTarget === 'implementation-agent' ? (
+                                    <div className="impl-agent-status-timeline" role="status">
+                                      <span className={implAgentRunStatus === 'preparing' ? 'impl-status-active' : ['fetching_ticket', 'resolving_repo', 'launching', 'polling', 'completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
+                                        Preparing
+                                      </span>
+                                      <span className="impl-status-arrow">→</span>
+                                      <span className={implAgentRunStatus === 'fetching_ticket' ? 'impl-status-active' : ['resolving_repo', 'launching', 'polling', 'completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
+                                        Fetching ticket
+                                      </span>
+                                      <span className="impl-status-arrow">→</span>
+                                      <span className={implAgentRunStatus === 'resolving_repo' ? 'impl-status-active' : ['launching', 'polling', 'completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
+                                        Resolving repo
+                                      </span>
+                                      <span className="impl-status-arrow">→</span>
+                                      <span className={implAgentRunStatus === 'launching' ? 'impl-status-active' : ['polling', 'completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
+                                        Launching agent
+                                      </span>
+                                      <span className="impl-status-arrow">→</span>
+                                      <span className={implAgentRunStatus === 'polling' ? 'impl-status-active' : ['completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
+                                        Running
+                                      </span>
+                                      <span className="impl-status-arrow">→</span>
+                                      <span className={implAgentRunStatus === 'completed' ? 'impl-status-done' : implAgentRunStatus === 'failed' ? 'impl-status-failed' : ''}>
+                                        {implAgentRunStatus === 'completed' ? 'Completed' : implAgentRunStatus === 'failed' ? 'Failed' : '…'}
+                                      </span>
+                                    </div>
+                                  ) : displayTarget === 'qa-agent' ? (
+                                    <div className="impl-agent-status-timeline" role="status">
+                                      <span className={qaAgentRunStatus === 'preparing' ? 'impl-status-active' : ['fetching_ticket', 'fetching_branch', 'launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
+                                        Preparing
+                                      </span>
+                                      <span className="impl-status-arrow">→</span>
+                                      <span className={qaAgentRunStatus === 'fetching_ticket' ? 'impl-status-active' : ['fetching_branch', 'launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
+                                        Fetching ticket
+                                      </span>
+                                      <span className="impl-status-arrow">→</span>
+                                      <span className={qaAgentRunStatus === 'fetching_branch' ? 'impl-status-active' : ['launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
+                                        Finding branch
+                                      </span>
+                                      <span className="impl-status-arrow">→</span>
+                                      <span className={qaAgentRunStatus === 'launching' ? 'impl-status-active' : ['polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
+                                        Launching QA
+                                      </span>
+                                      <span className="impl-status-arrow">→</span>
+                                      <span className={qaAgentRunStatus === 'polling' ? 'impl-status-active' : ['generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
+                                        Reviewing
+                                      </span>
+                                      <span className="impl-status-arrow">→</span>
+                                      <span className={qaAgentRunStatus === 'generating_report' ? 'impl-status-active' : ['merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
+                                        Generating report
+                                      </span>
+                                      <span className="impl-status-arrow">→</span>
+                                      <span className={qaAgentRunStatus === 'merging' ? 'impl-status-active' : ['moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
+                                        Merging
+                                      </span>
+                                      <span className="impl-status-arrow">→</span>
+                                      <span className={qaAgentRunStatus === 'moving_ticket' ? 'impl-status-active' : ['completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
+                                        Moving ticket
+                                      </span>
+                                      <span className="impl-status-arrow">→</span>
+                                      <span className={qaAgentRunStatus === 'completed' ? 'impl-status-done' : qaAgentRunStatus === 'failed' ? 'impl-status-failed' : ''}>
+                                        {qaAgentRunStatus === 'completed' ? 'Completed' : qaAgentRunStatus === 'failed' ? 'Failed' : '…'}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <span className="typing-bubble">
+                                      <span className="typing-label">Thinking</span>
+                                      <span className="typing-dots">
+                                        <span className="typing-dot" />
+                                        <span className="typing-dot" />
+                                        <span className="typing-dot" />
+                                      </span>
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+
+                      {/* Chat composer */}
+                      <div className="chat-composer">
+                        {imageAttachment && (
+                          <div className="image-attachment-preview">
+                            <img src={imageAttachment.dataUrl} alt={imageAttachment.filename} className="attachment-thumbnail" />
+                            <span className="attachment-filename">{imageAttachment.filename}</span>
+                            <button type="button" className="remove-attachment-btn" onClick={handleRemoveImage} aria-label="Remove attachment">
+                              ×
+                            </button>
+                          </div>
+                        )}
+                        {imageError && (
+                          <div className="image-error-message" role="alert">
+                            {imageError}
+                          </div>
+                        )}
+                        {sendValidationError && (
+                          <div className="image-error-message" role="alert">
+                            {sendValidationError}
+                          </div>
+                        )}
+                        <div className="composer-input-row">
+                          <textarea
+                            className="message-input"
+                            value={inputValue}
+                            onChange={(e) => setInputValue(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            placeholder="Type a message... (Enter to send)"
+                            rows={2}
+                          />
+                          <div className="composer-actions">
+                            <label className="attach-image-btn" title="Attach image">
+                              <input
+                                type="file"
+                                accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
+                                onChange={handleImageSelect}
+                                style={{ display: 'none' }}
+                                aria-label="Attach image"
+                              />
+                              📎
+                            </label>
+                            <button type="button" className="send-btn" onClick={handleSend} disabled={!!imageError}>
+                              Send
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  )
+                })()}
+              </div>
+            </div>
+          ) : (
+            <div className="kanban-frame-container">
+              <iframe
+                ref={kanbanIframeRef}
+                src={KANBAN_URL}
+                title="Kanban Board"
+                className="kanban-iframe"
+                onLoad={handleIframeLoad}
+                onError={handleIframeError}
+              />
+              {!kanbanLoaded && (
+                <div className="kanban-loading-overlay">
+                  <p>Loading kanban board...</p>
+                  <p className="kanban-hint">
+                    Run <code>npm run dev</code> from the repo root to start HAL and Kanban together.
+                  </p>
+                  {lastError && <p className="kanban-hint">{lastError}</p>}
+                </div>
+              )}
+            </div>
+          )}
         </section>
 
         {/* Resizable divider (0060) */}
@@ -2314,34 +2654,194 @@ function App() {
         <section className="hal-chat-region" aria-label="Chat" style={{ width: `${chatWidth}px` }}>
           <div className="chat-header">
             <h2>Chat</h2>
-            <div className="agent-selector">
-              <label htmlFor="agent-select">Agent:</label>
-              <select
-                id="agent-select"
-                value={selectedChatTarget}
-                onChange={(e) => {
-                  const target = e.target.value as ChatTarget
-                  setSelectedChatTarget(target)
-                  setUnreadByTarget((prev) => ({ ...prev, [target]: 0 }))
-                  // Don't reset status on navigation - persist it (0050)
-                }}
-                disabled={!connectedProject}
-              >
-                {(() => {
-                  console.log('[DEBUG] Rendering dropdown with', CHAT_OPTIONS.length, 'options:', CHAT_OPTIONS.map(o => o.id));
-                  return CHAT_OPTIONS.map((opt) => {
-                    console.log('[DEBUG] Rendering option:', opt.id, opt.label);
-                    return (
-                      <option key={opt.id} value={opt.id}>
-                        {opt.label}
-                        {unreadByTarget[opt.id] > 0 ? ` (${unreadByTarget[opt.id]})` : ''}
-                      </option>
-                    );
-                  });
-                })()}
-              </select>
-            </div>
           </div>
+
+          {/* Chat Preview Stack (0087) */}
+          {connectedProject ? (
+            <div className="chat-preview-stack">
+              {/* Project Manager */}
+              <div
+                className={`chat-preview-pane ${openChatTarget === 'project-manager' ? 'chat-preview-active' : ''}`}
+                onClick={() => {
+                  setOpenChatTarget('project-manager')
+                  setSelectedChatTarget('project-manager')
+                  setSelectedConversationId(null)
+                  setConversationModalOpen(false)
+                  setUnreadByTarget((prev) => ({ ...prev, 'project-manager': 0 }))
+                }}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    setOpenChatTarget('project-manager')
+                    setSelectedChatTarget('project-manager')
+                    setSelectedConversationId(null)
+                    setConversationModalOpen(false)
+                    setUnreadByTarget((prev) => ({ ...prev, 'project-manager': 0 }))
+                  }
+                }}
+              >
+                <div className="chat-preview-header">
+                  <span className="chat-preview-name">Project Manager</span>
+                  {unreadByTarget['project-manager'] > 0 && (
+                    <span className="chat-preview-unread">{unreadByTarget['project-manager']}</span>
+                  )}
+                </div>
+                <div className="chat-preview-text">{getChatTargetPreview('project-manager')}</div>
+              </div>
+
+              {/* Standup */}
+              <div
+                className={`chat-preview-pane ${openChatTarget === 'standup' ? 'chat-preview-active' : ''}`}
+                onClick={() => {
+                  setOpenChatTarget('standup')
+                  setSelectedChatTarget('standup')
+                  setSelectedConversationId(null)
+                  setConversationModalOpen(false)
+                  setUnreadByTarget((prev) => ({ ...prev, standup: 0 }))
+                }}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    setOpenChatTarget('standup')
+                    setSelectedChatTarget('standup')
+                    setSelectedConversationId(null)
+                    setConversationModalOpen(false)
+                    setUnreadByTarget((prev) => ({ ...prev, standup: 0 }))
+                  }
+                }}
+              >
+                <div className="chat-preview-header">
+                  <span className="chat-preview-name">Standup (all agents)</span>
+                  {unreadByTarget.standup > 0 && (
+                    <span className="chat-preview-unread">{unreadByTarget.standup}</span>
+                  )}
+                </div>
+                <div className="chat-preview-text">{getChatTargetPreview('standup')}</div>
+              </div>
+
+              {/* QA Group */}
+              <div className="chat-preview-group">
+                <div
+                  className="chat-preview-group-header"
+                  onClick={() => setQaGroupExpanded(!qaGroupExpanded)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      setQaGroupExpanded(!qaGroupExpanded)
+                    }
+                  }}
+                >
+                  <span className="chat-preview-group-icon">{qaGroupExpanded ? '▼' : '▶'}</span>
+                  <span className="chat-preview-name">QA Lead</span>
+                  {unreadByTarget['qa-agent'] > 0 && (
+                    <span className="chat-preview-unread">{unreadByTarget['qa-agent']}</span>
+                  )}
+                </div>
+                {qaGroupExpanded && (
+                  <div className="chat-preview-group-items">
+                    {getConversationsForAgent('qa-agent').length === 0 ? (
+                      <div className="chat-preview-empty">No QA agents running</div>
+                    ) : (
+                      getConversationsForAgent('qa-agent').map((conv) => (
+                        <div
+                          key={conv.id}
+                          className={`chat-preview-pane chat-preview-nested ${openChatTarget === conv.id ? 'chat-preview-active' : ''}`}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setOpenChatTarget(conv.id)
+                            setSelectedChatTarget('qa-agent')
+                            setSelectedConversationId(conv.id)
+                            setConversationModalOpen(false)
+                          }}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              setOpenChatTarget(conv.id)
+                              setSelectedChatTarget('qa-agent')
+                              setSelectedConversationId(conv.id)
+                              setConversationModalOpen(false)
+                            }
+                          }}
+                        >
+                          <div className="chat-preview-header">
+                            <span className="chat-preview-name">{getConversationLabel(conv)}</span>
+                          </div>
+                          <div className="chat-preview-text">{getConversationPreview(conv)}</div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Implementation Group */}
+              <div className="chat-preview-group">
+                <div
+                  className="chat-preview-group-header"
+                  onClick={() => setImplGroupExpanded(!implGroupExpanded)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      setImplGroupExpanded(!implGroupExpanded)
+                    }
+                  }}
+                >
+                  <span className="chat-preview-group-icon">{implGroupExpanded ? '▼' : '▶'}</span>
+                  <span className="chat-preview-name">Implementation Lead</span>
+                  {unreadByTarget['implementation-agent'] > 0 && (
+                    <span className="chat-preview-unread">{unreadByTarget['implementation-agent']}</span>
+                  )}
+                </div>
+                {implGroupExpanded && (
+                  <div className="chat-preview-group-items">
+                    {getConversationsForAgent('implementation-agent').length === 0 ? (
+                      <div className="chat-preview-empty">No Implementation agents running</div>
+                    ) : (
+                      getConversationsForAgent('implementation-agent').map((conv) => (
+                        <div
+                          key={conv.id}
+                          className={`chat-preview-pane chat-preview-nested ${openChatTarget === conv.id ? 'chat-preview-active' : ''}`}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setOpenChatTarget(conv.id)
+                            setSelectedChatTarget('implementation-agent')
+                            setSelectedConversationId(conv.id)
+                            setConversationModalOpen(false)
+                          }}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              setOpenChatTarget(conv.id)
+                              setSelectedChatTarget('implementation-agent')
+                              setSelectedConversationId(conv.id)
+                              setConversationModalOpen(false)
+                            }
+                          }}
+                        >
+                          <div className="chat-preview-header">
+                            <span className="chat-preview-name">{getConversationLabel(conv)}</span>
+                          </div>
+                          <div className="chat-preview-text">{getConversationPreview(conv)}</div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
 
           {!connectedProject ? (
             <div className="chat-placeholder">
