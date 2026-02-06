@@ -758,39 +758,42 @@ export default defineConfig({
                       })
                       .eq('id', ticketId)
 
-                    // Insert Implementation artifact (0082)
+                    // Insert Implementation artifacts (0082) - create separate artifacts for each audit file
                     if (ticketData?.pk && ticketData?.repo_full_name) {
-                      // Try to read audit files to build comprehensive report
+                      // Try to read audit files and create separate artifacts
                       const auditDirMatch = ticketFilename.match(/^(\d{4})-(.+)\.md$/)
                       const shortTitle = auditDirMatch ? auditDirMatch[2] : 'unknown'
                       const auditDir = path.join(repoRoot, 'docs', 'audit', `${ticketId}-${shortTitle}`)
                       
-                      let artifactBody = summary
-                      if (prUrl) {
-                        artifactBody += `\n\nPull request: ${prUrl}`
-                      }
-                      artifactBody += `\n\nTicket ${ticketId} moved to QA.`
+                      const auditFiles = [
+                        { name: 'plan.md', title: 'Plan' },
+                        { name: 'worklog.md', title: 'Worklog' },
+                        { name: 'changed-files.md', title: 'Changed Files' },
+                        { name: 'decisions.md', title: 'Decisions' },
+                        { name: 'verification.md', title: 'Verification' },
+                        { name: 'pm-review.md', title: 'PM Review' },
+                      ]
                       
-                      // Try to append worklog summary if available
-                      const worklogPath = path.join(auditDir, 'worklog.md')
-                      if (fs.existsSync(worklogPath)) {
-                        try {
-                          const worklog = fs.readFileSync(worklogPath, 'utf8')
-                          artifactBody += `\n\n## Worklog\n\n${worklog}`
-                        } catch {
-                          // Ignore if worklog can't be read
+                      // Create artifacts for each audit file
+                      for (const file of auditFiles) {
+                        const filePath = path.join(auditDir, file.name)
+                        if (fs.existsSync(filePath)) {
+                          try {
+                            const content = fs.readFileSync(filePath, 'utf8')
+                            await insertAgentArtifact(
+                              supabaseUrl,
+                              supabaseAnonKey,
+                              ticketData.pk,
+                              ticketData.repo_full_name,
+                              'implementation',
+                              `${file.title} for ticket ${ticketId}`,
+                              content
+                            )
+                          } catch {
+                            // Ignore if file can't be read
+                          }
                         }
                       }
-                      
-                      await insertAgentArtifact(
-                        supabaseUrl,
-                        supabaseAnonKey,
-                        ticketData.pk,
-                        ticketData.repo_full_name,
-                        'implementation',
-                        `Implementation report for ticket ${ticketId}`,
-                        artifactBody
-                      )
                     }
 
                     const syncScriptPath = path.resolve(repoRoot, 'scripts', 'sync-tickets.js')
