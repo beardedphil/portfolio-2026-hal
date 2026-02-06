@@ -662,33 +662,6 @@ function App() {
     }
   }, [])
 
-  // Execute all pending tool calls (0103)
-  const executeAllToolCalls = useCallback(async () => {
-    if (toolCallsExecuting) return
-    try {
-      setToolCallsExecuting(true)
-      const response = await fetch('/api/tool-calls/execute-all', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      })
-      const result = await response.json()
-      if (result.success) {
-        // Log executed tool calls to Tools Agent chat (0107)
-        if (result.executedToolCalls && Array.isArray(result.executedToolCalls)) {
-          for (const { tool, params, result: toolResult } of result.executedToolCalls) {
-            logToolCallToToolsAgent({ tool, params }, toolResult)
-          }
-        }
-        // Recheck after execution
-        await checkPendingToolCalls()
-      }
-    } catch (err) {
-      console.error('Failed to execute tool calls:', err)
-    } finally {
-      setToolCallsExecuting(false)
-    }
-  }, [toolCallsExecuting, checkPendingToolCalls, logToolCallToToolsAgent])
-
   // Poll for pending tool calls periodically (0103)
   useEffect(() => {
     // Initial check
@@ -1297,6 +1270,33 @@ function App() {
       console.error('Failed to log tool call to Tools Agent:', err)
     }
   }, [getDefaultConversationId, addMessage])
+
+  // Execute all pending tool calls (0103) - defined after logToolCallToToolsAgent to avoid forward reference
+  const executeAllToolCalls = useCallback(async () => {
+    if (toolCallsExecuting) return
+    try {
+      setToolCallsExecuting(true)
+      const response = await fetch('/api/tool-calls/execute-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      const result = await response.json()
+      if (result.success) {
+        // Log executed tool calls to Tools Agent chat (0107)
+        if (result.executedToolCalls && Array.isArray(result.executedToolCalls)) {
+          for (const { tool, params, result: toolResult } of result.executedToolCalls) {
+            logToolCallToToolsAgent({ tool, params }, toolResult)
+          }
+        }
+        // Recheck after execution
+        await checkPendingToolCalls()
+      }
+    } catch (err) {
+      console.error('Failed to execute tool calls:', err)
+    } finally {
+      setToolCallsExecuting(false)
+    }
+  }, [toolCallsExecuting, checkPendingToolCalls, logToolCallToToolsAgent])
 
   type CheckUnassignedResult = {
     moved: string[]
@@ -2136,7 +2136,7 @@ function App() {
     setLastCreateTicketAvailable(null)
     setSupabaseUrl(null)
     setSupabaseAnonKey(null)
-    setUnreadByTarget({ 'project-manager': 0, 'implementation-agent': 0, 'qa-agent': 0, standup: 0 })
+    setUnreadByTarget({ 'project-manager': 0, 'implementation-agent': 0, 'qa-agent': 0, 'tools-agent': 0, standup: 0 })
     // Do NOT clear agent status on disconnect (0097: preserve agent status across disconnect/reconnect)
     // Status boxes are gated by connectedProject, so they'll be hidden anyway
     // Only clear ticket IDs and diagnostics (these are per-session)
