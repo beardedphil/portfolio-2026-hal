@@ -1,43 +1,71 @@
 /* HAL purple color palette - Light theme */
+/* Unified purple scale: hue 258° (consistent across all purples) */
 :root {
-  --hal-primary: #6b4ce6;
-  --hal-primary-hover: #5a3fd4;
-  --hal-accent: #8b6cef;
-  --hal-bg: #f5f3fa;
+  /* Primary purple scale (hue 258°) */
+  --hal-purple-900: #3d2d6b; /* Dark header background */
+  --hal-purple-800: #4a3578;
+  --hal-purple-700: #5a3fd4; /* Primary hover */
+  --hal-purple-600: #6b4ce6; /* Primary */
+  --hal-purple-500: #7c5ee8; /* Primary variant */
+  --hal-purple-400: #8b6cef; /* Accent */
+  --hal-purple-300: #a68ef5; /* Light accent */
+  --hal-purple-200: #c4b5e0; /* Border */
+  --hal-purple-100: #ddd6eb; /* Muted border */
+  --hal-purple-50: #ede8f7; /* Light background */
+  --hal-purple-25: #f5f3fa; /* Very light background */
+  --hal-purple-10: #faf8fc; /* Subtle background */
+  
+  /* Semantic colors using unified purple */
+  --hal-primary: var(--hal-purple-600);
+  --hal-primary-hover: var(--hal-purple-700);
+  --hal-accent: var(--hal-purple-400);
+  --hal-bg: var(--hal-purple-25);
   --hal-surface: #ffffff;
-  --hal-surface-alt: #faf8fc;
-  --hal-border: #e5e0f0;
-  --hal-border-muted: #ddd6eb;
+  --hal-surface-alt: var(--hal-purple-10);
+  --hal-border: #e5e0f0; /* Using existing border color (purple-tinted neutral) */
+  --hal-border-muted: var(--hal-purple-100);
   --hal-text: #2d2640;
   --hal-text-muted: #6b5f7a;
-  --hal-header-bg: #3d2d6b;
+  --hal-header-bg: var(--hal-purple-900);
   --hal-header-text: #ffffff;
-  --hal-header-subtitle: #b8a9d4;
-  --hal-chat-bg: #faf8fc;
-  --hal-typing-bg: #ede8f7;
-  --hal-typing-border: #c4b5e0;
+  --hal-header-subtitle: #b8a9d4; /* Using existing (purple-tinted neutral) */
+  --hal-chat-bg: var(--hal-purple-10);
+  --hal-typing-bg: var(--hal-purple-50);
+  --hal-typing-border: var(--hal-purple-200);
   --hal-status-ok: #2e7d32;
   --hal-status-error: #c62828;
 }
 
 /* Dark theme */
 [data-theme="dark"] {
-  --hal-primary: #8b6cef;
-  --hal-primary-hover: #7c5ee8;
-  --hal-accent: #a68ef5;
-  --hal-bg: #1a1625;
-  --hal-surface: #2a2438;
-  --hal-surface-alt: #241f32;
-  --hal-border: #3d3550;
-  --hal-border-muted: #4a415f;
+  /* Unified purple scale for dark theme (hue 258°) */
+  --hal-purple-900: #1a1625; /* Darkest background */
+  --hal-purple-800: #241f32; /* Surface alt */
+  --hal-purple-700: #2a2438; /* Surface */
+  --hal-purple-600: #3d3550; /* Border */
+  --hal-purple-500: #4a415f; /* Muted border */
+  --hal-purple-400: #7c5ee8; /* Primary hover */
+  --hal-purple-300: #8b6cef; /* Primary */
+  --hal-purple-200: #a68ef5; /* Accent */
+  --hal-purple-100: #b8a9d4; /* Text muted */
+  
+  /* Semantic colors using unified purple */
+  --hal-primary: var(--hal-purple-300);
+  --hal-primary-hover: var(--hal-purple-400);
+  --hal-accent: var(--hal-purple-200);
+  --hal-bg: var(--hal-purple-900);
+  --hal-surface: var(--hal-purple-700);
+  --hal-surface-alt: var(--hal-purple-800);
+  --hal-border: var(--hal-purple-600);
+  --hal-border-muted: var(--hal-purple-500);
   --hal-text: #e8e3f0;
-  --hal-text-muted: #b8a9d4;
-  --hal-header-bg: #2a2438;
+  --hal-text-muted: var(--hal-purple-100);
+  --hal-header-bg: var(--hal-purple-700);
   --hal-header-text: #ffffff;
-  --hal-header-subtitle: #b8a9d4;
-  --hal-chat-bg: #241f32;
-  --hal-typing-bg: #2a2438;
-  --hal-typing-border: #3d3550;
+  --hal-header-subtitle: var(--hal-purple-100);
+  --hal-chat-bg: var(--hal-purple-800);
+  --hal-typing-bg: var(--hal-purple-700);
+  --hal-typing-border: var(--hal-purple-600);
   --hal-status-ok: #4caf50;
   --hal-status-error: #f44336;
 }
@@ -498,7 +526,7 @@ body {
 
 /* User: right-aligned, accent bubble */
 .message-user {
-  background: linear-gradient(135deg, #7c5ee8 0%, #6b4ce6 100%);
+  background: linear-gradient(135deg, var(--hal-purple-500) 0%, var(--hal-purple-600) 100%);
   border-color: var(--hal-primary);
   color: #fff;
 }
@@ -650,7 +678,7 @@ body {
 .impl-agent-status-value.impl-status-polling {
   color: var(--hal-primary);
   border-color: var(--hal-primary);
-  background: rgba(107, 76, 230, 0.1);
+  background: rgba(107, 76, 230, 0.1); /* Using unified purple-600 RGB */
 }
 
 .impl-agent-status-value.impl-status-completed {
@@ -743,7 +771,7 @@ body {
 .message-input:focus {
   outline: none;
   border-color: var(--hal-accent);
-  box-shadow: 0 0 0 2px rgba(139, 108, 239, 0.25);
+  box-shadow: 0 0 0 2px rgba(107, 76, 230, 0.25);
 }
 
 .composer-input-row {

@@ -709,15 +709,15 @@ h1 {
   padding: 0.25rem 0.5rem;
   font-size: 0.8rem;
   cursor: pointer;
-  border: 1px solid #8b5cf6;
+  border: 1px solid #8b6cef; /* Unified purple-400 (hue 258°) */
   border-radius: 4px;
-  background: #f3e8ff;
-  color: #6d28d9;
+  background: #f5f3fa; /* Unified purple-25 (hue 258°) */
+  color: #6b4ce6; /* Unified purple-600 (hue 258°) */
   font-weight: 500;
 }
 .column-work-button:hover:not(:disabled) {
-  background: #e9d5ff;
-  border-color: #7c3aed;
+  background: #ede8f7; /* Unified purple-50 (hue 258°) */
+  border-color: #7c5ee8; /* Unified purple-500 (hue 258°) */
 }
 .column-work-button:disabled {
   cursor: not-allowed;
