@@ -671,6 +671,49 @@ function App() {
     return () => clearInterval(interval)
   }, [checkPendingToolCalls])
 
+  // Poll for recent tool call executions and log to Tools Agent chat (0107)
+  const [lastExecutionTimestamp, setLastExecutionTimestamp] = useState(0)
+  const checkRecentExecutions = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/tool-calls/recent-executions?since=${lastExecutionTimestamp}`)
+      const result = await response.json()
+      if (result.success && result.executions && result.executions.length > 0) {
+        // Log each execution to Tools Agent chat
+        for (const exec of result.executions) {
+          logToolCallToToolsAgent(
+            { tool: exec.tool, params: exec.params },
+            exec.result
+          )
+        }
+        // Mark executions as logged
+        const loggedIds = result.executions.map((e: { id: string }) => e.id)
+        await fetch('/api/tool-calls/recent-executions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ loggedIds }),
+        })
+        // Update timestamp
+        if (result.latestTimestamp > lastExecutionTimestamp) {
+          setLastExecutionTimestamp(result.latestTimestamp)
+        }
+      }
+    } catch (err) {
+      // Non-fatal: log error but don't block
+      console.error('Failed to check recent tool call executions:', err)
+    }
+  }, [lastExecutionTimestamp, logToolCallToToolsAgent])
+
+  // Poll for recent executions every 5 seconds (0107)
+  useEffect(() => {
+    // Initial check
+    checkRecentExecutions()
+    // Poll every 5 seconds
+    const interval = setInterval(() => {
+      checkRecentExecutions()
+    }, 5_000)
+    return () => clearInterval(interval)
+  }, [checkRecentExecutions])
+
   // When Kanban iframe loads, push current repo + Supabase so it syncs (iframe may load after user connected)
   useEffect(() => {
     if (!kanbanLoaded || !kanbanIframeRef.current?.contentWindow) return
@@ -937,6 +980,10 @@ function App() {
       const defaultConvId = getConversationId('project-manager', 1)
       return conversations.has(defaultConvId) ? conversations.get(defaultConvId)!.messages : []
     }
+    if (selectedChatTarget === 'tools-agent') {
+      const defaultConvId = getConversationId('tools-agent', 1)
+      return conversations.has(defaultConvId) ? conversations.get(defaultConvId)!.messages : []
+    }
     if (selectedConversationId && conversations.has(selectedConversationId)) {
       return conversations.get(selectedConversationId)!.messages
     }
@@ -975,10 +1022,16 @@ function App() {
     return firstLine.length > 100 ? firstLine.substring(0, 100) + '...' : firstLine
   }, [])
 
-  // Get preview text for PM or Standup chat (0087)
+  // Get preview text for PM, Standup, or Tools Agent chat (0087, 0107)
   const getChatTargetPreview = useCallback((target: ChatTarget): string => {
     if (target === 'project-manager' || target === 'standup') {
       const defaultConvId = getConversationId('project-manager', 1)
+      if (conversations.has(defaultConvId)) {
+        const conv = conversations.get(defaultConvId)!
+        return getConversationPreview(conv)
+      }
+    } else if (target === 'tools-agent') {
+      const defaultConvId = getConversationId('tools-agent', 1)
       if (conversations.has(defaultConvId)) {
         const conv = conversations.get(defaultConvId)!
         return getConversationPreview(conv)
@@ -2347,6 +2400,8 @@ function App() {
                       ? 'Project Manager'
                       : openChatTarget === 'standup'
                       ? 'Standup (all agents)'
+                      : openChatTarget === 'tools-agent'
+                      ? 'Tools Agent'
                       : 'Chat'}
                   </div>
                   <div className="chat-window-actions">
@@ -2632,11 +2687,12 @@ function App() {
                           value={inputValue}
                           onChange={(e) => setInputValue(e.target.value)}
                           onKeyDown={handleKeyDown}
-                          placeholder="Type a message... (Enter to send)"
+                          placeholder={selectedChatTarget === 'tools-agent' ? 'Tools Agent chat is read-only' : 'Type a message... (Enter to send)'}
                           rows={2}
+                          disabled={selectedChatTarget === 'tools-agent'}
                         />
                         <div className="composer-actions">
-                          <label className="attach-image-btn" title="Attach image">
+                          <label className="attach-image-btn" title="Attach image" style={{ display: selectedChatTarget === 'tools-agent' ? 'none' : 'block' }}>
                             <input
                               type="file"
                               accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
@@ -2646,7 +2702,7 @@ function App() {
                             />
                             📎
                           </label>
-                          <button type="button" className="send-btn" onClick={handleSend} disabled={!!imageError}>
+                          <button type="button" className="send-btn" onClick={handleSend} disabled={!!imageError || selectedChatTarget === 'tools-agent'}>
                             Send
                           </button>
                         </div>
@@ -2770,6 +2826,36 @@ function App() {
                   )}
                 </div>
                 <div className="chat-preview-text">{getChatTargetPreview('standup')}</div>
+              </div>
+
+              {/* Tools Agent (0107) */}
+              <div
+                className={`chat-preview-pane ${openChatTarget === 'tools-agent' ? 'chat-preview-active' : ''}`}
+                onClick={() => {
+                  setOpenChatTarget('tools-agent')
+                  setSelectedChatTarget('tools-agent')
+                  setSelectedConversationId(null)
+                  setUnreadByTarget((prev) => ({ ...prev, 'tools-agent': 0 }))
+                }}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    setOpenChatTarget('tools-agent')
+                    setSelectedChatTarget('tools-agent')
+                    setSelectedConversationId(null)
+                    setUnreadByTarget((prev) => ({ ...prev, 'tools-agent': 0 }))
+                  }
+                }}
+              >
+                <div className="chat-preview-header">
+                  <span className="chat-preview-name">Tools Agent</span>
+                  {unreadByTarget['tools-agent'] > 0 && (
+                    <span className="chat-preview-unread">{unreadByTarget['tools-agent']}</span>
+                  )}
+                </div>
+                <div className="chat-preview-text">{getChatTargetPreview('tools-agent')}</div>
               </div>
 
               {/* QA Group */}

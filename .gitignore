@@ -7,3 +7,5 @@ nul
 .env
 # Isolated worktree used by repo-write-runner (0022)
 .hal-agent-write*/
+# Tool call executions log (0107)
+.hal-tool-call-executions.json
