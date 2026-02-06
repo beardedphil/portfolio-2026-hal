@@ -27,6 +27,21 @@
    - **Rationale**: Makes it clear which chat is currently active
    - **Trade-off**: None - standard UI pattern
 
+6. **Agent status boxes at bottom of Chat pane**
+   - **Decision**: Status boxes appear at bottom of Chat pane, only for working agents
+   - **Rationale**: Provides at-a-glance view of active agent work without cluttering the preview stack
+   - **Trade-off**: Status boxes disappear when done, but this matches the requirement to hide completed agents
+
+7. **Removed full chat UI from Chat pane**
+   - **Decision**: Chat pane now only shows preview stack, no embedded chat view
+   - **Rationale**: Matches Teams-style interface where previews are separate from full chat view
+   - **Trade-off**: Full chat is only available in the chat window, but this is the intended design
+
+8. **Status box filtering**
+   - **Decision**: Status boxes only show for agents that are working (not idle, not completed)
+   - **Rationale**: Keeps UI clean and only shows relevant information
+   - **Trade-off**: Status boxes disappear when done, but this matches the requirement
+
 ## Unrequested Changes (required)
 
 None - all changes are directly related to the ticket requirements.

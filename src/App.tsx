@@ -869,6 +869,22 @@ function App() {
     return 'No messages yet'
   }, [conversations, getConversationPreview])
 
+  // Format agent status for display (0087)
+  const formatAgentStatus = useCallback((status: typeof implAgentRunStatus | typeof qaAgentRunStatus): string => {
+    if (status === 'preparing') return 'Preparing'
+    if (status === 'fetching_ticket') return 'Fetching ticket'
+    if (status === 'resolving_repo') return 'Resolving repository'
+    if (status === 'fetching_branch') return 'Finding branch'
+    if (status === 'launching') return 'Launching'
+    if (status === 'polling') return 'Running'
+    if (status === 'generating_report') return 'Generating report'
+    if (status === 'merging') return 'Merging'
+    if (status === 'moving_ticket') return 'Moving ticket'
+    if (status === 'completed') return 'Done'
+    if (status === 'failed') return 'Failed'
+    return 'Idle'
+  }, [])
+
   // Auto-scroll transcript to bottom when messages or typing indicator change
   useEffect(() => {
     if (transcriptRef.current) {
@@ -2652,518 +2668,44 @@ function App() {
                 Use the "Connect GitHub Repo" button above to connect a project and start chatting with agents.
               </p>
             </div>
-          ) : (
-            <>
-              {selectedChatTarget === 'implementation-agent' && (
-                <>
-                  <div className="agent-stub-banner" role="status">
-                    <p className="agent-stub-title">Implementation Agent — Cursor Cloud Agents</p>
-                    <p className="agent-stub-hint">
-                      {import.meta.env.VITE_CURSOR_API_KEY
-                        ? 'Say "Implement ticket XXXX" (e.g. Implement ticket 0046) to fetch the ticket, launch a Cursor cloud agent, and move the ticket to QA when done.'
-                        : 'Cursor API is not configured. Set CURSOR_API_KEY and VITE_CURSOR_API_KEY in .env to enable.'}
-                    </p>
+          ) : null}
+
+          {/* Agent Status Boxes (0087) - shown at bottom of Chat pane for working agents only */}
+          {connectedProject && (
+            <div className="agent-status-boxes">
+              {/* Implementation Agent status box - only show when working (not idle, not completed) */}
+              {implAgentRunStatus !== 'idle' && implAgentRunStatus !== 'completed' && (
+                <div className="agent-status-box">
+                  <div className="agent-status-box-header">
+                    <span className="agent-status-box-name">Implementation Agent</span>
+                    <span className={`agent-status-box-status agent-status-${implAgentRunStatus}`}>
+                      {formatAgentStatus(implAgentRunStatus)}
+                    </span>
                   </div>
-                  {/* Persistent status panel (0050) */}
-                  {(implAgentRunStatus !== 'idle' || implAgentError) && (
-                    <div className="impl-agent-status-panel" role="status" aria-live="polite">
-                      <div className="impl-agent-status-header">
-                        <span className="impl-agent-status-label">Status:</span>
-                        <span className={`impl-agent-status-value impl-status-${implAgentRunStatus}`}>
-                          {implAgentRunStatus === 'preparing' ? 'Preparing' :
-                           implAgentRunStatus === 'fetching_ticket' ? 'Fetching ticket' :
-                           implAgentRunStatus === 'resolving_repo' ? 'Resolving repository' :
-                           implAgentRunStatus === 'launching' ? 'Launching agent' :
-                           implAgentRunStatus === 'polling' ? 'Running' :
-                           implAgentRunStatus === 'completed' ? 'Completed' :
-                           implAgentRunStatus === 'failed' ? 'Failed' : 'Idle'}
-                        </span>
-                      </div>
-                      {implAgentError && (
-                        <div className="impl-agent-error" role="alert">
-                          <strong>Error:</strong> {implAgentError}
-                        </div>
-                      )}
-                      {implAgentProgress.length > 0 && (
-                        <div className="impl-agent-progress-feed">
-                          <div className="impl-agent-progress-label">Progress:</div>
-                          <div className="impl-agent-progress-items">
-                            {implAgentProgress.slice(-5).map((p, idx) => (
-                              <div key={idx} className="impl-agent-progress-item">
-                                <span className="impl-agent-progress-time">[{formatTime(p.timestamp)}]</span>
-                                <span className="impl-agent-progress-message">{p.message}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </>
-              )}
-              {selectedChatTarget === 'qa-agent' && (
-                <>
-                  <div className="agent-stub-banner" role="status">
-                    <p className="agent-stub-title">QA Agent — Cursor Cloud Agents</p>
-                    <p className="agent-stub-hint">
-                      {import.meta.env.VITE_CURSOR_API_KEY
-                        ? 'Say "QA ticket XXXX" (e.g. QA ticket 0046) to review the ticket implementation, generate a QA report, and merge to main if it passes.'
-                        : 'Cursor API is not configured. Set CURSOR_API_KEY and VITE_CURSOR_API_KEY in .env to enable.'}
-                    </p>
-                  </div>
-                  {/* Persistent status panel (0062) */}
-                  {(qaAgentRunStatus !== 'idle' || qaAgentError) && (
-                    <div className="impl-agent-status-panel" role="status" aria-live="polite">
-                      <div className="impl-agent-status-header">
-                        <span className="impl-agent-status-label">Status:</span>
-                        <span className={`impl-agent-status-value impl-status-${qaAgentRunStatus}`}>
-                          {qaAgentRunStatus === 'preparing' ? 'Preparing' :
-                           qaAgentRunStatus === 'fetching_ticket' ? 'Fetching ticket' :
-                           qaAgentRunStatus === 'fetching_branch' ? 'Finding branch' :
-                           qaAgentRunStatus === 'launching' ? 'Launching QA' :
-                           qaAgentRunStatus === 'polling' ? 'Reviewing' :
-                           qaAgentRunStatus === 'generating_report' ? 'Generating report' :
-                           qaAgentRunStatus === 'merging' ? 'Merging' :
-                           qaAgentRunStatus === 'moving_ticket' ? 'Moving ticket' :
-                           qaAgentRunStatus === 'completed' ? 'Completed' :
-                           qaAgentRunStatus === 'failed' ? 'Failed' : 'Idle'}
-                        </span>
-                      </div>
-                      {qaAgentError && (
-                        <div className="impl-agent-error" role="alert">
-                          <strong>Error:</strong> {qaAgentError}
-                        </div>
-                      )}
-                      {qaAgentProgress.length > 0 && (
-                        <div className="impl-agent-progress-feed">
-                          <div className="impl-agent-progress-label">Progress:</div>
-                          <div className="impl-agent-progress-items">
-                            {qaAgentProgress.slice(-5).map((p, idx) => (
-                              <div key={idx} className="impl-agent-progress-item">
-                                <span className="impl-agent-progress-time">[{formatTime(p.timestamp)}]</span>
-                                <span className="impl-agent-progress-message">{p.message}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </>
-              )}
-              {/* Conversation list for Implementation and QA agents (0070) */}
-              {(selectedChatTarget === 'implementation-agent' || selectedChatTarget === 'qa-agent') && !conversationModalOpen ? (
-                <div className="conversation-list">
-                  {getConversationsForAgent(selectedChatTarget).length === 0 ? (
-                    <div className="conversation-list-empty">
-                      <p>No conversations yet. Click a work button in the Kanban column header to start a new conversation.</p>
-                    </div>
-                  ) : (
-                    <div className="conversation-cards">
-                      {getConversationsForAgent(selectedChatTarget).map((conv) => (
-                        <div
-                          key={conv.id}
-                          className="conversation-card"
-                          onClick={() => {
-                            setSelectedConversationId(conv.id)
-                            setConversationModalOpen(true)
-                          }}
-                          role="button"
-                          tabIndex={0}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault()
-                              setSelectedConversationId(conv.id)
-                              setConversationModalOpen(true)
-                            }
-                          }}
-                        >
-                          <div className="conversation-card-header">
-                            <span className="conversation-card-label">{getConversationLabel(conv)}</span>
-                          </div>
-                          <div className="conversation-card-preview">{getConversationPreview(conv)}</div>
-                        </div>
-                      ))}
+                  {implAgentError && (
+                    <div className="agent-status-box-error" role="alert">
+                      {implAgentError}
                     </div>
                   )}
                 </div>
-              ) : (
-                <>
-                  {/* Modal for viewing conversation thread (0070) */}
-                  {conversationModalOpen && selectedConversationId && conversations.has(selectedConversationId) ? (
-                    <div className="conversation-modal-overlay" onClick={() => {
-                      setConversationModalOpen(false)
-                      setSelectedConversationId(null)
-                    }}>
-                      <div className="conversation-modal" onClick={(e) => e.stopPropagation()}>
-                        <div className="conversation-modal-header">
-                          <h3>{getConversationLabel(conversations.get(selectedConversationId)!)}</h3>
-                          <button
-                            type="button"
-                            className="conversation-modal-close"
-                            onClick={() => {
-                              setConversationModalOpen(false)
-                              setSelectedConversationId(null)
-                            }}
-                            aria-label="Close conversation"
-                          >
-                            ×
-                          </button>
-                        </div>
-                        <div className="conversation-modal-content">
-                          <div className="chat-transcript" ref={transcriptRef}>
-                            {activeMessages.length === 0 && !agentTypingTarget ? (
-                              <p className="transcript-empty">No messages yet. Start a conversation.</p>
-                            ) : (
-                              <>
-                                {activeMessages.map((msg) => (
-                      <div
-                        key={msg.id}
-                        className={`message-row message-row-${msg.agent}`}
-                        data-agent={msg.agent}
-                      >
-                        <div className={`message message-${msg.agent}`}>
-                          <div className="message-header">
-                            <span className="message-author">{getMessageAuthorLabel(msg.agent)}</span>
-                            <span className="message-time">[{formatTime(msg.timestamp)}]</span>
-                            {msg.imageAttachments && msg.imageAttachments.length > 0 && (
-                              <span className="message-image-indicator" title={`${msg.imageAttachments.length} image${msg.imageAttachments.length > 1 ? 's' : ''} attached`}>
-                                📎 {msg.imageAttachments.length}
-                              </span>
-                            )}
-                          </div>
-                          {msg.imageAttachments && msg.imageAttachments.length > 0 && (
-                            <div className="message-images">
-                              {msg.imageAttachments.map((img, idx) => (
-                                <div key={idx} className="message-image-container">
-                                  <img src={img.dataUrl} alt={img.filename} className="message-image-thumbnail" />
-                                  <span className="message-image-filename">{img.filename}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          {msg.content.trimStart().startsWith('{') ? (
-                            <pre className="message-content message-json">{msg.content}</pre>
-                          ) : (
-                            <span className="message-content">{msg.content}</span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                    {agentTypingTarget === selectedChatTarget && (
-                      <div className="message-row message-row-typing" data-agent="typing" aria-live="polite">
-                        <div className="message message-typing">
-                          <div className="message-header">
-                            <span className="message-author">HAL</span>
-                          </div>
-                          {selectedChatTarget === 'implementation-agent' ? (
-                            <div className="impl-agent-status-timeline" role="status">
-                              <span className={implAgentRunStatus === 'preparing' ? 'impl-status-active' : ['fetching_ticket', 'resolving_repo', 'launching', 'polling', 'completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
-                                Preparing
-                              </span>
-                              <span className="impl-status-arrow">→</span>
-                              <span className={implAgentRunStatus === 'fetching_ticket' ? 'impl-status-active' : ['resolving_repo', 'launching', 'polling', 'completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
-                                Fetching ticket
-                              </span>
-                              <span className="impl-status-arrow">→</span>
-                              <span className={implAgentRunStatus === 'resolving_repo' ? 'impl-status-active' : ['launching', 'polling', 'completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
-                                Resolving repo
-                              </span>
-                              <span className="impl-status-arrow">→</span>
-                              <span className={implAgentRunStatus === 'launching' ? 'impl-status-active' : ['polling', 'completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
-                                Launching agent
-                              </span>
-                              <span className="impl-status-arrow">→</span>
-                              <span className={implAgentRunStatus === 'polling' ? 'impl-status-active' : ['completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
-                                Running
-                              </span>
-                              <span className="impl-status-arrow">→</span>
-                              <span className={implAgentRunStatus === 'completed' ? 'impl-status-done' : implAgentRunStatus === 'failed' ? 'impl-status-failed' : ''}>
-                                {implAgentRunStatus === 'completed' ? 'Completed' : implAgentRunStatus === 'failed' ? 'Failed' : '…'}
-                              </span>
-                            </div>
-                          ) : selectedChatTarget === 'qa-agent' ? (
-                            <div className="impl-agent-status-timeline" role="status">
-                              <span className={qaAgentRunStatus === 'preparing' ? 'impl-status-active' : ['fetching_ticket', 'fetching_branch', 'launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                Preparing
-                              </span>
-                              <span className="impl-status-arrow">→</span>
-                              <span className={qaAgentRunStatus === 'fetching_ticket' ? 'impl-status-active' : ['fetching_branch', 'launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                Fetching ticket
-                              </span>
-                              <span className="impl-status-arrow">→</span>
-                              <span className={qaAgentRunStatus === 'fetching_branch' ? 'impl-status-active' : ['launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                Finding branch
-                              </span>
-                              <span className="impl-status-arrow">→</span>
-                              <span className={qaAgentRunStatus === 'launching' ? 'impl-status-active' : ['polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                Launching QA
-                              </span>
-                              <span className="impl-status-arrow">→</span>
-                              <span className={qaAgentRunStatus === 'polling' ? 'impl-status-active' : ['generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                Reviewing
-                              </span>
-                              <span className="impl-status-arrow">→</span>
-                              <span className={qaAgentRunStatus === 'generating_report' ? 'impl-status-active' : ['merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                Generating report
-                              </span>
-                              <span className="impl-status-arrow">→</span>
-                              <span className={qaAgentRunStatus === 'merging' ? 'impl-status-active' : ['moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                Merging
-                              </span>
-                              <span className="impl-status-arrow">→</span>
-                              <span className={qaAgentRunStatus === 'moving_ticket' ? 'impl-status-active' : ['completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                Moving ticket
-                              </span>
-                              <span className="impl-status-arrow">→</span>
-                              <span className={qaAgentRunStatus === 'completed' ? 'impl-status-done' : qaAgentRunStatus === 'failed' ? 'impl-status-failed' : ''}>
-                                {qaAgentRunStatus === 'completed' ? 'Completed' : qaAgentRunStatus === 'failed' ? 'Failed' : '…'}
-                              </span>
-                            </div>
-                          ) : (
-                            <span className="typing-bubble">
-                              <span className="typing-label">Thinking</span>
-                              <span className="typing-dots">
-                                <span className="typing-dot" />
-                                <span className="typing-dot" />
-                                <span className="typing-dot" />
-                              </span>
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-                          </div>
-                          <div className="conversation-modal-composer">
-                            {imageAttachment && (
-                              <div className="image-attachment-preview">
-                                <img src={imageAttachment.dataUrl} alt={imageAttachment.filename} className="attachment-thumbnail" />
-                                <span className="attachment-filename">{imageAttachment.filename}</span>
-                                <button type="button" className="remove-attachment-btn" onClick={handleRemoveImage} aria-label="Remove attachment">
-                                  ×
-                                </button>
-                              </div>
-                            )}
-                            {imageError && (
-                              <div className="image-error-message" role="alert">
-                                {imageError}
-                              </div>
-                            )}
-                            {sendValidationError && (
-                              <div className="image-error-message" role="alert">
-                                {sendValidationError}
-                              </div>
-                            )}
-                            <div className="composer-input-row">
-                              <textarea
-                                className="message-input"
-                                value={inputValue}
-                                onChange={(e) => setInputValue(e.target.value)}
-                                onKeyDown={handleKeyDown}
-                                placeholder="Type a message... (Enter to send)"
-                                rows={2}
-                              />
-                              <div className="composer-actions">
-                                <label className="attach-image-btn" title="Attach image">
-                                  <input
-                                    type="file"
-                                    accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
-                                    onChange={handleImageSelect}
-                                    style={{ display: 'none' }}
-                                    aria-label="Attach image"
-                                  />
-                                  📎
-                                </label>
-                                <button type="button" className="send-btn" onClick={handleSend} disabled={!!imageError}>
-                                  Send
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
+              )}
+              {/* QA Agent status box - only show when working (not idle, not completed) */}
+              {qaAgentRunStatus !== 'idle' && qaAgentRunStatus !== 'completed' && (
+                <div className="agent-status-box">
+                  <div className="agent-status-box-header">
+                    <span className="agent-status-box-name">QA Agent</span>
+                    <span className={`agent-status-box-status agent-status-${qaAgentRunStatus}`}>
+                      {formatAgentStatus(qaAgentRunStatus)}
+                    </span>
+                  </div>
+                  {qaAgentError && (
+                    <div className="agent-status-box-error" role="alert">
+                      {qaAgentError}
                     </div>
-                  ) : (
-                    <>
-                      {/* Regular chat UI for PM and Standup (0070) */}
-                      <div className="chat-transcript" ref={transcriptRef}>
-                        {activeMessages.length === 0 && !agentTypingTarget ? (
-                          <p className="transcript-empty">No messages yet. Start a conversation.</p>
-                        ) : (
-                          <>
-                            {activeMessages.map((msg) => (
-                              <div
-                                key={msg.id}
-                                className={`message-row message-row-${msg.agent}`}
-                                data-agent={msg.agent}
-                              >
-                                <div className={`message message-${msg.agent}`}>
-                                  <div className="message-header">
-                                    <span className="message-author">{getMessageAuthorLabel(msg.agent)}</span>
-                                    <span className="message-time">[{formatTime(msg.timestamp)}]</span>
-                                    {msg.imageAttachments && msg.imageAttachments.length > 0 && (
-                                      <span className="message-image-indicator" title={`${msg.imageAttachments.length} image${msg.imageAttachments.length > 1 ? 's' : ''} attached`}>
-                                        📎 {msg.imageAttachments.length}
-                                      </span>
-                                    )}
-                                  </div>
-                                  {msg.imageAttachments && msg.imageAttachments.length > 0 && (
-                                    <div className="message-images">
-                                      {msg.imageAttachments.map((img, idx) => (
-                                        <div key={idx} className="message-image-container">
-                                          <img src={img.dataUrl} alt={img.filename} className="message-image-thumbnail" />
-                                          <span className="message-image-filename">{img.filename}</span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-                                  {msg.content.trimStart().startsWith('{') ? (
-                                    <pre className="message-content message-json">{msg.content}</pre>
-                                  ) : (
-                                    <span className="message-content">{msg.content}</span>
-                                  )}
-                                </div>
-                              </div>
-                            ))}
-                            {agentTypingTarget === selectedChatTarget && (
-                              <div className="message-row message-row-typing" data-agent="typing" aria-live="polite">
-                                <div className="message message-typing">
-                                  <div className="message-header">
-                                    <span className="message-author">HAL</span>
-                                  </div>
-                                  {selectedChatTarget === 'implementation-agent' ? (
-                                    <div className="impl-agent-status-timeline" role="status">
-                                      <span className={implAgentRunStatus === 'preparing' ? 'impl-status-active' : ['fetching_ticket', 'resolving_repo', 'launching', 'polling', 'completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
-                                        Preparing
-                                      </span>
-                                      <span className="impl-status-arrow">→</span>
-                                      <span className={implAgentRunStatus === 'fetching_ticket' ? 'impl-status-active' : ['resolving_repo', 'launching', 'polling', 'completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
-                                        Fetching ticket
-                                      </span>
-                                      <span className="impl-status-arrow">→</span>
-                                      <span className={implAgentRunStatus === 'resolving_repo' ? 'impl-status-active' : ['launching', 'polling', 'completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
-                                        Resolving repo
-                                      </span>
-                                      <span className="impl-status-arrow">→</span>
-                                      <span className={implAgentRunStatus === 'launching' ? 'impl-status-active' : ['polling', 'completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
-                                        Launching agent
-                                      </span>
-                                      <span className="impl-status-arrow">→</span>
-                                      <span className={implAgentRunStatus === 'polling' ? 'impl-status-active' : ['completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
-                                        Running
-                                      </span>
-                                      <span className="impl-status-arrow">→</span>
-                                      <span className={implAgentRunStatus === 'completed' ? 'impl-status-done' : implAgentRunStatus === 'failed' ? 'impl-status-failed' : ''}>
-                                        {implAgentRunStatus === 'completed' ? 'Completed' : implAgentRunStatus === 'failed' ? 'Failed' : '…'}
-                                      </span>
-                                    </div>
-                                  ) : selectedChatTarget === 'qa-agent' ? (
-                                    <div className="impl-agent-status-timeline" role="status">
-                                      <span className={qaAgentRunStatus === 'preparing' ? 'impl-status-active' : ['fetching_ticket', 'fetching_branch', 'launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                        Preparing
-                                      </span>
-                                      <span className="impl-status-arrow">→</span>
-                                      <span className={qaAgentRunStatus === 'fetching_ticket' ? 'impl-status-active' : ['fetching_branch', 'launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                        Fetching ticket
-                                      </span>
-                                      <span className="impl-status-arrow">→</span>
-                                      <span className={qaAgentRunStatus === 'fetching_branch' ? 'impl-status-active' : ['launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                        Finding branch
-                                      </span>
-                                      <span className="impl-status-arrow">→</span>
-                                      <span className={qaAgentRunStatus === 'launching' ? 'impl-status-active' : ['polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                        Launching QA
-                                      </span>
-                                      <span className="impl-status-arrow">→</span>
-                                      <span className={qaAgentRunStatus === 'polling' ? 'impl-status-active' : ['generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                        Reviewing
-                                      </span>
-                                      <span className="impl-status-arrow">→</span>
-                                      <span className={qaAgentRunStatus === 'generating_report' ? 'impl-status-active' : ['merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                        Generating report
-                                      </span>
-                                      <span className="impl-status-arrow">→</span>
-                                      <span className={qaAgentRunStatus === 'merging' ? 'impl-status-active' : ['moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                        Merging
-                                      </span>
-                                      <span className="impl-status-arrow">→</span>
-                                      <span className={qaAgentRunStatus === 'moving_ticket' ? 'impl-status-active' : ['completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                        Moving ticket
-                                      </span>
-                                      <span className="impl-status-arrow">→</span>
-                                      <span className={qaAgentRunStatus === 'completed' ? 'impl-status-done' : qaAgentRunStatus === 'failed' ? 'impl-status-failed' : ''}>
-                                        {qaAgentRunStatus === 'completed' ? 'Completed' : qaAgentRunStatus === 'failed' ? 'Failed' : '…'}
-                                      </span>
-                                    </div>
-                                  ) : (
-                                    <span className="typing-bubble">
-                                      <span className="typing-label">Thinking</span>
-                                      <span className="typing-dots">
-                                        <span className="typing-dot" />
-                                        <span className="typing-dot" />
-                                        <span className="typing-dot" />
-                                      </span>
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-                          </>
-                        )}
-                      </div>
-                      <div className="chat-composer">
-                {imageAttachment && (
-                  <div className="image-attachment-preview">
-                    <img src={imageAttachment.dataUrl} alt={imageAttachment.filename} className="attachment-thumbnail" />
-                    <span className="attachment-filename">{imageAttachment.filename}</span>
-                    <button type="button" className="remove-attachment-btn" onClick={handleRemoveImage} aria-label="Remove attachment">
-                      ×
-                    </button>
-                  </div>
-                )}
-                {imageError && (
-                  <div className="image-error-message" role="alert">
-                    {imageError}
-                  </div>
-                )}
-                {sendValidationError && (
-                  <div className="image-error-message" role="alert">
-                    {sendValidationError}
-                  </div>
-                )}
-                <div className="composer-input-row">
-                  <textarea
-                    className="message-input"
-                    value={inputValue}
-                    onChange={(e) => setInputValue(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder="Type a message... (Enter to send)"
-                    rows={2}
-                  />
-                  <div className="composer-actions">
-                    <label className="attach-image-btn" title="Attach image">
-                      <input
-                        type="file"
-                        accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
-                        onChange={handleImageSelect}
-                        style={{ display: 'none' }}
-                        aria-label="Attach image"
-                      />
-                      📎
-                    </label>
-                    <button type="button" className="send-btn" onClick={handleSend} disabled={!!imageError}>
-                      Send
-                    </button>
-                  </div>
+                  )}
                 </div>
-              </div>
-            </>
-          )}
-          </>
-          )}
-          </>
+              )}
+            </div>
           )}
 
           {/* Configuration Status Panel (0042) */}

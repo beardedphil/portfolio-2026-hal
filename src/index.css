@@ -497,6 +497,85 @@ body {
 .chat-preview-nested {
   margin-bottom: 0.25rem;
   margin-left: 1.5rem;
+}
+
+/* Agent Status Boxes (0087) */
+.agent-status-boxes {
+  margin-top: auto;
+  padding: 0.75rem;
+  border-top: 1px solid var(--hal-border);
+  background: var(--hal-surface-alt);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.agent-status-box {
+  padding: 0.6rem;
+  background: var(--hal-surface);
+  border: 1px solid var(--hal-border);
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+.agent-status-box-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.25rem;
+}
+
+.agent-status-box-name {
+  font-weight: 600;
+  color: var(--hal-text);
+}
+
+.agent-status-box-status {
+  font-size: 0.8rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.agent-status-preparing,
+.agent-status-fetching_ticket,
+.agent-status-resolving_repo,
+.agent-status-fetching_branch,
+.agent-status-launching,
+.agent-status-polling,
+.agent-status-generating_report,
+.agent-status-merging,
+.agent-status-moving_ticket {
+  background: var(--hal-purple-100);
+  color: var(--hal-purple-700);
+}
+
+[data-theme='dark'] .agent-status-preparing,
+[data-theme='dark'] .agent-status-fetching_ticket,
+[data-theme='dark'] .agent-status-resolving_repo,
+[data-theme='dark'] .agent-status-fetching_branch,
+[data-theme='dark'] .agent-status-launching,
+[data-theme='dark'] .agent-status-polling,
+[data-theme='dark'] .agent-status-generating_report,
+[data-theme='dark'] .agent-status-merging,
+[data-theme='dark'] .agent-status-moving_ticket {
+  background: var(--hal-purple-600);
+  color: var(--hal-purple-200);
+}
+
+.agent-status-failed {
+  background: var(--hal-status-error);
+  color: white;
+}
+
+.agent-status-box-error {
+  font-size: 0.75rem;
+  color: var(--hal-status-error);
+  margin-top: 0.25rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--hal-border);
+}
   margin-right: 0.25rem;
 }
 

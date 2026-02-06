@@ -63,9 +63,29 @@
 - [ ] Expand Implementation group when no Implementation agents are running
 - [ ] Verify "No Implementation agents running" message is shown
 
+### 9. Chat Pane Only Shows Preview Stack
+- [ ] Verify Chat pane (right panel) shows only the preview stack
+- [ ] Verify no embedded chat transcript is visible in Chat pane
+- [ ] Verify no chat composer is visible in Chat pane
+- [ ] Verify no agent stub banners are visible in Chat pane (when no chat is open)
+- [ ] Verify no status panels are visible in Chat pane (when no chat is open)
+
+### 10. Agent Status Boxes
+- [ ] Verify agent status boxes section appears at bottom of Chat pane
+- [ ] When Implementation agent is working (not idle, not completed), verify "Implementation Agent" status box appears
+- [ ] Verify status box shows agent name ("Implementation Agent") and current status (e.g., "Running", "Preparing")
+- [ ] When QA agent is working (not idle, not completed), verify "QA Agent" status box appears
+- [ ] When Implementation agent reaches "Done" state, verify its status box disappears
+- [ ] When QA agent reaches "Done" state, verify its status box disappears
+- [ ] When both agents are idle, verify no status boxes are shown
+- [ ] Verify status boxes show error messages if agent errors occur
+
 ## Expected Behavior
 
 - Preview stack is always visible in right panel when project is connected
+- Chat pane shows only preview stack (no embedded full chat view)
+- Agent status boxes appear at bottom of Chat pane for working agents only
+- Status boxes disappear when agents reach "Done" state
 - Clicking a preview opens that chat in the Kanban region
 - Chat window replaces Kanban iframe completely
 - Closing chat restores Kanban iframe
