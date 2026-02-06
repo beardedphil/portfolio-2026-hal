@@ -65,6 +65,22 @@ function parseTicketNumber(ref: string): number | null {
   return Number.isFinite(n) ? n : null
 }
 
+/** Normalize body so Ready-to-start evaluator finds sections: ## and exact titles (LLMs often output # or shortened titles). */
+function normalizeBodyForReady(bodyMd: string): string {
+  let out = bodyMd.trim()
+  const replacements: [RegExp, string][] = [
+    [/^# Goal\s*$/gm, '## Goal (one sentence)'],
+    [/^# Human-verifiable deliverable\s*$/gm, '## Human-verifiable deliverable (UI-only)'],
+    [/^# Acceptance criteria\s*$/gm, '## Acceptance criteria (UI-only)'],
+    [/^# Constraints\s*$/gm, '## Constraints'],
+    [/^# Non-goals\s*$/gm, '## Non-goals'],
+  ]
+  for (const [re, replacement] of replacements) {
+    out = out.replace(re, replacement)
+  }
+  return out
+}
+
 /** Extract section body after a ## Section Title line (first line after blank line or next ##). */
 function sectionContent(body: string, sectionTitle: string): string {
   const re = new RegExp(
@@ -605,7 +621,7 @@ export async function runPmAgent(
             let out: CreateResult
             try {
               // Validate for unresolved placeholders BEFORE any database operations (0066)
-              const bodyMdTrimmed = input.body_md.trim()
+              let bodyMdTrimmed = input.body_md.trim()
               const placeholders = bodyMdTrimmed.match(PLACEHOLDER_RE) ?? []
               if (placeholders.length > 0) {
                 const uniquePlaceholders = [...new Set(placeholders)]
@@ -617,6 +633,8 @@ export async function runPmAgent(
                 toolCalls.push({ name: 'create_ticket', input, output: out })
                 return out
               }
+              // Normalize headings so stored ticket passes Ready-to-start (## and exact section titles)
+              bodyMdTrimmed = normalizeBodyForReady(bodyMdTrimmed)
 
               const repoFullName =
                 typeof config.projectId === 'string' && config.projectId.trim() ? config.projectId.trim() : 'legacy/unknown'
@@ -911,7 +929,7 @@ export async function runPmAgent(
           let out: UpdateResult
           try {
             // Validate for unresolved placeholders BEFORE any database operations (0066)
-            const bodyMdTrimmed = input.body_md.trim()
+            let bodyMdTrimmed = input.body_md.trim()
             const placeholders = bodyMdTrimmed.match(PLACEHOLDER_RE) ?? []
             if (placeholders.length > 0) {
               const uniquePlaceholders = [...new Set(placeholders)]
@@ -923,6 +941,8 @@ export async function runPmAgent(
               toolCalls.push({ name: 'update_ticket_body', input, output: out })
               return out
             }
+            // Normalize headings so stored ticket passes Ready-to-start (## and exact section titles)
+            bodyMdTrimmed = normalizeBodyForReady(bodyMdTrimmed)
 
             if (!ticketNumber) {
               out = { success: false, error: `Could not parse ticket number from "${input.ticket_id}".` }

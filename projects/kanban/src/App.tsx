@@ -33,7 +33,7 @@ import { createClient } from '@supabase/supabase-js'
 import ReactMarkdown from 'react-markdown'
 
 type LogEntry = { id: number; message: string; at: string }
-type Card = { id: string; title: string }
+type Card = { id: string; title: string; /** Display id for work button (e.g. HAL-0081); when card id is Supabase pk, used for message. */ displayId?: string }
 type Column = { id: string; title: string; cardIds: string[] }
 
 /** Supabase tickets table row (read-only v0) */
@@ -489,21 +489,23 @@ function SortableColumn({
     transition,
   }
 
-  // Get top ticket ID from column
-  const topTicketId = col.cardIds.length > 0 ? extractTicketId(col.cardIds[0]) : null
-  const hasTickets = col.cardIds.length > 0 && topTicketId != null
+  // Has tickets: column has cards (cardIds may be Supabase pk UUIDs, so don't rely on extractTicketId)
+  const hasTickets = col.cardIds.length > 0
+  const firstCard = hasTickets ? cards[col.cardIds[0]] : null
+  const topTicketId = firstCard ? (firstCard.displayId ?? extractTicketId(firstCard.id) ?? null) : null
 
   // Determine if this column should show a work button
   const shouldShowWorkButton = col.id === 'col-unassigned' || col.id === 'col-todo' || col.id === 'col-qa'
   
+  const ticketRef = topTicketId ?? firstCard?.id ?? 'top'
   // Get button label and chat target based on column
   const getButtonConfig = () => {
     if (col.id === 'col-unassigned') {
-      return { label: 'Prepare top ticket', chatTarget: 'project-manager', message: `Please prepare ticket ${topTicketId} and get it ready (Definition of Ready).` }
+      return { label: 'Prepare top ticket', chatTarget: 'project-manager', message: `Please prepare ticket ${ticketRef} and get it ready (Definition of Ready).` }
     } else if (col.id === 'col-todo') {
-      return { label: 'Implement top ticket', chatTarget: 'implementation-agent', message: `Implement ticket ${topTicketId}.` }
+      return { label: 'Implement top ticket', chatTarget: 'implementation-agent', message: `Implement ticket ${ticketRef}.` }
     } else if (col.id === 'col-qa') {
-      return { label: 'QA top ticket', chatTarget: 'qa-agent', message: `QA ticket ${topTicketId}.` }
+      return { label: 'QA top ticket', chatTarget: 'qa-agent', message: `QA ticket ${ticketRef}.` }
     }
     return null
   }
@@ -750,7 +752,8 @@ function App() {
     for (const t of supabaseTickets) {
       const cleanTitle = t.title.replace(/^(?:[A-Za-z0-9]{2,10}-)?\d{4}\s*[—–-]\s*/, '')
       const display = t.display_id ? `${t.display_id} — ${cleanTitle}` : t.title
-      map[t.pk] = { id: t.pk, title: display }
+      const displayId = (t.display_id ?? (t.id ? String(t.id).padStart(4, '0') : undefined)) ?? undefined
+      map[t.pk] = { id: t.pk, title: display, displayId }
     }
     return map
   }, [supabaseTickets])

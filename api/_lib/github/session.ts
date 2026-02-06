@@ -20,6 +20,9 @@ declare module 'iron-session' {
   interface IronSessionData extends HalSessionData {}
 }
 
+/** Session type for use in API handlers (includes github when authenticated). */
+export type Session = IronSession.IronSession<HalSessionData>
+
 function sessionOptions(): IronSessionOptions {
   return {
     cookieName: 'hal_session',
@@ -33,6 +36,9 @@ function sessionOptions(): IronSessionOptions {
   }
 }
 
-export async function getSession(req: IncomingMessage, res: ServerResponse) {
+export async function getSession(
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<Session> {
   return IronSession.getIronSession(req, res, sessionOptions())
 }

@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'http'
-import { getSession } from '../_lib/github/session.js'
+import { getSession, type Session } from '../_lib/github/session.js'
 import { listRepos } from '../_lib/github/githubApi.js'
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
@@ -9,7 +9,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       res.end('Method Not Allowed')
       return
     }
-    const session = await getSession(req, res)
+    const session: Session = await getSession(req, res)
     const token = session.github?.accessToken
     if (!token) {
       res.statusCode = 401
