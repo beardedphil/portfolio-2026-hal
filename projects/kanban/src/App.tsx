@@ -392,8 +392,8 @@ function ArtifactReportViewer({
 
 /** Human validation section component (0085) */
 function HumanValidationSection({
-  ticketId,
-  ticketPk,
+  ticketId: _ticketId,
+  ticketPk: _ticketPk,
   stepsToValidate,
   notes,
   onStepsChange,
@@ -538,9 +538,9 @@ function TicketDetailModal({
   columnId,
   onValidationPass,
   onValidationFail,
-  supabaseUrl,
-  supabaseKey,
-  onTicketUpdate,
+  supabaseUrl: _supabaseUrl,
+  supabaseKey: _supabaseKey,
+  onTicketUpdate: _onTicketUpdate,
 }: {
   open: boolean
   onClose: () => void
@@ -1366,85 +1366,6 @@ function App() {
     }
   }, [connectSupabase])
 
-  // Listen for postMessage from HAL parent (when embedded in iframe)
-  useEffect(() => {
-    if (!isEmbedded) return
-    
-    const handleMessage = async (event: MessageEvent) => {
-      // Only accept messages from parent origin
-      if (event.source !== window.parent) return
-      
-      const data = event.data as { type?: string; url?: string; key?: string; theme?: string; repoFullName?: string; ticketId?: string; ticketPk?: string }
-      
-      if (data.type === 'HAL_CONNECT_SUPABASE' && data.url && data.key) {
-        setProjectName('HAL-connected')
-        setSupabaseProjectUrl(data.url)
-        setSupabaseAnonKey(data.key)
-        connectSupabase(data.url, data.key)
-      } else if (data.type === 'HAL_CONNECT_REPO' && data.repoFullName) {
-        setConnectedRepoFullName(data.repoFullName)
-        setProjectName(data.repoFullName)
-        try {
-          localStorage.setItem(CONNECTED_REPO_KEY, data.repoFullName)
-        } catch {
-          // ignore
-        }
-      } else if (data.type === 'HAL_DISCONNECT') {
-        setProjectName(null)
-        setConnectedRepoFullName(null)
-        try {
-          localStorage.removeItem(CONNECTED_REPO_KEY)
-        } catch {
-          // ignore
-        }
-        setSupabaseConnectionStatus('disconnected')
-        setSupabaseTickets([])
-        setSupabaseColumnsRows([])
-      } else if (data.type === 'HAL_THEME_CHANGE' && data.theme) {
-        // Apply theme to document root (0078)
-        document.documentElement.setAttribute('data-theme', data.theme)
-      } else if (data.type === 'HAL_TICKET_IMPLEMENTATION_COMPLETE' && supabaseBoardActive && updateSupabaseTicketKanban && refetchSupabaseTickets) {
-        // Move ticket from Doing to QA when Implementation agent completes work (0084)
-        const ticketIdOrPk = data.ticketPk || data.ticketId
-        if (ticketIdOrPk) {
-          // Find ticket by PK (UUID) or by display_id (e.g. HAL-0084 or 0084)
-          let ticket = supabaseTickets.find((t) => t.pk === ticketIdOrPk)
-          if (!ticket) {
-            // Try to find by display_id
-            const normalizedId = ticketIdOrPk.replace(/^HAL-?/i, '').padStart(4, '0')
-            ticket = supabaseTickets.find((t) => {
-              const displayId = t.display_id ?? t.id
-              const normalizedDisplayId = displayId.replace(/^HAL-?/i, '').padStart(4, '0')
-              return normalizedDisplayId === normalizedId
-            })
-          }
-          // Only move if ticket is currently in Doing
-          if (ticket && ticket.kanban_column_id === 'col-doing') {
-            const targetColumn = supabaseColumns.find((c) => c.id === 'col-qa')
-            if (targetColumn) {
-              const targetPosition = targetColumn.cardIds.length
-              const movedAt = new Date().toISOString()
-              const result = await updateSupabaseTicketKanban(ticket.pk, {
-                kanban_column_id: 'col-qa',
-                kanban_position: targetPosition,
-                kanban_moved_at: movedAt,
-              })
-              if (result.ok) {
-                // Refetch after a short delay to ensure DB write is visible
-                setTimeout(() => {
-                  refetchSupabaseTickets(false)
-                }, 500)
-              }
-            }
-          }
-        }
-      }
-    }
-    
-    window.addEventListener('message', handleMessage)
-    return () => window.removeEventListener('message', handleMessage)
-  }, [isEmbedded, connectSupabase, supabaseBoardActive, supabaseTickets, supabaseColumns, updateSupabaseTicketKanban, refetchSupabaseTickets])
-
   // Supabase-only mode (0065): always use Supabase when connected, otherwise empty
   const columnsForDisplay = supabaseBoardActive ? supabaseColumns : columns
   const cardsForDisplay = supabaseBoardActive ? supabaseCards : cards
@@ -1708,6 +1629,85 @@ function App() {
     },
     [supabaseProjectUrl, supabaseAnonKey]
   )
+
+  // Listen for postMessage from HAL parent (when embedded in iframe)
+  useEffect(() => {
+    if (!isEmbedded) return
+
+    const handleMessage = async (event: MessageEvent) => {
+      // Only accept messages from parent origin
+      if (event.source !== window.parent) return
+
+      const data = event.data as { type?: string; url?: string; key?: string; theme?: string; repoFullName?: string; ticketId?: string; ticketPk?: string }
+
+      if (data.type === 'HAL_CONNECT_SUPABASE' && data.url && data.key) {
+        setProjectName('HAL-connected')
+        setSupabaseProjectUrl(data.url)
+        setSupabaseAnonKey(data.key)
+        connectSupabase(data.url, data.key)
+      } else if (data.type === 'HAL_CONNECT_REPO' && data.repoFullName) {
+        setConnectedRepoFullName(data.repoFullName)
+        setProjectName(data.repoFullName)
+        try {
+          localStorage.setItem(CONNECTED_REPO_KEY, data.repoFullName)
+        } catch {
+          // ignore
+        }
+      } else if (data.type === 'HAL_DISCONNECT') {
+        setProjectName(null)
+        setConnectedRepoFullName(null)
+        try {
+          localStorage.removeItem(CONNECTED_REPO_KEY)
+        } catch {
+          // ignore
+        }
+        setSupabaseConnectionStatus('disconnected')
+        setSupabaseTickets([])
+        setSupabaseColumnsRows([])
+      } else if (data.type === 'HAL_THEME_CHANGE' && data.theme) {
+        // Apply theme to document root (0078)
+        document.documentElement.setAttribute('data-theme', data.theme)
+      } else if (data.type === 'HAL_TICKET_IMPLEMENTATION_COMPLETE' && supabaseBoardActive && updateSupabaseTicketKanban && refetchSupabaseTickets) {
+        // Move ticket from Doing to QA when Implementation agent completes work (0084)
+        const ticketIdOrPk = data.ticketPk || data.ticketId
+        if (ticketIdOrPk) {
+          // Find ticket by PK (UUID) or by display_id (e.g. HAL-0084 or 0084)
+          let ticket = supabaseTickets.find((t) => t.pk === ticketIdOrPk)
+          if (!ticket) {
+            // Try to find by display_id
+            const normalizedId = ticketIdOrPk.replace(/^HAL-?/i, '').padStart(4, '0')
+            ticket = supabaseTickets.find((t) => {
+              const displayId = t.display_id ?? t.id
+              const normalizedDisplayId = displayId.replace(/^HAL-?/i, '').padStart(4, '0')
+              return normalizedDisplayId === normalizedId
+            })
+          }
+          // Only move if ticket is currently in Doing
+          if (ticket && ticket.kanban_column_id === 'col-doing') {
+            const targetColumn = supabaseColumns.find((c) => c.id === 'col-qa')
+            if (targetColumn) {
+              const targetPosition = targetColumn.cardIds.length
+              const movedAt = new Date().toISOString()
+              const result = await updateSupabaseTicketKanban(ticket.pk, {
+                kanban_column_id: 'col-qa',
+                kanban_position: targetPosition,
+                kanban_moved_at: movedAt,
+              })
+              if (result.ok) {
+                // Refetch after a short delay to ensure DB write is visible
+                setTimeout(() => {
+                  refetchSupabaseTickets(false)
+                }, 500)
+              }
+            }
+          }
+        }
+      }
+    }
+
+    window.addEventListener('message', handleMessage)
+    return () => window.removeEventListener('message', handleMessage)
+  }, [isEmbedded, connectSupabase, supabaseBoardActive, supabaseTickets, supabaseColumns, updateSupabaseTicketKanban, refetchSupabaseTickets])
 
   /** Delete a ticket from Supabase (Supabase-only mode, 0065). */
   const handleDeleteTicket = useCallback(
@@ -2588,7 +2588,6 @@ function App() {
             }
             
             // Prepend human feedback to body (visually emphasized)
-            const timestamp = new Date().toISOString()
             const feedbackSection = `## ⚠️ Human Feedback (${new Date().toLocaleString()})
 
 **Validation failed** — Ticket moved back to To Do for rework.
