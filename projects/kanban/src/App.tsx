@@ -292,10 +292,22 @@ function getAgentTypeDisplayName(agentType: string): string {
 /** Extract feature branch name from ticket body (0113) */
 function extractFeatureBranch(bodyMd: string): string | null {
   if (!bodyMd) return null
-  // Look for "**Branch**: `ticket/...`" or "**Branch**: ticket/..." in QA section
-  const branchMatch = bodyMd.match(/\*\*Branch\*\*:\s*`?([^`\n]+)`?/i)
-  if (branchMatch && branchMatch[1]) {
-    return branchMatch[1].trim()
+  // Look for "**Branch**: `ticket/...`" or "- **Branch**: ticket/..." in QA section
+  // Also handle "Branch:" without markdown bold
+  const branchPatterns = [
+    /(?:^|\n)\s*[-*]?\s*\*\*Branch\*\*:\s*`?([^`\n]+)`?/i,  // "- **Branch**: `branch`" or "**Branch**: `branch`"
+    /(?:^|\n)\s*[-*]?\s*Branch:\s*`?([^`\n]+)`?/i,           // "- Branch: `branch`" or "Branch: `branch`"
+    /QA.*?Branch[:\s]+`?([^`\n]+)`?/i,                       // "QA Branch: `branch`" or similar
+  ]
+  for (const pattern of branchPatterns) {
+    const match = bodyMd.match(pattern)
+    if (match && match[1]) {
+      const branch = match[1].trim()
+      // Only return if it looks like a branch name (starts with ticket/ or contains /)
+      if (branch.includes('/') || branch.startsWith('ticket/')) {
+        return branch
+      }
+    }
   }
   return null
 }
@@ -310,8 +322,11 @@ function extractMergeStatus(bodyMd: string): { merged: boolean; timestamp: strin
     /merged\s+to\s+`?main`?\s*[:\-]?\s*true/i,
     /\*\*Merged\s+to\s+main\*\*:\s*yes/i,
     /\*\*Merged\s+to\s+main\*\*:\s*true/i,
+    /\*\*Merged\s+to\s+main\*\*:\s*Yes/i,
     /merged\s+to\s+`?main`?\s+for\s+QA/i, // "merged to main for QA"
     /already\s+merged\s+to\s+`?main`?/i, // "already merged to main"
+    /Merged\s+to\s+main:\s*Yes/i, // "Merged to main: Yes"
+    /Merged\s+to\s+main:\s*True/i, // "Merged to main: True"
   ]
   const isMerged = mergedPatterns.some((pattern) => pattern.test(bodyMd))
   
@@ -323,6 +338,9 @@ function extractMergeStatus(bodyMd: string): { merged: boolean; timestamp: strin
       /merged\s+to\s+`?main`?[^]*?(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:\.\d{3})?(?:Z|[+-]\d{2}:\d{2})?)/i,
       /merged\s+to\s+`?main`?[^]*?(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/i,
       /merged\s+at[^]*?(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2})/i,
+      /Merged\s+to\s+main[^]*?(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2})/i,
+      // Also look for timestamps in parentheses or brackets after "Yes"
+      /Merged\s+to\s+main[^]*?Yes[^]*?[\(\[][^\)\]]*(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2})/i,
     ]
     for (const pattern of timestampPatterns) {
       const match = bodyMd.match(pattern)
