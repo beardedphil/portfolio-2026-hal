@@ -78,67 +78,37 @@ async function executeAllToolCalls() {
   }
 
   try {
-    // Read queue
-    let queue = []
-    try {
-      const queueContent = readFileSync(QUEUE_FILE, 'utf8')
-      queue = JSON.parse(queueContent)
-    } catch {
-      // Queue file doesn't exist or is invalid
+    // Use the same endpoint as the frontend "Run tool calls" button (0107)
+    // This ensures tool calls are logged to Tools Agent chat via the same code path
+    const response = await fetch(`${halApiUrl}/api/tool-calls/execute-all`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    })
+    
+    if (!response.ok) {
+      console.error(`[Tool Agent] Failed to execute tool calls: ${response.status} ${response.statusText}`)
       releaseLock()
       return
     }
-
-    if (queue.length === 0) {
-      releaseLock()
-      return
-    }
-
-    console.log(`[Tool Agent] Executing ${queue.length} pending tool call(s)...`)
-
-    let executed = 0
-    const errors = []
-    const executedIndices = new Set()
-
-    // Execute all tool calls
-    for (let i = 0; i < queue.length; i++) {
-      const toolCall = queue[i]
-      try {
-        const toolResponse = await fetch(`${halApiUrl}/api/agent-tools/execute`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            tool: toolCall.tool,
-            params: toolCall.params,
-          }),
-        })
-        const toolResult = await toolResponse.json()
-        if (!toolResult.success) {
-          errors.push(`Tool call ${toolCall.tool} failed: ${toolResult.error || 'Unknown error'}`)
-        } else {
-          executed++
-          executedIndices.add(i)
-        }
-      } catch (err) {
-        errors.push(`Failed to execute tool call ${toolCall.tool}: ${err instanceof Error ? err.message : String(err)}`)
+    
+    const result = await response.json()
+    
+    if (result.success) {
+      const executed = result.executed || 0
+      const total = result.total || 0
+      const remaining = result.remaining || 0
+      const errors = result.errors || []
+      
+      if (executed > 0) {
+        console.log(`[Tool Agent] Executed ${executed} tool call(s). ${remaining} remaining.`)
       }
-    }
-
-    // Remove executed tool calls from queue
-    const remainingQueue = queue.filter((_, index) => !executedIndices.has(index))
-
-    // Write updated queue back to file
-    try {
-      writeFileSync(QUEUE_FILE, JSON.stringify(remainingQueue, null, 2), 'utf8')
-    } catch (err) {
-      console.error('[Tool Agent] Failed to update tool call queue file:', err)
-    }
-
-    if (executed > 0) {
-      console.log(`[Tool Agent] Executed ${executed} tool call(s). ${remainingQueue.length} remaining.`)
-    }
-    if (errors.length > 0) {
-      console.error(`[Tool Agent] Errors:`, errors)
+      if (errors.length > 0) {
+        console.error(`[Tool Agent] Errors:`, errors)
+      }
+      // Note: Tool calls are logged to Tools Agent chat by the execute-all endpoint
+      // The frontend will pick up these logs when it polls or when the user opens the Tools Agent chat
+    } else {
+      console.error(`[Tool Agent] Tool call execution failed: ${result.error || 'Unknown error'}`)
     }
   } catch (err) {
     console.error('[Tool Agent] Error executing tool calls:', err)
