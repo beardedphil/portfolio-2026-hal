@@ -24,7 +24,6 @@ export interface QaToolsConfig {
  */
 export function createQaTools(config: QaToolsConfig): Record<string, any> {
   const apiUrl = config.halApiUrl || 'http://localhost:5173'
-  const hasSupabase = !!(config.supabaseUrl && config.supabaseAnonKey)
 
   const tools: Record<string, any> = {}
 

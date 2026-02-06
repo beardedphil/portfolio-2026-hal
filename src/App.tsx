@@ -215,9 +215,12 @@ function loadConversationsFromStorage(
         instanceNumber: ser.instanceNumber,
         createdAt: new Date(ser.createdAt),
         messages: ser.messages.map((msg) => ({
-          ...msg,
+          id: msg.id,
+          agent: msg.agent,
+          content: msg.content,
           timestamp: new Date(msg.timestamp),
-          imageAttachments: msg.imageAttachments,
+          // imageAttachments from serialized data don't have File objects, so omit them
+          // File objects can't be restored from localStorage
         })),
       })
     }
@@ -1126,7 +1129,6 @@ function App() {
               let resultMsg: string
               if (result.success) {
                 const action = (result.result as { action?: string })?.action
-                const artifactId = (result.result as { artifact_id?: string })?.artifact_id
                 if (toolCall.tool === 'insert_implementation_artifact' || toolCall.tool === 'insert_qa_artifact') {
                   resultMsg = `[Tool] ${toolCall.tool} executed successfully (${action || 'inserted'}). Artifact stored in Supabase.`
                 } else if (toolCall.tool === 'move_ticket_column') {

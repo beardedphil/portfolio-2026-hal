@@ -38,16 +38,26 @@ async function insertImplementationArtifact(
     return { success: false, error: `Ticket ${params.ticketId} not found in Supabase.` }
   }
 
+  const ticketPk = (ticket as { pk?: string }).pk
+  if (!ticketPk) {
+    return { success: false, error: `Ticket ${params.ticketId} missing pk.` }
+  }
+
   // Check if artifact already exists
   const { data: existing } = await supabase
     .from('agent_artifacts')
     .select('artifact_id')
-    .eq('ticket_pk', ticket.pk)
+    .eq('ticket_pk', ticketPk)
     .eq('agent_type', 'implementation')
     .eq('title', params.title)
     .maybeSingle()
 
   if (existing) {
+    const existingId = (existing as { artifact_id?: string }).artifact_id
+    if (!existingId) {
+      return { success: false, error: 'Existing artifact missing artifact_id.' }
+    }
+    
     // Update existing artifact
     const { error: updateError } = await supabase
       .from('agent_artifacts')
@@ -55,21 +65,21 @@ async function insertImplementationArtifact(
         title: params.title,
         body_md: params.body_md,
       })
-      .eq('artifact_id', existing.artifact_id)
+      .eq('artifact_id', existingId)
 
     if (updateError) {
       return { success: false, error: `Failed to update artifact: ${updateError.message}` }
     }
 
-    return { success: true, artifact_id: existing.artifact_id, action: 'updated' }
+    return { success: true, artifact_id: existingId, action: 'updated' }
   }
 
   // Insert new artifact
   const { data: inserted, error: insertError } = await supabase
     .from('agent_artifacts')
     .insert({
-      ticket_pk: ticket.pk,
-      repo_full_name: ticket.repo_full_name || '',
+      ticket_pk: ticketPk,
+      repo_full_name: (ticket as { repo_full_name?: string }).repo_full_name || '',
       agent_type: 'implementation',
       title: params.title,
       body_md: params.body_md,
@@ -81,7 +91,12 @@ async function insertImplementationArtifact(
     return { success: false, error: `Failed to insert artifact: ${insertError.message}` }
   }
 
-  return { success: true, artifact_id: inserted.artifact_id, action: 'inserted' }
+  const insertedId = (inserted as { artifact_id?: string }).artifact_id
+  if (!insertedId) {
+    return { success: false, error: 'Inserted artifact missing artifact_id.' }
+  }
+
+  return { success: true, artifact_id: insertedId, action: 'inserted' }
 }
 
 async function insertQaArtifact(
@@ -104,16 +119,26 @@ async function insertQaArtifact(
     return { success: false, error: `Ticket ${params.ticketId} not found in Supabase.` }
   }
 
+  const ticketPk = (ticket as { pk?: string }).pk
+  if (!ticketPk) {
+    return { success: false, error: `Ticket ${params.ticketId} missing pk.` }
+  }
+
   // Check if artifact already exists
   const { data: existing } = await supabase
     .from('agent_artifacts')
     .select('artifact_id')
-    .eq('ticket_pk', ticket.pk)
+    .eq('ticket_pk', ticketPk)
     .eq('agent_type', 'qa')
     .eq('title', params.title)
     .maybeSingle()
 
   if (existing) {
+    const existingId = (existing as { artifact_id?: string }).artifact_id
+    if (!existingId) {
+      return { success: false, error: 'Existing artifact missing artifact_id.' }
+    }
+    
     // Update existing artifact
     const { error: updateError } = await supabase
       .from('agent_artifacts')
@@ -121,21 +146,21 @@ async function insertQaArtifact(
         title: params.title,
         body_md: params.body_md,
       })
-      .eq('artifact_id', existing.artifact_id)
+      .eq('artifact_id', existingId)
 
     if (updateError) {
       return { success: false, error: `Failed to update artifact: ${updateError.message}` }
     }
 
-    return { success: true, artifact_id: existing.artifact_id, action: 'updated' }
+    return { success: true, artifact_id: existingId, action: 'updated' }
   }
 
   // Insert new artifact
   const { data: inserted, error: insertError } = await supabase
     .from('agent_artifacts')
     .insert({
-      ticket_pk: ticket.pk,
-      repo_full_name: ticket.repo_full_name || '',
+      ticket_pk: ticketPk,
+      repo_full_name: (ticket as { repo_full_name?: string }).repo_full_name || '',
       agent_type: 'qa',
       title: params.title,
       body_md: params.body_md,
@@ -147,7 +172,12 @@ async function insertQaArtifact(
     return { success: false, error: `Failed to insert artifact: ${insertError.message}` }
   }
 
-  return { success: true, artifact_id: inserted.artifact_id, action: 'inserted' }
+  const insertedId = (inserted as { artifact_id?: string }).artifact_id
+  if (!insertedId) {
+    return { success: false, error: 'Inserted artifact missing artifact_id.' }
+  }
+
+  return { success: true, artifact_id: insertedId, action: 'inserted' }
 }
 
 async function updateTicketBody(
@@ -170,9 +200,10 @@ async function updateTicketBody(
     return { success: false, error: `Ticket ${params.ticketId} not found in Supabase.` }
   }
 
+  const ticketPk = (ticket as { pk?: string }).pk
   const updateQ = supabase.from('tickets').update({ body_md: params.body_md })
-  const { error: updateError } = ticket.pk
-    ? await updateQ.eq('pk', ticket.pk)
+  const { error: updateError } = ticketPk
+    ? await updateQ.eq('pk', ticketPk)
     : await updateQ.eq('id', params.ticketId)
 
   if (updateError) {
@@ -202,8 +233,10 @@ async function moveTicketColumn(
     return { success: false, error: `Ticket ${params.ticketId} not found in Supabase.` }
   }
 
+  const ticketPk = (ticket as { pk?: string }).pk
+  const repoFullName = (ticket as { repo_full_name?: string }).repo_full_name || ''
+  
   // Resolve max position in target column
-  const repoFullName = ticket.repo_full_name || ''
   const { data: inColumn, error: fetchErr } = repoFullName
     ? await supabase
         .from('tickets')
@@ -234,7 +267,7 @@ async function moveTicketColumn(
       kanban_moved_at: movedAt,
     })
 
-  const { error: updateError } = ticket.pk ? await updateQ.eq('pk', ticket.pk) : await updateQ.eq('id', params.ticketId)
+  const { error: updateError } = ticketPk ? await updateQ.eq('pk', ticketPk) : await updateQ.eq('id', params.ticketId)
 
   if (updateError) {
     return { success: false, error: `Supabase update failed: ${updateError.message}` }
