@@ -130,6 +130,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     let executed = 0
     const errors: string[] = []
     const executedIndices = new Set<number>()
+    const executedToolCalls: Array<{ tool: string; params: Record<string, unknown>; result: { success: boolean; result?: unknown; error?: string } }> = [] // 0107: Return executed tool calls for Tools Agent logging
 
     // Process all tool calls
     for (let i = 0; i < queue.length; i++) {
@@ -143,15 +144,31 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             params: toolCall.params,
           }),
         })
-        const toolResult = (await toolResponse.json()) as { success?: boolean; error?: string }
+        const toolResult = (await toolResponse.json()) as { success?: boolean; error?: string; [key: string]: unknown }
         if (!toolResult.success) {
           errors.push(`Tool call ${toolCall.tool} failed: ${toolResult.error || 'Unknown error'}`)
+          executedToolCalls.push({
+            tool: toolCall.tool,
+            params: toolCall.params,
+            result: { success: false, error: toolResult.error || 'Unknown error' },
+          })
         } else {
           executed++
           executedIndices.add(i)
+          executedToolCalls.push({
+            tool: toolCall.tool,
+            params: toolCall.params,
+            result: { success: true, result: toolResult },
+          })
         }
       } catch (err) {
-        errors.push(`Failed to execute tool call ${toolCall.tool}: ${err instanceof Error ? err.message : String(err)}`)
+        const errorMsg = err instanceof Error ? err.message : String(err)
+        errors.push(`Failed to execute tool call ${toolCall.tool}: ${errorMsg}`)
+        executedToolCalls.push({
+          tool: toolCall.tool,
+          params: toolCall.params,
+          result: { success: false, error: errorMsg },
+        })
       }
     }
 
@@ -173,6 +190,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       total: queue.length,
       remaining: remainingQueue.length,
       errors: errors.length > 0 ? errors : undefined,
+      executedToolCalls, // 0107: Return executed tool calls for Tools Agent logging
     })
   } catch (err) {
     releaseLock()

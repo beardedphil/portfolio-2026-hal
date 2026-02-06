@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
-type Agent = 'project-manager' | 'implementation-agent' | 'qa-agent'
+type Agent = 'project-manager' | 'implementation-agent' | 'qa-agent' | 'tools-agent'
 type ChatTarget = Agent | 'standup'
 
 type ImageAttachment = {
@@ -149,7 +149,7 @@ function getConversationId(agentRole: Agent, instanceNumber: number): string {
 
 // Parse conversation ID to get agent role and instance number (0070)
 function parseConversationId(conversationId: string): { agentRole: Agent; instanceNumber: number } | null {
-  const match = conversationId.match(/^(project-manager|implementation-agent|qa-agent)-(\d+)$/)
+  const match = conversationId.match(/^(project-manager|implementation-agent|qa-agent|tools-agent)-(\d+)$/)
   if (!match) return null
   return {
     agentRole: match[1] as Agent,
@@ -239,6 +239,7 @@ const CHAT_OPTIONS: { id: ChatTarget; label: string }[] = [
   { id: 'project-manager', label: 'Project Manager' },
   { id: 'implementation-agent', label: 'Implementation Agent' },
   { id: 'qa-agent', label: 'QA' },
+  { id: 'tools-agent', label: 'Tools Agent' },
   { id: 'standup', label: 'Standup (all agents)' },
 ]
 // DEBUG: QA option should be visible
@@ -253,7 +254,7 @@ function formatTime(date: Date): string {
 
 function getMessageAuthorLabel(agent: Message['agent']): string {
   if (agent === 'user') return 'You'
-  if (agent === 'project-manager' || agent === 'implementation-agent' || agent === 'qa-agent') return 'HAL'
+  if (agent === 'project-manager' || agent === 'implementation-agent' || agent === 'qa-agent' || agent === 'tools-agent') return 'HAL'
   return 'System'
 }
 
@@ -671,6 +672,12 @@ function App() {
       })
       const result = await response.json()
       if (result.success) {
+        // Log executed tool calls to Tools Agent chat (0107)
+        if (result.executedToolCalls && Array.isArray(result.executedToolCalls)) {
+          for (const { tool, params, result: toolResult } of result.executedToolCalls) {
+            logToolCallToToolsAgent({ tool, params }, toolResult)
+          }
+        }
         // Recheck after execution
         await checkPendingToolCalls()
       }
@@ -679,7 +686,7 @@ function App() {
     } finally {
       setToolCallsExecuting(false)
     }
-  }, [toolCallsExecuting, checkPendingToolCalls])
+  }, [toolCallsExecuting, checkPendingToolCalls, logToolCallToToolsAgent])
 
   // Poll for pending tool calls periodically (0103)
   useEffect(() => {
@@ -981,6 +988,7 @@ function App() {
       'project-manager': 'Project Manager',
       'implementation-agent': 'Implementation',
       'qa-agent': 'QA',
+      'tools-agent': 'Tools Agent',
     }
     return `${roleLabels[conv.agentRole]} #${conv.instanceNumber}`
   }, [])
@@ -1178,6 +1186,9 @@ function App() {
             for (const toolCall of toolCalls) {
               const result = await executeToolCall(toolCall, halApiUrl)
               
+              // Log to Tools Agent chat (0107)
+              logToolCallToToolsAgent(toolCall, result)
+              
               // Add system message with tool call result
               let resultMsg: string
               if (result.success) {
@@ -1253,6 +1264,38 @@ function App() {
       }
     }
   }, [qaAgentTicketId, extractTicketId, moveTicketToColumn, addAutoMoveDiagnostic])
+
+  // Log tool call to Tools Agent chat (0107)
+  const logToolCallToToolsAgent = useCallback((toolCall: { tool: string; params: Record<string, unknown> }, result: { success: boolean; result?: unknown; error?: string }) => {
+    try {
+      const toolsAgentConvId = getDefaultConversationId('tools-agent')
+      const timestamp = new Date()
+      
+      // Format tool call entry
+      const paramsSummary = Object.keys(toolCall.params).length > 0
+        ? JSON.stringify(toolCall.params, null, 2)
+        : '(no parameters)'
+      
+      let outcomeText: string
+      if (result.success) {
+        const resultSummary = result.result
+          ? typeof result.result === 'object'
+            ? JSON.stringify(result.result, null, 2)
+            : String(result.result)
+          : 'Success'
+        outcomeText = `✅ Success\n\`\`\`json\n${resultSummary}\n\`\`\``
+      } else {
+        outcomeText = `❌ Failed: ${result.error || 'Unknown error'}`
+      }
+      
+      const toolCallEntry = `**Tool:** \`${toolCall.tool}\`\n**Timestamp:** ${formatTime(timestamp)}\n**Request:**\n\`\`\`json\n${paramsSummary}\n\`\`\`\n**Outcome:**\n${outcomeText}`
+      
+      addMessage(toolsAgentConvId, 'system', toolCallEntry)
+    } catch (err) {
+      // Non-fatal: log error but don't block tool execution
+      console.error('Failed to log tool call to Tools Agent:', err)
+    }
+  }, [getDefaultConversationId, addMessage])
 
   type CheckUnassignedResult = {
     moved: string[]
