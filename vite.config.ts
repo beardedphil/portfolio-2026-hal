@@ -890,7 +890,7 @@ export default defineConfig({
               const supabase = createClient(supabaseUrl, supabaseAnonKey)
               const { data: row, error } = await supabase
                 .from('tickets')
-                .select('body_md, filename')
+                .select('body_md, filename, kanban_column_id')
                 .eq('id', ticketId)
                 .single()
               if (error || !row?.body_md) {
@@ -900,6 +900,32 @@ export default defineConfig({
               }
               bodyMd = row.body_md
               ticketFilename = row.filename ?? `${ticketId}-unknown.md`
+              
+              // Move QA ticket from QA column to Doing when QA agent starts (0088)
+              const currentColumnId = (row as any).kanban_column_id as string | null
+              if (currentColumnId === 'col-qa') {
+                try {
+                  const { data: inColumn } = await supabase
+                    .from('tickets')
+                    .select('kanban_position')
+                    .eq('kanban_column_id', 'col-doing')
+                    .order('kanban_position', { ascending: false })
+                    .limit(1)
+                  const nextPosition = inColumn?.length ? ((inColumn[0]?.kanban_position ?? -1) + 1) : 0
+                  const movedAt = new Date().toISOString()
+                  const { error: updateErr } = await supabase
+                    .from('tickets')
+                    .update({ kanban_column_id: 'col-doing', kanban_position: nextPosition, kanban_moved_at: movedAt })
+                    .eq('id', ticketId)
+                  if (updateErr) {
+                    console.error(`[QA Agent] Failed to move ticket ${ticketId} from QA to Doing:`, updateErr.message)
+                    // Continue anyway - ticket will stay in QA
+                  }
+                } catch (moveErr) {
+                  console.error(`[QA Agent] Error moving ticket ${ticketId} from QA to Doing:`, moveErr instanceof Error ? moveErr.message : String(moveErr))
+                  // Continue anyway
+                }
+              }
             } else {
               writeStage({ stage: 'failed', error: `Supabase not configured. Connect project to fetch ticket ${ticketId} from Supabase.`, status: 'ticket-not-found' })
               res.end()
