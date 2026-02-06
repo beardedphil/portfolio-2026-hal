@@ -735,6 +735,75 @@ export async function runPmAgent(
                 }
                 if (!insertError) {
                   const readiness = evaluateTicketReady(normalizedBodyMd)
+                  
+                  // Auto-move to To Do if ready (0083)
+                  let movedToTodo = false
+                  let moveError: string | undefined = undefined
+                  if (readiness.ready) {
+                    try {
+                      // Compute next position in To Do column
+                      let nextTodoPosition = 0
+                      const todoQ = supabase
+                        .from('tickets')
+                        .select('kanban_position')
+                        .eq('kanban_column_id', COL_TODO)
+                      const todoR = repoFullName !== 'legacy/unknown'
+                        ? await todoQ.eq('repo_full_name', repoFullName).order('kanban_position', { ascending: false }).limit(1)
+                        : await todoQ.order('kanban_position', { ascending: false }).limit(1)
+                      
+                      if (todoR.error && isUnknownColumnError(todoR.error)) {
+                        // Legacy fallback
+                        const legacyTodo = await supabase
+                          .from('tickets')
+                          .select('kanban_position')
+                          .eq('kanban_column_id', COL_TODO)
+                          .order('kanban_position', { ascending: false })
+                          .limit(1)
+                        if (legacyTodo.error) {
+                          moveError = `Failed to fetch To Do position: ${legacyTodo.error.message}`
+                        } else {
+                          const max = (legacyTodo.data ?? []).reduce(
+                            (acc, r) => Math.max(acc, (r as { kanban_position?: number }).kanban_position ?? 0),
+                            0
+                          )
+                          nextTodoPosition = max + 1
+                        }
+                      } else if (todoR.error) {
+                        moveError = `Failed to fetch To Do position: ${todoR.error.message}`
+                      } else {
+                        const max = (todoR.data ?? []).reduce(
+                          (acc, r) => Math.max(acc, (r as { kanban_position?: number }).kanban_position ?? 0),
+                          0
+                        )
+                        nextTodoPosition = max + 1
+                      }
+                      
+                      if (!moveError) {
+                        // Update ticket to To Do
+                        const now = new Date().toISOString()
+                        const updateQ = supabase
+                          .from('tickets')
+                          .update({
+                            kanban_column_id: COL_TODO,
+                            kanban_position: nextTodoPosition,
+                            kanban_moved_at: now,
+                          })
+                        
+                        const updateResult = repoFullName !== 'legacy/unknown' && candidateNum
+                          ? await updateQ.eq('repo_full_name', repoFullName).eq('ticket_number', candidateNum)
+                          : await updateQ.eq('id', id)
+                        
+                        if (updateResult.error) {
+                          moveError = `Failed to move to To Do: ${updateResult.error.message}`
+                        } else {
+                          movedToTodo = true
+                        }
+                      }
+                    } catch (moveErr) {
+                      moveError = moveErr instanceof Error ? moveErr.message : String(moveErr)
+                    }
+                  }
+                  
                   out = {
                     success: true,
                     id,
@@ -746,6 +815,8 @@ export async function runPmAgent(
                     ...(attempt > 1 && { retried: true, attempts: attempt }),
                     ready: readiness.ready,
                     ...(readiness.missingItems.length > 0 && { missingItems: readiness.missingItems }),
+                    ...(movedToTodo && { movedToTodo: true }),
+                    ...(moveError && { moveError }),
                   }
                   toolCalls.push({ name: 'create_ticket', input, output: out })
                   return out

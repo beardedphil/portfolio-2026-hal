@@ -42,6 +42,14 @@ type TicketCreationResult = {
   /** True when create_ticket retried due to id/filename collision (0023). */
   retried?: boolean
   attempts?: number
+  /** True when ticket was automatically moved to To Do (0083). */
+  movedToTodo?: boolean
+  /** Error message if auto-move to To Do failed (0083). */
+  moveError?: string
+  /** True if ticket is ready to start (0083). */
+  ready?: boolean
+  /** Missing items if ticket is not ready (0083). */
+  missingItems?: string[]
 }
 
 type PmAgentResponse = {
@@ -1304,13 +1312,23 @@ function App() {
             setLastAgentError(null)
             if (data.responseId != null) setPmLastResponseId(data.responseId)
 
-            // When reply is empty but a ticket was just created, show ticket creation summary (0011)
+            // When reply is empty but a ticket was just created, show ticket creation summary (0011, 0083)
             let reply = data.reply || ''
             if (!reply.trim() && data.ticketCreationResult) {
               const t = data.ticketCreationResult
-              reply = t.syncSuccess
-                ? `Created ticket **${t.id}** at \`${t.filePath}\`. It should appear in Unassigned.`
-                : `Created ticket **${t.id}** at \`${t.filePath}\`. Sync to repo failed: ${t.syncError ?? 'unknown'}. You can run \`npm run sync-tickets\` from the repo root.`
+              if (t.movedToTodo) {
+                reply = t.syncSuccess
+                  ? `Created ticket **${t.id}** at \`${t.filePath}\`. The ticket is ready and has been automatically moved to **To Do**.`
+                  : `Created ticket **${t.id}** at \`${t.filePath}\`. The ticket is ready and has been automatically moved to **To Do**. Sync to repo failed: ${t.syncError ?? 'unknown'}. You can run \`npm run sync-tickets\` from the repo root.`
+              } else if (t.moveError) {
+                reply = `Created ticket **${t.id}** at \`${t.filePath}\`. The ticket is ready but could not be moved to To Do: ${t.moveError}. It remains in Unassigned.`
+              } else if (t.ready === false && t.missingItems && t.missingItems.length > 0) {
+                reply = `Created ticket **${t.id}** at \`${t.filePath}\`. The ticket is not yet ready for To Do: ${t.missingItems.join('; ')}. It remains in Unassigned.`
+              } else {
+                reply = t.syncSuccess
+                  ? `Created ticket **${t.id}** at \`${t.filePath}\`. It should appear in Unassigned.`
+                  : `Created ticket **${t.id}** at \`${t.filePath}\`. Sync to repo failed: ${t.syncError ?? 'unknown'}. You can run \`npm run sync-tickets\` from the repo root.`
+              }
             }
             if (!reply.trim()) {
               reply =

@@ -341,6 +341,10 @@ export default defineConfig({
                 filePath: string
                 retried?: boolean
                 attempts?: number
+                movedToTodo?: boolean
+                moveError?: string
+                ready?: boolean
+                missingItems?: string[]
               }
               ticketCreationResult = {
                 id: out.id,
@@ -348,6 +352,10 @@ export default defineConfig({
                 filePath: out.filePath,
                 syncSuccess: false,
                 ...(out.retried && out.attempts != null && { retried: true, attempts: out.attempts }),
+                ...(out.movedToTodo && { movedToTodo: true }),
+                ...(out.moveError && { moveError: out.moveError }),
+                ...(out.ready !== undefined && { ready: out.ready }),
+                ...(out.missingItems && { missingItems: out.missingItems }),
               }
               const syncScriptPath = path.resolve(repoRoot, 'scripts', 'sync-tickets.js')
               try {
