@@ -20,10 +20,12 @@
     "tool-agent": "node scripts/tool-agent.js"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^1.2.0",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@supabase/supabase-js": "^2.93.3",
+    "ai": "^4.3.0",
     "dotenv": "^17.2.4",
     "iron-session": "^8.0.4",
     "portfolio-2026-hal-agents": "file:projects/hal-agents",

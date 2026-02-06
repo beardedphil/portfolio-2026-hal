@@ -656,6 +656,162 @@ h1 {
   background: #da190b;
 }
 
+/* Process Review section (0094) */
+.process-review-section {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 2px solid #7b1fa2;
+  background: #faf5ff;
+  padding: 1.5rem;
+  border-radius: 8px;
+}
+.process-review-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0 0 1rem 0;
+  color: #7b1fa2;
+}
+.process-review-subtitle {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem 0;
+  color: #333;
+}
+.process-review-artifacts {
+  margin-bottom: 1.5rem;
+}
+.process-review-artifacts-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.process-review-artifact-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+.process-review-artifact-name {
+  font-weight: 500;
+  color: #333;
+}
+.process-review-artifact-meta {
+  font-size: 0.85rem;
+  color: #666;
+}
+.process-review-empty {
+  color: #666;
+  font-style: italic;
+  margin: 0.5rem 0;
+}
+.process-review-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+.process-review-button {
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  font-weight: 500;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.process-review-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.process-review-button:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+.process-review-button:not(:disabled):active {
+  transform: translateY(0);
+}
+.process-review-button-run {
+  background: #7b1fa2;
+  color: white;
+}
+.process-review-button-run:not(:disabled):hover {
+  background: #6a1b9a;
+}
+.process-review-button-create {
+  background: #4caf50;
+  color: white;
+}
+.process-review-button-create:not(:disabled):hover {
+  background: #45a049;
+}
+.process-review-suggestions {
+  margin-top: 1.5rem;
+}
+.process-review-suggestions-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.process-review-suggestion-item {
+  padding: 0.75rem;
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+}
+.process-review-suggestion-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  cursor: pointer;
+}
+.process-review-suggestion-label input[type="checkbox"] {
+  margin-top: 0.25rem;
+  cursor: pointer;
+}
+.process-review-suggestion-text {
+  flex: 1;
+  color: #333;
+  line-height: 1.5;
+}
+.process-review-create-actions {
+  margin-top: 1rem;
+}
+.process-review-error {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: #ffebee;
+  border: 1px solid #ef5350;
+  border-radius: 6px;
+  color: #c62828;
+}
+.process-review-error p {
+  margin: 0;
+  font-size: 0.9rem;
+}
+.process-review-success {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: #e8f5e9;
+  border: 1px solid #4caf50;
+  border-radius: 6px;
+  color: #2e7d32;
+}
+.process-review-success p {
+  margin: 0;
+  font-size: 0.9rem;
+}
+.process-review-success strong {
+  font-weight: 600;
+}
+
 /* Artifacts section (0082) */
 .artifacts-section {
   margin-top: 1.5rem;

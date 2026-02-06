@@ -111,8 +111,9 @@ const DEFAULT_KANBAN_COLUMNS_SEED = [
   { id: 'col-doing', title: 'Doing', position: 2 },
   { id: 'col-qa', title: 'QA', position: 3 },
   { id: 'col-human-in-the-loop', title: 'Human in the Loop', position: 4 },
-  { id: 'col-done', title: 'Done', position: 5 },
-  { id: 'col-wont-implement', title: 'Will Not Implement', position: 6 },
+  { id: 'col-process-review', title: 'Process Review', position: 5 },
+  { id: 'col-done', title: 'Done', position: 6 },
+  { id: 'col-wont-implement', title: 'Will Not Implement', position: 7 },
 ] as const
 
 /** First 4 digits from filename (e.g. 0009-...md → 0009). Invalid → null. */
@@ -178,17 +179,19 @@ const DEFAULT_COLUMNS: Column[] = [
   { id: 'col-doing', title: 'Doing', cardIds: ['c-4', 'c-5', 'c-6'] },
   { id: 'col-qa', title: 'QA', cardIds: [] },
   { id: 'col-human-in-the-loop', title: 'Human in the Loop', cardIds: [] },
+  { id: 'col-process-review', title: 'Process Review', cardIds: [] },
   { id: 'col-done', title: 'Done', cardIds: ['c-7', 'c-8', 'c-9'] },
   { id: 'col-wont-implement', title: 'Will Not Implement', cardIds: [] },
 ]
 
-/** Unassigned, To-do, Doing, QA, Human in the Loop, Done, Will Not Implement; tickets with null or col-unassigned go in Unassigned */
+/** Unassigned, To-do, Doing, QA, Human in the Loop, Process Review, Done, Will Not Implement; tickets with null or col-unassigned go in Unassigned */
 const KANBAN_COLUMN_IDS = [
   'col-unassigned',
   'col-todo',
   'col-doing',
   'col-qa',
   'col-human-in-the-loop',
+  'col-process-review',
   'col-done',
   'col-wont-implement',
 ] as const
@@ -218,6 +221,7 @@ const EMPTY_KANBAN_COLUMNS: Column[] = [
   { id: 'col-doing', title: 'Doing', cardIds: [] },
   { id: 'col-qa', title: 'QA', cardIds: [] },
   { id: 'col-human-in-the-loop', title: 'Human in the Loop', cardIds: [] },
+  { id: 'col-process-review', title: 'Process Review', cardIds: [] },
   { id: 'col-done', title: 'Done', cardIds: [] },
   { id: 'col-wont-implement', title: 'Will Not Implement', cardIds: [] },
 ]
@@ -459,6 +463,211 @@ function HumanValidationSection({
   )
 }
 
+/** Process Review section component (0094) */
+function ProcessReviewSection({
+  ticketId,
+  ticketPk,
+  artifacts,
+  supabaseUrl,
+  supabaseAnonKey,
+}: {
+  ticketId: string
+  ticketPk: string
+  artifacts: SupabaseAgentArtifactRow[]
+  supabaseUrl?: string
+  supabaseAnonKey?: string
+}) {
+  const [suggestions, setSuggestions] = useState<Array<{ id: string; text: string; selected: boolean }>>([])
+  const [isRunningReview, setIsRunningReview] = useState(false)
+  const [isCreatingTicket, setIsCreatingTicket] = useState(false)
+  const [reviewError, setReviewError] = useState<string | null>(null)
+  const [createdTicketId, setCreatedTicketId] = useState<string | null>(null)
+  const [createError, setCreateError] = useState<string | null>(null)
+
+  const handleRunReview = async () => {
+    if (!supabaseUrl || !supabaseAnonKey) {
+      setReviewError('Supabase not configured. Connect to Supabase to run review.')
+      return
+    }
+
+    setIsRunningReview(true)
+    setReviewError(null)
+    setSuggestions([])
+
+    try {
+      const response = await fetch('/api/process-review/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ticketPk,
+          ticketId,
+          supabaseUrl,
+          supabaseAnonKey,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!result.success) {
+        setReviewError(result.error || 'Failed to run review')
+        return
+      }
+
+      const suggestionsList = (result.suggestions || []).map((s: string, i: number) => ({
+        id: `suggestion-${i}`,
+        text: s,
+        selected: false,
+      }))
+      setSuggestions(suggestionsList)
+    } catch (err) {
+      setReviewError(err instanceof Error ? err.message : 'Failed to run review')
+    } finally {
+      setIsRunningReview(false)
+    }
+  }
+
+  const handleToggleSuggestion = (id: string) => {
+    setSuggestions((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, selected: !s.selected } : s))
+    )
+  }
+
+  const handleCreateTicket = async () => {
+    const selectedSuggestions = suggestions.filter((s) => s.selected)
+    if (selectedSuggestions.length === 0) {
+      setCreateError('Please select at least one suggestion')
+      return
+    }
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      setCreateError('Supabase not configured. Connect to Supabase to create ticket.')
+      return
+    }
+
+    setIsCreatingTicket(true)
+    setCreateError(null)
+    setCreatedTicketId(null)
+
+    try {
+      const response = await fetch('/api/tickets/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sourceTicketId: ticketId,
+          sourceTicketPk: ticketPk,
+          suggestions: selectedSuggestions.map((s) => s.text),
+          supabaseUrl,
+          supabaseAnonKey,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!result.success) {
+        setCreateError(result.error || 'Failed to create ticket')
+        return
+      }
+
+      setCreatedTicketId(result.ticketId || result.id || 'Unknown')
+      // Clear selections after successful creation
+      setSuggestions((prev) => prev.map((s) => ({ ...s, selected: false })))
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : 'Failed to create ticket')
+    } finally {
+      setIsCreatingTicket(false)
+    }
+  }
+
+  return (
+    <div className="process-review-section">
+      <h3 className="process-review-title">Process Review</h3>
+      
+      <div className="process-review-artifacts">
+        <h4 className="process-review-subtitle">Artifacts</h4>
+        {artifacts.length === 0 ? (
+          <p className="process-review-empty">No artifacts available for this ticket.</p>
+        ) : (
+          <ul className="process-review-artifacts-list">
+            {artifacts.map((artifact) => {
+              const displayName = artifact.title || getAgentTypeDisplayName(artifact.agent_type)
+              return (
+                <li key={artifact.artifact_id} className="process-review-artifact-item">
+                  <span className="process-review-artifact-name">{displayName}</span>
+                  <span className="process-review-artifact-meta">
+                    {new Date(artifact.created_at).toLocaleString()}
+                  </span>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </div>
+
+      <div className="process-review-actions">
+        <button
+          type="button"
+          className="process-review-button process-review-button-run"
+          onClick={handleRunReview}
+          disabled={isRunningReview || isCreatingTicket}
+        >
+          {isRunningReview ? 'Running review...' : 'Run review'}
+        </button>
+      </div>
+
+      {reviewError && (
+        <div className="process-review-error" role="alert">
+          <p>{reviewError}</p>
+        </div>
+      )}
+
+      {suggestions.length > 0 && (
+        <div className="process-review-suggestions">
+          <h4 className="process-review-subtitle">Suggested improvements</h4>
+          <ul className="process-review-suggestions-list">
+            {suggestions.map((suggestion) => (
+              <li key={suggestion.id} className="process-review-suggestion-item">
+                <label className="process-review-suggestion-label">
+                  <input
+                    type="checkbox"
+                    checked={suggestion.selected}
+                    onChange={() => handleToggleSuggestion(suggestion.id)}
+                    disabled={isCreatingTicket}
+                  />
+                  <span className="process-review-suggestion-text">{suggestion.text}</span>
+                </label>
+              </li>
+            ))}
+          </ul>
+          <div className="process-review-create-actions">
+            <button
+              type="button"
+              className="process-review-button process-review-button-create"
+              onClick={handleCreateTicket}
+              disabled={isCreatingTicket || suggestions.filter((s) => s.selected).length === 0}
+            >
+              {isCreatingTicket ? 'Creating ticket...' : 'Create ticket'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {createError && (
+        <div className="process-review-error" role="alert">
+          <p>{createError}</p>
+        </div>
+      )}
+
+      {createdTicketId && (
+        <div className="process-review-success" role="alert">
+          <p>
+            <strong>Ticket created:</strong> {createdTicketId}
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 /** Artifacts section component (0082) */
 function ArtifactsSection({
   artifacts,
@@ -536,8 +745,8 @@ function TicketDetailModal({
   columnId,
   onValidationPass,
   onValidationFail,
-  supabaseUrl: _supabaseUrl,
-  supabaseKey: _supabaseKey,
+  supabaseUrl,
+  supabaseKey,
   onTicketUpdate: _onTicketUpdate,
   hasPendingToolCalls,
   toolCallsLoading,
@@ -660,6 +869,7 @@ function TicketDetailModal({
   const priority = body ? extractPriority(frontmatter, body) : null
   const markdownBody = body ? bodyOnly : ''
   const showValidationSection = columnId === 'col-human-in-the-loop'
+  const showProcessReviewSection = columnId === 'col-process-review'
 
   return (
     <div
@@ -745,6 +955,15 @@ function TicketDetailModal({
                   onPass={handlePass}
                   onFail={handleFail}
                   isProcessing={isProcessing}
+                />
+              )}
+              {showProcessReviewSection && (
+                <ProcessReviewSection
+                  ticketId={ticketId}
+                  ticketPk={ticketId}
+                  artifacts={artifacts}
+                  supabaseUrl={supabaseUrl}
+                  supabaseAnonKey={supabaseKey}
                 />
               )}
             </>
@@ -1339,7 +1558,7 @@ function App() {
         finalColRows = (afterRows ?? []) as SupabaseKanbanColumnRow[]
         setSupabaseColumnsJustInitialized(true)
       } else {
-        // Migration: add missing columns for existing DBs (col-qa, col-human-in-the-loop, col-wont-implement)
+        // Migration: add missing columns for existing DBs (col-qa, col-human-in-the-loop, col-process-review, col-wont-implement)
         const ids = new Set(finalColRows.map((c) => c.id))
         const toInsert: { id: string; title: string; position: number }[] = []
         if (!ids.has('col-qa')) {
@@ -1347,6 +1566,9 @@ function App() {
         }
         if (!ids.has('col-human-in-the-loop')) {
           toInsert.push({ id: 'col-human-in-the-loop', title: 'Human in the Loop', position: -1 })
+        }
+        if (!ids.has('col-process-review')) {
+          toInsert.push({ id: 'col-process-review', title: 'Process Review', position: -1 })
         }
         if (!ids.has('col-wont-implement')) {
           toInsert.push({ id: 'col-wont-implement', title: 'Will Not Implement', position: -1 })
@@ -2599,6 +2821,8 @@ function App() {
           artifactsLoading={detailModalArtifactsLoading}
           onOpenArtifact={handleOpenArtifact}
           columnId={detailModal.columnId}
+          supabaseUrl={supabaseProjectUrl || ''}
+          supabaseKey={supabaseAnonKey || ''}
           hasPendingToolCalls={detailModalHasPendingToolCalls}
           toolCallsLoading={detailModalToolCallsLoading}
           toolCallsExecuting={detailModalToolCallsExecuting}
