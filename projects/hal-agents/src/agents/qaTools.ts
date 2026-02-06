@@ -18,12 +18,15 @@ export interface QaToolsConfig {
 /**
  * Create tools for QA/Implementation agents to interact with Supabase.
  * Tools call HAL API endpoints which use server-side env vars for Supabase access.
+ * 
+ * Note: This is for agents running through HAL's agent system. For cloud agents,
+ * use the tool call contract (send JSON in messages) instead.
  */
-export function createQaTools(config: QaToolsConfig) {
+export function createQaTools(config: QaToolsConfig): Record<string, any> {
   const apiUrl = config.halApiUrl || 'http://localhost:5173'
   const hasSupabase = !!(config.supabaseUrl && config.supabaseAnonKey)
 
-  const tools: Record<string, ReturnType<typeof tool>> = {}
+  const tools: Record<string, any> = {}
 
   // Insert/update QA artifact in Supabase
   tools.insert_qa_artifact = tool({
