@@ -2571,6 +2571,10 @@ function App() {
             setTimeout(() => {
               refetchSupabaseTickets(false)
             }, REFETCH_AFTER_MOVE_MS)
+            // Close ticket detail modal after move completes (0089)
+            setTimeout(() => {
+              handleCloseTicketDetail()
+            }, REFETCH_AFTER_MOVE_MS + 100)
           }}
           onValidationFail={async (ticketPk: string, steps: string, notes: string) => {
             // Move ticket to To Do and add human feedback to body
@@ -2628,6 +2632,10 @@ ${notes || '(none provided)'}
             setTimeout(() => {
               refetchSupabaseTickets(false)
             }, REFETCH_AFTER_MOVE_MS)
+            // Close ticket detail modal after move completes (0089)
+            setTimeout(() => {
+              handleCloseTicketDetail()
+            }, REFETCH_AFTER_MOVE_MS + 100)
           }}
           supabaseUrl={supabaseProjectUrl}
           supabaseKey={supabaseAnonKey}
