@@ -1,9 +1,14 @@
 /**
- * Update a ticket's Artifacts section in Supabase.
+ * Update a ticket's Artifacts section in Supabase via HAL API.
  * 
- * Usage: node scripts/update-ticket-artifacts.js <ticketId> <shortTitle>
+ * Usage: node scripts/update-ticket-artifacts.js <ticketId> <shortTitle> [apiUrl] [supabaseUrl] [supabaseAnonKey]
  * 
- * Requires .env with SUPABASE_URL and SUPABASE_ANON_KEY.
+ * Credentials can be provided via:
+ * - CLI arguments (apiUrl, supabaseUrl, supabaseAnonKey)
+ * - Environment variables (SUPABASE_URL, SUPABASE_ANON_KEY)
+ * - .env file (SUPABASE_URL, SUPABASE_ANON_KEY)
+ * 
+ * If apiUrl is provided, uses HAL API endpoint. Otherwise, uses Supabase directly.
  */
 
 import 'dotenv/config'
@@ -11,17 +16,19 @@ import { createClient } from '@supabase/supabase-js'
 
 const ticketId = process.argv[2]?.trim()
 const shortTitle = process.argv[3]?.trim()
+const apiUrl = process.argv[4]?.trim() || process.env.HAL_API_URL || 'http://localhost:5173'
+const supabaseUrl = process.argv[5]?.trim() || process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+const supabaseAnonKey = process.argv[6]?.trim() || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY
 
 if (!ticketId || !shortTitle) {
-  console.error('Usage: node scripts/update-ticket-artifacts.js <ticketId> <shortTitle>')
+  console.error('Usage: node scripts/update-ticket-artifacts.js <ticketId> <shortTitle> [apiUrl] [supabaseUrl] [supabaseAnonKey]')
   console.error('Example: node scripts/update-ticket-artifacts.js 0063 one-click-work-top-ticket-buttons')
+  console.error('Example (with API): node scripts/update-ticket-artifacts.js 0063 one-click-work-top-ticket-buttons http://localhost:5173 <url> <key>')
   process.exit(1)
 }
 
-const url = process.env.SUPABASE_URL
-const key = process.env.SUPABASE_ANON_KEY
-if (!url || !key) {
-  console.error('Set SUPABASE_URL and SUPABASE_ANON_KEY in .env')
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.error('Set SUPABASE_URL and SUPABASE_ANON_KEY in .env, or pass as CLI arguments')
   process.exit(1)
 }
 
@@ -36,10 +43,8 @@ const artifactsSection = `## Artifacts
 - [qa-report.md](docs/audit/${ticketId}-${shortTitle}/qa-report.md)
 `
 
-async function main() {
-  const client = createClient(url, key)
-  
-  // Fetch current ticket
+async function fetchTicketBody() {
+  const client = createClient(supabaseUrl, supabaseAnonKey)
   const { data: row, error: fetchError } = await client
     .from('tickets')
     .select('id, body_md')
@@ -47,16 +52,49 @@ async function main() {
     .maybeSingle()
 
   if (fetchError) {
-    console.error('Supabase fetch error:', fetchError.message)
-    process.exit(1)
+    throw new Error(`Supabase fetch error: ${fetchError.message}`)
   }
 
   if (!row) {
-    console.error(`Ticket ${ticketId} not found in Supabase.`)
-    process.exit(1)
+    throw new Error(`Ticket ${ticketId} not found in Supabase.`)
   }
 
-  let body_md = row.body_md || ''
+  return row.body_md || ''
+}
+
+async function updateViaApi(body_md) {
+  const response = await fetch(`${apiUrl}/api/tickets/update`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ticketId,
+      body_md,
+      supabaseUrl,
+      supabaseAnonKey,
+    }),
+  })
+
+  const result = await response.json()
+  if (!result.success) {
+    throw new Error(result.error || 'API update failed')
+  }
+}
+
+async function updateDirectly(body_md) {
+  const client = createClient(supabaseUrl, supabaseAnonKey)
+  const { error: updateError } = await client
+    .from('tickets')
+    .update({ body_md })
+    .eq('id', ticketId)
+
+  if (updateError) {
+    throw new Error(`Supabase update error: ${updateError.message}`)
+  }
+}
+
+async function main() {
+  // Fetch current ticket body
+  let body_md = await fetchTicketBody()
 
   // Check if Artifacts section already exists
   const artifactsRegex = /^## Artifacts\s*$/m
@@ -82,17 +120,16 @@ async function main() {
     body_md = body_md.trim() + '\n\n' + artifactsSection.trim()
   }
 
-  const { error: updateError } = await client
-    .from('tickets')
-    .update({ body_md })
-    .eq('id', ticketId)
-
-  if (updateError) {
-    console.error('Supabase update error:', updateError.message)
-    process.exit(1)
+  // Update via API if apiUrl is provided and not localhost default, otherwise use direct Supabase
+  const useApi = apiUrl && apiUrl !== 'http://localhost:5173'
+  if (useApi) {
+    await updateViaApi(body_md)
+    console.log(`Updated ticket ${ticketId} Artifacts section via HAL API.`)
+  } else {
+    await updateDirectly(body_md)
+    console.log(`Updated ticket ${ticketId} Artifacts section in Supabase.`)
   }
-
-  console.log(`Updated ticket ${ticketId} Artifacts section in Supabase.`)
+  
   console.log('Kanban UI will reflect the change within ~10 seconds (poll interval).')
 }
 
