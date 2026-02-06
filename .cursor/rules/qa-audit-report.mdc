@@ -193,7 +193,32 @@ When the verdict is **PASS (OK to merge)**, QA must **complete the full workflow
 Do not give a summary with "next steps" or "run these commands" — QA performs the merge (or confirms main) and branch deletion where applicable. The user receives the completed result.
 
 - Use a commit subject that includes the ticket ID (e.g. `qa(0033): add QA report, move to Human in the Loop`).
-- **If verdict is FAIL:** Do not merge. Store the QA report in Supabase only; summarize findings and recommend a bugfix ticket (see `bugfix-tracking.mdc`). **The final message must include:** `QA RESULT: FAIL — <ticket-id>` (see "Completion message format requirement" above).
+- **If verdict is FAIL:** Do not merge. Store the QA report in Supabase, then **move the ticket to the top of To-do** (`col-todo` column) via HAL API. Summarize findings and recommend a bugfix ticket (see `bugfix-tracking.mdc`). **The final message must include:** `QA RESULT: FAIL — <ticket-id>` (see "Completion message format requirement" above).
+  
+  **FAIL workflow:**
+  1. **Store QA report in Supabase** — Include a tool call in your message:
+     ```json
+     {
+       "tool": "insert_qa_artifact",
+       "params": {
+         "ticketId": "0076",
+         "title": "QA report for ticket 0076",
+         "body_md": "# QA Report\n\n..."
+       }
+     }
+     ```
+  2. **Move ticket to To-do** — Include a tool call to move the ticket to `col-todo`:
+     ```json
+     {
+       "tool": "move_ticket_column",
+       "params": {
+         "ticketId": "0076",
+         "columnId": "col-todo"
+       }
+     }
+     ```
+     **Note:** The goal is to move failed tickets to the **top** of the To-do column for priority handling. The current move API (`/api/tickets/move`) appends tickets to the end of the column. If the API is enhanced in the future to support position parameters, use position 0 or a negative value to place at the top. For now, moving to `col-todo` satisfies the requirement even if it's at the end initially.
+  3. **Then** give your summary to the user. **The final message must include:** `QA RESULT: FAIL — <ticket-id>`.
 
 ## HAL Tool Call Contract
 
