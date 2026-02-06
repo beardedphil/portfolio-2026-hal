@@ -673,7 +673,10 @@ function App() {
 
   // Poll for recent tool call executions and log to Tools Agent chat (0107)
   // Note: checkRecentExecutions is defined after logToolCallToToolsAgent to avoid forward reference
-  const [lastExecutionTimestamp, setLastExecutionTimestamp] = useState(0)
+  const [lastExecutionTimestamp, setLastExecutionTimestamp] = useState(() => {
+    // Initialize to current timestamp to avoid loading all historical executions on first load
+    return Date.now()
+  })
 
   // When Kanban iframe loads, push current repo + Supabase so it syncs (iframe may load after user connected)
   useEffect(() => {
@@ -1316,15 +1319,44 @@ function App() {
     }
   }, [lastExecutionTimestamp, logToolCallToToolsAgent])
 
+  // Ensure Tools Agent conversation exists when chat is opened (0107)
+  useEffect(() => {
+    if (selectedChatTarget === 'tools-agent' || openChatTarget === 'tools-agent') {
+      // Initialize Tools Agent conversation if it doesn't exist
+      getDefaultConversationId('tools-agent')
+    }
+  }, [selectedChatTarget, openChatTarget, getDefaultConversationId])
+
   // Poll for recent executions every 5 seconds (0107)
   useEffect(() => {
-    // Initial check
-    checkRecentExecutions()
+    let mounted = true
+    // Initial check - fetch latest timestamp first to avoid loading all historical executions
+    ;(async () => {
+      try {
+        const response = await fetch('/api/tool-calls/recent-executions?since=0')
+        const result = await response.json()
+        if (mounted && result.success && result.latestTimestamp) {
+          // Set timestamp to latest, so we only get new executions going forward
+          setLastExecutionTimestamp(result.latestTimestamp)
+        }
+      } catch (err) {
+        console.error('Failed to initialize execution timestamp:', err)
+      }
+      // Then start polling (only if still mounted)
+      if (mounted) {
+        checkRecentExecutions()
+      }
+    })()
     // Poll every 5 seconds
     const interval = setInterval(() => {
-      checkRecentExecutions()
+      if (mounted) {
+        checkRecentExecutions()
+      }
     }, 5_000)
-    return () => clearInterval(interval)
+    return () => {
+      mounted = false
+      clearInterval(interval)
+    }
   }, [checkRecentExecutions])
 
   // Execute all pending tool calls (0103) - defined after logToolCallToToolsAgent to avoid forward reference
