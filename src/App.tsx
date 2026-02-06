@@ -1060,12 +1060,14 @@ function App() {
       })
       return next
     })
-    // Auto-move ticket when QA completion message is detected in QA Agent chat (0061)
+    // Auto-move ticket when QA completion message is detected in QA Agent chat (0061, 0086)
     const parsed = parseConversationId(conversationId)
     if (parsed && parsed.agentRole === 'qa-agent' && agent === 'qa-agent') {
-      const isQaCompletion = /qa.*complete|qa.*report|qa.*pass|verdict.*pass|move.*human.*loop|verified.*main|pass.*ok.*merge/i.test(content)
+      const isQaCompletion = /qa.*complete|qa.*report|qa.*pass|qa.*fail|verdict.*pass|verdict.*fail|move.*human.*loop|verified.*main|pass.*ok.*merge/i.test(content)
       if (isQaCompletion) {
         const isPass = /pass|ok.*merge|verified.*main|verdict.*pass/i.test(content) && !/fail|verdict.*fail/i.test(content)
+        const isFail = /fail|verdict.*fail|qa.*fail/i.test(content) && !/pass|verdict.*pass/i.test(content)
+        
         if (isPass) {
           const currentTicketId = qaAgentTicketId || extractTicketId(content)
           if (currentTicketId) {
@@ -1075,6 +1077,18 @@ function App() {
           } else {
             addAutoMoveDiagnostic(
               `QA Agent completion (PASS): Could not determine ticket ID from message. Auto-move skipped.`,
+              'error'
+            )
+          }
+        } else if (isFail) {
+          const currentTicketId = qaAgentTicketId || extractTicketId(content)
+          if (currentTicketId) {
+            moveTicketToColumn(currentTicketId, 'col-todo', 'qa').catch(() => {
+              // Error already logged via addAutoMoveDiagnostic
+            })
+          } else {
+            addAutoMoveDiagnostic(
+              `QA Agent completion (FAIL): Could not determine ticket ID from message. Auto-move skipped.`,
               'error'
             )
           }
