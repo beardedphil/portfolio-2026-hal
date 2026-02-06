@@ -22,7 +22,11 @@ For any coding task assigned to an implementation agent, the work must be **full
 
 ## Required Artifacts (per task)
 
-All artifacts are stored in **Supabase's `agent_artifacts` table**, not in `docs/audit/` folders. Use HAL API endpoints to store artifacts:
+**MANDATORY:** All artifacts are stored in **Supabase's `agent_artifacts` table**, not in `docs/audit/` folders. 
+
+**FORBIDDEN:** Creating, writing, or editing files in `docs/audit/` directories. Artifacts must be stored in Supabase only via tool calls.
+
+Use HAL API endpoints (tool calls) to store artifacts:
 
 - Ticket in Supabase (not `docs/tickets/*.md` — Supabase-only mode, 0065)
   - Canonical ticket used to brief the implementation agent (includes acceptance criteria). Fetch using tool call `get_ticket_content`.
@@ -83,8 +87,9 @@ All artifacts are stored in **Supabase's `agent_artifacts` table**, not in `docs
 - The implementation agent **must store all required artifacts in Supabase** when marking ready for QA (see "Required Artifacts" above). Send tool calls in your messages to store artifacts.
 
 - Artifacts must be **stored in Supabase**:
-  - All artifacts must be stored via tool calls in your messages before claiming "ready."
-  - Include tool calls as JSON blocks in your messages; HAL will parse and execute them.
+  - All artifacts must be stored via tool calls before claiming "ready."
+  - **Method 1 (Preferred):** Include tool calls as JSON blocks in your completion/summary message. HAL will parse and execute them automatically.
+  - **Method 2 (Fallback):** If tool calls in messages aren't processed, write them to `.hal-tool-call-queue.json` in the repo root. HAL will check this file when tickets move columns and execute all pending tool calls.
   - Artifacts are linked to tickets via `ticket_pk` in the `agent_artifacts` table.
 
 ## PM Review is required before "ready"
@@ -110,7 +115,8 @@ Note: Workspace-wide, the definition of "done" for **all agents** is enforced by
 
 ## Scope
 
-- All artifacts are stored in **Supabase**, not in `docs/audit/` folders.
+- **All artifacts are stored in Supabase**, not in `docs/audit/` folders.
+- **FORBIDDEN:** Writing artifact files to `docs/audit/` directories. Use tool calls to store in Supabase.
 - Keep each artifact concise; prefer bullets over prose.
 
 ## PM Review Artifact (after implementation completes)

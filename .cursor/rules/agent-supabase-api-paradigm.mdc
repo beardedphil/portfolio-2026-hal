@@ -126,9 +126,17 @@ Fetch a ticket's content from Supabase.
 
 ## How to Send Tool Calls
 
-Include tool calls in your message as JSON blocks. HAL will parse and execute them automatically.
+**For agents running through HAL's system** (implementation-agent, qa-agent via HAL API):
+- Include tool calls in your response message as JSON blocks. HAL will parse and execute them automatically when processing your message.
 
-**Example message:**
+**For cloud agents or local Cursor agents** (when tool calls in messages aren't processed):
+- **Method 1 (Preferred):** Include tool calls in your completion/summary message. HAL's `toolCallParser.ts` will parse JSON blocks from agent messages and execute them.
+- **Method 2 (Fallback):** Write tool calls to `.hal-tool-call-queue.json` in the repo root. HAL will check this file when tickets move columns and execute pending tool calls.
+
+### Method 1: Tool Calls in Response Message
+
+Include tool calls as JSON blocks in your message:
+
 ```
 I've completed the QA review. Here's my tool call to store the QA report:
 
@@ -152,7 +160,36 @@ Now moving the ticket to Human in the Loop:
 }
 ```
 
-HAL will execute these tool calls and update Supabase accordingly.
+HAL will parse these from your message and execute them automatically.
+
+### Method 2: Tool Call Queue File (Fallback)
+
+If tool calls in messages aren't being processed, write them to `.hal-tool-call-queue.json`:
+
+```json
+[
+  {
+    "tool": "insert_implementation_artifact",
+    "params": {
+      "ticketId": "0097",
+      "artifactType": "plan",
+      "title": "Plan for ticket 0097",
+      "body_md": "# Plan\n\n..."
+    }
+  },
+  {
+    "tool": "insert_implementation_artifact",
+    "params": {
+      "ticketId": "0097",
+      "artifactType": "worklog",
+      "title": "Worklog for ticket 0097",
+      "body_md": "# Worklog\n\n..."
+    }
+  }
+]
+```
+
+HAL will check this file when tickets move columns and execute all pending tool calls, then clear the queue.
 
 ## Benefits
 

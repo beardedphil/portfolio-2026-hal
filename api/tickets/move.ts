@@ -1,5 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { createClient } from '@supabase/supabase-js'
+import { readFileSync, writeFileSync } from 'fs'
+import { join } from 'path'
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []
@@ -121,6 +123,50 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       position: nextPosition,
       movedAt,
     })
+
+    // After successful ticket move, check and process tool call queue (0097)
+    try {
+      const queuePath = join(process.cwd(), '.hal-tool-call-queue.json')
+      let queue: Array<{ tool: string; params: Record<string, unknown> }> = []
+      
+      try {
+        const queueContent = readFileSync(queuePath, 'utf8')
+        queue = JSON.parse(queueContent) as Array<{ tool: string; params: Record<string, unknown> }>
+      } catch {
+        // Queue file doesn't exist or is invalid, start with empty queue
+        queue = []
+      }
+
+      if (queue.length > 0) {
+        // Process all tool calls in queue
+        const halApiUrl = process.env.HAL_API_URL || process.env.APP_ORIGIN || 'http://localhost:5173'
+        
+        for (const toolCall of queue) {
+          try {
+            const toolResponse = await fetch(`${halApiUrl}/api/agent-tools/execute`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                tool: toolCall.tool,
+                params: toolCall.params,
+              }),
+            })
+            const toolResult = await toolResponse.json()
+            if (!toolResult.success) {
+              console.error(`Tool call ${toolCall.tool} failed:`, toolResult.error)
+            }
+          } catch (err) {
+            console.error(`Failed to execute tool call ${toolCall.tool}:`, err)
+          }
+        }
+
+        // Clear the queue after processing
+        writeFileSync(queuePath, JSON.stringify([], null, 2), 'utf8')
+      }
+    } catch (err) {
+      // Non-fatal: log error but don't fail the ticket move
+      console.error('Failed to process tool call queue:', err)
+    }
   } catch (err) {
     json(res, 500, { success: false, error: err instanceof Error ? err.message : String(err) })
   }
