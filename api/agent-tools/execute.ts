@@ -303,6 +303,49 @@ async function getTicketContent(
   return { success: true, body_md: ticket.body_md || '' }
 }
 
+async function getArtifacts(
+  supabase: any,
+  params: { ticketId: string }
+) {
+  const ticketNumber = parseInt(params.ticketId, 10)
+  if (!Number.isFinite(ticketNumber)) {
+    return { success: false, error: `Invalid ticket ID: ${params.ticketId}. Expected numeric ID.` }
+  }
+
+  // Try to find ticket by ticket_number (repo-scoped) or id (legacy)
+  const { data: ticket, error: ticketError } = await supabase
+    .from('tickets')
+    .select('pk')
+    .or(`ticket_number.eq.${ticketNumber},id.eq.${params.ticketId}`)
+    .maybeSingle()
+
+  if (ticketError) {
+    return { success: false, error: `Supabase fetch failed: ${ticketError.message}` }
+  }
+
+  if (!ticket) {
+    return { success: false, error: `Ticket ${params.ticketId} not found.` }
+  }
+
+  const ticketPk = (ticket as { pk?: string }).pk
+  if (!ticketPk) {
+    return { success: false, error: `Ticket ${params.ticketId} missing pk.` }
+  }
+
+  // Fetch all artifacts for this ticket
+  const { data: artifacts, error: artifactsError } = await supabase
+    .from('agent_artifacts')
+    .select('artifact_id, ticket_pk, agent_type, title, body_md, created_at')
+    .eq('ticket_pk', ticketPk)
+    .order('created_at', { ascending: false })
+
+  if (artifactsError) {
+    return { success: false, error: `Failed to fetch artifacts: ${artifactsError.message}` }
+  }
+
+  return { success: true, artifacts: artifacts || [] }
+}
+
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   // CORS: Allow cross-origin requests
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -333,7 +376,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     if (!tool) {
       json(res, 400, {
         success: false,
-        error: 'tool is required. Available tools: insert_implementation_artifact, insert_qa_artifact, update_ticket_body, move_ticket_column, get_ticket_content',
+        error: 'tool is required. Available tools: insert_implementation_artifact, insert_qa_artifact, update_ticket_body, move_ticket_column, get_ticket_content, get_artifacts',
       })
       return
     }
@@ -417,10 +460,21 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         }
         break
       }
+      case 'get_artifacts': {
+        const p = params as { ticketId?: string }
+        if (!p.ticketId) {
+          result = { success: false, error: 'ticketId is required.' }
+        } else {
+          result = await getArtifacts(supabase, {
+            ticketId: p.ticketId,
+          })
+        }
+        break
+      }
       default:
         result = {
           success: false,
-          error: `Unknown tool: ${tool}. Available tools: insert_implementation_artifact, insert_qa_artifact, update_ticket_body, move_ticket_column, get_ticket_content`,
+          error: `Unknown tool: ${tool}. Available tools: insert_implementation_artifact, insert_qa_artifact, update_ticket_body, move_ticket_column, get_ticket_content, get_artifacts`,
         }
     }
 
