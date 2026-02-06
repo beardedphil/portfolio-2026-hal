@@ -474,8 +474,6 @@ function TicketDetailModal({
   artifacts,
   artifactsLoading,
   onOpenArtifact,
-  supabaseUrl,
-  supabaseAnonKey,
 }: {
   open: boolean
   onClose: () => void
