@@ -672,47 +672,8 @@ function App() {
   }, [checkPendingToolCalls])
 
   // Poll for recent tool call executions and log to Tools Agent chat (0107)
+  // Note: checkRecentExecutions is defined after logToolCallToToolsAgent to avoid forward reference
   const [lastExecutionTimestamp, setLastExecutionTimestamp] = useState(0)
-  const checkRecentExecutions = useCallback(async () => {
-    try {
-      const response = await fetch(`/api/tool-calls/recent-executions?since=${lastExecutionTimestamp}`)
-      const result = await response.json()
-      if (result.success && result.executions && result.executions.length > 0) {
-        // Log each execution to Tools Agent chat
-        for (const exec of result.executions) {
-          logToolCallToToolsAgent(
-            { tool: exec.tool, params: exec.params },
-            exec.result
-          )
-        }
-        // Mark executions as logged
-        const loggedIds = result.executions.map((e: { id: string }) => e.id)
-        await fetch('/api/tool-calls/recent-executions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ loggedIds }),
-        })
-        // Update timestamp
-        if (result.latestTimestamp > lastExecutionTimestamp) {
-          setLastExecutionTimestamp(result.latestTimestamp)
-        }
-      }
-    } catch (err) {
-      // Non-fatal: log error but don't block
-      console.error('Failed to check recent tool call executions:', err)
-    }
-  }, [lastExecutionTimestamp, logToolCallToToolsAgent])
-
-  // Poll for recent executions every 5 seconds (0107)
-  useEffect(() => {
-    // Initial check
-    checkRecentExecutions()
-    // Poll every 5 seconds
-    const interval = setInterval(() => {
-      checkRecentExecutions()
-    }, 5_000)
-    return () => clearInterval(interval)
-  }, [checkRecentExecutions])
 
   // When Kanban iframe loads, push current repo + Supabase so it syncs (iframe may load after user connected)
   useEffect(() => {
@@ -1323,6 +1284,48 @@ function App() {
       console.error('Failed to log tool call to Tools Agent:', err)
     }
   }, [getDefaultConversationId, addMessage])
+
+  // Poll for recent tool call executions and log to Tools Agent chat (0107) - defined after logToolCallToToolsAgent
+  const checkRecentExecutions = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/tool-calls/recent-executions?since=${lastExecutionTimestamp}`)
+      const result = await response.json()
+      if (result.success && result.executions && result.executions.length > 0) {
+        // Log each execution to Tools Agent chat
+        for (const exec of result.executions) {
+          logToolCallToToolsAgent(
+            { tool: exec.tool, params: exec.params },
+            exec.result
+          )
+        }
+        // Mark executions as logged
+        const loggedIds = result.executions.map((e: { id: string }) => e.id)
+        await fetch('/api/tool-calls/recent-executions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ loggedIds }),
+        })
+        // Update timestamp
+        if (result.latestTimestamp > lastExecutionTimestamp) {
+          setLastExecutionTimestamp(result.latestTimestamp)
+        }
+      }
+    } catch (err) {
+      // Non-fatal: log error but don't block
+      console.error('Failed to check recent tool call executions:', err)
+    }
+  }, [lastExecutionTimestamp, logToolCallToToolsAgent])
+
+  // Poll for recent executions every 5 seconds (0107)
+  useEffect(() => {
+    // Initial check
+    checkRecentExecutions()
+    // Poll every 5 seconds
+    const interval = setInterval(() => {
+      checkRecentExecutions()
+    }, 5_000)
+    return () => clearInterval(interval)
+  }, [checkRecentExecutions])
 
   // Execute all pending tool calls (0103) - defined after logToolCallToToolsAgent to avoid forward reference
   const executeAllToolCalls = useCallback(async () => {
