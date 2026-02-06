@@ -843,6 +843,7 @@ function SortableColumn({
   supabaseTickets = [],
   updateSupabaseTicketKanban,
   refetchSupabaseTickets,
+  ticketPendingToolCalls,
 }: {
   col: Column
   cards: Record<string, Card>
@@ -1141,6 +1142,46 @@ function App() {
   // Supabase board: when connected, board is driven by supabaseTickets + supabaseColumnsRows (0020)
   const supabaseBoardActive = supabaseConnectionStatus === 'connected'
   
+  // Check for pending tool calls for a ticket (0097)
+  const checkPendingToolCalls = useCallback(async (ticketId: string): Promise<boolean> => {
+    try {
+      const halApiUrl = window.location.origin
+      const response = await fetch(`${halApiUrl}/api/tool-calls/check`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticketId }),
+      })
+      const result = await response.json()
+      return result.success && result.hasPendingToolCalls === true
+    } catch {
+      return false
+    }
+  }, [])
+  
+  // Execute tool calls for a ticket (0097)
+  const executeToolCalls = useCallback(async (ticketId: string): Promise<{ success: boolean; executed: number; error?: string }> => {
+    try {
+      const halApiUrl = window.location.origin
+      const response = await fetch(`${halApiUrl}/api/tool-calls/execute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticketId }),
+      })
+      const result = await response.json()
+      return {
+        success: result.success === true,
+        executed: result.executed ?? 0,
+        error: result.error,
+      }
+    } catch (err) {
+      return {
+        success: false,
+        executed: 0,
+        error: err instanceof Error ? err.message : String(err),
+      }
+    }
+  }, [])
+  
   // Check for pending tool calls for all tickets (0097)
   useEffect(() => {
     if (!supabaseBoardActive || supabaseTickets.length === 0) {
@@ -1432,46 +1473,6 @@ function App() {
   const cardsForDisplay = supabaseBoardActive ? supabaseCards : cards
 
   /** Fetch artifacts for a ticket (0082) */
-  // Check for pending tool calls for a ticket (0097)
-  const checkPendingToolCalls = useCallback(async (ticketId: string): Promise<boolean> => {
-    try {
-      const halApiUrl = window.location.origin
-      const response = await fetch(`${halApiUrl}/api/tool-calls/check`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticketId }),
-      })
-      const result = await response.json()
-      return result.success && result.hasPendingToolCalls === true
-    } catch {
-      return false
-    }
-  }, [])
-  
-  // Execute tool calls for a ticket (0097)
-  const executeToolCalls = useCallback(async (ticketId: string): Promise<{ success: boolean; executed: number; error?: string }> => {
-    try {
-      const halApiUrl = window.location.origin
-      const response = await fetch(`${halApiUrl}/api/tool-calls/execute`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticketId }),
-      })
-      const result = await response.json()
-      return {
-        success: result.success === true,
-        executed: result.executed ?? 0,
-        error: result.error,
-      }
-    } catch (err) {
-      return {
-        success: false,
-        executed: 0,
-        error: err instanceof Error ? err.message : String(err),
-      }
-    }
-  }, [])
-
   const fetchTicketArtifacts = useCallback(
     async (ticketPk: string): Promise<SupabaseAgentArtifactRow[]> => {
       const url = supabaseProjectUrl.trim()
