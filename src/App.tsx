@@ -2033,7 +2033,7 @@ function App() {
     <div className="hal-app">
       <header className="hal-header">
         <h1>HAL</h1>
-        <span className="hal-subtitle">Portfolio 2026 - Agent Workspace</span>
+        <span className="hal-subtitle">Agent Workspace</span>
         <div className="hal-header-actions">
           <button
             type="button"
