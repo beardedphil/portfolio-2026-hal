@@ -111,13 +111,13 @@ async function main() {
       const content = fs.readFileSync(filePath, 'utf8')
       const artifactTitle = `${file.title} for ticket ${ticket.display_id || ticketId}`
       
-      // Check if artifact already exists
+      // Check if artifact already exists (match by exact title)
       const { data: existing } = await supabase
         .from('agent_artifacts')
         .select('artifact_id')
         .eq('ticket_pk', ticket.pk)
         .eq('agent_type', file.agentType)
-        .ilike('title', `%${file.title}%`)
+        .eq('title', artifactTitle)
         .maybeSingle()
       
       if (existing) {

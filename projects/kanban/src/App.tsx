@@ -418,35 +418,25 @@ function ArtifactsSection({
     )
   }
 
-  // Group artifacts by agent type, showing most recent first
-  const grouped = artifacts.reduce((acc, artifact) => {
-    if (!acc[artifact.agent_type]) {
-      acc[artifact.agent_type] = []
-    }
-    acc[artifact.agent_type].push(artifact)
-    return acc
-  }, {} as Record<string, SupabaseAgentArtifactRow[]>)
-
-  // Sort each group by created_at descending
-  for (const key in grouped) {
-    grouped[key].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-  }
+  // Sort all artifacts by created_at descending (most recent first)
+  const sortedArtifacts = [...artifacts].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  )
 
   return (
     <div className="artifacts-section">
       <h3 className="artifacts-section-title">Artifacts</h3>
       <ul className="artifacts-list">
-        {Object.entries(grouped).map(([agentType, typeArtifacts]) => {
-          // Show the most recent artifact for each type
-          const artifact = typeArtifacts[0]
-          const displayName = getAgentTypeDisplayName(agentType)
+        {sortedArtifacts.map((artifact) => {
+          // Use artifact title directly, or fall back to agent type display name
+          const displayName = artifact.title || getAgentTypeDisplayName(artifact.agent_type)
           return (
             <li key={artifact.artifact_id} className="artifacts-item">
               <button
                 type="button"
                 className="artifacts-item-button"
                 onClick={() => onOpenArtifact(artifact)}
-                aria-label={`Open ${displayName}: ${artifact.title}`}
+                aria-label={`Open ${displayName}`}
               >
                 <span className="artifacts-item-title">{displayName}</span>
                 <span className="artifacts-item-meta">
