@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
+import { createClient } from '@supabase/supabase-js'
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []
@@ -92,12 +93,17 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
-    // Execute tool calls
+    // Separate move_ticket_column calls from other tool calls
+    const moveCalls = ticketToolCalls.filter(tc => tc.tool === 'move_ticket_column')
+    const otherCalls = ticketToolCalls.filter(tc => tc.tool !== 'move_ticket_column')
+
+    // Execute non-move tool calls first
     const halApiUrl = process.env.HAL_API_URL || process.env.APP_ORIGIN || 'http://localhost:5173'
     let executed = 0
     const errors: string[] = []
+    const executedTools = new Set<string>()
 
-    for (const toolCall of ticketToolCalls) {
+    for (const toolCall of otherCalls) {
       try {
         const toolResponse = await fetch(`${halApiUrl}/api/agent-tools/execute`, {
           method: 'POST',
@@ -112,9 +118,90 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           errors.push(`Tool call ${toolCall.tool} failed: ${toolResult.error || 'Unknown error'}`)
         } else {
           executed++
+          executedTools.add(toolCall.tool)
         }
       } catch (err) {
         errors.push(`Failed to execute tool call ${toolCall.tool}: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+
+    // Determine next column based on executed tool calls
+    let nextColumnId: string | null = null
+    if (executedTools.has('insert_qa_artifact')) {
+      // QA artifact inserted → move to Human in the Loop
+      nextColumnId = 'col-human-in-the-loop'
+    } else if (executedTools.has('insert_implementation_artifact')) {
+      // Implementation artifacts inserted → move to QA
+      nextColumnId = 'col-qa'
+    }
+
+    // If we determined a next column and there's no existing move call, execute it
+    if (nextColumnId && moveCalls.length === 0) {
+      try {
+        // Get current ticket column from Supabase to avoid unnecessary moves
+        const supabaseUrl = process.env.SUPABASE_URL?.trim() || process.env.VITE_SUPABASE_URL?.trim()
+        const supabaseAnonKey = process.env.SUPABASE_ANON_KEY?.trim() || process.env.VITE_SUPABASE_ANON_KEY?.trim()
+        
+        if (supabaseUrl && supabaseAnonKey) {
+          const supabase = createClient(supabaseUrl, supabaseAnonKey)
+          const ticketNumber = parseInt(normalizedTicketId, 10)
+          
+          if (Number.isFinite(ticketNumber)) {
+            // Find ticket by ticket_number or id
+            const { data: ticket } = await supabase
+              .from('tickets')
+              .select('kanban_column_id')
+              .or(`ticket_number.eq.${ticketNumber},id.eq.${normalizedTicketId}`)
+              .maybeSingle()
+            
+            // Only move if not already in target column
+            if (ticket && (ticket as { kanban_column_id?: string }).kanban_column_id !== nextColumnId) {
+              const moveResponse = await fetch(`${halApiUrl}/api/agent-tools/execute`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  tool: 'move_ticket_column',
+                  params: {
+                    ticketId: normalizedTicketId,
+                    columnId: nextColumnId,
+                  },
+                }),
+              })
+              const moveResult = await moveResponse.json()
+              if (moveResult.success) {
+                executed++
+                executedTools.add('move_ticket_column')
+              } else {
+                errors.push(`Failed to move ticket to ${nextColumnId}: ${moveResult.error || 'Unknown error'}`)
+              }
+            }
+          }
+        }
+      } catch (err) {
+        errors.push(`Failed to determine/execute ticket move: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    } else if (moveCalls.length > 0) {
+      // Execute existing move calls
+      for (const toolCall of moveCalls) {
+        try {
+          const toolResponse = await fetch(`${halApiUrl}/api/agent-tools/execute`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              tool: toolCall.tool,
+              params: toolCall.params,
+            }),
+          })
+          const toolResult = await toolResponse.json()
+          if (!toolResult.success) {
+            errors.push(`Tool call ${toolCall.tool} failed: ${toolResult.error || 'Unknown error'}`)
+          } else {
+            executed++
+            executedTools.add(toolCall.tool)
+          }
+        } catch (err) {
+          errors.push(`Failed to execute tool call ${toolCall.tool}: ${err instanceof Error ? err.message : String(err)}`)
+        }
       }
     }
 
