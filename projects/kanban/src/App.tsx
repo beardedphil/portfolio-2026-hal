@@ -760,15 +760,11 @@ function TicketDetailModal({
 function SortableCard({
   card,
   columnId,
-  onDelete,
-  showDelete = false,
   onOpenDetail,
   hasPendingToolCalls = false,
 }: {
   card: Card
   columnId: string
-  onDelete?: (cardId: string) => void
-  showDelete?: boolean
   onOpenDetail?: (cardId: string) => void
   hasPendingToolCalls?: boolean
 }) {
@@ -780,14 +776,6 @@ function SortableCard({
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
-  }
-  const handleDeleteClick = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    e.preventDefault()
-    if (onDelete) onDelete(card.id)
-  }
-  const handleDeletePointerDown = (e: React.PointerEvent) => {
-    e.stopPropagation()
   }
   const handleCardClick = () => {
     if (onOpenDetail) onOpenDetail(card.id)
@@ -814,18 +802,6 @@ function SortableCard({
           </span>
         )}
       </button>
-      {showDelete && onDelete && (
-        <button
-          type="button"
-          className="ticket-card-delete"
-          onClick={handleDeleteClick}
-          onPointerDown={handleDeletePointerDown}
-          aria-label={`Delete ticket ${card.id}`}
-          title="Delete"
-        >
-          Delete
-        </button>
-      )}
     </div>
   )
 }
@@ -835,8 +811,6 @@ function SortableColumn({
   cards,
   onRemove,
   hideRemove = false,
-  onDeleteTicket,
-  showDelete = false,
   onOpenDetail,
   supabaseBoardActive = false,
   supabaseColumns = [],
@@ -849,8 +823,6 @@ function SortableColumn({
   cards: Record<string, Card>
   onRemove: (id: string) => void
   hideRemove?: boolean
-  onDeleteTicket?: (cardId: string) => void
-  showDelete?: boolean
   onOpenDetail?: (cardId: string) => void
   supabaseBoardActive?: boolean
   supabaseColumns?: Column[]
@@ -990,8 +962,6 @@ function SortableColumn({
                 key={card.id}
                 card={card}
                 columnId={col.id}
-                onDelete={onDeleteTicket}
-                showDelete={showDelete}
                 onOpenDetail={onOpenDetail}
                 hasPendingToolCalls={ticketPendingToolCalls?.[card.id] === true}
               />
@@ -1115,8 +1085,6 @@ function App() {
   const [_selectedSupabaseTicketId, setSelectedSupabaseTicketId] = useState<string | null>(null)
   const [_selectedSupabaseTicketContent, setSelectedSupabaseTicketContent] = useState<string | null>(null)
   // Sync with Docs removed (Supabase-only) (0065)
-  const [supabaseLastDeleteError, setSupabaseLastDeleteError] = useState<string | null>(null)
-  const [deleteSuccessMessage, setDeleteSuccessMessage] = useState<string | null>(null)
   // Ticket persistence tracking (0047)
   const [lastMovePersisted, setLastMovePersisted] = useState<{ success: boolean; timestamp: Date; ticketId: string; error?: string } | null>(null)
   const [pendingMoves, setPendingMoves] = useState<Set<string>>(new Set())
@@ -1852,55 +1820,6 @@ function App() {
     return () => window.removeEventListener('message', handleMessage)
   }, [isEmbedded, connectSupabase, supabaseBoardActive, supabaseTickets, supabaseColumns, updateSupabaseTicketKanban, refetchSupabaseTickets])
 
-  /** Delete a ticket from Supabase (Supabase-only mode, 0065). */
-  const handleDeleteTicket = useCallback(
-    async (ticketPk: string) => {
-      const url = supabaseProjectUrl.trim()
-      const key = supabaseAnonKey.trim()
-      if (!url || !key) {
-        setSupabaseLastDeleteError('Supabase not configured. Connect first.')
-        setTimeout(() => setSupabaseLastDeleteError(null), 5000)
-        return
-      }
-      const card = supabaseCards[ticketPk]
-      const label = card ? `"${card.title}"` : ticketPk
-      if (!window.confirm(`Delete ticket ${label}? This cannot be undone.`)) return
-
-      setSupabaseLastDeleteError(null)
-      setDeleteSuccessMessage(null)
-      try {
-        const res = await fetch(`${HAL_API_BASE}/api/tickets/delete`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ticketPk, supabaseUrl: url, supabaseAnonKey: key }),
-        })
-        const data = (await res.json()) as { success?: boolean; error?: string }
-        if (data.success) {
-          // Optimistically remove from state so the board updates immediately
-          setSupabaseTickets((prev) => prev.filter((t) => t.pk !== ticketPk))
-          setDeleteSuccessMessage(`Deleted ticket ${label}`)
-          setTimeout(() => setDeleteSuccessMessage(null), 5000)
-          // Refetch to confirm server-side delete is reflected
-          await refetchSupabaseTickets()
-          addLog(`Deleted ticket ${label}`)
-          if (typeof window !== 'undefined' && window.parent !== window) {
-            window.parent.postMessage({ type: 'HAL_SYNC_COMPLETED' }, '*')
-          }
-        } else {
-          const err = data.error ?? `HTTP ${res.status}`
-          setSupabaseLastDeleteError(err)
-          setTimeout(() => setSupabaseLastDeleteError(null), 10000)
-          addLog(`Delete failed: ${err}`)
-        }
-      } catch (e) {
-        const err = e instanceof Error ? e.message : String(e)
-        setSupabaseLastDeleteError(err)
-        setTimeout(() => setSupabaseLastDeleteError(null), 10000)
-        addLog(`Delete failed: ${err}`)
-      }
-    },
-    [supabaseProjectUrl, supabaseAnonKey, supabaseCards, refetchSupabaseTickets, addLog]
-  )
 
   // When connected repo changes or we connect to Supabase with a repo already set, refetch tickets (0079).
   useEffect(() => {
@@ -2489,17 +2408,6 @@ function App() {
         </div>
       )}
 
-      {supabaseLastDeleteError && (
-        <div className="config-missing-error" role="alert">
-          Delete failed: {supabaseLastDeleteError}
-        </div>
-      )}
-
-      {deleteSuccessMessage && (
-        <div className="success-message" role="status">
-          ✓ {deleteSuccessMessage}
-        </div>
-      )}
 
       {/* Ticket persistence status indicator (0047) */}
       {supabaseBoardActive && lastMovePersisted && (
@@ -2861,8 +2769,6 @@ ${notes || '(none provided)'}
                   cards={cardsForDisplay}
                   onRemove={handleRemoveColumn}
                   hideRemove={supabaseBoardActive}
-                  onDeleteTicket={handleDeleteTicket}
-                  showDelete={supabaseBoardActive}
                   onOpenDetail={handleOpenTicketDetail}
                   supabaseBoardActive={supabaseBoardActive}
                   supabaseColumns={supabaseColumns}
@@ -2928,7 +2834,6 @@ ${notes || '(none provided)'}
               <p>Polling: {supabaseBoardActive ? `${SUPABASE_POLL_INTERVAL_MS / 1000}s` : 'off'}</p>
               <p>Last tickets refresh: {supabaseLastRefresh ? supabaseLastRefresh.toLocaleTimeString() : 'never'}</p>
               <p>Last poll error: {supabaseLastError ?? 'none'}</p>
-              <p>Last delete error: {supabaseLastDeleteError ?? 'none'}</p>
               {/* Ticket persistence status (0047) */}
               {lastMovePersisted ? (
                 <p className={lastMovePersisted.success ? 'debug-success' : 'debug-error'}>
