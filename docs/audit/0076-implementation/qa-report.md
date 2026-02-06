@@ -31,11 +31,11 @@ All required audit files are present:
 
 | Requirement | Implementation | Evidence | Status |
 |------------|----------------|----------|--------|
-| Smooth pointer tracking | Uses `requestAnimationFrame` loop for 60fps updates | `src/App.tsx:594-658` - RAF loop with mouse position in ref | ✅ PASS |
-| Meaningful drag range | Width clamped between 320px and 800px | `src/App.tsx:614` - `Math.max(320, Math.min(800, newWidth))` | ✅ PASS |
-| Size persistence | localStorage persistence (from previous ticket) | `src/App.tsx:578-585` - useEffect persists chatWidth | ✅ PASS |
-| Diagnostics display | Shows width (px), percentage, and drag state | `src/App.tsx:2873-2893` - Three diagnostic rows | ✅ PASS |
-| Inline overlay | Percentage overlay on divider during drag | `src/App.tsx:2276-2286` - Conditional render with percentage | ✅ PASS |
+| Smooth pointer tracking | Uses `requestAnimationFrame` loop for 60fps updates | `src/App.tsx:586-651` - RAF loop with mouse position in ref | ✅ PASS |
+| Meaningful drag range | Width clamped between 320px and 800px | `src/App.tsx:607` - `Math.max(320, Math.min(800, newWidth))` | ✅ PASS |
+| Size persistence | localStorage persistence (from previous ticket) | `src/App.tsx:571-577` - useEffect persists chatWidth | ✅ PASS |
+| Diagnostics display | Shows width (px), percentage, and drag state | `src/App.tsx:2730-2750` - Three diagnostic rows | ✅ PASS |
+| Inline overlay | Percentage overlay on divider during drag | `src/App.tsx:2455-2465` - Conditional render with percentage | ✅ PASS |
 
 ### Code quality
 
@@ -108,18 +108,18 @@ All required audit files are present:
 **Blocking manual verification**: ⚠️ YES - Manual UI verification required
 
 The implementation appears complete and correct based on code review. All acceptance criteria are met in the code:
-- ✅ Smooth tracking via requestAnimationFrame (lines 589-653)
-- ✅ Meaningful drag range (320px-800px, covering 20-80% range) - line 609
-- ✅ Size persistence via localStorage (lines 573-579)
-- ✅ Diagnostics display (width px, percentage, drag state) - lines 3199-3218
-- ✅ Inline overlay during drag (lines 2442-2452)
+- ✅ Smooth tracking via requestAnimationFrame (lines 586-651)
+- ✅ Meaningful drag range (320px-800px, covering 20-80% range) - line 607
+- ✅ Size persistence via localStorage (lines 571-577)
+- ✅ Diagnostics display (width px, percentage, drag state) - lines 2730-2750
+- ✅ Inline overlay during drag (lines 2455-2465)
 
 **Code review findings**:
 - ✅ Proper use of `requestAnimationFrame` for 60fps smooth updates
 - ✅ Mouse position stored in ref (`mouseXRef`) to avoid unnecessary re-renders
 - ✅ Comprehensive cleanup of animation frames and event listeners
 - ✅ Passive event listeners for better performance
-- ✅ Accurate width calculation accounting for 4px divider width (line 607: `mainRect.right - mouseX - 2`)
+- ✅ Accurate width calculation accounting for 4px divider width (line 605: `mainRect.right - mouseX - 2`)
 - ✅ All TypeScript types properly defined
 - ✅ No linter errors
 
