@@ -592,17 +592,26 @@ function ProcessReviewSection({
     }
   }
 
-  // Automatically run review when component mounts (0108)
+  // Automatically run review when component mounts (0108, 0111)
   useEffect(() => {
     if (!hasAutoRun && supabaseUrl && supabaseAnonKey && artifacts.length > 0 && !isRunningReview && suggestions.length === 0) {
       setHasAutoRun(true)
-      // Run review automatically when Process Review section is shown
-      handleRunReview().catch((err) => {
-        console.error('Auto-run process review failed:', err)
-      })
+      // Run review automatically when Process Review section is shown (with chat integration)
+      if (ticketId) {
+        window.parent.postMessage(
+          {
+            type: 'HAL_TRIGGER_PROCESS_REVIEW',
+            ticketPk,
+            ticketId,
+            supabaseUrl,
+            supabaseAnonKey,
+          },
+          '*'
+        )
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasAutoRun, supabaseUrl, supabaseAnonKey, artifacts.length])
+  }, [hasAutoRun, supabaseUrl, supabaseAnonKey, artifacts.length, ticketId, ticketPk])
 
   const handleToggleSuggestion = (id: string) => {
     setSuggestions((prev) =>
@@ -685,7 +694,24 @@ function ProcessReviewSection({
         <button
           type="button"
           className="process-review-button process-review-button-run"
-          onClick={handleRunReview}
+          onClick={() => {
+            // Trigger Process Review via parent window for chat integration (0111)
+            if (supabaseUrl && supabaseAnonKey && ticketId) {
+              window.parent.postMessage(
+                {
+                  type: 'HAL_TRIGGER_PROCESS_REVIEW',
+                  ticketPk,
+                  ticketId,
+                  supabaseUrl,
+                  supabaseAnonKey,
+                },
+                '*'
+              )
+            } else {
+              // Fallback to direct API call if credentials not available
+              handleRunReview()
+            }
+          }}
           disabled={isRunningReview || isCreatingTicket}
         >
           {isRunningReview ? 'Running review...' : 'Run review'}
@@ -3063,20 +3089,17 @@ function App() {
                 )
               }
               try {
-                // Trigger process review agent in background
-                fetch('/api/process-review/run', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
+                // Send message to parent window to trigger Process Review with chat integration (0111)
+                window.parent.postMessage(
+                  {
+                    type: 'HAL_TRIGGER_PROCESS_REVIEW',
                     ticketPk,
                     ticketId: detailModal.ticketId,
                     supabaseUrl: url,
                     supabaseAnonKey: key,
-                  }),
-                }).catch((err) => {
-                  console.error('Failed to trigger process review agent:', err)
-                  addLog(`Warning: Process Review agent trigger failed: ${err instanceof Error ? err.message : String(err)}`)
-                })
+                  },
+                  '*'
+                )
               } catch (err) {
                 console.error('Error triggering process review agent:', err)
                 addLog(`Warning: Process Review agent trigger error: ${err instanceof Error ? err.message : String(err)}`)
