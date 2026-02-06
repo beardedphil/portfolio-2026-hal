@@ -1157,38 +1157,6 @@ function App() {
     return getOrCreateConversation(agentRole, defaultId)
   }, [conversations, getOrCreateConversation])
 
-  // Log tool call to Tools Agent chat (0107)
-  const logToolCallToToolsAgent = useCallback((toolCall: { tool: string; params: Record<string, unknown> }, result: { success: boolean; result?: unknown; error?: string }) => {
-    try {
-      const toolsAgentConvId = getDefaultConversationId('tools-agent')
-      const timestamp = new Date()
-      
-      // Format tool call entry
-      const paramsSummary = Object.keys(toolCall.params).length > 0
-        ? JSON.stringify(toolCall.params, null, 2)
-        : '(no parameters)'
-      
-      let outcomeText: string
-      if (result.success) {
-        const resultSummary = result.result
-          ? typeof result.result === 'object'
-            ? JSON.stringify(result.result, null, 2)
-            : String(result.result)
-          : 'Success'
-        outcomeText = `✅ Success\n\`\`\`json\n${resultSummary}\n\`\`\``
-      } else {
-        outcomeText = `❌ Failed: ${result.error || 'Unknown error'}`
-      }
-      
-      const toolCallEntry = `**Tool:** \`${toolCall.tool}\`\n**Timestamp:** ${formatTime(timestamp)}\n**Request:**\n\`\`\`json\n${paramsSummary}\n\`\`\`\n**Outcome:**\n${outcomeText}`
-      
-      addMessage(toolsAgentConvId, 'system', toolCallEntry)
-    } catch (err) {
-      // Non-fatal: log error but don't block tool execution
-      console.error('Failed to log tool call to Tools Agent:', err)
-    }
-  }, [getDefaultConversationId, addMessage])
-
   const addMessage = useCallback((conversationId: string, agent: Message['agent'], content: string, id?: number, imageAttachments?: ImageAttachment[]) => {
     const nextId = id ?? ++messageIdRef.current
     if (id != null) messageIdRef.current = Math.max(messageIdRef.current, nextId)
@@ -1296,6 +1264,38 @@ function App() {
       }
     }
   }, [qaAgentTicketId, extractTicketId, moveTicketToColumn, addAutoMoveDiagnostic])
+
+  // Log tool call to Tools Agent chat (0107)
+  const logToolCallToToolsAgent = useCallback((toolCall: { tool: string; params: Record<string, unknown> }, result: { success: boolean; result?: unknown; error?: string }) => {
+    try {
+      const toolsAgentConvId = getDefaultConversationId('tools-agent')
+      const timestamp = new Date()
+      
+      // Format tool call entry
+      const paramsSummary = Object.keys(toolCall.params).length > 0
+        ? JSON.stringify(toolCall.params, null, 2)
+        : '(no parameters)'
+      
+      let outcomeText: string
+      if (result.success) {
+        const resultSummary = result.result
+          ? typeof result.result === 'object'
+            ? JSON.stringify(result.result, null, 2)
+            : String(result.result)
+          : 'Success'
+        outcomeText = `✅ Success\n\`\`\`json\n${resultSummary}\n\`\`\``
+      } else {
+        outcomeText = `❌ Failed: ${result.error || 'Unknown error'}`
+      }
+      
+      const toolCallEntry = `**Tool:** \`${toolCall.tool}\`\n**Timestamp:** ${formatTime(timestamp)}\n**Request:**\n\`\`\`json\n${paramsSummary}\n\`\`\`\n**Outcome:**\n${outcomeText}`
+      
+      addMessage(toolsAgentConvId, 'system', toolCallEntry)
+    } catch (err) {
+      // Non-fatal: log error but don't block tool execution
+      console.error('Failed to log tool call to Tools Agent:', err)
+    }
+  }, [getDefaultConversationId, addMessage])
 
   type CheckUnassignedResult = {
     moved: string[]
