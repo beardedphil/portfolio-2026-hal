@@ -47,14 +47,30 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const ticketId = typeof body.ticketId === 'string' ? body.ticketId.trim() || undefined : undefined
     const ticketPk = typeof body.ticketPk === 'string' ? body.ticketPk.trim() || undefined : undefined
     const body_md = typeof body.body_md === 'string' ? body.body_md : undefined
-    const supabaseUrl = typeof body.supabaseUrl === 'string' ? body.supabaseUrl.trim() || undefined : undefined
+    // Use credentials from request body if provided, otherwise fall back to server environment variables
+    const supabaseUrl =
+      (typeof body.supabaseUrl === 'string' ? body.supabaseUrl.trim() : undefined) ||
+      process.env.SUPABASE_URL?.trim() ||
+      process.env.VITE_SUPABASE_URL?.trim() ||
+      undefined
     const supabaseAnonKey =
-      typeof body.supabaseAnonKey === 'string' ? body.supabaseAnonKey.trim() || undefined : undefined
+      (typeof body.supabaseAnonKey === 'string' ? body.supabaseAnonKey.trim() : undefined) ||
+      process.env.SUPABASE_ANON_KEY?.trim() ||
+      process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
+      undefined
 
-    if ((!ticketId && !ticketPk) || !body_md || !supabaseUrl || !supabaseAnonKey) {
+    if ((!ticketId && !ticketPk) || !body_md) {
       json(res, 400, {
         success: false,
-        error: 'ticketPk (preferred) or ticketId, body_md, supabaseUrl, and supabaseAnonKey are required.',
+        error: 'ticketPk (preferred) or ticketId, and body_md are required.',
+      })
+      return
+    }
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      json(res, 400, {
+        success: false,
+        error: 'Supabase credentials required (provide in request body or set SUPABASE_URL and SUPABASE_ANON_KEY in server environment).',
       })
       return
     }

@@ -23,14 +23,13 @@ const supabaseAnonKey = process.argv[6]?.trim() || process.env.SUPABASE_ANON_KEY
 if (!ticketId || !shortTitle) {
   console.error('Usage: node scripts/update-ticket-artifacts.js <ticketId> <shortTitle> [apiUrl] [supabaseUrl] [supabaseAnonKey]')
   console.error('Example: node scripts/update-ticket-artifacts.js 0063 one-click-work-top-ticket-buttons')
-  console.error('Example (with API): node scripts/update-ticket-artifacts.js 0063 one-click-work-top-ticket-buttons http://localhost:5173 <url> <key>')
+  console.error('Example (with API): node scripts/update-ticket-artifacts.js 0063 one-click-work-top-ticket-buttons http://localhost:5173')
+  console.error('Example (direct Supabase): node scripts/update-ticket-artifacts.js 0063 one-click-work-top-ticket-buttons "" <url> <key>')
   process.exit(1)
 }
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('Set SUPABASE_URL and SUPABASE_ANON_KEY in .env, or pass as CLI arguments')
-  process.exit(1)
-}
+// Credentials are optional if using HAL API (API uses server environment variables)
+// Only required for direct Supabase access
 
 const artifactsSection = `## Artifacts
 
@@ -43,7 +42,35 @@ const artifactsSection = `## Artifacts
 - [qa-report.md](docs/audit/${ticketId}-${shortTitle}/qa-report.md)
 `
 
+async function fetchTicketBodyViaApi() {
+  // HAL API can use server environment variables, so credentials are optional
+  const requestBody = { ticketId }
+  // Only include credentials if provided (for backward compatibility)
+  if (supabaseUrl) requestBody.supabaseUrl = supabaseUrl
+  if (supabaseAnonKey) requestBody.supabaseAnonKey = supabaseAnonKey
+
+  const response = await fetch(`${apiUrl}/api/tickets/get`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(requestBody),
+  })
+
+  if (!response.ok) {
+    throw new Error(`API fetch failed: ${response.statusText}`)
+  }
+
+  const result = await response.json()
+  if (!result.success) {
+    throw new Error(result.error || `Ticket ${ticketId} not found.`)
+  }
+
+  return result.body_md || ''
+}
+
 async function fetchTicketBody() {
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error('Supabase credentials required for direct access')
+  }
   const client = createClient(supabaseUrl, supabaseAnonKey)
   const { data: row, error: fetchError } = await client
     .from('tickets')
@@ -63,15 +90,19 @@ async function fetchTicketBody() {
 }
 
 async function updateViaApi(body_md) {
+  // HAL API can use server environment variables, so credentials are optional
+  const requestBody = {
+    ticketId,
+    body_md,
+  }
+  // Only include credentials if provided (for backward compatibility)
+  if (supabaseUrl) requestBody.supabaseUrl = supabaseUrl
+  if (supabaseAnonKey) requestBody.supabaseAnonKey = supabaseAnonKey
+
   const response = await fetch(`${apiUrl}/api/tickets/update`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      ticketId,
-      body_md,
-      supabaseUrl,
-      supabaseAnonKey,
-    }),
+    body: JSON.stringify(requestBody),
   })
 
   const result = await response.json()
@@ -94,7 +125,15 @@ async function updateDirectly(body_md) {
 
 async function main() {
   // Fetch current ticket body
-  let body_md = await fetchTicketBody()
+  const useApiForFetch = !!apiUrl
+  let body_md
+  if (useApiForFetch) {
+    // Use API to fetch (API uses server environment variables)
+    body_md = await fetchTicketBodyViaApi()
+  } else {
+    // Direct Supabase access requires credentials
+    body_md = await fetchTicketBody()
+  }
 
   // Check if Artifacts section already exists
   const artifactsRegex = /^## Artifacts\s*$/m
@@ -120,14 +159,17 @@ async function main() {
     body_md = body_md.trim() + '\n\n' + artifactsSection.trim()
   }
 
-  // Update via API if apiUrl is provided and not localhost default, otherwise use direct Supabase
-  const useApi = apiUrl && apiUrl !== 'http://localhost:5173'
+  // Update via API if apiUrl is provided, otherwise use direct Supabase (requires credentials)
+  const useApi = !!apiUrl
   if (useApi) {
     await updateViaApi(body_md)
     console.log(`Updated ticket ${ticketId} Artifacts section via HAL API.`)
-  } else {
+  } else if (supabaseUrl && supabaseAnonKey) {
     await updateDirectly(body_md)
     console.log(`Updated ticket ${ticketId} Artifacts section in Supabase.`)
+  } else {
+    console.error('Either provide apiUrl to use HAL API, or set SUPABASE_URL and SUPABASE_ANON_KEY for direct Supabase access.')
+    process.exit(1)
   }
   
   console.log('Kanban UI will reflect the change within ~10 seconds (poll interval).')

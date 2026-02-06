@@ -1,13 +1,13 @@
 /**
- * Move a ticket to a different Kanban column by updating Supabase, then the
- * markdown file's frontmatter, then running sync-tickets so the move persists
- * (docs and DB stay in sync; the board won't bounce back).
- *
- * Usage: node scripts/move-ticket-column.js [ticketId] [columnId]
+ * Move a ticket to a different Kanban column by updating Supabase.
+ * 
+ * Usage: node scripts/move-ticket-column.js [ticketId] [columnId] [apiUrl]
  *   ticketId  default 0030 (4-digit id from docs/tickets/NNNN-....md)
  *   columnId  default col-human-in-the-loop (QA -> Human in the Loop)
+ *   apiUrl    optional HAL API URL (e.g. http://localhost:5173). If provided, uses HAL API which can use server environment variables.
  *
- * Requires .env with SUPABASE_URL and SUPABASE_ANON_KEY (same as sync-tickets).
+ * If apiUrl is provided, uses HAL API (credentials optional - API uses server env vars).
+ * Otherwise, requires .env with SUPABASE_URL and SUPABASE_ANON_KEY for direct Supabase access.
  * Run from project root: node scripts/move-ticket-column.js
  */
 
@@ -83,12 +83,51 @@ function runSyncTickets() {
 
 const ticketId = process.argv[2]?.trim() || '0030'
 const targetColumnId = process.argv[3]?.trim() || 'col-human-in-the-loop'
+const apiUrl = process.argv[4]?.trim() || process.env.HAL_API_URL || undefined
+
+async function moveViaApi() {
+  const requestBody = {
+    ticketId,
+    columnId: targetColumnId,
+  }
+  // Only include credentials if provided (for backward compatibility)
+  const url = process.env.SUPABASE_URL
+  const key = process.env.SUPABASE_ANON_KEY
+  if (url) requestBody.supabaseUrl = url
+  if (key) requestBody.supabaseAnonKey = key
+
+  const response = await fetch(`${apiUrl}/api/tickets/move`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(requestBody),
+  })
+
+  const result = await response.json()
+  if (!result.success) {
+    throw new Error(result.error || 'API move failed')
+  }
+
+  return result
+}
 
 async function main() {
+  // Use HAL API if apiUrl is provided, otherwise use direct Supabase (requires credentials)
+  if (apiUrl) {
+    try {
+      const result = await moveViaApi()
+      console.log(`Moved ticket ${ticketId} to column ${targetColumnId} at position ${result.position} via HAL API.`)
+      console.log('Kanban board will show the change on next poll (~10s) or after refresh.')
+      return
+    } catch (err) {
+      console.error('Failed to move ticket via HAL API:', err instanceof Error ? err.message : String(err))
+      process.exit(1)
+    }
+  }
+
   const url = process.env.SUPABASE_URL
   const key = process.env.SUPABASE_ANON_KEY
   if (!url || !key) {
-    console.error('Set SUPABASE_URL and SUPABASE_ANON_KEY in .env (same as sync-tickets).')
+    console.error('Either provide apiUrl to use HAL API, or set SUPABASE_URL and SUPABASE_ANON_KEY for direct Supabase access.')
     process.exit(1)
   }
 

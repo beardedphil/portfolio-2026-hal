@@ -18,7 +18,7 @@ function json(res: ServerResponse, statusCode: number, body: unknown) {
 }
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
-  // CORS: Kanban iframe calling HAL (dev); safe no-op in same-origin prod.
+  // CORS: Allow cross-origin requests (for scripts calling from different origins)
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
@@ -75,19 +75,25 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-    // Supabase-only (0065): repo ticket files removed; delete from DB only.
-    const del = ticketPk
-      ? await supabase.from('tickets').delete().eq('pk', ticketPk)
-      : await supabase.from('tickets').delete().eq('id', ticketId!)
+    const fetch = ticketPk
+      ? await supabase.from('tickets').select('id, body_md').eq('pk', ticketPk).maybeSingle()
+      : await supabase.from('tickets').select('id, body_md').eq('id', ticketId!).maybeSingle()
 
-    if (del.error) {
-      json(res, 200, { success: false, error: `Supabase delete failed: ${del.error.message}` })
+    if (fetch.error) {
+      json(res, 200, { success: false, error: `Supabase fetch failed: ${fetch.error.message}` })
       return
     }
 
-    json(res, 200, { success: true })
+    if (!fetch.data) {
+      json(res, 200, { success: false, error: `Ticket ${ticketId || ticketPk} not found.` })
+      return
+    }
+
+    json(res, 200, {
+      success: true,
+      body_md: fetch.data.body_md || '',
+    })
   } catch (err) {
     json(res, 500, { success: false, error: err instanceof Error ? err.message : String(err) })
   }
 }
-

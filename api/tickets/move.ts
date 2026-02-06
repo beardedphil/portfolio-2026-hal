@@ -18,7 +18,7 @@ function json(res: ServerResponse, statusCode: number, body: unknown) {
 }
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
-  // CORS: Kanban iframe calling HAL (dev); safe no-op in same-origin prod.
+  // CORS: Allow cross-origin requests (for scripts calling from different origins)
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
@@ -39,12 +39,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const body = (await readJsonBody(req)) as {
       ticketId?: string
       ticketPk?: string
+      columnId?: string
       supabaseUrl?: string
       supabaseAnonKey?: string
     }
 
     const ticketId = typeof body.ticketId === 'string' ? body.ticketId.trim() || undefined : undefined
     const ticketPk = typeof body.ticketPk === 'string' ? body.ticketPk.trim() || undefined : undefined
+    const columnId = typeof body.columnId === 'string' ? body.columnId.trim() || undefined : undefined
     // Use credentials from request body if provided, otherwise fall back to server environment variables
     const supabaseUrl =
       (typeof body.supabaseUrl === 'string' ? body.supabaseUrl.trim() : undefined) ||
@@ -57,10 +59,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
       undefined
 
-    if (!ticketId && !ticketPk) {
+    if ((!ticketId && !ticketPk) || !columnId) {
       json(res, 400, {
         success: false,
-        error: 'ticketPk (preferred) or ticketId is required.',
+        error: 'ticketPk (preferred) or ticketId, and columnId are required.',
       })
       return
     }
@@ -75,19 +77,51 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-    // Supabase-only (0065): repo ticket files removed; delete from DB only.
-    const del = ticketPk
-      ? await supabase.from('tickets').delete().eq('pk', ticketPk)
-      : await supabase.from('tickets').delete().eq('id', ticketId!)
+    // Resolve max position in target column so we append at end
+    const { data: inColumn, error: fetchErr } = await supabase
+      .from('tickets')
+      .select('kanban_position')
+      .eq('kanban_column_id', columnId)
+      .order('kanban_position', { ascending: false })
+      .limit(1)
 
-    if (del.error) {
-      json(res, 200, { success: false, error: `Supabase delete failed: ${del.error.message}` })
+    if (fetchErr) {
+      json(res, 200, { success: false, error: `Failed to fetch tickets in target column: ${fetchErr.message}` })
       return
     }
 
-    json(res, 200, { success: true })
+    const nextPosition = inColumn?.length ? ((inColumn[0]?.kanban_position ?? -1) + 1) : 0
+    const movedAt = new Date().toISOString()
+
+    const update = ticketPk
+      ? await supabase
+          .from('tickets')
+          .update({
+            kanban_column_id: columnId,
+            kanban_position: nextPosition,
+            kanban_moved_at: movedAt,
+          })
+          .eq('pk', ticketPk)
+      : await supabase
+          .from('tickets')
+          .update({
+            kanban_column_id: columnId,
+            kanban_position: nextPosition,
+            kanban_moved_at: movedAt,
+          })
+          .eq('id', ticketId!)
+
+    if (update.error) {
+      json(res, 200, { success: false, error: `Supabase update failed: ${update.error.message}` })
+      return
+    }
+
+    json(res, 200, {
+      success: true,
+      position: nextPosition,
+      movedAt,
+    })
   } catch (err) {
     json(res, 500, { success: false, error: err instanceof Error ? err.message : String(err) })
   }
 }
-
