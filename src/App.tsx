@@ -1489,6 +1489,16 @@ function App() {
                 const full = prUrl ? `${summary}\n\nPull request: ${prUrl}` : summary
                 addProgress('Implementation completed successfully.')
                 addMessage(convId, 'implementation-agent', `**Completion summary**\n\n${full}`)
+                
+                // Notify Kanban iframe to move ticket from Doing to QA (0084)
+                const ticketIdForMove = implAgentTicketId
+                if (ticketIdForMove && kanbanIframeRef.current?.contentWindow) {
+                  kanbanIframeRef.current.contentWindow.postMessage(
+                    { type: 'HAL_TICKET_IMPLEMENTATION_COMPLETE', ticketId: ticketIdForMove },
+                    '*'
+                  )
+                }
+                
                 setImplAgentRunId(null)
                 setImplAgentTicketId(null)
                 setCursorRunAgentType(null)

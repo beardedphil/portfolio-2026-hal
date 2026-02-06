@@ -812,6 +812,11 @@ function SortableColumn({
   onDeleteTicket,
   showDelete = false,
   onOpenDetail,
+  supabaseBoardActive = false,
+  supabaseColumns = [],
+  supabaseTickets = [],
+  updateSupabaseTicketKanban,
+  refetchSupabaseTickets,
 }: {
   col: Column
   cards: Record<string, Card>
@@ -820,6 +825,11 @@ function SortableColumn({
   onDeleteTicket?: (cardId: string) => void
   showDelete?: boolean
   onOpenDetail?: (cardId: string) => void
+  supabaseBoardActive?: boolean
+  supabaseColumns?: Column[]
+  supabaseTickets?: SupabaseTicketRow[]
+  updateSupabaseTicketKanban?: (pk: string, updates: { kanban_column_id?: string; kanban_position?: number; kanban_moved_at?: string }) => Promise<{ ok: true } | { ok: false; error: string }>
+  refetchSupabaseTickets?: (skipPendingMoves?: boolean) => Promise<boolean>
 }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
     id: col.id,
@@ -857,8 +867,38 @@ function SortableColumn({
 
   const buttonConfig = shouldShowWorkButton ? getButtonConfig() : null
 
-  const handleWorkButtonClick = () => {
+  const handleWorkButtonClick = async () => {
     if (!hasTickets || !buttonConfig) return
+    
+    // For Implementation agent: automatically move ticket to Doing (0084)
+    if (buttonConfig.chatTarget === 'implementation-agent' && supabaseBoardActive && updateSupabaseTicketKanban && refetchSupabaseTickets) {
+      const firstCardId = col.cardIds[0]
+      if (firstCardId) {
+        // Find the ticket PK (in Supabase mode, cardIds are ticket PKs)
+        const ticketPk = firstCardId
+        const ticket = supabaseTickets.find((t) => t.pk === ticketPk)
+        
+        // Only move if ticket is in To Do or Unassigned
+        if (ticket && (ticket.kanban_column_id === 'col-todo' || ticket.kanban_column_id === 'col-unassigned' || !ticket.kanban_column_id)) {
+          const targetColumn = supabaseColumns.find((c) => c.id === 'col-doing')
+          if (targetColumn) {
+            const targetPosition = targetColumn.cardIds.length
+            const movedAt = new Date().toISOString()
+            const result = await updateSupabaseTicketKanban(ticketPk, {
+              kanban_column_id: 'col-doing',
+              kanban_position: targetPosition,
+              kanban_moved_at: movedAt,
+            })
+            if (result.ok) {
+              // Refetch after a short delay to ensure DB write is visible
+              setTimeout(() => {
+                refetchSupabaseTickets(false)
+              }, 500)
+            }
+          }
+        }
+      }
+    }
     
     // Send postMessage to parent window to open chat and send message
     if (typeof window !== 'undefined' && window.parent !== window) {
@@ -1330,11 +1370,11 @@ function App() {
   useEffect(() => {
     if (!isEmbedded) return
     
-    const handleMessage = (event: MessageEvent) => {
+    const handleMessage = async (event: MessageEvent) => {
       // Only accept messages from parent origin
       if (event.source !== window.parent) return
       
-      const data = event.data as { type?: string; url?: string; key?: string; theme?: string; repoFullName?: string }
+      const data = event.data as { type?: string; url?: string; key?: string; theme?: string; repoFullName?: string; ticketId?: string; ticketPk?: string }
       
       if (data.type === 'HAL_CONNECT_SUPABASE' && data.url && data.key) {
         setProjectName('HAL-connected')
@@ -1363,12 +1403,47 @@ function App() {
       } else if (data.type === 'HAL_THEME_CHANGE' && data.theme) {
         // Apply theme to document root (0078)
         document.documentElement.setAttribute('data-theme', data.theme)
+      } else if (data.type === 'HAL_TICKET_IMPLEMENTATION_COMPLETE' && supabaseBoardActive && updateSupabaseTicketKanban && refetchSupabaseTickets) {
+        // Move ticket from Doing to QA when Implementation agent completes work (0084)
+        const ticketIdOrPk = data.ticketPk || data.ticketId
+        if (ticketIdOrPk) {
+          // Find ticket by PK (UUID) or by display_id (e.g. HAL-0084 or 0084)
+          let ticket = supabaseTickets.find((t) => t.pk === ticketIdOrPk)
+          if (!ticket) {
+            // Try to find by display_id
+            const normalizedId = ticketIdOrPk.replace(/^HAL-?/i, '').padStart(4, '0')
+            ticket = supabaseTickets.find((t) => {
+              const displayId = t.display_id ?? t.id
+              const normalizedDisplayId = displayId.replace(/^HAL-?/i, '').padStart(4, '0')
+              return normalizedDisplayId === normalizedId
+            })
+          }
+          // Only move if ticket is currently in Doing
+          if (ticket && ticket.kanban_column_id === 'col-doing') {
+            const targetColumn = supabaseColumns.find((c) => c.id === 'col-qa')
+            if (targetColumn) {
+              const targetPosition = targetColumn.cardIds.length
+              const movedAt = new Date().toISOString()
+              const result = await updateSupabaseTicketKanban(ticket.pk, {
+                kanban_column_id: 'col-qa',
+                kanban_position: targetPosition,
+                kanban_moved_at: movedAt,
+              })
+              if (result.ok) {
+                // Refetch after a short delay to ensure DB write is visible
+                setTimeout(() => {
+                  refetchSupabaseTickets(false)
+                }, 500)
+              }
+            }
+          }
+        }
       }
     }
     
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
-  }, [isEmbedded, connectSupabase])
+  }, [isEmbedded, connectSupabase, supabaseBoardActive, supabaseTickets, supabaseColumns, updateSupabaseTicketKanban, refetchSupabaseTickets])
 
   // Supabase-only mode (0065): always use Supabase when connected, otherwise empty
   const columnsForDisplay = supabaseBoardActive ? supabaseColumns : columns
@@ -2635,6 +2710,11 @@ ${notes || '(none provided)'}
                   onDeleteTicket={handleDeleteTicket}
                   showDelete={supabaseBoardActive}
                   onOpenDetail={handleOpenTicketDetail}
+                  supabaseBoardActive={supabaseBoardActive}
+                  supabaseColumns={supabaseColumns}
+                  supabaseTickets={supabaseTickets}
+                  updateSupabaseTicketKanban={updateSupabaseTicketKanban}
+                  refetchSupabaseTickets={refetchSupabaseTickets}
                 />
               ))}
             </div>
