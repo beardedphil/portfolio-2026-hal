@@ -1,34 +1,36 @@
-# Worklog: Chat Preview Stack (0087)
+# Worklog: Chat Preview Stack with Agent Status Boxes (0087)
 
-## Implementation Steps
+## Previous Implementation (Chat Preview Stack)
 
-1. **Added state management**
-   - Added `openChatTarget` state to track which chat is open (ChatTarget | conversation ID | null)
+1. **State management**
+   - Added `openChatTarget` state to track which chat is open
    - Added `qaGroupExpanded` and `implGroupExpanded` states for collapsible groups
 
-2. **Created preview stack component**
-   - Replaced dropdown selector with Teams-style preview stack
-   - Added preview panes for Project Manager and Standup (individual)
-   - Added collapsible groups for QA and Implementation agents
-   - Each preview pane shows agent name/role and last message preview
-   - Added click handlers to open chats
+2. **Preview stack component**
+   - Teams-style preview stack with preview panes for all chats
+   - Collapsible groups for QA and Implementation agents
+   - Visual highlighting for active chat
 
-3. **Implemented chat window**
-   - Modified Kanban region to conditionally show iframe or chat window
-   - When `openChatTarget` is set, chat window replaces Kanban iframe
-   - Chat window includes header with title, "Return to Kanban" link, and close button (X)
-   - Chat window renders full chat UI (transcript, composer, status panels)
+3. **Chat window**
+   - Chat window replaces Kanban iframe when a chat is opened
+   - Includes close button and "Return to Kanban" link
 
-4. **Added visual highlighting**
-   - Active chat preview pane is highlighted with purple border and background
-   - Uses `chat-preview-active` class for styling
+## Current Implementation (Agent Status Boxes)
 
-5. **Added CSS styling**
-   - Styled preview stack with hover effects and active states
-   - Styled collapsible groups with expand/collapse icons
-   - Styled chat window with header, close button, and return link
-   - Added responsive styling for nested preview panes
+1. **Removed full chat UI from Chat pane**
+   - Removed all embedded chat UI from right Chat pane (lines 2656-3167)
+   - Removed agent stub banners, status panels, conversation lists, chat transcripts, and composers
+   - Chat pane now only shows preview stack
 
-6. **Fixed chat window message display**
-   - Chat window uses `activeMessages` and `selectedChatTarget` directly
-   - Ensures messages are displayed correctly based on open chat
+2. **Added agent status boxes**
+   - Created `formatAgentStatus` helper function to format status text
+   - Added agent status boxes section at bottom of Chat pane
+   - Status boxes only show for working agents (not idle, not completed)
+   - Each box shows agent name/role and current status
+   - Status boxes automatically disappear when agents reach "Done" state
+
+3. **Added CSS styling for status boxes**
+   - Added `.agent-status-boxes` container with flex layout
+   - Styled `.agent-status-box` with proper spacing and borders
+   - Added status-specific styling (working states vs failed)
+   - Status boxes appear at bottom of Chat pane using `margin-top: auto`
