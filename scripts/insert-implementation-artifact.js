@@ -55,11 +55,32 @@ async function main() {
     process.exit(1)
   }
   
-  // Try to read all audit files if available
-  const ticketFilename = ticket.title ? `${ticketId}-${ticket.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 50)}.md` : `${ticketId}-implementation.md`
-  const auditDirMatch = ticketFilename.match(/^(\d{4})-(.+)\.md$/)
-  const shortTitle = auditDirMatch ? auditDirMatch[2] : 'implementation'
-  const auditDir = path.join(repoRoot, 'docs', 'audit', `${ticketId}-${shortTitle}`)
+  // Try to find audit directory - try multiple patterns
+  let auditDir = null
+  const possibleDirs = [
+    // Direct pattern: 0082-implementation
+    path.join(repoRoot, 'docs', 'audit', `${ticketId}-implementation`),
+    // From ticket filename if it exists
+    ticket.filename ? (() => {
+      const auditDirMatch = ticket.filename.match(/^(\d{4})-(.+)\.md$/)
+      if (auditDirMatch) {
+        return path.join(repoRoot, 'docs', 'audit', `${ticketId}-${auditDirMatch[2]}`)
+      }
+      return null
+    })() : null,
+    // From ticket title
+    ticket.title ? (() => {
+      const shortTitle = ticket.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 50)
+      return path.join(repoRoot, 'docs', 'audit', `${ticketId}-${shortTitle}`)
+    })() : null,
+  ].filter(Boolean)
+  
+  for (const dir of possibleDirs) {
+    if (fs.existsSync(dir) && fs.statSync(dir).isDirectory()) {
+      auditDir = dir
+      break
+    }
+  }
   
   let artifactBody = `Implementation completed for ticket ${ticket.display_id || ticketId}.\n\n`
   
@@ -73,17 +94,27 @@ async function main() {
     { name: 'pm-review.md', title: 'PM Review' },
   ]
   
-  for (const file of auditFiles) {
-    const filePath = path.join(auditDir, file.name)
-    if (fs.existsSync(filePath)) {
-      try {
-        const content = fs.readFileSync(filePath, 'utf8')
-        artifactBody += `## ${file.title}\n\n${content}\n\n`
-      } catch {
-        // Ignore if file can't be read
+  if (auditDir) {
+    console.log(`Found audit directory: ${auditDir}`)
+    for (const file of auditFiles) {
+      const filePath = path.join(auditDir, file.name)
+      if (fs.existsSync(filePath)) {
+        try {
+          const content = fs.readFileSync(filePath, 'utf8')
+          artifactBody += `## ${file.title}\n\n${content}\n\n`
+          console.log(`  Included ${file.name}`)
+        } catch (err) {
+          console.warn(`  Failed to read ${file.name}:`, err.message)
+        }
+      } else {
+        console.log(`  ${file.name} not found`)
       }
     }
+  } else {
+    console.warn(`Audit directory not found. Tried: ${possibleDirs.join(', ')}`)
   }
+  
+  console.log(`Artifact body length: ${artifactBody.length} characters`)
   
   // Check if artifact already exists
   const { data: existing } = await supabase
