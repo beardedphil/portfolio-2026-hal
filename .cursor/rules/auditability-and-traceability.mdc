@@ -88,8 +88,8 @@ Use HAL API endpoints (tool calls) to store artifacts:
 
 - Artifacts must be **stored in Supabase**:
   - All artifacts must be stored via tool calls before claiming "ready."
-  - **Method 1 (Preferred):** Include tool calls as JSON blocks in your completion/summary message. HAL will parse and execute them automatically.
-  - **Method 2 (Fallback):** If tool calls in messages aren't processed, write them to `.hal-tool-call-queue.json` in the repo root. HAL will check this file when tickets move columns and execute all pending tool calls.
+  - **Preferred:** If `.hal/api-base-url` exists, call the HAL API directly (e.g. `POST ${baseUrl}/api/artifacts/insert-implementation`) so artifacts appear without merging to main. See `.cursor/rules/agent-supabase-api-paradigm.mdc`.
+  - **Fallback:** Write tool calls to `.hal-tool-call-queue.json` in the repo root. HAL will execute them when the queue is run.
   - Artifacts are linked to tickets via `ticket_pk` in the `agent_artifacts` table.
 
 ## PM Review is required before "ready"

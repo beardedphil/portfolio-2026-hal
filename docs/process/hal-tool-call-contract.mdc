@@ -125,32 +125,18 @@ Fetch a ticket's content from Supabase.
 
 ## How Agents Send Tool Calls
 
-Agents send tool calls to HAL through the conversation. HAL parses tool call requests from agent messages and executes them.
+**Preferred:** When the repo contains `.hal/api-base-url`, agents should call the HAL API directly (e.g. `POST ${baseUrl}/api/artifacts/insert-implementation`) so artifacts and ticket moves apply immediately without merging to main. See `.cursor/rules/agent-supabase-api-paradigm.mdc` for the full endpoint mapping and examples.
 
-**Example agent message:**
-```
-I need to store the QA report. Here's my tool call:
-
-{
-  "tool": "insert_qa_artifact",
-  "params": {
-    "ticketId": "0076",
-    "title": "QA report for ticket 0076",
-    "body_md": "# QA Report\n\n..."
-  }
-}
-```
-
-HAL will parse this, execute the tool, and respond with the result.
+**Fallback:** Write tool calls to `.hal-tool-call-queue.json` (JSON array of `{ tool, params }`). HAL executes the queue when "Run tool calls" or the Tool Agent runs.
 
 ## Benefits
 
-1. **No API URLs needed** - Agents don't need to know HAL's API endpoint
-2. **No credentials needed** - HAL uses server-side Supabase credentials
-3. **Simple JSON contract** - Easy to parse and execute
-4. **Works in any environment** - Cloud agents, local agents, all the same
-5. **HAL handles reliability** - HAL ensures Supabase operations succeed
+1. **Direct API when `.hal/api-base-url` exists** - Artifacts and moves apply immediately; no merge to main required.
+2. **No credentials in agent env** - HAL server uses its own Supabase credentials.
+3. **Same contract** - Same tool names and params for API and queue.
+4. **Works in any environment** - Cloud and local agents use the same rules.
 
 ## Implementation
 
-HAL's tool execution endpoint is at `/api/agent-tools/execute` (for internal use). Agents send tool calls through the conversation, and HAL's conversation handler parses and executes them.
+- Public endpoints: `/api/artifacts/insert-implementation`, `/api/artifacts/insert-qa`, `/api/tickets/move`, `/api/tickets/update`, `/api/tickets/get`.
+- Internal queue execution: `/api/agent-tools/execute` (used when processing `.hal-tool-call-queue.json`).
