@@ -2288,6 +2288,67 @@ function App() {
     return () => window.removeEventListener('message', handler)
   }, [triggerAgentRun, getOrCreateConversation, getDefaultConversationId, addMessage, setProcessReviewAgentTicketId, setProcessReviewAgentRunStatus, setProcessReviewAgentProgress, setProcessReviewAgentError])
 
+  // Handle Process Review trigger from Kanban (0111)
+  useEffect(() => {
+    const handler = async (event: MessageEvent) => {
+      const data = event.data as { 
+        type?: string
+        ticketPk?: string
+        ticketId?: string
+        supabaseUrl?: string
+        supabaseAnonKey?: string
+      }
+      if (data?.type !== 'HAL_TRIGGER_PROCESS_REVIEW') return
+      if (!data.ticketPk && !data.ticketId) return
+      if (!data.supabaseUrl || !data.supabaseAnonKey) return
+
+      // Get or create Process Review conversation
+      const processReviewConvId = getDefaultConversationId('process-review-agent')
+      setSelectedChatTarget('process-review-agent')
+      setSelectedConversationId(processReviewConvId)
+      
+      // Post start message
+      addMessage(processReviewConvId, 'process-review-agent', `Process Review started for ticket ${data.ticketId || data.ticketPk}...`)
+      setUnreadByTarget((prev) => ({ ...prev, 'process-review-agent': (prev['process-review-agent'] || 0) + 1 }))
+      
+      try {
+        // Call Process Review API
+        const response = await fetch('/api/process-review/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ticketPk: data.ticketPk,
+            ticketId: data.ticketId,
+            supabaseUrl: data.supabaseUrl,
+            supabaseAnonKey: data.supabaseAnonKey,
+          }),
+        })
+        
+        const result = await response.json()
+        
+        if (result.success) {
+          if (result.suggestions && Array.isArray(result.suggestions) && result.suggestions.length > 0) {
+            addMessage(processReviewConvId, 'process-review-agent', `Process Review completed. Found ${result.suggestions.length} suggestion(s).`)
+            setUnreadByTarget((prev) => ({ ...prev, 'process-review-agent': (prev['process-review-agent'] || 0) + 1 }))
+          } else {
+            addMessage(processReviewConvId, 'process-review-agent', 'Process Review completed. No suggestions generated.')
+            setUnreadByTarget((prev) => ({ ...prev, 'process-review-agent': (prev['process-review-agent'] || 0) + 1 }))
+          }
+        } else {
+          const errorMsg = result.error || 'Unknown error occurred'
+          addMessage(processReviewConvId, 'process-review-agent', `Process Review failed: ${errorMsg}`)
+          setUnreadByTarget((prev) => ({ ...prev, 'process-review-agent': (prev['process-review-agent'] || 0) + 1 }))
+        }
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err)
+        addMessage(processReviewConvId, 'process-review-agent', `Process Review error: ${errorMsg}`)
+        setUnreadByTarget((prev) => ({ ...prev, 'process-review-agent': (prev['process-review-agent'] || 0) + 1 }))
+      }
+    }
+    window.addEventListener('message', handler)
+    return () => window.removeEventListener('message', handler)
+  }, [getDefaultConversationId, addMessage])
+
   const handleImageSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -2690,6 +2751,8 @@ function App() {
                       ? 'Standup (all agents)'
                       : openChatTarget === 'tools-agent'
                       ? 'Tools Agent'
+                      : openChatTarget === 'process-review-agent'
+                      ? 'Process Review'
                       : 'Chat'}
                   </div>
                   <div className="chat-window-actions">
@@ -3033,12 +3096,12 @@ function App() {
                           value={inputValue}
                           onChange={(e) => setInputValue(e.target.value)}
                           onKeyDown={handleKeyDown}
-                          placeholder={selectedChatTarget === 'tools-agent' ? 'Tools Agent chat is read-only' : 'Type a message... (Enter to send)'}
+                          placeholder={selectedChatTarget === 'tools-agent' || selectedChatTarget === 'process-review-agent' ? 'Process Review chat is read-only' : 'Type a message... (Enter to send)'}
                           rows={2}
-                          disabled={selectedChatTarget === 'tools-agent'}
+                          disabled={selectedChatTarget === 'tools-agent' || selectedChatTarget === 'process-review-agent'}
                         />
                         <div className="composer-actions">
-                          <label className="attach-image-btn" title="Attach image" style={{ display: selectedChatTarget === 'tools-agent' ? 'none' : 'block' }}>
+                          <label className="attach-image-btn" title="Attach image" style={{ display: selectedChatTarget === 'tools-agent' || selectedChatTarget === 'process-review-agent' ? 'none' : 'block' }}>
                             <input
                               type="file"
                               accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
@@ -3048,7 +3111,7 @@ function App() {
                             />
                             📎
                           </label>
-                          <button type="button" className="send-btn" onClick={handleSend} disabled={!!imageError || selectedChatTarget === 'tools-agent'}>
+                          <button type="button" className="send-btn" onClick={handleSend} disabled={!!imageError || selectedChatTarget === 'tools-agent' || selectedChatTarget === 'process-review-agent'}>
                             Send
                           </button>
                         </div>
