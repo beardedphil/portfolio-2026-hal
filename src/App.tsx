@@ -1409,7 +1409,20 @@ function App() {
                 ticketNumber: parseInt(ticketId, 10),
               }),
             })
-            const launchData = (await launchRes.json()) as { runId?: string; status?: string; error?: string }
+            const implLaunchText = await launchRes.text()
+            let launchData: { runId?: string; status?: string; error?: string }
+            try {
+              launchData = JSON.parse(implLaunchText) as typeof launchData
+            } catch {
+              const msg = launchRes.ok
+                ? 'Invalid response from server (not JSON).'
+                : `Launch failed (${launchRes.status}): ${implLaunchText.slice(0, 200)}`
+              setImplAgentRunStatus('failed')
+              setImplAgentError(msg)
+              addMessage(convId, 'implementation-agent', `[Implementation Agent] ${msg}`)
+              setTimeout(() => setAgentTypingTarget(null), 500)
+              return
+            }
             if (!launchRes.ok || !launchData.runId) {
               const msg = launchData.error ?? `Launch failed (HTTP ${launchRes.status})`
               setImplAgentRunStatus('failed')
@@ -1425,7 +1438,21 @@ function App() {
 
             const poll = async () => {
               const r = await fetch(`/api/agent-runs/status?runId=${encodeURIComponent(launchData.runId!)}`)
-              const data = (await r.json()) as any
+              const implStatusText = await r.text()
+              let data: { status?: string; cursor_status?: string; error?: string; summary?: string; pr_url?: string }
+              try {
+                data = JSON.parse(implStatusText) as typeof data
+              } catch {
+                const msg = r.ok
+                  ? 'Invalid response when polling status (not JSON).'
+                  : `Status check failed (${r.status}): ${implStatusText.slice(0, 200)}`
+                setImplAgentRunStatus('failed')
+                setImplAgentError(msg)
+                addProgress(`Failed: ${msg}`)
+                addMessage(convId, 'implementation-agent', `[Implementation Agent] ${msg}`)
+                setAgentTypingTarget(null)
+                return false
+              }
               const s = String(data.status ?? '')
               const cursorStatus = String(data.cursor_status ?? '')
               if (s === 'failed') {
@@ -1535,7 +1562,20 @@ function App() {
                 ticketNumber: parseInt(ticketId, 10),
               }),
             })
-            const launchData = (await launchRes.json()) as { runId?: string; status?: string; error?: string }
+            const launchText = await launchRes.text()
+            let launchData: { runId?: string; status?: string; error?: string }
+            try {
+              launchData = JSON.parse(launchText) as typeof launchData
+            } catch {
+              const msg = launchRes.ok
+                ? 'Invalid response from server (not JSON).'
+                : `Launch failed (${launchRes.status}): ${launchText.slice(0, 200)}`
+              setQaAgentRunStatus('failed')
+              setQaAgentError(msg)
+              addMessage(convId, 'qa-agent', `[QA Agent] ${msg}`)
+              setTimeout(() => setAgentTypingTarget(null), 500)
+              return
+            }
             if (!launchRes.ok || !launchData.runId) {
               const msg = launchData.error ?? `Launch failed (HTTP ${launchRes.status})`
               setQaAgentRunStatus('failed')
@@ -1551,7 +1591,21 @@ function App() {
 
             const poll = async () => {
               const r = await fetch(`/api/agent-runs/status?runId=${encodeURIComponent(launchData.runId!)}`)
-              const data = (await r.json()) as any
+              const text = await r.text()
+              let data: { status?: string; cursor_status?: string; error?: string; summary?: string }
+              try {
+                data = JSON.parse(text) as typeof data
+              } catch {
+                const msg = r.ok
+                  ? 'Invalid response when polling status (not JSON).'
+                  : `Status check failed (${r.status}): ${text.slice(0, 200)}`
+                setQaAgentRunStatus('failed')
+                setQaAgentError(msg)
+                addProgress(`Failed: ${msg}`)
+                addMessage(convId, 'qa-agent', `[QA Agent] ${msg}`)
+                setAgentTypingTarget(null)
+                return false
+              }
               const s = String(data.status ?? '')
               const cursorStatus = String(data.cursor_status ?? '')
               if (s === 'failed') {
