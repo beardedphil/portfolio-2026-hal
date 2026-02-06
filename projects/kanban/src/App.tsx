@@ -1170,11 +1170,13 @@ function SortableCard({
   columnId,
   onOpenDetail,
   hasPendingToolCalls = false,
+  agentType,
 }: {
   card: Card
   columnId: string
   onOpenDetail?: (cardId: string) => void
   hasPendingToolCalls?: boolean
+  agentType?: 'implementation' | 'qa' | null
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
@@ -1188,6 +1190,8 @@ function SortableCard({
   const handleCardClick = () => {
     if (onOpenDetail) onOpenDetail(card.id)
   }
+  const showAgentBadge = columnId === 'col-doing' && agentType
+  const agentDisplayName = agentType === 'implementation' ? 'Implementation' : agentType === 'qa' ? 'QA' : null
   return (
     <div ref={setNodeRef} style={style} className="ticket-card" data-card-id={card.id}>
       <span
@@ -1204,6 +1208,11 @@ function SortableCard({
         aria-label={`Open ticket ${card.id}: ${card.title}`}
       >
         <span className="ticket-card-title">{card.title}</span>
+        {showAgentBadge && agentDisplayName && (
+          <span className="ticket-card-agent-badge" title={`Working agent: ${agentDisplayName}`}>
+            {agentDisplayName}
+          </span>
+        )}
         {hasPendingToolCalls && (
           <span className="ticket-card-tool-calls-indicator" title="Pending tool calls">
             ⚙️
@@ -1226,6 +1235,7 @@ function SortableColumn({
   updateSupabaseTicketKanban,
   refetchSupabaseTickets,
   ticketPendingToolCalls,
+  activeAgentRuns = {},
 }: {
   col: Column
   cards: Record<string, Card>
@@ -1238,6 +1248,7 @@ function SortableColumn({
   updateSupabaseTicketKanban?: (pk: string, updates: { kanban_column_id?: string; kanban_position?: number; kanban_moved_at?: string }) => Promise<{ ok: true } | { ok: false; error: string }>
   refetchSupabaseTickets?: (skipPendingMoves?: boolean) => Promise<boolean>
   ticketPendingToolCalls?: Record<string, boolean>
+  activeAgentRuns?: Record<string, 'implementation' | 'qa'>
 }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
     id: col.id,
@@ -1365,6 +1376,8 @@ function SortableColumn({
           {col.cardIds.map((cardId) => {
             const card = cards[cardId]
             if (!card) return null
+            // Get agent type for this ticket (0114)
+            const agentType = activeAgentRuns[cardId] || null
             return (
               <SortableCard
                 key={card.id}
@@ -1372,6 +1385,7 @@ function SortableColumn({
                 columnId={col.id}
                 onOpenDetail={onOpenDetail}
                 hasPendingToolCalls={ticketPendingToolCalls?.[card.id] === true}
+                agentType={agentType}
               />
             )
           })}
@@ -1514,6 +1528,9 @@ function App() {
   const [detailModalToolCallsLoading, setDetailModalToolCallsLoading] = useState(false)
   const [detailModalToolCallsExecuting, setDetailModalToolCallsExecuting] = useState(false)
   const [ticketPendingToolCalls, setTicketPendingToolCalls] = useState<Record<string, boolean>>({})
+  
+  // Active agent runs: ticket_pk -> agent_type (0114)
+  const [activeAgentRuns, setActiveAgentRuns] = useState<Record<string, 'implementation' | 'qa'>>({})
 
   // Supabase board: when connected, board is driven by supabaseTickets + supabaseColumnsRows (0020)
   const supabaseBoardActive = supabaseConnectionStatus === 'connected'
@@ -1876,6 +1893,54 @@ function App() {
     },
     [supabaseProjectUrl, supabaseAnonKey]
   )
+
+  /** Fetch active agent runs for tickets in Doing column (0114) */
+  const fetchActiveAgentRuns = useCallback(async () => {
+    const url = supabaseProjectUrl.trim()
+    const key = supabaseAnonKey.trim()
+    if (!url || !key || !supabaseBoardActive) {
+      setActiveAgentRuns({})
+      return
+    }
+    try {
+      const client = createClient(url, key)
+      // Get all tickets in Doing column
+      const doingTickets = supabaseTickets.filter((t) => t.kanban_column_id === 'col-doing')
+      if (doingTickets.length === 0) {
+        setActiveAgentRuns({})
+        return
+      }
+      const ticketPks = doingTickets.map((t) => t.pk)
+      // Fetch active runs (status in ['launching', 'polling'])
+      const { data, error } = await client
+        .from('hal_agent_runs')
+        .select('ticket_pk, agent_type, status')
+        .in('ticket_pk', ticketPks)
+        .in('status', ['launching', 'polling'])
+        .order('created_at', { ascending: false })
+      if (error) {
+        console.warn('Failed to fetch active agent runs:', error)
+        setActiveAgentRuns({})
+        return
+      }
+      // Build map: ticket_pk -> agent_type (take most recent run per ticket)
+      const runs: Record<string, 'implementation' | 'qa'> = {}
+      if (data) {
+        for (const run of data) {
+          const ticketPk = run.ticket_pk as string
+          const agentType = run.agent_type as 'implementation' | 'qa'
+          // Only set if not already set (most recent run wins)
+          if (!runs[ticketPk] && (agentType === 'implementation' || agentType === 'qa')) {
+            runs[ticketPk] = agentType
+          }
+        }
+      }
+      setActiveAgentRuns(runs)
+    } catch (e) {
+      console.warn('Failed to fetch active agent runs:', e)
+      setActiveAgentRuns({})
+    }
+  }, [supabaseProjectUrl, supabaseAnonKey, supabaseBoardActive, supabaseTickets])
 
   // Resolve ticket detail modal content when modal opens (0033); Supabase-only (0065)
   useEffect(() => {
@@ -2243,6 +2308,17 @@ function App() {
     const id = setInterval(() => refetchSupabaseTickets(true), SUPABASE_POLL_INTERVAL_MS)
     return () => clearInterval(id)
   }, [supabaseBoardActive, refetchSupabaseTickets])
+
+  // Fetch active agent runs when tickets change or on polling interval (0114)
+  useEffect(() => {
+    if (!supabaseBoardActive) {
+      setActiveAgentRuns({})
+      return
+    }
+    fetchActiveAgentRuns()
+    const id = setInterval(() => fetchActiveAgentRuns(), SUPABASE_POLL_INTERVAL_MS)
+    return () => clearInterval(id)
+  }, [supabaseBoardActive, fetchActiveAgentRuns])
 
   // Log "Initialized default columns" when we seed kanban_columns (0020)
   useEffect(() => {
@@ -3257,6 +3333,7 @@ ${notes || '(none provided)'}
                   updateSupabaseTicketKanban={updateSupabaseTicketKanban}
                   refetchSupabaseTickets={refetchSupabaseTickets}
                   ticketPendingToolCalls={ticketPendingToolCalls}
+                  activeAgentRuns={activeAgentRuns}
                 />
               ))}
             </div>
