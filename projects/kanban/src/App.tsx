@@ -483,6 +483,7 @@ function ProcessReviewSection({
   const [reviewError, setReviewError] = useState<string | null>(null)
   const [createdTicketId, setCreatedTicketId] = useState<string | null>(null)
   const [createError, setCreateError] = useState<string | null>(null)
+  const [hasAutoRun, setHasAutoRun] = useState(false)
 
   const handleRunReview = async () => {
     if (!supabaseUrl || !supabaseAnonKey) {
@@ -525,6 +526,18 @@ function ProcessReviewSection({
       setIsRunningReview(false)
     }
   }
+
+  // Automatically run review when component mounts (0108)
+  useEffect(() => {
+    if (!hasAutoRun && supabaseUrl && supabaseAnonKey && artifacts.length > 0 && !isRunningReview && suggestions.length === 0) {
+      setHasAutoRun(true)
+      // Run review automatically when Process Review section is shown
+      handleRunReview().catch((err) => {
+        console.error('Auto-run process review failed:', err)
+      })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasAutoRun, supabaseUrl, supabaseAnonKey, artifacts.length])
 
   const handleToggleSuggestion = (id: string) => {
     setSuggestions((prev) =>
@@ -2828,22 +2841,48 @@ function App() {
           toolCallsExecuting={detailModalToolCallsExecuting}
           onExecuteToolCalls={handleExecuteToolCalls}
           onValidationPass={async (ticketPk: string) => {
-            // Move ticket to Done
-            const targetColumn = supabaseColumns.find((c) => c.id === 'col-done')
+            // Move ticket to Process Review (0108)
+            const targetColumn = supabaseColumns.find((c) => c.id === 'col-process-review')
             if (!targetColumn) {
-              throw new Error('Done column not found')
+              throw new Error('Process Review column not found')
             }
             const targetPosition = targetColumn.cardIds.length
             const movedAt = new Date().toISOString()
             const result = await updateSupabaseTicketKanban(ticketPk, {
-              kanban_column_id: 'col-done',
+              kanban_column_id: 'col-process-review',
               kanban_position: targetPosition,
               kanban_moved_at: movedAt,
             })
             if (!result.ok) {
               throw new Error(result.error)
             }
-            addLog(`Human validation: Ticket ${ticketPk} passed, moved to Done`)
+            addLog(`Human validation: Ticket ${ticketPk} passed, moved to Process Review`)
+            
+            // Automatically trigger Process Review agent (0108)
+            const url = supabaseProjectUrl?.trim()
+            const key = supabaseAnonKey?.trim()
+            if (url && key && detailModal?.ticketId) {
+              try {
+                // Trigger process review agent in background
+                fetch('/api/process-review/run', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    ticketPk,
+                    ticketId: detailModal.ticketId,
+                    supabaseUrl: url,
+                    supabaseAnonKey: key,
+                  }),
+                }).catch((err) => {
+                  console.error('Failed to trigger process review agent:', err)
+                  addLog(`Warning: Process Review agent trigger failed: ${err instanceof Error ? err.message : String(err)}`)
+                })
+              } catch (err) {
+                console.error('Error triggering process review agent:', err)
+                addLog(`Warning: Process Review agent trigger error: ${err instanceof Error ? err.message : String(err)}`)
+              }
+            }
+            
             setTimeout(() => {
               refetchSupabaseTickets(false)
             }, REFETCH_AFTER_MOVE_MS)
