@@ -94,6 +94,35 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const ticketPk = ticket.pk as string
     const displayId = (ticket as any).display_id ?? String(ticketNumber).padStart(4, '0')
     const bodyMd = String((ticket as any).body_md ?? '')
+    const currentColumnId = (ticket as any).kanban_column_id as string | null
+
+    // Move QA ticket from QA column to Doing when QA agent starts (0088)
+    if (agentType === 'qa' && currentColumnId === 'col-qa') {
+      try {
+        const { data: inColumn } = await supabase
+          .from('tickets')
+          .select('kanban_position')
+          .eq('repo_full_name', repoFullName)
+          .eq('kanban_column_id', 'col-doing')
+          .order('kanban_position', { ascending: false })
+          .limit(1)
+        if (inColumn) {
+          const nextPosition = inColumn.length ? ((inColumn[0] as any)?.kanban_position ?? -1) + 1 : 0
+          const movedAt = new Date().toISOString()
+          const { error: updateErr } = await supabase
+            .from('tickets')
+            .update({ kanban_column_id: 'col-doing', kanban_position: nextPosition, kanban_moved_at: movedAt })
+            .eq('pk', ticketPk)
+          if (updateErr) {
+            // Log error but don't fail the launch - ticket will stay in QA
+            console.error(`[QA Agent] Failed to move ticket ${displayId} from QA to Doing:`, updateErr.message)
+          }
+        }
+      } catch (moveErr) {
+        // Log error but don't fail the launch
+        console.error(`[QA Agent] Error moving ticket ${displayId} from QA to Doing:`, moveErr instanceof Error ? moveErr.message : String(moveErr))
+      }
+    }
 
     // Build prompt
     const goalMatch = bodyMd.match(/##\s*Goal[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
