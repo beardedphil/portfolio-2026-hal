@@ -6,6 +6,8 @@
 
 **Human-verifiable deliverable**: In the Chat area, the right-side Chat pane shows only a stack of chat preview panes (no embedded full chat conversation). The bottom section of that pane shows small "agent status" boxes for currently working agents only. Selecting a chat preview replaces the Kanban board iframe with an in-app chat window that can be closed to return to the Kanban board.
 
+**Note**: Verification was performed on `main` branch. Implementation was merged to `main` for cloud QA access.
+
 ## Audit Artifacts
 
 All required audit files are present:
