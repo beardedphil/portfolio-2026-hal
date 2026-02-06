@@ -35,6 +35,34 @@ function readJsonBody(req: import('http').IncomingMessage): Promise<unknown> {
   })
 }
 
+/** Insert agent artifact into Supabase (0082) */
+async function insertAgentArtifact(
+  supabaseUrl: string,
+  supabaseAnonKey: string,
+  ticketPk: string,
+  repoFullName: string,
+  agentType: 'implementation' | 'qa' | 'human-in-the-loop' | 'other',
+  title: string,
+  bodyMd: string
+): Promise<void> {
+  try {
+    const { createClient } = await import('@supabase/supabase-js')
+    const supabase = createClient(supabaseUrl, supabaseAnonKey)
+    const { error } = await supabase.from('agent_artifacts').insert({
+      ticket_pk: ticketPk,
+      repo_full_name: repoFullName,
+      agent_type: agentType,
+      title,
+      body_md: bodyMd,
+    })
+    if (error) {
+      console.error(`[Agent Artifact] Failed to insert ${agentType} artifact for ticket ${ticketPk}:`, error)
+    }
+  } catch (err) {
+    console.error(`[Agent Artifact] Error inserting ${agentType} artifact:`, err)
+  }
+}
+
 /**
  * Response type from PM agent endpoint.
  * Matches the interface expected from hal-agents runPmAgent().
@@ -680,6 +708,14 @@ export default defineConfig({
                   try {
                     const { createClient } = await import('@supabase/supabase-js')
                     const supabase = createClient(supabaseUrl, supabaseAnonKey)
+                    
+                    // Get ticket to retrieve pk and repo_full_name for artifact (0082)
+                    const { data: ticketData } = await supabase
+                      .from('tickets')
+                      .select('pk, repo_full_name')
+                      .eq('id', ticketId)
+                      .single()
+                    
                     const { data: inColumn } = await supabase
                       .from('tickets')
                       .select('kanban_position')
@@ -721,6 +757,41 @@ export default defineConfig({
                         body_md: updatedBodyMd,
                       })
                       .eq('id', ticketId)
+
+                    // Insert Implementation artifact (0082)
+                    if (ticketData?.pk && ticketData?.repo_full_name) {
+                      // Try to read audit files to build comprehensive report
+                      const auditDirMatch = ticketFilename.match(/^(\d{4})-(.+)\.md$/)
+                      const shortTitle = auditDirMatch ? auditDirMatch[2] : 'unknown'
+                      const auditDir = path.join(repoRoot, 'docs', 'audit', `${ticketId}-${shortTitle}`)
+                      
+                      let artifactBody = summary
+                      if (prUrl) {
+                        artifactBody += `\n\nPull request: ${prUrl}`
+                      }
+                      artifactBody += `\n\nTicket ${ticketId} moved to QA.`
+                      
+                      // Try to append worklog summary if available
+                      const worklogPath = path.join(auditDir, 'worklog.md')
+                      if (fs.existsSync(worklogPath)) {
+                        try {
+                          const worklog = fs.readFileSync(worklogPath, 'utf8')
+                          artifactBody += `\n\n## Worklog\n\n${worklog}`
+                        } catch {
+                          // Ignore if worklog can't be read
+                        }
+                      }
+                      
+                      await insertAgentArtifact(
+                        supabaseUrl,
+                        supabaseAnonKey,
+                        ticketData.pk,
+                        ticketData.repo_full_name,
+                        'implementation',
+                        `Implementation report for ticket ${ticketId}`,
+                        artifactBody
+                      )
+                    }
 
                     const syncScriptPath = path.resolve(repoRoot, 'scripts', 'sync-tickets.js')
                     spawn('node', [syncScriptPath], {
@@ -1091,17 +1162,50 @@ export default defineConfig({
 
                 // Try to read the qa-report to determine verdict
                 let verdict: 'PASS' | 'FAIL' | 'UNKNOWN' = 'UNKNOWN'
+                let qaReportContent = ''
                 try {
                   if (fs.existsSync(qaReportPath)) {
-                    const reportContent = fs.readFileSync(qaReportPath, 'utf8')
-                    if (/verdict.*pass/i.test(reportContent) || /ok\s+to\s+merge/i.test(reportContent)) {
+                    qaReportContent = fs.readFileSync(qaReportPath, 'utf8')
+                    if (/verdict.*pass/i.test(qaReportContent) || /ok\s+to\s+merge/i.test(qaReportContent)) {
                       verdict = 'PASS'
-                    } else if (/verdict.*fail/i.test(reportContent)) {
+                    } else if (/verdict.*fail/i.test(qaReportContent)) {
                       verdict = 'FAIL'
                     }
                   }
                 } catch {
                   // Report may not exist yet or be unreadable
+                }
+
+                // Insert QA artifact (0082)
+                if (supabaseUrl && supabaseAnonKey) {
+                  try {
+                    const { createClient } = await import('@supabase/supabase-js')
+                    const supabase = createClient(supabaseUrl, supabaseAnonKey)
+                    
+                    // Get ticket to retrieve pk and repo_full_name
+                    const { data: ticketData } = await supabase
+                      .from('tickets')
+                      .select('pk, repo_full_name')
+                      .eq('id', ticketId)
+                      .single()
+                    
+                    if (ticketData?.pk && ticketData?.repo_full_name) {
+                      // Use qa-report.md content if available, otherwise use summary
+                      const artifactBody = qaReportContent || summary
+                      
+                      await insertAgentArtifact(
+                        supabaseUrl,
+                        supabaseAnonKey,
+                        ticketData.pk,
+                        ticketData.repo_full_name,
+                        'qa',
+                        `QA report for ticket ${ticketId}`,
+                        artifactBody
+                      )
+                    }
+                  } catch (artifactErr) {
+                    console.error('[QA Agent] Failed to insert artifact:', artifactErr)
+                  }
                 }
 
                 if (verdict === 'PASS') {
