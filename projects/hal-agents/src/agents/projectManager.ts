@@ -10,6 +10,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { exec } from 'child_process'
 import { promisify } from 'util'
+import crypto from 'node:crypto'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { redact } from '../utils/redact.js'
 import {
@@ -687,6 +688,7 @@ export async function runPmAgent(
                 let insertError: { code?: string; message?: string } | null = null
                 {
                   const r = await supabase.from('tickets').insert({
+                    pk: crypto.randomUUID(),
                     repo_full_name: repoFullName,
                     ticket_number: candidateNum,
                     display_id: displayId,
@@ -701,6 +703,7 @@ export async function runPmAgent(
                   insertError = (r.error as any) ?? null
                   if (insertError && isUnknownColumnError(insertError)) {
                     const legacy = await supabase.from('tickets').insert({
+                      pk: crypto.randomUUID(),
                       id,
                       filename,
                       title: `${id} — ${input.title.trim()}`,

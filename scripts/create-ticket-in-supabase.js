@@ -10,6 +10,7 @@
  */
 
 import 'dotenv/config'
+import crypto from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
 import { spawn } from 'child_process'
 import path from 'path'
@@ -144,6 +145,7 @@ async function main() {
   const now = new Date().toISOString()
 
   const { error: insertError } = await client.from('tickets').insert({
+    pk: crypto.randomUUID(),
     id,
     filename,
     title: titleWithId,
