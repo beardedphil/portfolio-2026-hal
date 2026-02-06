@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
-type Agent = 'project-manager' | 'implementation-agent' | 'qa-agent' | 'tools-agent' | 'process-review-agent'
+type Agent = 'project-manager' | 'implementation-agent' | 'qa-agent'
 type ChatTarget = Agent | 'standup'
 
 type ImageAttachment = {
@@ -149,7 +149,7 @@ function getConversationId(agentRole: Agent, instanceNumber: number): string {
 
 // Parse conversation ID to get agent role and instance number (0070)
 function parseConversationId(conversationId: string): { agentRole: Agent; instanceNumber: number } | null {
-  const match = conversationId.match(/^(project-manager|implementation-agent|qa-agent|tools-agent|process-review-agent)-(\d+)$/)
+  const match = conversationId.match(/^(project-manager|implementation-agent|qa-agent)-(\d+)$/)
   if (!match) return null
   return {
     agentRole: match[1] as Agent,
@@ -239,8 +239,6 @@ const CHAT_OPTIONS: { id: ChatTarget; label: string }[] = [
   { id: 'project-manager', label: 'Project Manager' },
   { id: 'implementation-agent', label: 'Implementation Agent' },
   { id: 'qa-agent', label: 'QA' },
-  { id: 'tools-agent', label: 'Tools Agent' },
-  { id: 'process-review-agent', label: 'Process Review' },
   { id: 'standup', label: 'Standup (all agents)' },
 ]
 // DEBUG: QA option should be visible
@@ -255,7 +253,7 @@ function formatTime(date: Date): string {
 
 function getMessageAuthorLabel(agent: Message['agent']): string {
   if (agent === 'user') return 'You'
-  if (agent === 'project-manager' || agent === 'implementation-agent' || agent === 'qa-agent' || agent === 'tools-agent' || agent === 'process-review-agent') return 'HAL'
+  if (agent === 'project-manager' || agent === 'implementation-agent' || agent === 'qa-agent') return 'HAL'
   return 'System'
 }
 
@@ -316,17 +314,11 @@ function App() {
   const transcriptRef = useRef<HTMLDivElement>(null)
   const kanbanIframeRef = useRef<HTMLIFrameElement>(null)
   const selectedChatTargetRef = useRef<ChatTarget>(selectedChatTarget)
-  // Tool call queue state (0103)
-  const [hasPendingToolCalls, setHasPendingToolCalls] = useState(false)
-  const [toolCallsExecuting, setToolCallsExecuting] = useState(false)
-  const [toolCallsChecking, setToolCallsChecking] = useState(false)
   
   const [unreadByTarget, setUnreadByTarget] = useState<Record<ChatTarget, number>>(() => ({
     'project-manager': 0,
     'implementation-agent': 0,
     'qa-agent': 0,
-    'tools-agent': 0,
-    'process-review-agent': 0,
     standup: 0,
   }))
   const [agentTypingTarget, setAgentTypingTarget] = useState<ChatTarget | null>(null)
@@ -385,21 +377,6 @@ function App() {
   const [qaAgentProgress, setQaAgentProgress] = useState<Array<{ timestamp: Date; message: string }>>([])
   /** Last error message for QA Agent (0062). */
   const [qaAgentError, setQaAgentError] = useState<string | null>(null)
-  /** Process Review Agent run status (0111). */
-  const [processReviewAgentRunStatus, setProcessReviewAgentRunStatus] = useState<
-    | 'idle'
-    | 'preparing'
-    | 'fetching_artifacts'
-    | 'analyzing'
-    | 'completed'
-    | 'failed'
-  >('idle')
-  /** Progress messages for Process Review Agent (0111). */
-  const [processReviewAgentProgress, setProcessReviewAgentProgress] = useState<Array<{ timestamp: Date; message: string }>>([])
-  /** Last error message for Process Review Agent (0111). */
-  const [processReviewAgentError, setProcessReviewAgentError] = useState<string | null>(null)
-  /** Current ticket ID for Process Review Agent (0111). */
-  const [processReviewAgentTicketId, setProcessReviewAgentTicketId] = useState<string | null>(null)
   /** Auto-move diagnostics entries (0061). */
   const [autoMoveDiagnostics, setAutoMoveDiagnostics] = useState<Array<{ timestamp: Date; message: string; type: 'error' | 'info' }>>([])
   /** Agent type that initiated the current Cursor run (0067). Used to route completion summaries to the correct chat. */
@@ -661,39 +638,7 @@ function App() {
     }
   }, [theme, kanbanLoaded])
 
-  // Check for pending tool calls (0103)
-  const checkPendingToolCalls = useCallback(async () => {
-    try {
-      setToolCallsChecking(true)
-      const response = await fetch('/api/tool-calls/check-all', {
-        method: 'GET',
-      })
-      const result = await response.json()
-      if (result.success) {
-        setHasPendingToolCalls(result.hasPendingToolCalls === true)
-      }
-    } catch (err) {
-      console.error('Failed to check pending tool calls:', err)
-    } finally {
-      setToolCallsChecking(false)
-    }
-  }, [])
 
-  // Poll for pending tool calls periodically (0103)
-  useEffect(() => {
-    // Initial check
-    checkPendingToolCalls()
-    // Poll every 10 seconds
-    const interval = setInterval(checkPendingToolCalls, 10_000)
-    return () => clearInterval(interval)
-  }, [checkPendingToolCalls])
-
-  // Poll for recent tool call executions and log to Tools Agent chat (0107)
-  // Note: checkRecentExecutions is defined after logToolCallToToolsAgent to avoid forward reference
-  const [lastExecutionTimestamp, setLastExecutionTimestamp] = useState(() => {
-    // Initialize to current timestamp to avoid loading all historical executions on first load
-    return Date.now()
-  })
 
   // When Kanban iframe loads, push current repo + Supabase so it syncs (iframe may load after user connected)
   useEffect(() => {
@@ -961,14 +906,6 @@ function App() {
       const defaultConvId = getConversationId('project-manager', 1)
       return conversations.has(defaultConvId) ? conversations.get(defaultConvId)!.messages : []
     }
-    if (selectedChatTarget === 'tools-agent') {
-      const defaultConvId = getConversationId('tools-agent', 1)
-      return conversations.has(defaultConvId) ? conversations.get(defaultConvId)!.messages : []
-    }
-    if (selectedChatTarget === 'process-review-agent') {
-      const defaultConvId = getConversationId('process-review-agent', 1)
-      return conversations.has(defaultConvId) ? conversations.get(defaultConvId)!.messages : []
-    }
     if (selectedConversationId && conversations.has(selectedConversationId)) {
       return conversations.get(selectedConversationId)!.messages
     }
@@ -994,8 +931,6 @@ function App() {
       'project-manager': 'Project Manager',
       'implementation-agent': 'Implementation',
       'qa-agent': 'QA',
-      'tools-agent': 'Tools Agent',
-      'process-review-agent': 'Process Review',
     }
     return `${roleLabels[conv.agentRole]} #${conv.instanceNumber}`
   }, [])
@@ -1016,30 +951,16 @@ function App() {
         const conv = conversations.get(defaultConvId)!
         return getConversationPreview(conv)
       }
-    } else if (target === 'tools-agent') {
-      const defaultConvId = getConversationId('tools-agent', 1)
-      if (conversations.has(defaultConvId)) {
-        const conv = conversations.get(defaultConvId)!
-        return getConversationPreview(conv)
-      }
-    } else if (target === 'process-review-agent') {
-      const defaultConvId = getConversationId('process-review-agent', 1)
-      if (conversations.has(defaultConvId)) {
-        const conv = conversations.get(defaultConvId)!
-        return getConversationPreview(conv)
-      }
     }
     return 'No messages yet'
   }, [conversations, getConversationPreview])
 
   // Format agent status for display (0087)
-  const formatAgentStatus = useCallback((status: typeof implAgentRunStatus | typeof qaAgentRunStatus | typeof processReviewAgentRunStatus): string => {
+  const formatAgentStatus = useCallback((status: typeof implAgentRunStatus | typeof qaAgentRunStatus): string => {
     if (status === 'preparing') return 'Preparing'
     if (status === 'fetching_ticket') return 'Fetching ticket'
     if (status === 'resolving_repo') return 'Resolving repository'
     if (status === 'fetching_branch') return 'Finding branch'
-    if (status === 'fetching_artifacts') return 'Fetching artifacts'
-    if (status === 'analyzing') return 'Analyzing'
     if (status === 'launching') return 'Launching'
     if (status === 'polling') return 'Running'
     if (status === 'generating_report') return 'Generating report'
@@ -1191,64 +1112,6 @@ function App() {
       })
       return next
     })
-    
-    // Parse and execute tool calls from agent messages (implementation-agent, qa-agent)
-    if ((agent === 'implementation-agent' || agent === 'qa-agent') && content) {
-      ;(async () => {
-        try {
-          const { parseToolCalls, executeToolCall } = await import('./toolCallParser.js')
-          const toolCalls = parseToolCalls(content)
-          
-          if (toolCalls.length > 0) {
-            // Determine HAL API URL (use current origin for relative requests)
-            const halApiUrl = window.location.origin
-            
-            // Execute each tool call
-            for (const toolCall of toolCalls) {
-              const result = await executeToolCall(toolCall, halApiUrl)
-              
-              // Log to Tools Agent chat (0107)
-              logToolCallToToolsAgent(toolCall, result)
-              
-              // Add system message with tool call result
-              let resultMsg: string
-              if (result.success) {
-                const action = (result.result as { action?: string })?.action
-                if (toolCall.tool === 'insert_implementation_artifact' || toolCall.tool === 'insert_qa_artifact') {
-                  resultMsg = `[Tool] ${toolCall.tool} executed successfully (${action || 'inserted'}). Artifact stored in Supabase.`
-                } else if (toolCall.tool === 'move_ticket_column') {
-                  const position = (result.result as { position?: number })?.position
-                  resultMsg = `[Tool] ${toolCall.tool} executed successfully. Ticket moved to ${toolCall.params.columnId} at position ${position ?? '?'}.`
-                } else if (toolCall.tool === 'update_ticket_body') {
-                  resultMsg = `[Tool] ${toolCall.tool} executed successfully. Ticket body updated in Supabase.`
-                } else if (toolCall.tool === 'get_ticket_content') {
-                  resultMsg = `[Tool] ${toolCall.tool} executed successfully. Ticket content retrieved.`
-                } else {
-                  resultMsg = `[Tool] ${toolCall.tool} executed successfully.`
-                }
-              } else {
-                resultMsg = `[Tool] ${toolCall.tool} failed: ${result.error || 'Unknown error'}`
-              }
-              
-              const resultId = ++messageIdRef.current
-              setConversations((prev) => {
-                const next = new Map(prev)
-                const conv = next.get(conversationId)
-                if (!conv) return next
-                next.set(conversationId, {
-                  ...conv,
-                  messages: [...conv.messages, { id: resultId, agent: 'system', content: resultMsg, timestamp: new Date() }],
-                })
-                return next
-              })
-            }
-          }
-        } catch (err) {
-          // Non-fatal: log error but don't block message addition
-          console.error('Failed to parse/execute tool calls:', err)
-        }
-      })()
-    }
     // Auto-move ticket when QA completion message is detected in QA Agent chat (0061, 0086)
     const parsed = parseConversationId(conversationId)
     if (parsed && parsed.agentRole === 'qa-agent' && agent === 'qa-agent') {
@@ -1286,143 +1149,6 @@ function App() {
     }
   }, [qaAgentTicketId, extractTicketId, moveTicketToColumn, addAutoMoveDiagnostic])
 
-  // Log tool call to Tools Agent chat (0107)
-  const logToolCallToToolsAgent = useCallback((toolCall: { tool: string; params: Record<string, unknown> }, result: { success: boolean; result?: unknown; error?: string }) => {
-    try {
-      const toolsAgentConvId = getDefaultConversationId('tools-agent')
-      const timestamp = new Date()
-      
-      // Format tool call entry
-      const paramsSummary = Object.keys(toolCall.params).length > 0
-        ? JSON.stringify(toolCall.params, null, 2)
-        : '(no parameters)'
-      
-      let outcomeText: string
-      if (result.success) {
-        const resultSummary = result.result
-          ? typeof result.result === 'object'
-            ? JSON.stringify(result.result, null, 2)
-            : String(result.result)
-          : 'Success'
-        outcomeText = `✅ Success\n\`\`\`json\n${resultSummary}\n\`\`\``
-      } else {
-        outcomeText = `❌ Failed: ${result.error || 'Unknown error'}`
-      }
-      
-      const toolCallEntry = `**Tool:** \`${toolCall.tool}\`\n**Timestamp:** ${formatTime(timestamp)}\n**Request:**\n\`\`\`json\n${paramsSummary}\n\`\`\`\n**Outcome:**\n${outcomeText}`
-      
-      addMessage(toolsAgentConvId, 'system', toolCallEntry)
-    } catch (err) {
-      // Non-fatal: log error but don't block tool execution
-      console.error('Failed to log tool call to Tools Agent:', err)
-    }
-  }, [getDefaultConversationId, addMessage])
-
-  // Poll for recent tool call executions and log to Tools Agent chat (0107) - defined after logToolCallToToolsAgent
-  const checkRecentExecutions = useCallback(async () => {
-    try {
-      const response = await fetch(`/api/tool-calls/recent-executions?since=${lastExecutionTimestamp}`)
-      const result = await response.json()
-      if (result.success && result.executions && result.executions.length > 0) {
-        // Log each execution to Tools Agent chat
-        for (const exec of result.executions) {
-          logToolCallToToolsAgent(
-            { tool: exec.tool, params: exec.params },
-            exec.result
-          )
-        }
-        // Mark executions as logged
-        const loggedIds = result.executions.map((e: { id: string }) => e.id)
-        await fetch('/api/tool-calls/recent-executions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ loggedIds }),
-        })
-        // Update timestamp
-        if (result.latestTimestamp > lastExecutionTimestamp) {
-          setLastExecutionTimestamp(result.latestTimestamp)
-        }
-      }
-    } catch (err) {
-      // Non-fatal: log error but don't block
-      console.error('Failed to check recent tool call executions:', err)
-    }
-  }, [lastExecutionTimestamp, logToolCallToToolsAgent])
-
-  // Ensure Tools Agent conversation exists when chat is opened (0107)
-  useEffect(() => {
-    if (selectedChatTarget === 'tools-agent' || openChatTarget === 'tools-agent') {
-      // Initialize Tools Agent conversation if it doesn't exist
-      getDefaultConversationId('tools-agent')
-    }
-  }, [selectedChatTarget, openChatTarget, getDefaultConversationId])
-
-  // Ensure Process Review Agent conversation exists when chat is opened (0111)
-  useEffect(() => {
-    if (selectedChatTarget === 'process-review-agent' || openChatTarget === 'process-review-agent') {
-      // Initialize Process Review Agent conversation if it doesn't exist
-      getDefaultConversationId('process-review-agent')
-    }
-  }, [selectedChatTarget, openChatTarget, getDefaultConversationId])
-
-  // Poll for recent executions every 5 seconds (0107)
-  useEffect(() => {
-    let mounted = true
-    // Initial check - fetch latest timestamp first to avoid loading all historical executions
-    ;(async () => {
-      try {
-        const response = await fetch('/api/tool-calls/recent-executions?since=0')
-        const result = await response.json()
-        if (mounted && result.success && result.latestTimestamp) {
-          // Set timestamp to latest, so we only get new executions going forward
-          setLastExecutionTimestamp(result.latestTimestamp)
-        }
-      } catch (err) {
-        console.error('Failed to initialize execution timestamp:', err)
-      }
-      // Then start polling (only if still mounted)
-      if (mounted) {
-        checkRecentExecutions()
-      }
-    })()
-    // Poll every 5 seconds
-    const interval = setInterval(() => {
-      if (mounted) {
-        checkRecentExecutions()
-      }
-    }, 5_000)
-    return () => {
-      mounted = false
-      clearInterval(interval)
-    }
-  }, [checkRecentExecutions])
-
-  // Execute all pending tool calls (0103) - defined after logToolCallToToolsAgent to avoid forward reference
-  const executeAllToolCalls = useCallback(async () => {
-    if (toolCallsExecuting) return
-    try {
-      setToolCallsExecuting(true)
-      const response = await fetch('/api/tool-calls/execute-all', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      })
-      const result = await response.json()
-      if (result.success) {
-        // Log executed tool calls to Tools Agent chat (0107)
-        if (result.executedToolCalls && Array.isArray(result.executedToolCalls)) {
-          for (const { tool, params, result: toolResult } of result.executedToolCalls) {
-            logToolCallToToolsAgent({ tool, params }, toolResult)
-          }
-        }
-        // Recheck after execution
-        await checkPendingToolCalls()
-      }
-    } catch (err) {
-      console.error('Failed to execute tool calls:', err)
-    } finally {
-      setToolCallsExecuting(false)
-    }
-  }, [toolCallsExecuting, checkPendingToolCalls, logToolCallToToolsAgent])
 
   type CheckUnassignedResult = {
     moved: string[]
@@ -2013,112 +1739,6 @@ function App() {
             setTimeout(() => setAgentTypingTarget(null), 500)
           }
         })()
-      } else if (target === 'process-review-agent') {
-        const ticketId = extractTicketId(content)
-        if (ticketId) {
-          setProcessReviewAgentTicketId(ticketId)
-        }
-
-        // Show run start status with ticket ID
-        if (ticketId) {
-          addMessage(convId, 'system', `[Status] Starting Process Review for ticket ${ticketId}...`)
-        }
-
-        setAgentTypingTarget('process-review-agent')
-        setProcessReviewAgentRunStatus('preparing')
-        setProcessReviewAgentProgress([])
-        setProcessReviewAgentError(null)
-
-        ;(async () => {
-          const addProgress = (message: string) => {
-            const progressEntry = { timestamp: new Date(), message }
-            setProcessReviewAgentProgress((prev) => [...prev, progressEntry])
-            addMessage(convId, 'system', `[Progress] ${message}`)
-          }
-
-          try {
-            if (!ticketId) {
-              setProcessReviewAgentRunStatus('failed')
-              const msg = 'Say "Review process for ticket NNNN" (e.g. Review process for ticket 0046).'
-              setProcessReviewAgentError(msg)
-              addMessage(convId, 'process-review-agent', `[Process Review] ${msg}`)
-              setTimeout(() => setAgentTypingTarget(null), 500)
-              return
-            }
-            if (!supabaseUrl || !supabaseAnonKey) {
-              setProcessReviewAgentRunStatus('failed')
-              const msg = 'Supabase not configured. Connect to Supabase to run Process Review.'
-              setProcessReviewAgentError(msg)
-              addMessage(convId, 'process-review-agent', `[Process Review] ${msg}`)
-              setTimeout(() => setAgentTypingTarget(null), 500)
-              return
-            }
-
-            setProcessReviewAgentRunStatus('fetching_artifacts')
-            addProgress('Fetching ticket artifacts...')
-
-            // Fetch ticket PK from ticket ID
-            const supabase = createClient(supabaseUrl, supabaseAnonKey)
-            const { data: ticketData, error: ticketError } = await supabase
-              .from('tickets')
-              .select('pk')
-              .eq('id', ticketId)
-              .maybeSingle()
-
-            if (ticketError || !ticketData) {
-              setProcessReviewAgentRunStatus('failed')
-              const msg = `Ticket not found: ${ticketError?.message || 'Unknown error'}`
-              setProcessReviewAgentError(msg)
-              addMessage(convId, 'process-review-agent', `[Process Review] ${msg}`)
-              setTimeout(() => setAgentTypingTarget(null), 500)
-              return
-            }
-
-            setProcessReviewAgentRunStatus('analyzing')
-            addProgress('Running Process Review analysis...')
-
-            const response = await fetch('/api/process-review/run', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                ticketPk: ticketData.pk,
-                ticketId,
-                supabaseUrl,
-                supabaseAnonKey,
-              }),
-            })
-
-            const result = await response.json()
-
-            if (!result.success) {
-              setProcessReviewAgentRunStatus('failed')
-              const msg = result.error || 'Failed to run Process Review'
-              setProcessReviewAgentError(msg)
-              addMessage(convId, 'process-review-agent', `[Process Review] ${msg}`)
-              setTimeout(() => setAgentTypingTarget(null), 500)
-              return
-            }
-
-            setProcessReviewAgentRunStatus('completed')
-            const suggestions = result.suggestions || []
-            if (suggestions.length === 0) {
-              addProgress('Process Review completed. No suggestions generated.')
-              addMessage(convId, 'process-review-agent', '**Process Review completed**\n\nNo suggestions for process improvements were identified.')
-            } else {
-              addProgress(`Process Review completed. Found ${suggestions.length} suggestion(s).`)
-              const suggestionsText = suggestions.map((s: string, i: number) => `${i + 1}. ${s}`).join('\n')
-              addMessage(convId, 'process-review-agent', `**Process Review completed**\n\nFound ${suggestions.length} suggestion(s):\n\n${suggestionsText}`)
-            }
-            setProcessReviewAgentTicketId(null)
-            setAgentTypingTarget(null)
-          } catch (err) {
-            setProcessReviewAgentRunStatus('failed')
-            const msg = err instanceof Error ? err.message : String(err)
-            setProcessReviewAgentError(msg)
-            addMessage(convId, 'process-review-agent', `[Process Review] Error: ${msg}`)
-            setTimeout(() => setAgentTypingTarget(null), 500)
-          }
-        })()
       }
     },
     [
@@ -2134,8 +1754,6 @@ function App() {
       qaAgentTicketId,
       setImplAgentTicketId,
       setQaAgentTicketId,
-      processReviewAgentTicketId,
-      setProcessReviewAgentTicketId,
       addAutoMoveDiagnostic,
       cursorRunAgentType,
       setCursorRunAgentType,
@@ -2150,109 +1768,7 @@ function App() {
   // Handle chat open and send message requests from Kanban
   useEffect(() => {
     const handler = (event: MessageEvent) => {
-      const data = event.data as { type?: string; chatTarget?: ChatTarget; message?: string; ticketId?: string; ticketPk?: string; supabaseUrl?: string; supabaseAnonKey?: string }
-      if (data?.type === 'HAL_PROCESS_REVIEW_TRIGGERED') {
-        // Handle Process Review triggered from Kanban (0111)
-        const ticketId = data.ticketId as string | undefined
-        const ticketPk = data.ticketPk as string | undefined
-        const supabaseUrlFromKanban = data.supabaseUrl as string | undefined
-        const supabaseAnonKeyFromKanban = data.supabaseAnonKey as string | undefined
-        
-        if (ticketId) {
-          const processReviewConvId = getDefaultConversationId('process-review-agent')
-          setProcessReviewAgentTicketId(ticketId)
-          setProcessReviewAgentRunStatus('preparing')
-          setProcessReviewAgentProgress([])
-          setProcessReviewAgentError(null)
-          
-          addMessage(processReviewConvId, 'system', `[Status] Process Review triggered for ticket ${ticketId} from Kanban...`)
-          
-          // Run Process Review in background
-          ;(async () => {
-            const addProgress = (message: string) => {
-              const progressEntry = { timestamp: new Date(), message }
-              setProcessReviewAgentProgress((prev) => [...prev, progressEntry])
-              addMessage(processReviewConvId, 'system', `[Progress] ${message}`)
-            }
-            
-            try {
-              if (!supabaseUrlFromKanban || !supabaseAnonKeyFromKanban) {
-                setProcessReviewAgentRunStatus('failed')
-                const msg = 'Supabase credentials not provided from Kanban.'
-                setProcessReviewAgentError(msg)
-                addMessage(processReviewConvId, 'process-review-agent', `[Process Review] ${msg}`)
-                return
-              }
-              
-              setProcessReviewAgentRunStatus('fetching_artifacts')
-              addProgress('Fetching ticket artifacts...')
-              
-              // Use ticketPk if provided, otherwise fetch it
-              let finalTicketPk = ticketPk
-              if (!finalTicketPk) {
-                const supabase = createClient(supabaseUrlFromKanban, supabaseAnonKeyFromKanban)
-                const { data: ticketData, error: ticketError } = await supabase
-                  .from('tickets')
-                  .select('pk')
-                  .eq('id', ticketId)
-                  .maybeSingle()
-                
-                if (ticketError || !ticketData) {
-                  setProcessReviewAgentRunStatus('failed')
-                  const msg = `Ticket not found: ${ticketError?.message || 'Unknown error'}`
-                  setProcessReviewAgentError(msg)
-                  addMessage(processReviewConvId, 'process-review-agent', `[Process Review] ${msg}`)
-                  return
-                }
-                finalTicketPk = ticketData.pk
-              }
-              
-              setProcessReviewAgentRunStatus('analyzing')
-              addProgress('Running Process Review analysis...')
-              
-              const response = await fetch('/api/process-review/run', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  ticketPk: finalTicketPk,
-                  ticketId,
-                  supabaseUrl: supabaseUrlFromKanban,
-                  supabaseAnonKey: supabaseAnonKeyFromKanban,
-                }),
-              })
-              
-              const result = await response.json()
-              
-              if (!result.success) {
-                setProcessReviewAgentRunStatus('failed')
-                const msg = result.error || 'Failed to run Process Review'
-                setProcessReviewAgentError(msg)
-                addMessage(processReviewConvId, 'process-review-agent', `[Process Review] ${msg}`)
-                return
-              }
-              
-              setProcessReviewAgentRunStatus('completed')
-              const suggestions = result.suggestions || []
-              if (suggestions.length === 0) {
-                addProgress('Process Review completed. No suggestions generated.')
-                addMessage(processReviewConvId, 'process-review-agent', '**Process Review completed**\n\nNo suggestions for process improvements were identified.')
-              } else {
-                addProgress(`Process Review completed. Found ${suggestions.length} suggestion(s).`)
-                const suggestionsText = suggestions.map((s: string, i: number) => `${i + 1}. ${s}`).join('\n')
-                addMessage(processReviewConvId, 'process-review-agent', `**Process Review completed**\n\nFound ${suggestions.length} suggestion(s):\n\n${suggestionsText}`)
-              }
-              setProcessReviewAgentTicketId(null)
-            } catch (err) {
-              setProcessReviewAgentRunStatus('failed')
-              const msg = err instanceof Error ? err.message : String(err)
-              setProcessReviewAgentError(msg)
-              addMessage(processReviewConvId, 'process-review-agent', `[Process Review] Error: ${msg}`)
-            }
-          })()
-        }
-        return
-      }
-      
+      const data = event.data as { type?: string; chatTarget?: ChatTarget; message?: string }
       if (data?.type !== 'HAL_OPEN_CHAT_AND_SEND') return
       if (!data.chatTarget || !data.message) return
       
@@ -2286,68 +1802,7 @@ function App() {
     }
     window.addEventListener('message', handler)
     return () => window.removeEventListener('message', handler)
-  }, [triggerAgentRun, getOrCreateConversation, getDefaultConversationId, addMessage, setProcessReviewAgentTicketId, setProcessReviewAgentRunStatus, setProcessReviewAgentProgress, setProcessReviewAgentError])
-
-  // Handle Process Review trigger from Kanban (0111)
-  useEffect(() => {
-    const handler = async (event: MessageEvent) => {
-      const data = event.data as { 
-        type?: string
-        ticketPk?: string
-        ticketId?: string
-        supabaseUrl?: string
-        supabaseAnonKey?: string
-      }
-      if (data?.type !== 'HAL_TRIGGER_PROCESS_REVIEW') return
-      if (!data.ticketPk && !data.ticketId) return
-      if (!data.supabaseUrl || !data.supabaseAnonKey) return
-
-      // Get or create Process Review conversation
-      const processReviewConvId = getDefaultConversationId('process-review-agent')
-      setSelectedChatTarget('process-review-agent')
-      setSelectedConversationId(processReviewConvId)
-      
-      // Post start message
-      addMessage(processReviewConvId, 'process-review-agent', `Process Review started for ticket ${data.ticketId || data.ticketPk}...`)
-      setUnreadByTarget((prev) => ({ ...prev, 'process-review-agent': (prev['process-review-agent'] || 0) + 1 }))
-      
-      try {
-        // Call Process Review API
-        const response = await fetch('/api/process-review/run', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ticketPk: data.ticketPk,
-            ticketId: data.ticketId,
-            supabaseUrl: data.supabaseUrl,
-            supabaseAnonKey: data.supabaseAnonKey,
-          }),
-        })
-        
-        const result = await response.json()
-        
-        if (result.success) {
-          if (result.suggestions && Array.isArray(result.suggestions) && result.suggestions.length > 0) {
-            addMessage(processReviewConvId, 'process-review-agent', `Process Review completed. Found ${result.suggestions.length} suggestion(s).`)
-            setUnreadByTarget((prev) => ({ ...prev, 'process-review-agent': (prev['process-review-agent'] || 0) + 1 }))
-          } else {
-            addMessage(processReviewConvId, 'process-review-agent', 'Process Review completed. No suggestions generated.')
-            setUnreadByTarget((prev) => ({ ...prev, 'process-review-agent': (prev['process-review-agent'] || 0) + 1 }))
-          }
-        } else {
-          const errorMsg = result.error || 'Unknown error occurred'
-          addMessage(processReviewConvId, 'process-review-agent', `Process Review failed: ${errorMsg}`)
-          setUnreadByTarget((prev) => ({ ...prev, 'process-review-agent': (prev['process-review-agent'] || 0) + 1 }))
-        }
-      } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : String(err)
-        addMessage(processReviewConvId, 'process-review-agent', `Process Review error: ${errorMsg}`)
-        setUnreadByTarget((prev) => ({ ...prev, 'process-review-agent': (prev['process-review-agent'] || 0) + 1 }))
-      }
-    }
-    window.addEventListener('message', handler)
-    return () => window.removeEventListener('message', handler)
-  }, [getDefaultConversationId, addMessage])
+  }, [triggerAgentRun, getOrCreateConversation, getDefaultConversationId])
 
   const handleImageSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -2469,16 +1924,11 @@ function App() {
 • No active work in progress`)
       }, 600)
       setTimeout(() => {
-        addMessage(convId, 'process-review-agent', `[Standup] Process Review Agent:
-• Ready to analyze ticket artifacts
-• ${processReviewAgentRunStatus === 'idle' ? 'No active reviews' : `Status: ${formatAgentStatus(processReviewAgentRunStatus)}`}`)
-      }, 800)
-      setTimeout(() => {
         addMessage(convId, 'system', '--- End of Standup ---')
         setAgentTypingTarget(null)
       }, 900)
     }
-  }, [inputValue, selectedChatTarget, selectedConversationId, conversations, addMessage, supabaseUrl, supabaseAnonKey, connectedProject, triggerAgentRun, getDefaultConversationId, processReviewAgentRunStatus, formatAgentStatus])
+  }, [inputValue, selectedChatTarget, selectedConversationId, conversations, addMessage, supabaseUrl, supabaseAnonKey, connectedProject, triggerAgentRun, getDefaultConversationId])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -2538,7 +1988,7 @@ function App() {
     setLastCreateTicketAvailable(null)
     setSupabaseUrl(null)
     setSupabaseAnonKey(null)
-    setUnreadByTarget({ 'project-manager': 0, 'implementation-agent': 0, 'qa-agent': 0, 'tools-agent': 0, 'process-review-agent': 0, standup: 0 })
+    setUnreadByTarget({ 'project-manager': 0, 'implementation-agent': 0, 'qa-agent': 0, standup: 0 })
     // Do NOT clear agent status on disconnect (0097: preserve agent status across disconnect/reconnect)
     // Status boxes are gated by connectedProject, so they'll be hidden anyway
     // Only clear ticket IDs and diagnostics (these are per-session)
@@ -2692,17 +2142,6 @@ function App() {
         <section className="hal-kanban-region" aria-label="Kanban board">
           <div className="kanban-header">
             <h2>Kanban Board</h2>
-            <div className="kanban-header-center">
-              <button
-                type="button"
-                className="run-tool-calls-btn"
-                onClick={executeAllToolCalls}
-                disabled={!hasPendingToolCalls || toolCallsExecuting || toolCallsChecking}
-                title={hasPendingToolCalls ? 'Execute all pending tool calls' : 'No pending tool calls'}
-              >
-                {toolCallsExecuting ? 'Running...' : toolCallsChecking ? 'Checking...' : 'Run tool calls'}
-              </button>
-            </div>
             <div className="kanban-header-actions">
               {!connectedProject ? (
                 <button type="button" className="connect-project-btn" onClick={handleGithubConnect}>
@@ -2749,10 +2188,6 @@ function App() {
                       ? 'Project Manager'
                       : openChatTarget === 'standup'
                       ? 'Standup (all agents)'
-                      : openChatTarget === 'tools-agent'
-                      ? 'Tools Agent'
-                      : openChatTarget === 'process-review-agent'
-                      ? 'Process Review'
                       : 'Chat'}
                   </div>
                   <div className="chat-window-actions">
@@ -2884,46 +2319,6 @@ function App() {
                       </>
                     )}
 
-                    {displayTarget === 'process-review-agent' && (
-                      <>
-                        <div className="agent-stub-banner" role="status">
-                          <p className="agent-stub-title">Process Review Agent</p>
-                          <p className="agent-stub-hint">
-                            {supabaseUrl && supabaseAnonKey
-                              ? 'Say "Review process for ticket XXXX" (e.g. Review process for ticket 0046) to analyze ticket artifacts and suggest process improvements.'
-                              : 'Supabase not configured. Connect to Supabase to enable Process Review.'}
-                          </p>
-                        </div>
-                        {(processReviewAgentRunStatus !== 'idle' || processReviewAgentError) && (
-                          <div className="impl-agent-status-box">
-                            <div className="impl-agent-status-header">
-                              <span className="impl-agent-status-label">Process Review Status</span>
-                              <span className={`impl-agent-status-badge ${processReviewAgentRunStatus === 'completed' ? 'impl-status-completed' : processReviewAgentRunStatus === 'failed' ? 'impl-status-failed' : 'impl-status-running'}`}>
-                                {formatAgentStatus(processReviewAgentRunStatus)}
-                              </span>
-                            </div>
-                            {processReviewAgentError && (
-                              <div className="impl-agent-error" role="alert">
-                                <strong>Error:</strong> {processReviewAgentError}
-                              </div>
-                            )}
-                            {processReviewAgentProgress.length > 0 && (
-                              <div className="impl-agent-progress">
-                                <div className="impl-agent-progress-items">
-                                  {processReviewAgentProgress.slice(-5).map((p, idx) => (
-                                    <div key={idx} className="impl-agent-progress-item">
-                                      <span className="impl-agent-progress-time">[{formatTime(p.timestamp)}]</span>
-                                      <span className="impl-agent-progress-message">{p.message}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </>
-                    )}
-
                     {/* Chat transcript */}
                     <div className="chat-transcript" ref={transcriptRef}>
                       {displayMessages.length === 0 && agentTypingTarget !== displayTarget ? (
@@ -3034,24 +2429,6 @@ function App() {
                                       {qaAgentRunStatus === 'completed' ? 'Completed' : qaAgentRunStatus === 'failed' ? 'Failed' : '…'}
                                     </span>
                                   </div>
-                                ) : displayTarget === 'process-review-agent' ? (
-                                  <div className="impl-agent-status-timeline" role="status">
-                                    <span className={processReviewAgentRunStatus === 'preparing' ? 'impl-status-active' : ['fetching_artifacts', 'analyzing', 'completed', 'failed'].includes(processReviewAgentRunStatus) ? 'impl-status-done' : ''}>
-                                      Preparing
-                                    </span>
-                                    <span className="impl-status-arrow">→</span>
-                                    <span className={processReviewAgentRunStatus === 'fetching_artifacts' ? 'impl-status-active' : ['analyzing', 'completed', 'failed'].includes(processReviewAgentRunStatus) ? 'impl-status-done' : ''}>
-                                      Fetching artifacts
-                                    </span>
-                                    <span className="impl-status-arrow">→</span>
-                                    <span className={processReviewAgentRunStatus === 'analyzing' ? 'impl-status-active' : ['completed', 'failed'].includes(processReviewAgentRunStatus) ? 'impl-status-done' : ''}>
-                                      Analyzing
-                                    </span>
-                                    <span className="impl-status-arrow">→</span>
-                                    <span className={processReviewAgentRunStatus === 'completed' ? 'impl-status-done' : processReviewAgentRunStatus === 'failed' ? 'impl-status-failed' : ''}>
-                                      {processReviewAgentRunStatus === 'completed' ? 'Completed' : processReviewAgentRunStatus === 'failed' ? 'Failed' : '…'}
-                                    </span>
-                                  </div>
                                 ) : (
                                   <span className="typing-bubble">
                                     <span className="typing-label">Thinking</span>
@@ -3096,12 +2473,11 @@ function App() {
                           value={inputValue}
                           onChange={(e) => setInputValue(e.target.value)}
                           onKeyDown={handleKeyDown}
-                          placeholder={selectedChatTarget === 'tools-agent' || selectedChatTarget === 'process-review-agent' ? 'Process Review chat is read-only' : 'Type a message... (Enter to send)'}
+                          placeholder="Type a message... (Enter to send)"
                           rows={2}
-                          disabled={selectedChatTarget === 'tools-agent' || selectedChatTarget === 'process-review-agent'}
                         />
                         <div className="composer-actions">
-                          <label className="attach-image-btn" title="Attach image" style={{ display: selectedChatTarget === 'tools-agent' || selectedChatTarget === 'process-review-agent' ? 'none' : 'block' }}>
+                          <label className="attach-image-btn" title="Attach image">
                             <input
                               type="file"
                               accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
@@ -3111,7 +2487,7 @@ function App() {
                             />
                             📎
                           </label>
-                          <button type="button" className="send-btn" onClick={handleSend} disabled={!!imageError || selectedChatTarget === 'tools-agent' || selectedChatTarget === 'process-review-agent'}>
+                          <button type="button" className="send-btn" onClick={handleSend} disabled={!!imageError}>
                             Send
                           </button>
                         </div>
@@ -3235,66 +2611,6 @@ function App() {
                   )}
                 </div>
                 <div className="chat-preview-text">{getChatTargetPreview('standup')}</div>
-              </div>
-
-              {/* Tools Agent (0107) */}
-              <div
-                className={`chat-preview-pane ${openChatTarget === 'tools-agent' ? 'chat-preview-active' : ''}`}
-                onClick={() => {
-                  setOpenChatTarget('tools-agent')
-                  setSelectedChatTarget('tools-agent')
-                  setSelectedConversationId(null)
-                  setUnreadByTarget((prev) => ({ ...prev, 'tools-agent': 0 }))
-                }}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault()
-                    setOpenChatTarget('tools-agent')
-                    setSelectedChatTarget('tools-agent')
-                    setSelectedConversationId(null)
-                    setUnreadByTarget((prev) => ({ ...prev, 'tools-agent': 0 }))
-                  }
-                }}
-              >
-                <div className="chat-preview-header">
-                  <span className="chat-preview-name">Tools Agent</span>
-                  {unreadByTarget['tools-agent'] > 0 && (
-                    <span className="chat-preview-unread">{unreadByTarget['tools-agent']}</span>
-                  )}
-                </div>
-                <div className="chat-preview-text">{getChatTargetPreview('tools-agent')}</div>
-              </div>
-
-              {/* Process Review Agent (0111) */}
-              <div
-                className={`chat-preview-pane ${openChatTarget === 'process-review-agent' ? 'chat-preview-active' : ''}`}
-                onClick={() => {
-                  setOpenChatTarget('process-review-agent')
-                  setSelectedChatTarget('process-review-agent')
-                  setSelectedConversationId(null)
-                  setUnreadByTarget((prev) => ({ ...prev, 'process-review-agent': 0 }))
-                }}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault()
-                    setOpenChatTarget('process-review-agent')
-                    setSelectedChatTarget('process-review-agent')
-                    setSelectedConversationId(null)
-                    setUnreadByTarget((prev) => ({ ...prev, 'process-review-agent': 0 }))
-                  }
-                }}
-              >
-                <div className="chat-preview-header">
-                  <span className="chat-preview-name">Process Review</span>
-                  {unreadByTarget['process-review-agent'] > 0 && (
-                    <span className="chat-preview-unread">{unreadByTarget['process-review-agent']}</span>
-                  )}
-                </div>
-                <div className="chat-preview-text">{getChatTargetPreview('process-review-agent')}</div>
               </div>
 
               {/* QA Group */}

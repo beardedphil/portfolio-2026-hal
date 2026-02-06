@@ -183,26 +183,6 @@ body {
   align-items: center;
 }
 
-.run-tool-calls-btn {
-  padding: 0.4rem 0.9rem;
-  font-size: 0.9rem;
-  cursor: pointer;
-  background: var(--hal-primary);
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-  font-weight: 500;
-  transition: background 0.2s, opacity 0.2s;
-}
-
-.run-tool-calls-btn:hover:not(:disabled) {
-  background: var(--hal-primary-hover, #2563eb);
-}
-
-.run-tool-calls-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
 
 .kanban-header-actions {
   display: flex;
@@ -1407,55 +1387,6 @@ body {
   font-style: italic;
 }
 
-.diag-tool-calls {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.diag-tool-call {
-  margin-bottom: 0.75rem;
-  padding: 0.5rem;
-  background: var(--hal-surface-alt);
-  border: 1px solid var(--hal-border);
-  border-radius: 4px;
-}
-
-.diag-tool-call:last-child {
-  margin-bottom: 0;
-}
-
-.diag-tool-call strong {
-  display: block;
-  margin-bottom: 0.35rem;
-  color: var(--hal-primary);
-}
-
-.tool-call-detail {
-  margin-bottom: 0.25rem;
-  font-size: 0.75rem;
-}
-
-.tool-call-label {
-  color: var(--hal-text-muted);
-  margin-right: 0.35rem;
-}
-
-.tool-call-detail code {
-  font-family: ui-monospace, monospace;
-  font-size: 0.7rem;
-  background: var(--hal-surface);
-  padding: 0.1rem 0.3rem;
-  border-radius: 2px;
-  word-break: break-all;
-}
-
-.tool-call-output {
-  display: block;
-  max-height: 80px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 
 /* Auto-move diagnostics (0061) */
 .diag-auto-move-list {

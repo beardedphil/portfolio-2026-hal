@@ -289,71 +289,6 @@ function getAgentTypeDisplayName(agentType: string): string {
   }
 }
 
-/** Extract feature branch name from ticket body (0113) */
-function extractFeatureBranch(bodyMd: string): string | null {
-  if (!bodyMd) return null
-  // Look for "**Branch**: `ticket/...`" or "- **Branch**: ticket/..." in QA section
-  // Also handle "Branch:" without markdown bold
-  const branchPatterns = [
-    /(?:^|\n)\s*[-*]?\s*\*\*Branch\*\*:\s*`?([^`\n]+)`?/i,  // "- **Branch**: `branch`" or "**Branch**: `branch`"
-    /(?:^|\n)\s*[-*]?\s*Branch:\s*`?([^`\n]+)`?/i,           // "- Branch: `branch`" or "Branch: `branch`"
-    /QA.*?Branch[:\s]+`?([^`\n]+)`?/i,                       // "QA Branch: `branch`" or similar
-  ]
-  for (const pattern of branchPatterns) {
-    const match = bodyMd.match(pattern)
-    if (match && match[1]) {
-      const branch = match[1].trim()
-      // Only return if it looks like a branch name (starts with ticket/ or contains /)
-      if (branch.includes('/') || branch.startsWith('ticket/')) {
-        return branch
-      }
-    }
-  }
-  return null
-}
-
-/** Extract merge status from ticket body (0113) */
-function extractMergeStatus(bodyMd: string): { merged: boolean; timestamp: string | null } {
-  if (!bodyMd) return { merged: false, timestamp: null }
-  // Look for "Merged to main" or "Merged to `main`" patterns
-  // Also check for "merged to main for QA" patterns
-  const mergedPatterns = [
-    /merged\s+to\s+`?main`?\s*[:\-]?\s*yes/i,
-    /merged\s+to\s+`?main`?\s*[:\-]?\s*true/i,
-    /\*\*Merged\s+to\s+main\*\*:\s*yes/i,
-    /\*\*Merged\s+to\s+main\*\*:\s*true/i,
-    /\*\*Merged\s+to\s+main\*\*:\s*Yes/i,
-    /merged\s+to\s+`?main`?\s+for\s+QA/i, // "merged to main for QA"
-    /already\s+merged\s+to\s+`?main`?/i, // "already merged to main"
-    /Merged\s+to\s+main:\s*Yes/i, // "Merged to main: Yes"
-    /Merged\s+to\s+main:\s*True/i, // "Merged to main: True"
-  ]
-  const isMerged = mergedPatterns.some((pattern) => pattern.test(bodyMd))
-  
-  // Try to extract timestamp if present (ISO format or common date formats)
-  let timestamp: string | null = null
-  if (isMerged) {
-    // Look for ISO timestamp near merge mention
-    const timestampPatterns = [
-      /merged\s+to\s+`?main`?[^]*?(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:\.\d{3})?(?:Z|[+-]\d{2}:\d{2})?)/i,
-      /merged\s+to\s+`?main`?[^]*?(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/i,
-      /merged\s+at[^]*?(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2})/i,
-      /Merged\s+to\s+main[^]*?(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2})/i,
-      // Also look for timestamps in parentheses or brackets after "Yes"
-      /Merged\s+to\s+main[^]*?Yes[^]*?[\(\[][^\)\]]*(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2})/i,
-    ]
-    for (const pattern of timestampPatterns) {
-      const match = bodyMd.match(pattern)
-      if (match && match[1]) {
-        timestamp = match[1].trim()
-        break
-      }
-    }
-  }
-  
-  return { merged: isMerged, timestamp }
-}
-
 /** Artifact report viewer modal (0082) */
 function ArtifactReportViewer({
   open,
@@ -592,26 +527,17 @@ function ProcessReviewSection({
     }
   }
 
-  // Automatically run review when component mounts (0108, 0111)
+  // Automatically run review when component mounts (0108)
   useEffect(() => {
     if (!hasAutoRun && supabaseUrl && supabaseAnonKey && artifacts.length > 0 && !isRunningReview && suggestions.length === 0) {
       setHasAutoRun(true)
-      // Run review automatically when Process Review section is shown (with chat integration)
-      if (ticketId) {
-        window.parent.postMessage(
-          {
-            type: 'HAL_TRIGGER_PROCESS_REVIEW',
-            ticketPk,
-            ticketId,
-            supabaseUrl,
-            supabaseAnonKey,
-          },
-          '*'
-        )
-      }
+      // Run review automatically when Process Review section is shown
+      handleRunReview().catch((err) => {
+        console.error('Auto-run process review failed:', err)
+      })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasAutoRun, supabaseUrl, supabaseAnonKey, artifacts.length, ticketId, ticketPk])
+  }, [hasAutoRun, supabaseUrl, supabaseAnonKey, artifacts.length])
 
   const handleToggleSuggestion = (id: string) => {
     setSuggestions((prev) =>
@@ -694,24 +620,7 @@ function ProcessReviewSection({
         <button
           type="button"
           className="process-review-button process-review-button-run"
-          onClick={() => {
-            // Trigger Process Review via parent window for chat integration (0111)
-            if (supabaseUrl && supabaseAnonKey && ticketId) {
-              window.parent.postMessage(
-                {
-                  type: 'HAL_TRIGGER_PROCESS_REVIEW',
-                  ticketPk,
-                  ticketId,
-                  supabaseUrl,
-                  supabaseAnonKey,
-                },
-                '*'
-              )
-            } else {
-              // Fallback to direct API call if credentials not available
-              handleRunReview()
-            }
-          }}
+          onClick={handleRunReview}
           disabled={isRunningReview || isCreatingTicket}
         >
           {isRunningReview ? 'Running review...' : 'Run review'}
@@ -833,81 +742,6 @@ function ArtifactsSection({
   )
 }
 
-/** QA section component (0113): displays feature branch and merge status */
-function QASection({
-  featureBranch,
-  mergeStatus,
-  artifacts,
-}: {
-  featureBranch: string | null
-  mergeStatus: { merged: boolean; timestamp: string | null }
-  artifacts: SupabaseAgentArtifactRow[]
-}) {
-  const implementationArtifacts = artifacts.filter((a) => a.agent_type === 'implementation')
-  
-  return (
-    <div className="qa-section">
-      <h3 className="qa-section-title">QA Information</h3>
-      
-      <div className="qa-section-fields">
-        <div className="qa-section-field">
-          <span className="qa-section-label">Feature branch:</span>
-          <span className="qa-section-value">
-            {featureBranch ? (
-              <code className="qa-section-branch">{featureBranch}</code>
-            ) : (
-              <span className="qa-section-missing">Not specified</span>
-            )}
-          </span>
-        </div>
-        
-        <div className="qa-section-field">
-          <span className="qa-section-label">Merged to main:</span>
-          <span className="qa-section-value">
-            {mergeStatus.merged ? (
-              <span className="qa-section-merged">
-                ✓ Yes
-                {mergeStatus.timestamp && (
-                  <span className="qa-section-timestamp"> ({mergeStatus.timestamp})</span>
-                )}
-              </span>
-            ) : (
-              <span className="qa-section-not-merged">✗ No</span>
-            )}
-          </span>
-        </div>
-      </div>
-      
-      {implementationArtifacts.length > 0 && (
-        <div className="qa-section-artifacts">
-          <h4 className="qa-section-subtitle">Implementation artifacts</h4>
-          <ul className="qa-section-artifacts-list">
-            {implementationArtifacts.map((artifact) => {
-              const displayName = artifact.title || getAgentTypeDisplayName(artifact.agent_type)
-              return (
-                <li key={artifact.artifact_id} className="qa-section-artifact-item">
-                  <span className="qa-section-artifact-name">{displayName}</span>
-                  <span className="qa-section-artifact-meta">
-                    {new Date(artifact.created_at).toLocaleString()}
-                  </span>
-                </li>
-              )
-            })}
-          </ul>
-        </div>
-      )}
-      
-      {!mergeStatus.merged && (
-        <div className="qa-section-warning" role="alert">
-          <p>
-            <strong>⚠️ Warning:</strong> This ticket cannot be moved to Human in the Loop until the feature branch is merged to main.
-          </p>
-        </div>
-      )}
-    </div>
-  )
-}
-
 /** Ticket detail modal (0033): title, metadata, markdown body, close/escape/backdrop, scroll lock, focus trap */
 function TicketDetailModal({
   open,
@@ -927,10 +761,6 @@ function TicketDetailModal({
   supabaseUrl,
   supabaseKey,
   onTicketUpdate: _onTicketUpdate,
-  hasPendingToolCalls,
-  toolCallsLoading,
-  toolCallsExecuting,
-  onExecuteToolCalls,
 }: {
   open: boolean
   onClose: () => void
@@ -949,10 +779,6 @@ function TicketDetailModal({
   supabaseUrl: string
   supabaseKey: string
   onTicketUpdate: () => void
-  hasPendingToolCalls?: boolean
-  toolCallsLoading?: boolean
-  toolCallsExecuting?: boolean
-  onExecuteToolCalls?: () => void
 }) {
   const [validationSteps, setValidationSteps] = useState('')
   const [validationNotes, setValidationNotes] = useState('')
@@ -1049,11 +875,6 @@ function TicketDetailModal({
   const markdownBody = body ? bodyOnly : ''
   const showValidationSection = columnId === 'col-human-in-the-loop'
   const showProcessReviewSection = columnId === 'col-process-review'
-  const showQASection = columnId === 'col-qa'
-  
-  // Extract QA information from ticket body (0113)
-  const featureBranch = body ? extractFeatureBranch(body) : null
-  const mergeStatus = body ? extractMergeStatus(body) : { merged: false, timestamp: null }
 
   return (
     <div
@@ -1082,17 +903,6 @@ function TicketDetailModal({
         <div className="ticket-detail-meta">
           <span className="ticket-detail-id">ID: {ticketId}</span>
           {priority != null && <span className="ticket-detail-priority">Priority: {priority}</span>}
-          {hasPendingToolCalls && onExecuteToolCalls && (
-            <button
-              type="button"
-              className="ticket-detail-run-tool-calls"
-              onClick={onExecuteToolCalls}
-              disabled={toolCallsExecuting || toolCallsLoading}
-              title="Run pending tool calls for this ticket"
-            >
-              {toolCallsExecuting ? 'Running...' : toolCallsLoading ? 'Checking...' : 'Run Tool Calls'}
-            </button>
-          )}
         </div>
         <div className="ticket-detail-body-wrap">
           {loading && <p className="ticket-detail-loading">Loading…</p>}
@@ -1123,13 +933,6 @@ function TicketDetailModal({
                   <p className="ticket-detail-empty">No content.</p>
                 )}
               </div>
-              {showQASection && (
-                <QASection
-                  featureBranch={featureBranch}
-                  mergeStatus={mergeStatus}
-                  artifacts={artifacts}
-                />
-              )}
               <ArtifactsSection
                 artifacts={artifacts}
                 loading={artifactsLoading}
@@ -1169,14 +972,10 @@ function SortableCard({
   card,
   columnId,
   onOpenDetail,
-  hasPendingToolCalls = false,
-  agentType,
 }: {
   card: Card
   columnId: string
   onOpenDetail?: (cardId: string) => void
-  hasPendingToolCalls?: boolean
-  agentType?: 'implementation' | 'qa' | null
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
@@ -1190,8 +989,6 @@ function SortableCard({
   const handleCardClick = () => {
     if (onOpenDetail) onOpenDetail(card.id)
   }
-  const showAgentBadge = columnId === 'col-doing' && agentType
-  const agentDisplayName = agentType === 'implementation' ? 'Implementation' : agentType === 'qa' ? 'QA' : null
   return (
     <div ref={setNodeRef} style={style} className="ticket-card" data-card-id={card.id}>
       <span
@@ -1208,16 +1005,6 @@ function SortableCard({
         aria-label={`Open ticket ${card.id}: ${card.title}`}
       >
         <span className="ticket-card-title">{card.title}</span>
-        {showAgentBadge && agentDisplayName && (
-          <span className="ticket-card-agent-badge" title={`Working agent: ${agentDisplayName}`}>
-            {agentDisplayName}
-          </span>
-        )}
-        {hasPendingToolCalls && (
-          <span className="ticket-card-tool-calls-indicator" title="Pending tool calls">
-            ⚙️
-          </span>
-        )}
       </button>
     </div>
   )
@@ -1235,7 +1022,6 @@ function SortableColumn({
   updateSupabaseTicketKanban,
   refetchSupabaseTickets,
   ticketPendingToolCalls,
-  activeAgentRuns = {},
 }: {
   col: Column
   cards: Record<string, Card>
@@ -1248,7 +1034,6 @@ function SortableColumn({
   updateSupabaseTicketKanban?: (pk: string, updates: { kanban_column_id?: string; kanban_position?: number; kanban_moved_at?: string }) => Promise<{ ok: true } | { ok: false; error: string }>
   refetchSupabaseTickets?: (skipPendingMoves?: boolean) => Promise<boolean>
   ticketPendingToolCalls?: Record<string, boolean>
-  activeAgentRuns?: Record<string, 'implementation' | 'qa'>
 }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
     id: col.id,
@@ -1376,16 +1161,12 @@ function SortableColumn({
           {col.cardIds.map((cardId) => {
             const card = cards[cardId]
             if (!card) return null
-            // Get agent type for this ticket (0114)
-            const agentType = activeAgentRuns[cardId] || null
             return (
               <SortableCard
                 key={card.id}
                 card={card}
                 columnId={col.id}
                 onOpenDetail={onOpenDetail}
-                hasPendingToolCalls={ticketPendingToolCalls?.[card.id] === true}
-                agentType={agentType}
               />
             )
           })}
@@ -1523,84 +1304,8 @@ function App() {
   const [detailModalArtifactsLoading, setDetailModalArtifactsLoading] = useState(false)
   const [artifactViewer, setArtifactViewer] = useState<SupabaseAgentArtifactRow | null>(null)
   
-  // Tool call queue (0097)
-  const [detailModalHasPendingToolCalls, setDetailModalHasPendingToolCalls] = useState(false)
-  const [detailModalToolCallsLoading, setDetailModalToolCallsLoading] = useState(false)
-  const [detailModalToolCallsExecuting, setDetailModalToolCallsExecuting] = useState(false)
-  const [ticketPendingToolCalls, setTicketPendingToolCalls] = useState<Record<string, boolean>>({})
-  
-  // Active agent runs: ticket_pk -> agent_type (0114)
-  const [activeAgentRuns, setActiveAgentRuns] = useState<Record<string, 'implementation' | 'qa'>>({})
-
   // Supabase board: when connected, board is driven by supabaseTickets + supabaseColumnsRows (0020)
   const supabaseBoardActive = supabaseConnectionStatus === 'connected'
-  
-  // Check for pending tool calls for a ticket (0097)
-  const checkPendingToolCalls = useCallback(async (ticketId: string): Promise<boolean> => {
-    try {
-      const halApiUrl = window.location.origin
-      const response = await fetch(`${halApiUrl}/api/tool-calls/check`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticketId }),
-      })
-      const result = await response.json()
-      return result.success && result.hasPendingToolCalls === true
-    } catch {
-      return false
-    }
-  }, [])
-  
-  // Execute tool calls for a ticket (0097)
-  const executeToolCalls = useCallback(async (ticketId: string): Promise<{ success: boolean; executed: number; error?: string }> => {
-    try {
-      const halApiUrl = window.location.origin
-      const response = await fetch(`${halApiUrl}/api/tool-calls/execute`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticketId }),
-      })
-      const result = await response.json()
-      return {
-        success: result.success === true,
-        executed: result.executed ?? 0,
-        error: result.error,
-      }
-    } catch (err) {
-      return {
-        success: false,
-        executed: 0,
-        error: err instanceof Error ? err.message : String(err),
-      }
-    }
-  }, [])
-  
-  // Check for pending tool calls for all tickets (0097)
-  useEffect(() => {
-    if (!supabaseBoardActive || supabaseTickets.length === 0) {
-      setTicketPendingToolCalls({})
-      return
-    }
-    
-    const checkAllTickets = async () => {
-      const pending: Record<string, boolean> = {}
-      for (const ticket of supabaseTickets) {
-        const displayId = ticket.display_id ?? ticket.id
-        try {
-          const hasPending = await checkPendingToolCalls(displayId)
-          pending[ticket.pk] = hasPending
-        } catch {
-          pending[ticket.pk] = false
-        }
-      }
-      setTicketPendingToolCalls(pending)
-    }
-    
-    checkAllTickets()
-    // Recheck periodically (every 30 seconds)
-    const interval = setInterval(checkAllTickets, 30000)
-    return () => clearInterval(interval)
-  }, [supabaseBoardActive, supabaseTickets, checkPendingToolCalls])
   const { columns: supabaseColumns, unknownColumnTicketIds: supabaseUnknownColumnTicketIds } = useMemo(() => {
     if (!supabaseBoardActive || supabaseColumnsRows.length === 0) {
       return { columns: EMPTY_KANBAN_COLUMNS, unknownColumnTicketIds: [] as string[] }
@@ -1894,54 +1599,6 @@ function App() {
     [supabaseProjectUrl, supabaseAnonKey]
   )
 
-  /** Fetch active agent runs for tickets in Doing column (0114) */
-  const fetchActiveAgentRuns = useCallback(async () => {
-    const url = supabaseProjectUrl.trim()
-    const key = supabaseAnonKey.trim()
-    if (!url || !key || !supabaseBoardActive) {
-      setActiveAgentRuns({})
-      return
-    }
-    try {
-      const client = createClient(url, key)
-      // Get all tickets in Doing column
-      const doingTickets = supabaseTickets.filter((t) => t.kanban_column_id === 'col-doing')
-      if (doingTickets.length === 0) {
-        setActiveAgentRuns({})
-        return
-      }
-      const ticketPks = doingTickets.map((t) => t.pk)
-      // Fetch active runs (status in ['launching', 'polling'])
-      const { data, error } = await client
-        .from('hal_agent_runs')
-        .select('ticket_pk, agent_type, status')
-        .in('ticket_pk', ticketPks)
-        .in('status', ['launching', 'polling'])
-        .order('created_at', { ascending: false })
-      if (error) {
-        console.warn('Failed to fetch active agent runs:', error)
-        setActiveAgentRuns({})
-        return
-      }
-      // Build map: ticket_pk -> agent_type (take most recent run per ticket)
-      const runs: Record<string, 'implementation' | 'qa'> = {}
-      if (data) {
-        for (const run of data) {
-          const ticketPk = run.ticket_pk as string
-          const agentType = run.agent_type as 'implementation' | 'qa'
-          // Only set if not already set (most recent run wins)
-          if (!runs[ticketPk] && (agentType === 'implementation' || agentType === 'qa')) {
-            runs[ticketPk] = agentType
-          }
-        }
-      }
-      setActiveAgentRuns(runs)
-    } catch (e) {
-      console.warn('Failed to fetch active agent runs:', e)
-      setActiveAgentRuns({})
-    }
-  }, [supabaseProjectUrl, supabaseAnonKey, supabaseBoardActive, supabaseTickets])
-
   // Resolve ticket detail modal content when modal opens (0033); Supabase-only (0065)
   useEffect(() => {
     if (!detailModal) {
@@ -1991,16 +1648,6 @@ function App() {
           setDetailModalArtifacts([])
           setDetailModalArtifactsLoading(false)
         })
-        
-        // Check for pending tool calls (0097)
-        setDetailModalToolCallsLoading(true)
-        checkPendingToolCalls(displayId).then((hasPending) => {
-          setDetailModalHasPendingToolCalls(hasPending)
-          setDetailModalToolCallsLoading(false)
-        }).catch(() => {
-          setDetailModalHasPendingToolCalls(false)
-          setDetailModalToolCallsLoading(false)
-        })
       } else {
         setDetailModalBody('')
         setDetailModalArtifacts([])
@@ -2015,10 +1662,8 @@ function App() {
       setDetailModalLoading(false)
       setDetailModalArtifacts([])
       setDetailModalArtifactsLoading(false)
-      setDetailModalHasPendingToolCalls(false)
-      setDetailModalToolCallsLoading(false)
     }
-  }, [detailModal, supabaseBoardActive, supabaseTickets, supabaseProjectUrl, supabaseAnonKey, detailModalRetryTrigger, addLog, fetchTicketArtifacts, checkPendingToolCalls])
+  }, [detailModal, supabaseBoardActive, supabaseTickets, supabaseProjectUrl, supabaseAnonKey, detailModalRetryTrigger, addLog, fetchTicketArtifacts])
 
   const handleOpenTicketDetail = useCallback(
     (cardId: string) => {
@@ -2041,34 +1686,6 @@ function App() {
   }, [])
   const handleCloseArtifact = useCallback(() => setArtifactViewer(null), [])
   
-  // Execute tool calls for current ticket (0097)
-  const handleExecuteToolCalls = useCallback(async () => {
-    if (!detailModal) return
-    const ticket = supabaseTickets.find((t) => t.pk === detailModal.ticketId)
-    if (!ticket) return
-    const displayId = ticket.display_id ?? ticket.id
-    setDetailModalToolCallsExecuting(true)
-    try {
-      const result = await executeToolCalls(displayId)
-      if (result.success) {
-        addLog(`Executed ${result.executed} tool call(s) for ticket ${displayId}`)
-        // Refresh pending status
-        const hasPending = await checkPendingToolCalls(displayId)
-        setDetailModalHasPendingToolCalls(hasPending)
-        // Refresh artifacts in case tool calls created new ones
-        if (result.executed > 0) {
-          const artifacts = await fetchTicketArtifacts(detailModal.ticketId)
-          setDetailModalArtifacts(artifacts)
-        }
-      } else {
-        addLog(`Failed to execute tool calls: ${result.error || 'Unknown error'}`)
-      }
-    } catch (err) {
-      addLog(`Error executing tool calls: ${err instanceof Error ? err.message : String(err)}`)
-    } finally {
-      setDetailModalToolCallsExecuting(false)
-    }
-  }, [detailModal, supabaseTickets, executeToolCalls, checkPendingToolCalls, fetchTicketArtifacts, addLog])
 
   // File system mode removed (0065): Supabase-only
 
@@ -2308,17 +1925,6 @@ function App() {
     const id = setInterval(() => refetchSupabaseTickets(true), SUPABASE_POLL_INTERVAL_MS)
     return () => clearInterval(id)
   }, [supabaseBoardActive, refetchSupabaseTickets])
-
-  // Fetch active agent runs when tickets change or on polling interval (0114)
-  useEffect(() => {
-    if (!supabaseBoardActive) {
-      setActiveAgentRuns({})
-      return
-    }
-    fetchActiveAgentRuns()
-    const id = setInterval(() => fetchActiveAgentRuns(), SUPABASE_POLL_INTERVAL_MS)
-    return () => clearInterval(id)
-  }, [supabaseBoardActive, fetchActiveAgentRuns])
 
   // Log "Initialized default columns" when we seed kanban_columns (0020)
   useEffect(() => {
@@ -2619,23 +2225,6 @@ function App() {
         supabaseTickets.some((t) => t.pk === String(active.id))
       ) {
         const ticketPk = String(active.id)
-        const ticket = supabaseTickets.find((t) => t.pk === ticketPk)
-        
-        // Validation: prevent QA → Human in the Loop without merge confirmation (0113)
-        if (ticket && ticket.kanban_column_id === 'col-qa' && overColumn.id === 'col-human-in-the-loop') {
-          const mergeStatus = extractMergeStatus(ticket.body_md)
-          if (!mergeStatus.merged) {
-            addLog(
-              `Move blocked: Ticket ${ticket.display_id || ticket.pk} cannot be moved from QA to Human in the Loop until the feature branch is merged to main.`
-            )
-            // Show alert to user
-            alert(
-              `Cannot move ticket to Human in the Loop: The feature branch must be merged to main first. Please ensure the ticket body includes "Merged to main: Yes" before moving.`
-            )
-            return
-          }
-        }
-        
         let overIndex = overColumn.cardIds.indexOf(String(effectiveOverId))
         if (overIndex < 0) overIndex = overColumn.cardIds.length
         const movedAt = new Date().toISOString()
@@ -2743,24 +2332,6 @@ function App() {
             refetchSupabaseTickets(false) // Full refetch to restore correct state
           }
         } else {
-          // Validation: prevent QA → Human in the Loop without merge confirmation (0113)
-          if (sourceColumn.id === 'col-qa' && overColumn.id === 'col-human-in-the-loop') {
-            const ticket = supabaseTickets.find((t) => t.pk === String(active.id))
-            if (ticket) {
-              const mergeStatus = extractMergeStatus(ticket.body_md)
-              if (!mergeStatus.merged) {
-                addLog(
-                  `Move blocked: Ticket ${ticket.display_id || ticket.pk} cannot be moved from QA to Human in the Loop until the feature branch is merged to main.`
-                )
-                // Show alert to user
-                alert(
-                  `Cannot move ticket to Human in the Loop: The feature branch must be merged to main first. Please ensure the ticket body includes "Merged to main: Yes" before moving.`
-                )
-                return
-              }
-            }
-          }
-          
           const movedAt = new Date().toISOString()
           const ticketPk = String(active.id)
           // Optimistic update (0047)
@@ -3125,10 +2696,6 @@ function App() {
           columnId={detailModal.columnId}
           supabaseUrl={supabaseProjectUrl || ''}
           supabaseKey={supabaseAnonKey || ''}
-          hasPendingToolCalls={detailModalHasPendingToolCalls}
-          toolCallsLoading={detailModalToolCallsLoading}
-          toolCallsExecuting={detailModalToolCallsExecuting}
-          onExecuteToolCalls={handleExecuteToolCalls}
           onValidationPass={async (ticketPk: string) => {
             // Move ticket to Process Review (0108)
             const targetColumn = supabaseColumns.find((c) => c.id === 'col-process-review')
@@ -3147,35 +2714,25 @@ function App() {
             }
             addLog(`Human validation: Ticket ${ticketPk} passed, moved to Process Review`)
             
-            // Automatically trigger Process Review agent (0108, 0111)
+            // Automatically trigger Process Review agent (0108)
             const url = supabaseProjectUrl?.trim()
             const key = supabaseAnonKey?.trim()
             if (url && key && detailModal?.ticketId) {
-              // Notify HAL parent window that Process Review is being triggered (0111)
-              if (typeof window !== 'undefined' && window.parent !== window) {
-                window.parent.postMessage(
-                  {
-                    type: 'HAL_PROCESS_REVIEW_TRIGGERED',
-                    ticketId: detailModal.ticketId,
-                    ticketPk,
-                    supabaseUrl: url,
-                    supabaseAnonKey: key,
-                  },
-                  '*'
-                )
-              }
               try {
-                // Send message to parent window to trigger Process Review with chat integration (0111)
-                window.parent.postMessage(
-                  {
-                    type: 'HAL_TRIGGER_PROCESS_REVIEW',
+                // Trigger process review agent in background
+                fetch('/api/process-review/run', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
                     ticketPk,
                     ticketId: detailModal.ticketId,
                     supabaseUrl: url,
                     supabaseAnonKey: key,
-                  },
-                  '*'
-                )
+                  }),
+                }).catch((err) => {
+                  console.error('Failed to trigger process review agent:', err)
+                  addLog(`Warning: Process Review agent trigger failed: ${err instanceof Error ? err.message : String(err)}`)
+                })
               } catch (err) {
                 console.error('Error triggering process review agent:', err)
                 addLog(`Warning: Process Review agent trigger error: ${err instanceof Error ? err.message : String(err)}`)
@@ -3333,7 +2890,6 @@ ${notes || '(none provided)'}
                   updateSupabaseTicketKanban={updateSupabaseTicketKanban}
                   refetchSupabaseTickets={refetchSupabaseTickets}
                   ticketPendingToolCalls={ticketPendingToolCalls}
-                  activeAgentRuns={activeAgentRuns}
                 />
               ))}
             </div>
