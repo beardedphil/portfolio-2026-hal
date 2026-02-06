@@ -1226,6 +1226,10 @@ export default defineConfig({
                       const artifactBody = qaReportContent || summary
                       const displayId = ticketData.display_id || ticketId
                       
+                      if (!qaReportContent) {
+                        console.warn(`[QA Agent] qa-report.md not found for ticket ${ticketId}. Using summary only.`)
+                      }
+                      
                       await insertAgentArtifact(
                         supabaseUrl,
                         supabaseAnonKey,
@@ -1235,10 +1239,14 @@ export default defineConfig({
                         `QA report for ticket ${displayId}`,
                         artifactBody
                       )
+                    } else {
+                      console.error(`[QA Agent] Could not retrieve ticket data for ${ticketId}`)
                     }
                   } catch (artifactErr) {
                     console.error('[QA Agent] Failed to insert artifact:', artifactErr)
                   }
+                } else {
+                  console.warn('[QA Agent] Supabase credentials not available, skipping artifact insertion')
                 }
 
                 // Move ticket to Human in the Loop if PASS, or if verdict is UNKNOWN (QA completed but verdict unclear)
