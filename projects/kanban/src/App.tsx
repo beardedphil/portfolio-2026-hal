@@ -390,6 +390,77 @@ function ArtifactReportViewer({
   )
 }
 
+/** Human validation section component (0085) */
+function HumanValidationSection({
+  ticketId,
+  ticketPk,
+  stepsToValidate,
+  notes,
+  onStepsChange,
+  onNotesChange,
+  onPass,
+  onFail,
+  isProcessing,
+}: {
+  ticketId: string
+  ticketPk: string
+  stepsToValidate: string
+  notes: string
+  onStepsChange: (value: string) => void
+  onNotesChange: (value: string) => void
+  onPass: () => void
+  onFail: () => void
+  isProcessing: boolean
+}) {
+  return (
+    <div className="human-validation-section">
+      <h3 className="human-validation-title">Human validation</h3>
+      <div className="human-validation-fields">
+        <label className="human-validation-field">
+          <span className="human-validation-label">Steps to validate</span>
+          <textarea
+            className="human-validation-textarea"
+            value={stepsToValidate}
+            onChange={(e) => onStepsChange(e.target.value)}
+            placeholder="Enter validation steps (one per line or freeform text)"
+            rows={4}
+            disabled={isProcessing}
+          />
+        </label>
+        <label className="human-validation-field">
+          <span className="human-validation-label">Notes</span>
+          <textarea
+            className="human-validation-textarea"
+            value={notes}
+            onChange={(e) => onNotesChange(e.target.value)}
+            placeholder="Enter any notes or feedback"
+            rows={4}
+            disabled={isProcessing}
+          />
+        </label>
+      </div>
+      <div className="human-validation-actions">
+        <button
+          type="button"
+          className="human-validation-button human-validation-button-pass"
+          onClick={onPass}
+          disabled={isProcessing}
+        >
+          Pass
+        </button>
+        <button
+          type="button"
+          className="human-validation-button human-validation-button-fail"
+          onClick={onFail}
+          disabled={isProcessing}
+        >
+          Fail
+        </button>
+      </div>
+    </div>
+  )
+}
+
 /** Artifacts section component (0082) */
 function ArtifactsSection({
   artifacts,
@@ -464,6 +535,12 @@ function TicketDetailModal({
   artifacts,
   artifactsLoading,
   onOpenArtifact,
+  columnId,
+  onValidationPass,
+  onValidationFail,
+  supabaseUrl,
+  supabaseKey,
+  onTicketUpdate,
 }: {
   open: boolean
   onClose: () => void
@@ -476,7 +553,16 @@ function TicketDetailModal({
   artifacts: SupabaseAgentArtifactRow[]
   artifactsLoading: boolean
   onOpenArtifact: (artifact: SupabaseAgentArtifactRow) => void
+  columnId: string | null
+  onValidationPass: (ticketPk: string) => Promise<void>
+  onValidationFail: (ticketPk: string, steps: string, notes: string) => Promise<void>
+  supabaseUrl: string
+  supabaseKey: string
+  onTicketUpdate: () => void
 }) {
+  const [validationSteps, setValidationSteps] = useState('')
+  const [validationNotes, setValidationNotes] = useState('')
+  const [isProcessing, setIsProcessing] = useState(false)
   const modalRef = useRef<HTMLDivElement>(null)
   const closeBtnRef = useRef<HTMLButtonElement>(null)
 
@@ -525,11 +611,49 @@ function TicketDetailModal({
     [onClose]
   )
 
+  const handlePass = useCallback(async () => {
+    if (!ticketId || isProcessing) return
+    setIsProcessing(true)
+    try {
+      await onValidationPass(ticketId)
+      setValidationSteps('')
+      setValidationNotes('')
+    } catch (err) {
+      console.error('Failed to pass validation:', err)
+    } finally {
+      setIsProcessing(false)
+    }
+  }, [ticketId, isProcessing, onValidationPass])
+
+  const handleFail = useCallback(async () => {
+    if (!ticketId || isProcessing) return
+    setIsProcessing(true)
+    try {
+      await onValidationFail(ticketId, validationSteps, validationNotes)
+      setValidationSteps('')
+      setValidationNotes('')
+    } catch (err) {
+      console.error('Failed to fail validation:', err)
+    } finally {
+      setIsProcessing(false)
+    }
+  }, [ticketId, validationSteps, validationNotes, isProcessing, onValidationFail])
+
+  // Reset validation fields when modal closes
+  useEffect(() => {
+    if (!open) {
+      setValidationSteps('')
+      setValidationNotes('')
+      setIsProcessing(false)
+    }
+  }, [open])
+
   if (!open) return null
 
   const { frontmatter, body: bodyOnly } = body ? parseFrontmatter(body) : { frontmatter: {}, body: '' }
   const priority = body ? extractPriority(frontmatter, body) : null
   const markdownBody = body ? bodyOnly : ''
+  const showValidationSection = columnId === 'col-human-in-the-loop'
 
   return (
     <div
@@ -578,7 +702,10 @@ function TicketDetailModal({
           )}
           {!loading && !error && (
             <>
-              <div className="ticket-detail-body">
+              <div 
+                className="ticket-detail-body"
+                data-has-human-feedback={markdownBody?.includes('## ⚠️ Human Feedback') ? 'true' : undefined}
+              >
                 {markdownBody ? (
                   <ReactMarkdown>{markdownBody}</ReactMarkdown>
                 ) : (
@@ -590,6 +717,19 @@ function TicketDetailModal({
                 loading={artifactsLoading}
                 onOpenArtifact={onOpenArtifact}
               />
+              {showValidationSection && (
+                <HumanValidationSection
+                  ticketId={ticketId}
+                  ticketPk={ticketId}
+                  stepsToValidate={validationSteps}
+                  notes={validationNotes}
+                  onStepsChange={setValidationSteps}
+                  onNotesChange={setValidationNotes}
+                  onPass={handlePass}
+                  onFail={handleFail}
+                  isProcessing={isProcessing}
+                />
+              )}
             </>
           )}
         </div>
@@ -913,7 +1053,7 @@ function App() {
   const [pendingMoves, setPendingMoves] = useState<Set<string>>(new Set())
 
   // Ticket detail modal (0033): click card opens modal; content from Supabase or docs
-  const [detailModal, setDetailModal] = useState<{ ticketId: string; title: string } | null>(null)
+  const [detailModal, setDetailModal] = useState<{ ticketId: string; title: string; columnId: string | null } | null>(null)
   const [detailModalBody, setDetailModalBody] = useState<string | null>(null)
   const [detailModalError, setDetailModalError] = useState<string | null>(null)
   const [detailModalLoading, setDetailModalLoading] = useState(false)
@@ -1329,9 +1469,13 @@ function App() {
   const handleOpenTicketDetail = useCallback(
     (cardId: string) => {
       const card = cardsForDisplay[cardId]
-      if (card) setDetailModal({ ticketId: cardId, title: card.title })
+      if (card) {
+        const ticket = supabaseTickets.find((t) => t.pk === cardId)
+        const columnId = ticket?.kanban_column_id ?? null
+        setDetailModal({ ticketId: cardId, title: card.title, columnId })
+      }
     },
-    [cardsForDisplay]
+    [cardsForDisplay, supabaseTickets]
   )
   const handleCloseTicketDetail = useCallback(() => {
     setDetailModal(null)
@@ -2331,6 +2475,89 @@ function App() {
           artifacts={detailModalArtifacts}
           artifactsLoading={detailModalArtifactsLoading}
           onOpenArtifact={handleOpenArtifact}
+          columnId={detailModal.columnId}
+          onValidationPass={async (ticketPk: string) => {
+            // Move ticket to Done
+            const targetColumn = supabaseColumns.find((c) => c.id === 'col-done')
+            if (!targetColumn) {
+              throw new Error('Done column not found')
+            }
+            const targetPosition = targetColumn.cardIds.length
+            const movedAt = new Date().toISOString()
+            const result = await updateSupabaseTicketKanban(ticketPk, {
+              kanban_column_id: 'col-done',
+              kanban_position: targetPosition,
+              kanban_moved_at: movedAt,
+            })
+            if (!result.ok) {
+              throw new Error(result.error)
+            }
+            addLog(`Human validation: Ticket ${ticketPk} passed, moved to Done`)
+            setTimeout(() => {
+              refetchSupabaseTickets(false)
+            }, REFETCH_AFTER_MOVE_MS)
+          }}
+          onValidationFail={async (ticketPk: string, steps: string, notes: string) => {
+            // Move ticket to To Do and add human feedback to body
+            const targetColumn = supabaseColumns.find((c) => c.id === 'col-todo')
+            if (!targetColumn) {
+              throw new Error('To Do column not found')
+            }
+            const targetPosition = targetColumn.cardIds.length
+            const movedAt = new Date().toISOString()
+            
+            // Get current ticket body
+            const ticket = supabaseTickets.find((t) => t.pk === ticketPk)
+            if (!ticket) {
+              throw new Error('Ticket not found')
+            }
+            
+            // Prepend human feedback to body (visually emphasized)
+            const timestamp = new Date().toISOString()
+            const feedbackSection = `## ⚠️ Human Feedback (${new Date().toLocaleString()})
+
+**Validation failed** — Ticket moved back to To Do for rework.
+
+**Steps to validate:**
+${steps || '(none provided)'}
+
+**Notes:**
+${notes || '(none provided)'}
+
+---
+
+`
+            const updatedBody = feedbackSection + ticket.body_md
+            
+            // Update ticket: move to To Do and update body with feedback
+            const url = supabaseProjectUrl.trim()
+            const key = supabaseAnonKey.trim()
+            if (!url || !key) {
+              throw new Error('Supabase not configured')
+            }
+            const client = createClient(url, key)
+            const { error: updateError } = await client
+              .from('tickets')
+              .update({
+                kanban_column_id: 'col-todo',
+                kanban_position: targetPosition,
+                kanban_moved_at: movedAt,
+                body_md: updatedBody,
+              })
+              .eq('pk', ticketPk)
+            
+            if (updateError) {
+              throw new Error(updateError.message ?? String(updateError))
+            }
+            
+            addLog(`Human validation: Ticket ${ticketPk} failed, moved to To Do with feedback`)
+            setTimeout(() => {
+              refetchSupabaseTickets(false)
+            }, REFETCH_AFTER_MOVE_MS)
+          }}
+          supabaseUrl={supabaseProjectUrl}
+          supabaseKey={supabaseAnonKey}
+          onTicketUpdate={refetchSupabaseTickets}
         />
       )}
       
