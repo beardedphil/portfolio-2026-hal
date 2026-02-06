@@ -125,18 +125,18 @@ Fetch a ticket's content from Supabase.
 
 ## How Agents Send Tool Calls
 
-**Preferred:** When the repo contains `.hal/api-base-url`, agents should call the HAL API directly (e.g. `POST ${baseUrl}/api/artifacts/insert-implementation`) so artifacts and ticket moves apply immediately without merging to main. See `.cursor/rules/agent-supabase-api-paradigm.mdc` for the full endpoint mapping and examples.
+**Required:** When the repo contains `.hal/api-base-url`, agents must call the HAL API directly (e.g. `POST ${baseUrl}/api/artifacts/insert-implementation`) so artifacts and ticket moves apply immediately without merging to main. See `.cursor/rules/agent-supabase-api-paradigm.mdc` for the full endpoint mapping and examples.
 
-**Fallback:** Write tool calls to `.hal-tool-call-queue.json` (JSON array of `{ tool, params }`). HAL executes the queue when "Run tool calls" or the Tool Agent runs.
+**Note:** HAL runs as an API-driven app. All tool calls must be sent via direct API calls. The `.hal/api-base-url` file must be present for agents to function properly.
 
 ## Benefits
 
-1. **Direct API when `.hal/api-base-url` exists** - Artifacts and moves apply immediately; no merge to main required.
+1. **Direct API** - Artifacts and moves apply immediately; no merge to main required.
 2. **No credentials in agent env** - HAL server uses its own Supabase credentials.
-3. **Same contract** - Same tool names and params for API and queue.
+3. **API-driven workflow** - All tool calls are executed immediately via HTTP requests.
 4. **Works in any environment** - Cloud and local agents use the same rules.
 
 ## Implementation
 
 - Public endpoints: `/api/artifacts/insert-implementation`, `/api/artifacts/insert-qa`, `/api/tickets/move`, `/api/tickets/update`, `/api/tickets/get`.
-- Internal queue execution: `/api/agent-tools/execute` (used when processing `.hal-tool-call-queue.json`).
+- Internal tool execution: `/api/agent-tools/execute` (used internally by HAL to execute tool calls).

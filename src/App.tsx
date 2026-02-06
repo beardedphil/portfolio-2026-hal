@@ -943,7 +943,7 @@ function App() {
     return firstLine.length > 100 ? firstLine.substring(0, 100) + '...' : firstLine
   }, [])
 
-  // Get preview text for PM, Standup, or Tools Agent chat (0087, 0107)
+  // Get preview text for PM or Standup chat (0087)
   const getChatTargetPreview = useCallback((target: ChatTarget): string => {
     if (target === 'project-manager' || target === 'standup') {
       const defaultConvId = getConversationId('project-manager', 1)
