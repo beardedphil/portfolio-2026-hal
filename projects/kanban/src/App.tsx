@@ -3045,10 +3045,23 @@ function App() {
             }
             addLog(`Human validation: Ticket ${ticketPk} passed, moved to Process Review`)
             
-            // Automatically trigger Process Review agent (0108)
+            // Automatically trigger Process Review agent (0108, 0111)
             const url = supabaseProjectUrl?.trim()
             const key = supabaseAnonKey?.trim()
             if (url && key && detailModal?.ticketId) {
+              // Notify HAL parent window that Process Review is being triggered (0111)
+              if (typeof window !== 'undefined' && window.parent !== window) {
+                window.parent.postMessage(
+                  {
+                    type: 'HAL_PROCESS_REVIEW_TRIGGERED',
+                    ticketId: detailModal.ticketId,
+                    ticketPk,
+                    supabaseUrl: url,
+                    supabaseAnonKey: key,
+                  },
+                  '*'
+                )
+              }
               try {
                 // Trigger process review agent in background
                 fetch('/api/process-review/run', {
