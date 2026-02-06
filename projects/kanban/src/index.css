@@ -296,6 +296,12 @@ h1 {
   border-radius: 4px;
   color: var(--kanban-text);
 }
+.ticket-card-tool-calls-indicator {
+  margin-left: 8px;
+  font-size: 14px;
+  opacity: 0.8;
+}
+
 .ticket-card-title {
   flex: 1;
   min-width: 0;
@@ -428,6 +434,27 @@ h1 {
   outline: 2px solid #1976d2;
   outline-offset: 2px;
 }
+.ticket-detail-run-tool-calls {
+  margin-left: 12px;
+  padding: 4px 12px;
+  background: var(--kanban-primary);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.ticket-detail-run-tool-calls:hover:not(:disabled) {
+  background: var(--kanban-primary-hover);
+}
+
+.ticket-detail-run-tool-calls:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .ticket-detail-meta {
   display: flex;
   gap: 1rem;
