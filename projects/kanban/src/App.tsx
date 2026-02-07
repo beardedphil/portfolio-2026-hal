@@ -774,7 +774,6 @@ function ArtifactsSection({
   )
 }
 
-<<<<<<< HEAD
 /** QA Info Section: displays feature branch and implementation artifacts when ticket is in QA column (0113) */
 function QAInfoSection({
   bodyMd,
@@ -2488,7 +2487,6 @@ function App() {
             refetchSupabaseTickets(false) // Full refetch to restore correct state
           }
         } else {
-<<<<<<< HEAD
           // Validation: prevent QA → Human in the Loop unless merge confirmed (0113)
           if (sourceColumn.id === 'col-qa' && overColumn.id === 'col-human-in-the-loop') {
             const ticket = supabaseTickets.find((t) => t.pk === String(active.id))
