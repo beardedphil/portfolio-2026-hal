@@ -11,10 +11,9 @@
 
 ## HAL API Base URL
 
-- **Production (use this for cloud agents and agents without local HAL):** `https://portfolio-2026-hal.vercel.app`
-- **Local development:** `http://localhost:5173` (only when HAL is running locally)
+`https://portfolio-2026-hal.vercel.app`
 
-Agents should default to the production URL unless explicitly configured for local development. The API uses server-side environment variables (`SUPABASE_URL`, `SUPABASE_ANON_KEY`), so agents don't need to provide credentials in requests.
+The API uses server-side environment variables (`SUPABASE_URL`, `SUPABASE_ANON_KEY`), so agents don't need to provide credentials in requests.
 
 ## Available API Endpoints
 
@@ -86,7 +85,7 @@ QA agents must use HAL API endpoints:
 
 Local Cursor agents (running in Cursor IDE) must use HAL API endpoints:
 
-- Use HAL API base URL: `https://portfolio-2026-hal.vercel.app` (or `http://localhost:5173` if HAL is running locally)
+- Use HAL API base URL: `https://portfolio-2026-hal.vercel.app`
 - Use all API endpoints as documented above
 - No Supabase credentials needed in local environment
 
