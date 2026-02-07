@@ -11,10 +11,10 @@
 
 ## HAL API Base URL
 
-- **Local development:** `http://localhost:5173`
-- **Production/deployment:** Your HAL deployment URL (e.g. `https://your-domain.com`)
+- **Production (use this for cloud agents and agents without local HAL):** `https://portfolio-2026-hal.vercel.app`
+- **Local development:** `http://localhost:5173` (only when HAL is running locally)
 
-The API uses server-side environment variables (`SUPABASE_URL`, `SUPABASE_ANON_KEY`), so agents don't need to provide credentials in requests.
+Agents should default to the production URL unless explicitly configured for local development. The API uses server-side environment variables (`SUPABASE_URL`, `SUPABASE_ANON_KEY`), so agents don't need to provide credentials in requests.
 
 ## Available API Endpoints
 
@@ -86,7 +86,7 @@ QA agents must use HAL API endpoints:
 
 Local Cursor agents (running in Cursor IDE) must use HAL API endpoints:
 
-- Determine HAL API URL (typically `http://localhost:5173` if HAL is running locally)
+- Use HAL API base URL: `https://portfolio-2026-hal.vercel.app` (or `http://localhost:5173` if HAL is running locally)
 - Use all API endpoints as documented above
 - No Supabase credentials needed in local environment
 
@@ -101,7 +101,8 @@ Any new agent types must follow this paradigm:
 
 ```typescript
 // Store Plan artifact
-const response = await fetch('http://localhost:5173/api/artifacts/insert-implementation', {
+const baseUrl = 'https://portfolio-2026-hal.vercel.app'
+const response = await fetch(`${baseUrl}/api/artifacts/insert-implementation`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
@@ -121,7 +122,8 @@ if (result.success) {
 ## Example: Moving Ticket to Human in the Loop
 
 ```typescript
-const response = await fetch('http://localhost:5173/api/tickets/move', {
+const baseUrl = 'https://portfolio-2026-hal.vercel.app'
+const response = await fetch(`${baseUrl}/api/tickets/move`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
