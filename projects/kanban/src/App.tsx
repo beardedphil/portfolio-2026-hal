@@ -1202,10 +1202,6 @@ function SortableColumn({
           {col.cardIds.map((cardId) => {
             const card = cards[cardId]
             if (!card) return null
-<<<<<<< HEAD
-            // In Supabase mode, cardId is the ticket PK (0114)
-            const ticketPk = supabaseBoardActive ? cardId : undefined
-=======
             const agentRun = agentRunsByTicketPk[cardId] || null
             return (
               <SortableCard
