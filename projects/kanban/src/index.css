@@ -316,10 +316,6 @@ h1 {
   color: #fff;
   white-space: nowrap;
 }
-.ticket-card-agent-badge-unassigned {
-  background: var(--kanban-text-muted);
-  color: var(--kanban-surface);
-}
 
 .ticket-card-title {
   flex: 1;

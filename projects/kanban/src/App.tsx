@@ -1163,8 +1163,8 @@ function SortableCard({
           <span className="ticket-card-title">{card.title}</span>
         </button>
       </div>
-      {showAgentBadge && (
-        <span className={`ticket-card-agent-badge ${!agentName ? 'ticket-card-agent-badge-unassigned' : ''}`} title={badgeTitle}>
+      {showAgentBadge && agentName && (
+        <span className="ticket-card-agent-badge" title={badgeTitle}>
           {badgeText}
         </span>
       )}
