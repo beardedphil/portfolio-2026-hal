@@ -1146,26 +1146,28 @@ function SortableCard({
   const badgeTitle = agentName ? `Working: ${agentName} Agent` : 'No agent currently working'
   return (
     <div ref={setNodeRef} style={style} className="ticket-card" data-card-id={card.id}>
-      <span
-        className="ticket-card-drag-handle"
-        {...attributes}
-        {...listeners}
-        aria-label="Drag to move"
-        title="Drag to move"
-      />
-      <button
-        type="button"
-        className="ticket-card-click-area"
-        onClick={handleCardClick}
-        aria-label={`Open ticket ${card.id}: ${card.title}`}
-      >
-        <span className="ticket-card-title">{card.title}</span>
-        {showAgentBadge && (
-          <span className={`ticket-card-agent-badge ${!agentName ? 'ticket-card-agent-badge-unassigned' : ''}`} title={badgeTitle}>
-            {badgeText}
-          </span>
-        )}
-      </button>
+      <div className="ticket-card-top-row">
+        <span
+          className="ticket-card-drag-handle"
+          {...attributes}
+          {...listeners}
+          aria-label="Drag to move"
+          title="Drag to move"
+        />
+        <button
+          type="button"
+          className="ticket-card-click-area"
+          onClick={handleCardClick}
+          aria-label={`Open ticket ${card.id}: ${card.title}`}
+        >
+          <span className="ticket-card-title">{card.title}</span>
+        </button>
+      </div>
+      {showAgentBadge && (
+        <span className={`ticket-card-agent-badge ${!agentName ? 'ticket-card-agent-badge-unassigned' : ''}`} title={badgeTitle}>
+          {badgeText}
+        </span>
+      )}
     </div>
   )
 }
@@ -3166,8 +3168,10 @@ ${notes || '(none provided)'}
         <DragOverlay>
           {activeCardId && cardsForDisplay[String(activeCardId)] ? (
             <div className="ticket-card" data-card-id={activeCardId}>
-              <span className="ticket-card-drag-handle" aria-hidden />
-              <span className="ticket-card-title">{cardsForDisplay[String(activeCardId)].title}</span>
+              <div className="ticket-card-top-row">
+                <span className="ticket-card-drag-handle" aria-hidden />
+                <span className="ticket-card-title">{cardsForDisplay[String(activeCardId)].title}</span>
+              </div>
             </div>
           ) : null}
         </DragOverlay>
