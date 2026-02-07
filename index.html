@@ -16,6 +16,14 @@
           // ignore localStorage errors
         }
       })();
+      // Set app version for update detection (0090)
+      (function() {
+        try {
+          document.documentElement.setAttribute('data-app-version', Date.now().toString());
+        } catch (e) {
+          // ignore errors
+        }
+      })();
     </script>
   </head>
   <body>

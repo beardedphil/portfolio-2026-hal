@@ -1,5 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import { startVersionChecking, markVersionAsSeen, initializeVersion } from './versionCheck'
+import { UpdateBanner } from './UpdateBanner'
 
 type Agent = 'project-manager' | 'implementation-agent' | 'qa-agent'
 type ChatTarget = Agent | 'standup'
@@ -403,6 +405,8 @@ function App() {
   const rafIdRef = useRef<number | null>(null)
   /** Current mouse position during drag (0076). */
   const mouseXRef = useRef<number | null>(null)
+  /** Update banner visibility (0090). */
+  const [showUpdateBanner, setShowUpdateBanner] = useState(false)
 
   useEffect(() => {
     selectedChatTargetRef.current = selectedChatTarget
@@ -446,6 +450,24 @@ function App() {
   useEffect(() => {
     refreshGithubAuth().catch(() => {})
   }, [refreshGithubAuth])
+
+  // Version checking for update detection (0090)
+  useEffect(() => {
+    // Initialize version tracking on mount
+    initializeVersion()
+    
+    // Start periodic version checking
+    const cleanup = startVersionChecking(() => {
+      setShowUpdateBanner(true)
+    })
+    return cleanup
+  }, [])
+
+  // Handle refresh when update banner is clicked (0090)
+  const handleRefresh = useCallback(() => {
+    markVersionAsSeen()
+    window.location.reload()
+  }, [])
 
   const loadGithubRepos = useCallback(async () => {
     try {
@@ -2109,7 +2131,13 @@ function App() {
 
   return (
     <div className="hal-app">
-      <header className="hal-header">
+      {showUpdateBanner && (
+        <UpdateBanner
+          onRefresh={handleRefresh}
+          onDismiss={() => setShowUpdateBanner(false)}
+        />
+      )}
+      <header className="hal-header" style={{ marginTop: showUpdateBanner ? '60px' : '0' }}>
         <h1>HAL</h1>
         <span className="hal-subtitle">Agent Workspace</span>
         <div className="hal-header-actions">
