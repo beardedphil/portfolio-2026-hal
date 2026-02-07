@@ -289,6 +289,22 @@ function getAgentTypeDisplayName(agentType: string): string {
   }
 }
 
+/** Get short agent name for badge display (0114) */
+function getShortAgentName(agentType: string): string {
+  switch (agentType) {
+    case 'implementation':
+      return 'Implementation'
+    case 'qa':
+      return 'QA'
+    case 'human-in-the-loop':
+      return 'Human-in-the-Loop'
+    case 'other':
+      return 'Other'
+    default:
+      return agentType
+  }
+}
+
 /** Artifact report viewer modal (0082) */
 function ArtifactReportViewer({
   open,
@@ -972,12 +988,16 @@ function SortableCard({
   card,
   columnId,
   onOpenDetail,
-  agentAssignments = {},
+  supabaseBoardActive = false,
+  ticketPk,
+  fetchTicketArtifacts,
 }: {
   card: Card
   columnId: string
   onOpenDetail?: (cardId: string) => void
-  agentAssignments?: Record<string, string>
+  supabaseBoardActive?: boolean
+  ticketPk?: string
+  fetchTicketArtifacts?: (ticketPk: string) => Promise<SupabaseAgentArtifactRow[]>
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
@@ -991,8 +1011,58 @@ function SortableCard({
   const handleCardClick = () => {
     if (onOpenDetail) onOpenDetail(card.id)
   }
-  // Show agent badge only for Doing column tickets (0114)
-  const agentName = columnId === 'col-doing' ? agentAssignments[card.id] : undefined
+
+  // Agent badge state (0114): only for Doing column
+  const [currentAgent, setCurrentAgent] = useState<string | null>(null)
+  const isDoingColumn = columnId === 'col-doing'
+
+  // Fetch and determine current agent for Doing tickets (0114)
+  useEffect(() => {
+    if (!isDoingColumn || !supabaseBoardActive || !ticketPk || !fetchTicketArtifacts) {
+      setCurrentAgent(null)
+      return
+    }
+
+    let cancelled = false
+    const determineAgent = async () => {
+      try {
+        const artifacts = await fetchTicketArtifacts(ticketPk)
+        if (cancelled) return
+
+        // Use the most recent artifact to determine the agent
+        // Most recent artifact is first (ordered by created_at desc)
+        if (artifacts.length > 0) {
+          const mostRecent = artifacts[0]
+          setCurrentAgent(getShortAgentName(mostRecent.agent_type))
+        } else {
+          // No artifacts found - default to "Implementation" for Doing column
+          // since Doing typically means implementation work
+          setCurrentAgent('Implementation')
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.warn('Failed to determine agent for ticket:', error)
+          // On error, show "Unassigned" to avoid showing stale data
+          setCurrentAgent('Unassigned')
+        }
+      }
+    }
+
+    // Initial fetch
+    determineAgent()
+
+    // Poll for updates every 15 seconds to catch new artifacts (0114)
+    const intervalId = setInterval(() => {
+      if (!cancelled) {
+        determineAgent()
+      }
+    }, 15000)
+
+    return () => {
+      cancelled = true
+      clearInterval(intervalId)
+    }
+  }, [isDoingColumn, supabaseBoardActive, ticketPk, fetchTicketArtifacts])
   return (
     <div ref={setNodeRef} style={style} className="ticket-card" data-card-id={card.id}>
       <span
@@ -1009,9 +1079,9 @@ function SortableCard({
         aria-label={`Open ticket ${card.id}: ${card.title}`}
       >
         <span className="ticket-card-title">{card.title}</span>
-        {agentName && (
-          <span className="ticket-card-agent-badge" title={`Working: ${agentName}`}>
-            {agentName}
+        {isDoingColumn && currentAgent && (
+          <span className="ticket-card-agent-badge" title={`Agent: ${currentAgent}`}>
+            {currentAgent}
           </span>
         )}
       </button>
@@ -1170,13 +1240,17 @@ function SortableColumn({
           {col.cardIds.map((cardId) => {
             const card = cards[cardId]
             if (!card) return null
+            // In Supabase mode, cardId is the ticket PK (0114)
+            const ticketPk = supabaseBoardActive ? cardId : undefined
             return (
               <SortableCard
                 key={card.id}
                 card={card}
                 columnId={col.id}
                 onOpenDetail={onOpenDetail}
-                agentAssignments={agentAssignments}
+                supabaseBoardActive={supabaseBoardActive}
+                ticketPk={ticketPk}
+                fetchTicketArtifacts={supabaseBoardActive ? fetchTicketArtifacts : undefined}
               />
             )
           })}
@@ -2939,6 +3013,7 @@ ${notes || '(none provided)'}
                   updateSupabaseTicketKanban={updateSupabaseTicketKanban}
                   agentAssignments={agentAssignments}
                   refetchSupabaseTickets={refetchSupabaseTickets}
+                  fetchTicketArtifacts={fetchTicketArtifacts}
                 />
               ))}
             </div>
