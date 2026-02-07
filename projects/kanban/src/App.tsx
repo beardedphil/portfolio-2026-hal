@@ -304,6 +304,7 @@ function extractPriority(frontmatter: Record<string, string>, body: string): str
   return null
 }
 
+
 /** Get display name for agent type (0082) */
 function getAgentTypeDisplayName(agentType: string): string {
   switch (agentType) {
@@ -773,6 +774,7 @@ function ArtifactsSection({
   )
 }
 
+<<<<<<< HEAD
 /** QA Info Section: displays feature branch and implementation artifacts when ticket is in QA column (0113) */
 function QAInfoSection({
   bodyMd,
@@ -849,6 +851,12 @@ function QAInfoSection({
           </ul>
         )}
       </div>
+      
+      {!mergeStatus.merged && (
+        <div className="qa-workflow-warning" role="alert">
+          <strong>Warning:</strong> This ticket must be merged to main before it can be moved to Human in the Loop.
+        </div>
+      )}
     </div>
   )
 }
@@ -1058,6 +1066,14 @@ function TicketDetailModal({
                 loading={artifactsLoading}
                 onOpenArtifact={onOpenArtifact}
               />
+              {showQASection && (
+                <QAInfoSection
+                  bodyMd={body}
+                  artifacts={artifacts}
+                  artifactsLoading={artifactsLoading}
+                  onOpenArtifact={onOpenArtifact}
+                />
+              )}
               {showValidationSection && (
                 <HumanValidationSection
                   ticketId={ticketId}
@@ -2472,6 +2488,7 @@ function App() {
             refetchSupabaseTickets(false) // Full refetch to restore correct state
           }
         } else {
+<<<<<<< HEAD
           // Validation: prevent QA → Human in the Loop unless merge confirmed (0113)
           if (sourceColumn.id === 'col-qa' && overColumn.id === 'col-human-in-the-loop') {
             const ticket = supabaseTickets.find((t) => t.pk === String(active.id))
