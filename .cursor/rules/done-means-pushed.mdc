@@ -7,6 +7,25 @@ alwaysApply: true
 
 - **FORBIDDEN:** Sending a "done" or summary message while the working tree has uncommitted/unpushed changes. Commit and push first; then summarize.
 
+## Implementation Agent Completion Checklist (MANDATORY)
+
+**Before sending ANY summary message, verify ALL of these are complete:**
+
+- [ ] Code implemented and tested
+- [ ] All changes committed to feature branch (with ticket ID in commit message)
+- [ ] Feature branch pushed to remote
+- [ ] **All 6 artifacts stored in Supabase** (plan, worklog, changed-files, decisions, verification, pm-review)
+- [ ] **Artifacts verified** via `/api/artifacts/get` - all 6 present
+- [ ] Feature branch merged to `main`
+- [ ] `main` pushed to remote
+- [ ] Feature branch deleted (local and remote)
+- [ ] HAL dev server restarted on latest `main`
+- [ ] Ticket body updated with branch name and merge confirmation
+- [ ] Ticket moved to QA column (if applicable)
+- [ ] `git status -sb` shows clean working tree on `main`
+
+**Only after ALL items are checked may you send a summary message.**
+
 ## Start of task: feature branch first (prevents lost work)
 
 - **MANDATORY:** Before making **any** file changes for a ticket, create/checkout the feature branch. This is non-negotiable. See also **no-edits-on-main.mdc**.
