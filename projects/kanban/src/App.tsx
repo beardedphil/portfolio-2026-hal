@@ -302,22 +302,6 @@ function getAgentTypeDisplayName(agentType: string): string {
   }
 }
 
-/** Get short agent name for badge display (0114) */
-function getShortAgentName(agentType: string): string {
-  switch (agentType) {
-    case 'implementation':
-      return 'Implementation'
-    case 'qa':
-      return 'QA'
-    case 'human-in-the-loop':
-      return 'Human-in-the-Loop'
-    case 'other':
-      return 'Other'
-    default:
-      return agentType
-  }
-}
-
 /** Artifact report viewer modal (0082) */
 function ArtifactReportViewer({
   open,
