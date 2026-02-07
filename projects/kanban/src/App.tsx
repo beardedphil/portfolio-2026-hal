@@ -1312,8 +1312,6 @@ function App() {
   const [newColumnTitle, setNewColumnTitle] = useState('')
   const [addColumnError, setAddColumnError] = useState<string | null>(null)
   const [activeCardId, setActiveCardId] = useState<UniqueIdentifier | null>(null)
-  /** Agent assignments: ticket PK or display ID -> agent name (0114) */
-  const [agentAssignments, setAgentAssignments] = useState<Record<string, string>>({})
   const lastOverId = useRef<UniqueIdentifier | null>(null)
 
   // File system mode removed: Supabase-only (0065)
@@ -1957,43 +1955,6 @@ function App() {
       } else if (data.type === 'HAL_THEME_CHANGE' && data.theme) {
         // Apply theme to document root (0078)
         document.documentElement.setAttribute('data-theme', data.theme)
-      } else if (data.type === 'HAL_AGENT_ASSIGNMENT' && data.ticketId && data.agentName) {
-        // Update agent assignment for a ticket (0114)
-        const ticketIdOrPk = data.ticketId
-        if (data.assigned) {
-          // Find ticket by PK (UUID) or by display_id (e.g. HAL-0084 or 0084) to get PK
-          let ticket = supabaseTickets.find((t) => t.pk === ticketIdOrPk)
-          if (!ticket) {
-            // Try to find by display_id
-            const normalizedId = ticketIdOrPk.replace(/^HAL-?/i, '').padStart(4, '0')
-            ticket = supabaseTickets.find((t) => {
-              const displayId = t.display_id ?? t.id
-              const normalizedDisplayId = displayId.replace(/^HAL-?/i, '').padStart(4, '0')
-              return normalizedDisplayId === normalizedId
-            })
-          }
-          // Use ticket PK if found, otherwise use the provided ticketId
-          const key = ticket?.pk ?? ticketIdOrPk
-          setAgentAssignments((prev) => ({ ...prev, [key]: data.agentName }))
-        } else {
-          // Unassign: remove from assignments
-          // Find ticket to get PK
-          let ticket = supabaseTickets.find((t) => t.pk === ticketIdOrPk)
-          if (!ticket) {
-            const normalizedId = ticketIdOrPk.replace(/^HAL-?/i, '').padStart(4, '0')
-            ticket = supabaseTickets.find((t) => {
-              const displayId = t.display_id ?? t.id
-              const normalizedDisplayId = displayId.replace(/^HAL-?/i, '').padStart(4, '0')
-              return normalizedDisplayId === normalizedId
-            })
-          }
-          const key = ticket?.pk ?? ticketIdOrPk
-          setAgentAssignments((prev) => {
-            const next = { ...prev }
-            delete next[key]
-            return next
-          })
-        }
       } else if (data.type === 'HAL_TICKET_IMPLEMENTATION_COMPLETE' && supabaseBoardActive && updateSupabaseTicketKanban && refetchSupabaseTickets) {
         // Move ticket from Doing to QA when Implementation agent completes work (0084)
         const ticketIdOrPk = data.ticketPk || data.ticketId
@@ -2034,7 +1995,7 @@ function App() {
 
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
-  }, [isEmbedded, connectSupabase, supabaseBoardActive, supabaseTickets, supabaseColumns, updateSupabaseTicketKanban, refetchSupabaseTickets, setAgentAssignments])
+  }, [isEmbedded, connectSupabase, supabaseBoardActive, supabaseTickets, supabaseColumns, updateSupabaseTicketKanban, refetchSupabaseTickets])
 
   // When connected repo changes or we connect to Supabase with a repo already set, refetch tickets (0079).
   useEffect(() => {
@@ -3011,7 +2972,6 @@ ${notes || '(none provided)'}
                   supabaseColumns={supabaseColumns}
                   supabaseTickets={supabaseTickets}
                   updateSupabaseTicketKanban={updateSupabaseTicketKanban}
-                  agentAssignments={agentAssignments}
                   refetchSupabaseTickets={refetchSupabaseTickets}
                   fetchTicketArtifacts={fetchTicketArtifacts}
                 />
