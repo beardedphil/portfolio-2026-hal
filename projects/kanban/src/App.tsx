@@ -78,6 +78,19 @@ type SupabaseAgentArtifactRow = {
   updated_at: string
 }
 
+/** Supabase hal_agent_runs table row (0114) */
+type SupabaseAgentRunRow = {
+  run_id: string
+  agent_type: 'implementation' | 'qa'
+  repo_full_name: string
+  ticket_pk: string | null
+  ticket_number: number | null
+  display_id: string | null
+  status: 'created' | 'launching' | 'polling' | 'finished' | 'failed'
+  created_at: string
+  updated_at: string
+}
+
 const SUPABASE_CONFIG_KEY = 'supabase-ticketstore-config'
 const CONNECTED_REPO_KEY = 'hal-connected-repo'
 /** Polling interval when Supabase board is active (0013); 10s */
@@ -286,6 +299,22 @@ function getAgentTypeDisplayName(agentType: string): string {
       return 'Other agent report'
     default:
       return `${agentType} report`
+  }
+}
+
+/** Get short agent name for badge display (0114) */
+function getShortAgentName(agentType: string): string {
+  switch (agentType) {
+    case 'implementation':
+      return 'Implementation'
+    case 'qa':
+      return 'QA'
+    case 'human-in-the-loop':
+      return 'Human-in-the-Loop'
+    case 'other':
+      return 'Other'
+    default:
+      return agentType
   }
 }
 
@@ -972,10 +1001,12 @@ function SortableCard({
   card,
   columnId,
   onOpenDetail,
+  agentRun,
 }: {
   card: Card
   columnId: string
   onOpenDetail?: (cardId: string) => void
+  agentRun?: SupabaseAgentRunRow | null
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
@@ -989,6 +1020,11 @@ function SortableCard({
   const handleCardClick = () => {
     if (onOpenDetail) onOpenDetail(card.id)
   }
+  // Show badge for Doing column tickets: agent name if working, "Unassigned" if not
+  const showAgentBadge = columnId === 'col-doing'
+  const agentName = agentRun?.agent_type === 'implementation' ? 'Implementation' : agentRun?.agent_type === 'qa' ? 'QA' : null
+  const badgeText = agentName || 'Unassigned'
+  const badgeTitle = agentName ? `Working: ${agentName} Agent` : 'No agent currently working'
   return (
     <div ref={setNodeRef} style={style} className="ticket-card" data-card-id={card.id}>
       <span
@@ -1005,6 +1041,11 @@ function SortableCard({
         aria-label={`Open ticket ${card.id}: ${card.title}`}
       >
         <span className="ticket-card-title">{card.title}</span>
+        {showAgentBadge && (
+          <span className={`ticket-card-agent-badge ${!agentName ? 'ticket-card-agent-badge-unassigned' : ''}`} title={badgeTitle}>
+            {badgeText}
+          </span>
+        )}
       </button>
     </div>
   )
@@ -1021,6 +1062,7 @@ function SortableColumn({
   supabaseTickets = [],
   updateSupabaseTicketKanban,
   refetchSupabaseTickets,
+  agentRunsByTicketPk = {},
 }: {
   col: Column
   cards: Record<string, Card>
@@ -1032,6 +1074,7 @@ function SortableColumn({
   supabaseTickets?: SupabaseTicketRow[]
   updateSupabaseTicketKanban?: (pk: string, updates: { kanban_column_id?: string; kanban_position?: number; kanban_moved_at?: string }) => Promise<{ ok: true } | { ok: false; error: string }>
   refetchSupabaseTickets?: (skipPendingMoves?: boolean) => Promise<boolean>
+  agentRunsByTicketPk?: Record<string, SupabaseAgentRunRow>
 }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
     id: col.id,
@@ -1159,12 +1202,14 @@ function SortableColumn({
           {col.cardIds.map((cardId) => {
             const card = cards[cardId]
             if (!card) return null
+            const agentRun = agentRunsByTicketPk[cardId] || null
             return (
               <SortableCard
                 key={card.id}
                 card={card}
                 columnId={col.id}
                 onOpenDetail={onOpenDetail}
+                agentRun={agentRun}
               />
             )
           })}
@@ -1285,6 +1330,8 @@ function App() {
   const [_supabaseNotInitialized, setSupabaseNotInitialized] = useState(false)
   const [_selectedSupabaseTicketId, setSelectedSupabaseTicketId] = useState<string | null>(null)
   const [_selectedSupabaseTicketContent, setSelectedSupabaseTicketContent] = useState<string | null>(null)
+  // Agent runs for Doing column tickets (0114)
+  const [agentRunsByTicketPk, setAgentRunsByTicketPk] = useState<Record<string, SupabaseAgentRunRow>>({})
   // Sync with Docs removed (Supabase-only) (0065)
   // Ticket persistence tracking (0047)
   const [lastMovePersisted, setLastMovePersisted] = useState<{ success: boolean; timestamp: Date; ticketId: string; error?: string } | null>(null)
@@ -1596,6 +1643,45 @@ function App() {
     },
     [supabaseProjectUrl, supabaseAnonKey]
   )
+
+  /** Fetch active agent runs for tickets in Doing column (0114) */
+  const fetchActiveAgentRuns = useCallback(async () => {
+    const url = supabaseProjectUrl.trim()
+    const key = supabaseAnonKey.trim()
+    if (!url || !key || !connectedRepoFullName) return
+    try {
+      const client = createClient(url, key)
+      // Get all tickets in Doing column
+      const doingTickets = supabaseTickets.filter((t) => t.kanban_column_id === 'col-doing')
+      if (doingTickets.length === 0) {
+        setAgentRunsByTicketPk({})
+        return
+      }
+      const ticketPks = doingTickets.map((t) => t.pk)
+      // Fetch active agent runs (status not 'finished' or 'failed') for these tickets
+      const { data, error } = await client
+        .from('hal_agent_runs')
+        .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, status, created_at, updated_at')
+        .eq('repo_full_name', connectedRepoFullName)
+        .in('ticket_pk', ticketPks)
+        .in('status', ['created', 'launching', 'polling'])
+        .order('created_at', { ascending: false })
+      if (error) {
+        console.warn('Failed to fetch agent runs:', error)
+        return
+      }
+      // Map by ticket_pk, keeping only the most recent active run per ticket
+      const runsByTicket: Record<string, SupabaseAgentRunRow> = {}
+      for (const run of (data ?? []) as SupabaseAgentRunRow[]) {
+        if (run.ticket_pk && (!runsByTicket[run.ticket_pk] || new Date(run.created_at) > new Date(runsByTicket[run.ticket_pk].created_at))) {
+          runsByTicket[run.ticket_pk] = run
+        }
+      }
+      setAgentRunsByTicketPk(runsByTicket)
+    } catch (e) {
+      console.warn('Failed to fetch agent runs:', e)
+    }
+  }, [supabaseProjectUrl, supabaseAnonKey, connectedRepoFullName, supabaseTickets])
 
   // Resolve ticket detail modal content when modal opens (0033); Supabase-only (0065)
   useEffect(() => {
@@ -1920,9 +2006,19 @@ function App() {
   // Polling when Supabase board is active (0013); skip pending moves to avoid overwriting optimistic updates (0047)
   useEffect(() => {
     if (!supabaseBoardActive) return
-    const id = setInterval(() => refetchSupabaseTickets(true), SUPABASE_POLL_INTERVAL_MS)
+    const id = setInterval(() => {
+      refetchSupabaseTickets(true)
+      fetchActiveAgentRuns()
+    }, SUPABASE_POLL_INTERVAL_MS)
     return () => clearInterval(id)
-  }, [supabaseBoardActive, refetchSupabaseTickets])
+  }, [supabaseBoardActive, refetchSupabaseTickets, fetchActiveAgentRuns])
+
+  // Fetch agent runs when tickets change or board becomes active (0114)
+  useEffect(() => {
+    if (supabaseBoardActive && connectedRepoFullName) {
+      fetchActiveAgentRuns()
+    }
+  }, [supabaseBoardActive, connectedRepoFullName, supabaseTickets, fetchActiveAgentRuns])
 
   // Log "Initialized default columns" when we seed kanban_columns (0020)
   useEffect(() => {
@@ -2887,6 +2983,7 @@ ${notes || '(none provided)'}
                   supabaseTickets={supabaseTickets}
                   updateSupabaseTicketKanban={updateSupabaseTicketKanban}
                   refetchSupabaseTickets={refetchSupabaseTickets}
+                  agentRunsByTicketPk={agentRunsByTicketPk}
                 />
               ))}
             </div>
