@@ -122,6 +122,37 @@ function extractTicketId(filename: string): string | null {
   return match ? match[1] : null
 }
 
+/** Extract feature branch name from ticket body_md QA section. Returns branch name or null. */
+function extractFeatureBranch(bodyMd: string | null): string | null {
+  if (!bodyMd) return null
+  // Look for "**Branch**: `branch-name`" or "- **Branch**: `branch-name`" in QA section
+  const branchMatch = bodyMd.match(/(?:^|\n)(?:- )?\*\*Branch\*\*:\s*`([^`]+)`/i)
+  return branchMatch ? branchMatch[1].trim() : null
+}
+
+/** Check if ticket body_md indicates branch was merged to main. Returns { merged: boolean, timestamp: string | null }. */
+function checkMergedToMain(bodyMd: string | null): { merged: boolean; timestamp: string | null } {
+  if (!bodyMd) return { merged: false, timestamp: null }
+  
+  // Look for "Merged to main" confirmation in QA section or anywhere in body
+  const mergedPatterns = [
+    /(?:^|\n)(?:- )?\*\*Merged to main\*\*:\s*Yes/i,
+    /(?:^|\n)(?:- )?\*\*Merged to main\*\*:\s*✅/i,
+    /merged to main for (?:cloud )?qa access/i,
+    /merged.*main.*qa/i,
+    /Merged to main:\s*Yes/i,
+    /Merged to main:\s*✅/i,
+  ]
+  
+  const hasMerged = mergedPatterns.some(pattern => pattern.test(bodyMd))
+  
+  // Try to extract timestamp if present (look for ISO date or common date formats near "merged" text)
+  const timestampMatch = bodyMd.match(/(?:merged|Merged).*?(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}|[\d\/]+\s+[\d:]+)/i)
+  const timestamp = timestampMatch ? timestampMatch[1] : null
+  
+  return { merged: hasMerged, timestamp }
+}
+
 function normalizeTicketRow(row: Partial<SupabaseTicketRow> & { id?: string }): SupabaseTicketRow {
   const legacyId = String(row.id ?? '').trim() || '0000'
   const pk = typeof row.pk === 'string' && row.pk.trim() ? row.pk.trim() : legacyId
@@ -742,6 +773,86 @@ function ArtifactsSection({
   )
 }
 
+/** QA Info Section: displays feature branch and implementation artifacts when ticket is in QA column (0113) */
+function QAInfoSection({
+  bodyMd,
+  artifacts,
+  artifactsLoading,
+  onOpenArtifact,
+}: {
+  bodyMd: string | null
+  artifacts: SupabaseAgentArtifactRow[]
+  artifactsLoading: boolean
+  onOpenArtifact: (artifact: SupabaseAgentArtifactRow) => void
+}) {
+  const featureBranch = extractFeatureBranch(bodyMd)
+  const mergeStatus = checkMergedToMain(bodyMd)
+  
+  // Filter to implementation artifacts only
+  const implementationArtifacts = artifacts.filter(a => a.agent_type === 'implementation')
+  
+  return (
+    <div className="qa-info-section">
+      <h3 className="qa-info-section-title">QA Information</h3>
+      
+      <div className="qa-info-field">
+        <strong>Feature branch:</strong>{' '}
+        {featureBranch ? (
+          <code className="qa-branch-name">{featureBranch}</code>
+        ) : (
+          <span className="qa-missing">Not specified</span>
+        )}
+      </div>
+      
+      <div className="qa-info-field">
+        <strong>Merged to main:</strong>{' '}
+        {mergeStatus.merged ? (
+          <span className="qa-merged-yes">
+            ✅ Yes
+            {mergeStatus.timestamp && (
+              <span className="qa-merged-timestamp"> ({mergeStatus.timestamp})</span>
+            )}
+          </span>
+        ) : (
+          <span className="qa-merged-no">❌ No</span>
+        )}
+      </div>
+      
+      <div className="qa-info-field">
+        <strong>Implementation artifacts:</strong>
+        {artifactsLoading ? (
+          <p className="qa-artifacts-loading">Loading artifacts…</p>
+        ) : implementationArtifacts.length === 0 ? (
+          <p className="qa-artifacts-empty">No implementation artifacts found.</p>
+        ) : (
+          <ul className="qa-artifacts-list">
+            {implementationArtifacts
+              .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+              .map((artifact) => {
+                const displayName = artifact.title || getAgentTypeDisplayName(artifact.agent_type)
+                return (
+                  <li key={artifact.artifact_id} className="qa-artifacts-item">
+                    <button
+                      type="button"
+                      className="qa-artifacts-item-button"
+                      onClick={() => onOpenArtifact(artifact)}
+                      aria-label={`Open ${displayName}`}
+                    >
+                      <span className="qa-artifacts-item-title">{displayName}</span>
+                      <span className="qa-artifacts-item-meta">
+                        {new Date(artifact.created_at).toLocaleString()}
+                      </span>
+                    </button>
+                  </li>
+                )
+              })}
+          </ul>
+        )}
+      </div>
+    </div>
+  )
+}
+
 /** Ticket detail modal (0033): title, metadata, markdown body, close/escape/backdrop, scroll lock, focus trap */
 function TicketDetailModal({
   open,
@@ -875,6 +986,7 @@ function TicketDetailModal({
   const markdownBody = body ? bodyOnly : ''
   const showValidationSection = columnId === 'col-human-in-the-loop'
   const showProcessReviewSection = columnId === 'col-process-review'
+  const showQASection = columnId === 'col-qa'
 
   return (
     <div
@@ -933,6 +1045,14 @@ function TicketDetailModal({
                   <p className="ticket-detail-empty">No content.</p>
                 )}
               </div>
+              {showQASection && (
+                <QAInfoSection
+                  bodyMd={body}
+                  artifacts={artifacts}
+                  artifactsLoading={artifactsLoading}
+                  onOpenArtifact={onOpenArtifact}
+                />
+              )}
               <ArtifactsSection
                 artifacts={artifacts}
                 loading={artifactsLoading}
@@ -2223,6 +2343,28 @@ function App() {
         supabaseTickets.some((t) => t.pk === String(active.id))
       ) {
         const ticketPk = String(active.id)
+        const ticket = supabaseTickets.find((t) => t.pk === ticketPk)
+        
+        // Validation: prevent QA → Human in the Loop unless merge confirmed (0113)
+        if (ticket && ticket.kanban_column_id === 'col-qa' && overColumn.id === 'col-human-in-the-loop') {
+          const mergeStatus = checkMergedToMain(ticket.body_md)
+          if (!mergeStatus.merged) {
+            const featureBranch = extractFeatureBranch(ticket.body_md)
+            const errorMsg = featureBranch
+              ? `Cannot move to Human in the Loop: Feature branch "${featureBranch}" has not been merged to main. Please confirm the merge before moving.`
+              : 'Cannot move to Human in the Loop: Feature branch merge to main has not been confirmed. Please confirm the merge before moving.'
+            setLastMovePersisted({
+              success: false,
+              timestamp: new Date(),
+              ticketId: ticketPk,
+              error: errorMsg,
+            })
+            addLog(`Move blocked: ${errorMsg}`)
+            alert(errorMsg)
+            return
+          }
+        }
+        
         let overIndex = overColumn.cardIds.indexOf(String(effectiveOverId))
         if (overIndex < 0) overIndex = overColumn.cardIds.length
         const movedAt = new Date().toISOString()
@@ -2330,6 +2472,38 @@ function App() {
             refetchSupabaseTickets(false) // Full refetch to restore correct state
           }
         } else {
+          // Validation: prevent QA → Human in the Loop unless merge confirmed (0113)
+          if (sourceColumn.id === 'col-qa' && overColumn.id === 'col-human-in-the-loop') {
+            const ticket = supabaseTickets.find((t) => t.pk === String(active.id))
+            if (ticket) {
+              const mergeStatus = checkMergedToMain(ticket.body_md)
+              if (!mergeStatus.merged) {
+                // Revert optimistic update
+                setPendingMoves((prev) => {
+                  const next = new Set(prev)
+                  next.delete(String(active.id))
+                  return next
+                })
+                setSupabaseTickets((prev) => prev) // No change needed, revert already handled
+                // Show error message
+                const featureBranch = extractFeatureBranch(ticket.body_md)
+                const errorMsg = featureBranch
+                  ? `Cannot move to Human in the Loop: Feature branch "${featureBranch}" has not been merged to main. Please confirm the merge before moving.`
+                  : 'Cannot move to Human in the Loop: Feature branch merge to main has not been confirmed. Please confirm the merge before moving.'
+                setLastMovePersisted({
+                  success: false,
+                  timestamp: new Date(),
+                  ticketId: String(active.id),
+                  error: errorMsg,
+                })
+                addLog(`Move blocked: ${errorMsg}`)
+                // Show alert to user
+                alert(errorMsg)
+                return
+              }
+            }
+          }
+          
           const movedAt = new Date().toISOString()
           const ticketPk = String(active.id)
           // Optimistic update (0047)

@@ -645,6 +645,116 @@ h1 {
   background: #da190b;
 }
 
+/* QA Info section (0113) */
+.qa-info-section {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 2px solid #ff9800;
+  background: #fff8f0;
+  padding: 1.5rem;
+  border-radius: 8px;
+  margin-left: -1rem;
+  margin-right: -1rem;
+  margin-bottom: -1rem;
+}
+.qa-info-section-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0 0 1rem 0;
+  color: #ff9800;
+}
+.qa-info-field {
+  margin-bottom: 1rem;
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+.qa-info-field:last-child {
+  margin-bottom: 0;
+}
+.qa-info-field strong {
+  color: var(--kanban-text);
+  font-weight: 600;
+}
+.qa-branch-name {
+  font-family: ui-monospace, monospace;
+  background: var(--kanban-surface-alt);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.9em;
+  color: var(--kanban-primary);
+  border: 1px solid var(--kanban-border);
+}
+.qa-missing {
+  color: var(--kanban-text-muted);
+  font-style: italic;
+}
+.qa-merged-yes {
+  color: var(--kanban-success);
+  font-weight: 500;
+}
+.qa-merged-no {
+  color: var(--kanban-error);
+  font-weight: 500;
+}
+.qa-merged-timestamp {
+  color: var(--kanban-text-muted);
+  font-size: 0.9em;
+  font-weight: normal;
+  margin-left: 0.25rem;
+}
+.qa-artifacts-loading,
+.qa-artifacts-empty {
+  margin: 0.5rem 0;
+  color: var(--kanban-text-muted);
+  font-style: italic;
+  font-size: 0.9rem;
+}
+.qa-artifacts-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 0 0;
+}
+.qa-artifacts-item {
+  margin: 0 0 0.5rem 0;
+}
+.qa-artifacts-item:last-child {
+  margin-bottom: 0;
+}
+.qa-artifacts-item-button {
+  width: 100%;
+  padding: 0.75rem;
+  text-align: left;
+  background: var(--kanban-surface-alt);
+  border: 1px solid var(--kanban-border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.qa-artifacts-item-button:hover {
+  background: var(--kanban-surface);
+  border-color: var(--kanban-primary);
+}
+.qa-artifacts-item-button:focus {
+  outline: none;
+}
+.qa-artifacts-item-button:focus-visible {
+  outline: 2px solid var(--kanban-primary);
+  outline-offset: 2px;
+}
+.qa-artifacts-item-title {
+  font-weight: 500;
+  color: var(--kanban-text);
+  font-size: 0.95rem;
+}
+.qa-artifacts-item-meta {
+  font-size: 0.85rem;
+  color: var(--kanban-text-muted);
+  font-family: ui-monospace, monospace;
+}
+
 /* QA section (0113) */
 .qa-section {
   margin-top: 1.5rem;
