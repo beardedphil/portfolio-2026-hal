@@ -198,10 +198,15 @@ Use `insert_implementation_artifact` for each one.
 
 QA agents must:
 
-1. **Check for required implementation artifacts** using `get_artifacts` before proceeding
-2. **Auto-fail if artifacts are missing** — store QA report enumerating missing artifacts, do NOT proceed with code review
+1. **First step (MANDATORY):** Check for required implementation artifacts using HAL API endpoint `/api/artifacts/get` with `{ ticketId: "<ticket-id>" }`.
+   - If `.hal/api-base-url` exists, read it and call: `POST ${baseUrl}/api/artifacts/get`
+   - **If API call fails (404, 500, network error, timeout):** QA **MUST FAIL** immediately. You cannot verify artifacts exist, so treat as missing. Do NOT proceed with code review.
+   - **If API call succeeds:** Filter artifacts to find implementation artifacts (`agent_type === "implementation"`) and verify all 6 required artifact types are present.
+2. **Auto-fail if artifacts are missing or unverifiable** — store QA report enumerating missing artifacts (or API failure), move ticket to To-do, do NOT proceed with code review
 3. **If all artifacts present:** Store QA report using `insert_qa_artifact` after completing code review and verification
 4. Move ticket to Human in the Loop using `move_ticket_column` (only if QA passes)
+
+**CRITICAL:** Artifact verification is the first and mandatory step. If you cannot verify artifacts exist (API failure), the ticket fails QA. Do not skip this step or proceed with code review when verification fails.
 
 See `.cursor/rules/qa-audit-report.mdc` for full workflow.
 
