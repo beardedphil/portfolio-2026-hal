@@ -655,6 +655,21 @@ function App() {
     }
   }, [kanbanLoaded, connectedGithubRepo, supabaseUrl, supabaseAnonKey])
 
+  // Auto-expand QA and Implementation groups when conversations are restored after reconnect (0097)
+  useEffect(() => {
+    if (!connectedProject) return
+    // Check if there are any QA or Implementation conversations
+    const hasQaConversations = Array.from(conversations.values()).some(conv => conv.agentRole === 'qa-agent')
+    const hasImplConversations = Array.from(conversations.values()).some(conv => conv.agentRole === 'implementation-agent')
+    // Auto-expand groups if they have conversations (makes restored chats visible immediately)
+    if (hasQaConversations) {
+      setQaGroupExpanded(true)
+    }
+    if (hasImplConversations) {
+      setImplGroupExpanded(true)
+    }
+  }, [connectedProject, conversations])
+
   // Persist chat width to localStorage (0060)
   useEffect(() => {
     try {
@@ -978,14 +993,35 @@ function App() {
     }
   }, [activeMessages, agentTypingTarget, selectedConversationId, implAgentRunStatus, qaAgentRunStatus, implAgentProgress, qaAgentProgress])
 
-  // Persist conversations to localStorage only when project connected and not using Supabase (DB is source of truth when attached)
+  // Persist conversations to localStorage (0097: save all conversations when not using Supabase, or non-PM conversations when Supabase is used)
   useEffect(() => {
-    if (!connectedProject || (supabaseUrl != null && supabaseAnonKey != null)) return
-    const result = saveConversationsToStorage(connectedProject, conversations)
-    if (!result.success && result.error) {
-      setPersistenceError(result.error)
+    if (!connectedProject) return
+    // When Supabase is used, only PM conversations are saved to Supabase
+    // Non-PM conversations (Implementation, QA) must be saved to localStorage
+    // When Supabase is not used, all conversations are saved to localStorage
+    const useSupabase = supabaseUrl != null && supabaseAnonKey != null
+    if (useSupabase) {
+      // Save only non-PM conversations to localStorage (PM is in Supabase)
+      const nonPmConversations = new Map<string, Conversation>()
+      for (const [id, conv] of conversations.entries()) {
+        if (conv.agentRole !== 'project-manager') {
+          nonPmConversations.set(id, conv)
+        }
+      }
+      const result = saveConversationsToStorage(connectedProject, nonPmConversations)
+      if (!result.success && result.error) {
+        setPersistenceError(result.error)
+      } else {
+        setPersistenceError(null)
+      }
     } else {
-      setPersistenceError(null)
+      // No Supabase: save all conversations to localStorage
+      const result = saveConversationsToStorage(connectedProject, conversations)
+      if (!result.success && result.error) {
+        setPersistenceError(result.error)
+      } else {
+        setPersistenceError(null)
+      }
     }
   }, [conversations, connectedProject, supabaseUrl, supabaseAnonKey])
 
