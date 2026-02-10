@@ -417,10 +417,12 @@ const PM_SYSTEM_INSTRUCTIONS = `You are the Project Manager agent for HAL. Your 
 You have access to read-only tools to explore the repository. Use them to answer questions about code, tickets, and project state.
 
 **Repository access:** 
-- When a GitHub repo is connected (user clicked "Connect GitHub Repo"), you can use read_file and search_files to inspect the connected repo via GitHub API (committed code on the default branch).
+- **IMPORTANT**: When a GitHub repo is connected (user clicked "Connect GitHub Repo"), you MUST use read_file and search_files to inspect the connected repo via GitHub API (committed code on the default branch). The connected repo is NOT the HAL repository.
+- If a GitHub repo is connected, the tool descriptions will say "connected GitHub repo" - use those tools to access the user's project, NOT the HAL repo.
 - If no repo is connected, these tools will only access the HAL repository itself (the workspace where HAL runs).
 - If the user's question is about their project and no repo is connected, explain: "Connect a GitHub repository in the HAL app to enable repository inspection. Once connected, I can search and read files from your repo."
 - Always cite specific file paths when referencing code or content (e.g., "In src/App.tsx line 42...").
+- **When a GitHub repo is connected, do NOT answer questions using HAL repo files. Use the connected repo instead.**
 
 **Conversation context:** When "Conversation so far" is present, the "User message" is the user's latest reply in that conversation. Short replies (e.g. "Entirely, in all states", "Yes", "The first one", "inside the embedded kanban UI") are almost always answers to the question you (the assistant) just asked—interpret them in that context. Do not treat short user replies as a new top-level request about repo rules, process, or "all states" enforcement unless the conversation clearly indicates otherwise.
 
@@ -1430,6 +1432,11 @@ export async function runPmAgent(
     typeof config.repoFullName === 'string' &&
     config.repoFullName.trim() !== '' &&
     typeof config.githubReadFile === 'function'
+  
+  // Debug logging (0119: verify PM agent receives correct config)
+  if (typeof console !== 'undefined' && console.warn) {
+    console.warn(`[PM Agent] hasGitHubRepo=${hasGitHubRepo}, repoFullName=${config.repoFullName || 'NOT SET'}, hasGithubReadFile=${typeof config.githubReadFile === 'function'}, hasGithubSearchCode=${typeof config.githubSearchCode === 'function'}`)
+  }
 
   const readFileTool = tool({
     description: hasGitHubRepo
@@ -1441,8 +1448,16 @@ export async function runPmAgent(
     execute: async (input) => {
       let out: { content: string } | { error: string }
       if (hasGitHubRepo && config.githubReadFile) {
+        // Debug: log when using GitHub API (0119)
+        if (typeof console !== 'undefined' && console.log) {
+          console.log(`[PM Agent] Using GitHub API to read: ${config.repoFullName}/${input.path}`)
+        }
         out = await config.githubReadFile(input.path, 500)
       } else {
+        // Debug: log when falling back to HAL repo (0119)
+        if (typeof console !== 'undefined' && console.warn) {
+          console.warn(`[PM Agent] Falling back to HAL repo for: ${input.path} (hasGitHubRepo=${hasGitHubRepo}, hasGithubReadFile=${typeof config.githubReadFile === 'function'})`)
+        }
         out = await readFile(ctx, input)
       }
       toolCalls.push({ name: 'read_file', input, output: out })
@@ -1463,8 +1478,16 @@ export async function runPmAgent(
     execute: async (input) => {
       let out: { matches: Array<{ path: string; line: number; text: string }> } | { error: string }
       if (hasGitHubRepo && config.githubSearchCode) {
+        // Debug: log when using GitHub API (0119)
+        if (typeof console !== 'undefined' && console.log) {
+          console.log(`[PM Agent] Using GitHub API to search: ${config.repoFullName} pattern: ${input.pattern}`)
+        }
         out = await config.githubSearchCode(input.pattern, input.glob)
       } else {
+        // Debug: log when falling back to HAL repo (0119)
+        if (typeof console !== 'undefined' && console.warn) {
+          console.warn(`[PM Agent] Falling back to HAL repo for search: ${input.pattern} (hasGitHubRepo=${hasGitHubRepo}, hasGithubSearchCode=${typeof config.githubSearchCode === 'function'})`)
+        }
         out = await searchFiles(ctx, { pattern: input.pattern, glob: input.glob })
       }
       toolCalls.push({ name: 'search_files', input, output: out })
