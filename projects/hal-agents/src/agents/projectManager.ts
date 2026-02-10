@@ -392,6 +392,8 @@ export interface PmAgentConfig {
     pattern: string,
     glob?: string
   ) => Promise<{ matches: Array<{ path: string; line: number; text: string }> } | { error: string }>
+  /** List directory contents in connected GitHub repo. When set, used instead of local FS for directory listing. */
+  githubListDirectory?: (path: string) => Promise<{ entries: string[] } | { error: string }>
   /** Image attachments to include in the request (base64 data URLs). */
   images?: Array<{ dataUrl: string; filename: string; mimeType: string }>
 }
@@ -1517,9 +1519,22 @@ export async function runPmAgent(
         path: z.string().describe('Directory path (relative to repo/project root)'),
       }),
       execute: async (input) => {
-        // list_directory still uses direct file system (HAL repo only for now)
-        // TODO: Support list_directory via file access API if needed
-        const out = await listDirectory(ctx, input)
+        let out: { entries: string[] } | { error: string }
+        const usedGitHub = !!(hasGitHubRepo && config.githubListDirectory)
+        repoUsage.push({ tool: 'list_directory', usedGitHub, path: input.path })
+        if (hasGitHubRepo && config.githubListDirectory) {
+          // Debug: log when using GitHub API (0119)
+          if (typeof console !== 'undefined' && console.log) {
+            console.log(`[PM Agent] Using GitHub API to list directory: ${config.repoFullName}/${input.path}`)
+          }
+          out = await config.githubListDirectory(input.path)
+        } else {
+          // Debug: log when falling back to HAL repo (0119)
+          if (typeof console !== 'undefined' && console.warn) {
+            console.warn(`[PM Agent] Falling back to HAL repo for list_directory: ${input.path} (hasGitHubRepo=${hasGitHubRepo}, hasGithubListDirectory=${typeof config.githubListDirectory === 'function'})`)
+          }
+          out = await listDirectory(ctx, input)
+        }
         toolCalls.push({ name: 'list_directory', input, output: out })
         return typeof (out as { error?: string }).error === 'string'
           ? JSON.stringify(out)

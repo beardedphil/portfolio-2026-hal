@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import path from 'path'
 import { pathToFileURL } from 'url'
-import { fetchFileContents, searchCode } from '../_lib/github/githubApi.js'
+import { fetchFileContents, searchCode, listDirectoryContents } from '../_lib/github/githubApi.js'
 import { getSession } from '../_lib/github/session.js'
 
 type PmAgentResponse = {
@@ -116,6 +116,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         ? (pattern: string, glob?: string) => {
             console.log(`[PM] Using GitHub API to search: ${repoFullName} pattern: ${pattern}`)
             return searchCode(githubToken, repoFullName, pattern, glob)
+          }
+        : undefined
+    const githubListDirectory =
+      githubToken && repoFullName
+        ? (dirPath: string) => {
+            console.log(`[PM] Using GitHub API to list directory: ${repoFullName}/${dirPath}`)
+            return listDirectoryContents(githubToken, repoFullName, dirPath)
           }
         : undefined
     if (!githubReadFile && repoFullName) {
@@ -279,10 +286,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       ...(repoFullName ? { repoFullName } : {}),
       ...(githubReadFile ? { githubReadFile } : {}),
       ...(githubSearchCode ? { githubSearchCode } : {}),
+      ...(githubListDirectory ? { githubListDirectory } : {}),
       ...(images ? { images } : {}),
     }
     // Debug: log what's being passed to PM agent (0119) - use console.warn for visibility
-    console.warn(`[PM] Config passed to runner: repoFullName=${config.repoFullName || 'NOT SET'}, hasGithubReadFile=${typeof config.githubReadFile === 'function'}, hasGithubSearchCode=${typeof config.githubSearchCode === 'function'}`)
+    console.warn(`[PM] Config passed to runner: repoFullName=${config.repoFullName || 'NOT SET'}, hasGithubReadFile=${typeof config.githubReadFile === 'function'}, hasGithubSearchCode=${typeof config.githubSearchCode === 'function'}, hasGithubListDirectory=${typeof config.githubListDirectory === 'function'}`)
     const result = (await runner.run(message, config)) as PmAgentResponse & {
       toolCalls: Array<{ name: string; input: unknown; output: unknown }>
     }
@@ -331,6 +339,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       hasGithubToken: !!githubToken,
       hasGithubReadFile: typeof githubReadFile === 'function',
       hasGithubSearchCode: typeof githubSearchCode === 'function',
+      hasGithubListDirectory: typeof githubListDirectory === 'function',
       cookieHeaderPresent: !!req.headers.cookie,
       repoUsage: (result as any)._repoUsage || [], // Which repo was actually used for each tool call
     }
