@@ -29,7 +29,7 @@ function sessionOptions(): IronSessionOptions {
     password: requireEnv('AUTH_SESSION_SECRET'),
     cookieOptions: {
       httpOnly: true,
-      sameSite: 'lax',
+      sameSite: 'lax', // 'lax' allows cookies on same-site POST requests (0119)
       secure: process.env.NODE_ENV === 'production',
       path: '/',
     },

@@ -94,9 +94,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const session = await getSession(req, res)
     const githubToken = session.github?.accessToken
     // Debug logging (0119: fix PM agent repo selection) - use console.warn for visibility
-    console.warn(`[PM] Request received - repoFullName: ${repoFullName || 'NOT PROVIDED'}, hasToken: ${!!githubToken}, tokenLength: ${githubToken?.length || 0}`)
+    const hasCookie = !!req.headers.cookie
+    const cookieHeader = req.headers.cookie ? 'present' : 'missing'
+    console.warn(`[PM] Request received - repoFullName: ${repoFullName || 'NOT PROVIDED'}, hasToken: ${!!githubToken}, tokenLength: ${githubToken?.length || 0}, cookieHeader: ${cookieHeader}`)
     if (repoFullName && !githubToken) {
-      console.warn(`[PM] repoFullName provided (${repoFullName}) but no GitHub token in session`)
+      console.warn(`[PM] ⚠️ repoFullName provided (${repoFullName}) but no GitHub token in session. Cookie header: ${cookieHeader}`)
+      console.warn(`[PM] Session data:`, JSON.stringify({ hasGithub: !!session.github, githubKeys: session.github ? Object.keys(session.github) : [] }))
     }
     if (githubToken && !repoFullName) {
       console.warn(`[PM] GitHub token available but no repoFullName provided`)
