@@ -1443,12 +1443,24 @@ function App() {
             setOpenaiLastStatus(String(res.status))
             const text = await res.text()
             
-            let data: PmAgentResponse & { _debug?: { repoFullName?: string; hasGithubToken?: boolean; hasGithubReadFile?: boolean; hasGithubSearchCode?: boolean; cookieHeaderPresent?: boolean } }
+            let data: PmAgentResponse & { _debug?: { repoFullName?: string; hasGithubToken?: boolean; hasGithubReadFile?: boolean; hasGithubSearchCode?: boolean; cookieHeaderPresent?: boolean; repoUsage?: Array<{ tool: string; usedGitHub: boolean; path?: string }> } }
             try {
               data = JSON.parse(text) as typeof data
               // Log debug info from server (0119)
               if (data._debug) {
                 console.warn('[PM] Server response debug info:', data._debug)
+                if (data._debug.repoUsage && data._debug.repoUsage.length > 0) {
+                  console.warn('[PM] Repo usage:', data._debug.repoUsage)
+                  const usedGitHub = data._debug.repoUsage.some(r => r.usedGitHub)
+                  const usedHAL = data._debug.repoUsage.some(r => !r.usedGitHub)
+                  if (usedHAL) {
+                    console.warn('[PM] ⚠️ PM agent used HAL repo instead of GitHub repo!', data._debug.repoUsage.filter(r => !r.usedGitHub))
+                  } else if (usedGitHub) {
+                    console.warn('[PM] ✅ PM agent used GitHub repo correctly')
+                  }
+                } else if (data.toolCalls && data.toolCalls.length > 0) {
+                  console.warn('[PM] Tool calls made but no repo usage tracked. Tools:', data.toolCalls.map(t => t.name))
+                }
               }
             } catch {
               setAgentTypingTarget(null)
