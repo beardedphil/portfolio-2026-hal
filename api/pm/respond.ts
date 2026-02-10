@@ -325,7 +325,23 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       agentRunner: runner.label,
     }
 
-    json(res, 200, response)
+    // Debug: log what we're returning (0119) - include in response for frontend debugging
+    const debugInfo = {
+      repoFullName: repoFullName || 'NOT SET',
+      hasGithubToken: !!githubToken,
+      hasGithubReadFile: typeof githubReadFile === 'function',
+      hasGithubSearchCode: typeof githubSearchCode === 'function',
+      cookieHeaderPresent: !!req.headers.cookie,
+    }
+    console.warn(`[PM] Response - ${JSON.stringify(debugInfo)}`)
+    
+    // Include debug info in response for frontend (0119)
+    const responseWithDebug = {
+      ...response,
+      _debug: debugInfo, // Frontend can check this in Network tab
+    }
+
+    json(res, 200, responseWithDebug)
   } catch (err) {
     json(res, 500, {
       reply: '',

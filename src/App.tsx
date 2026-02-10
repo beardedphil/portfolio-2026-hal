@@ -1443,9 +1443,13 @@ function App() {
             setOpenaiLastStatus(String(res.status))
             const text = await res.text()
             
-            let data: PmAgentResponse
+            let data: PmAgentResponse & { _debug?: { repoFullName?: string; hasGithubToken?: boolean; hasGithubReadFile?: boolean; hasGithubSearchCode?: boolean; cookieHeaderPresent?: boolean } }
             try {
-              data = JSON.parse(text) as PmAgentResponse
+              data = JSON.parse(text) as typeof data
+              // Log debug info from server (0119)
+              if (data._debug) {
+                console.warn('[PM] Server response debug info:', data._debug)
+              }
             } catch {
               setAgentTypingTarget(null)
               setOpenaiLastError('Invalid JSON response from PM endpoint')
