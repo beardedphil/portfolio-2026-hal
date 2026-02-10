@@ -1344,7 +1344,6 @@ function App() {
       // Get or create conversation ID (0070)
       const convId = conversationId || getDefaultConversationId(target === 'project-manager' ? 'project-manager' : target === 'standup' ? 'project-manager' : target)
       const useDb = target === 'project-manager' && supabaseUrl != null && supabaseAnonKey != null && connectedProject != null
-      if (!useDb) addMessage(convId, 'user', content, undefined, imageAttachments)
       setLastAgentError(null)
 
       if (target === 'project-manager') {
@@ -1355,14 +1354,19 @@ function App() {
         setAgentTypingTarget('project-manager')
         ;(async () => {
           try {
+            // Get Supabase creds from state or env (0119: ensure credentials are available)
+            const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
+            const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
+            
             let body: { message: string; conversationHistory?: Array<{ role: string; content: string }>; previous_response_id?: string; projectId?: string; repoFullName?: string; supabaseUrl?: string; supabaseAnonKey?: string; images?: Array<{ dataUrl: string; filename: string; mimeType: string }> } = { message: content }
             if (pmLastResponseId) body.previous_response_id = pmLastResponseId
             if (connectedProject) body.projectId = connectedProject
             if (connectedGithubRepo?.fullName) body.repoFullName = connectedGithubRepo.fullName
             // Always send Supabase creds when we have them so create_ticket is available (0011)
-            if (supabaseUrl && supabaseAnonKey) {
-              body.supabaseUrl = supabaseUrl
-              body.supabaseAnonKey = supabaseAnonKey
+            // Use url/key from state or env (0119: fix Supabase credentials not being sent)
+            if (url && key) {
+              body.supabaseUrl = url
+              body.supabaseAnonKey = key
             }
             // Include image attachments if present
             if (imageAttachments && imageAttachments.length > 0) {
@@ -1373,9 +1377,14 @@ function App() {
               }))
             }
 
-            if (useDb && supabaseUrl && supabaseAnonKey && connectedProject) {
+            // Add user message to UI (only once, before DB insert to avoid duplicates) (0119)
+            if (!useDb || !url || !key || !connectedProject) {
+              addMessage(convId, 'user', content, undefined, imageAttachments)
+            }
+
+            if (useDb && url && key && connectedProject) {
               const nextSeq = pmMaxSequenceRef.current + 1
-              const supabase = createClient(supabaseUrl, supabaseAnonKey)
+              const supabase = createClient(url, key)
               const { error: insertErr } = await supabase.from('hal_conversation_messages').insert({
                 project_id: connectedProject,
                 agent: PM_AGENT_ID,
@@ -1385,10 +1394,16 @@ function App() {
               })
               if (insertErr) {
                 setPersistenceError(`DB: ${insertErr.message}`)
-                addMessage(convId, 'user', content, undefined, imageAttachments)
+                // Message already added above if useDb was false, so only add if useDb was true
+                if (useDb) {
+                  addMessage(convId, 'user', content, undefined, imageAttachments)
+                }
               } else {
                 pmMaxSequenceRef.current = nextSeq
-                addMessage(convId, 'user', content, nextSeq, imageAttachments)
+                // Message already added above if useDb was false, so only add if useDb was true
+                if (useDb) {
+                  addMessage(convId, 'user', content, nextSeq, imageAttachments)
+                }
               }
             } else {
               const pmConv = conversations.get(convId)
@@ -1415,6 +1430,8 @@ function App() {
               repoFullName: body.repoFullName,
               hasProjectId: !!body.projectId,
               projectId: body.projectId,
+              hasSupabaseUrl: !!body.supabaseUrl,
+              hasSupabaseAnonKey: !!body.supabaseAnonKey,
             })
             const res = await fetch('/api/pm/respond', {
               method: 'POST',
