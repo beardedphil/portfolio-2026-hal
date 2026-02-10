@@ -1412,6 +1412,7 @@ function App() {
             const res = await fetch('/api/pm/respond', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
+              credentials: 'include', // Include session cookie so GitHub token is available (0119: fix PM agent repo selection)
               body: JSON.stringify(body),
             })
             setOpenaiLastStatus(String(res.status))

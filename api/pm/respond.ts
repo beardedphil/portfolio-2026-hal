@@ -93,6 +93,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     // GitHub API for repo inspection: need token (from session) + repoFullName
     const session = await getSession(req, res)
     const githubToken = session.github?.accessToken
+    // Log for debugging: check if token and repo are available (0119: fix PM agent repo selection)
+    if (repoFullName && !githubToken) {
+      console.warn(`[PM] repoFullName provided (${repoFullName}) but no GitHub token in session`)
+    }
+    if (githubToken && !repoFullName) {
+      console.warn(`[PM] GitHub token available but no repoFullName provided`)
+    }
     const githubReadFile =
       githubToken && repoFullName
         ? (filePath: string, maxLines = 500) =>
