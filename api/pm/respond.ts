@@ -332,6 +332,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       hasGithubReadFile: typeof githubReadFile === 'function',
       hasGithubSearchCode: typeof githubSearchCode === 'function',
       cookieHeaderPresent: !!req.headers.cookie,
+      repoUsage: (result as any)._repoUsage || [], // Which repo was actually used for each tool call
     }
     console.warn(`[PM] Response - ${JSON.stringify(debugInfo)}`)
     

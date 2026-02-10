@@ -410,6 +410,8 @@ export interface PmAgentResult {
   responseId?: string
   error?: string
   errorPhase?: 'context-pack' | 'openai' | 'tool'
+  /** Debug: which repo was used for each tool call (0119) */
+  _repoUsage?: Array<{ tool: string; usedGitHub: boolean; path?: string }>
 }
 
 const PM_SYSTEM_INSTRUCTIONS = `You are the Project Manager agent for HAL. Your job is to help users understand the codebase, review tickets, and provide project guidance.
@@ -1433,6 +1435,9 @@ export async function runPmAgent(
     config.repoFullName.trim() !== '' &&
     typeof config.githubReadFile === 'function'
   
+  // Track which repo is being used for debugging (0119)
+  const repoUsage: Array<{ tool: string; usedGitHub: boolean; path?: string }> = []
+  
   // Debug logging (0119: verify PM agent receives correct config)
   if (typeof console !== 'undefined' && console.warn) {
     console.warn(`[PM Agent] hasGitHubRepo=${hasGitHubRepo}, repoFullName=${config.repoFullName || 'NOT SET'}, hasGithubReadFile=${typeof config.githubReadFile === 'function'}, hasGithubSearchCode=${typeof config.githubSearchCode === 'function'}`)
@@ -1447,6 +1452,8 @@ export async function runPmAgent(
     }),
     execute: async (input) => {
       let out: { content: string } | { error: string }
+      const usedGitHub = !!(hasGitHubRepo && config.githubReadFile)
+      repoUsage.push({ tool: 'read_file', usedGitHub, path: input.path })
       if (hasGitHubRepo && config.githubReadFile) {
         // Debug: log when using GitHub API (0119)
         if (typeof console !== 'undefined' && console.log) {
@@ -1477,6 +1484,8 @@ export async function runPmAgent(
     }),
     execute: async (input) => {
       let out: { matches: Array<{ path: string; line: number; text: string }> } | { error: string }
+      const usedGitHub = !!(hasGitHubRepo && config.githubSearchCode)
+      repoUsage.push({ tool: 'search_files', usedGitHub, path: input.pattern })
       if (hasGitHubRepo && config.githubSearchCode) {
         // Debug: log when using GitHub API (0119)
         if (typeof console !== 'undefined' && console.log) {
@@ -1710,6 +1719,8 @@ export async function runPmAgent(
       toolCalls,
       outboundRequest,
       ...(responseId != null && { responseId }),
+      // Include repo usage for debugging (0119)
+      _repoUsage: repoUsage.length > 0 ? repoUsage : undefined,
     }
   } catch (err) {
     return {
@@ -1718,6 +1729,8 @@ export async function runPmAgent(
       outboundRequest: capturedRequest ? (redact(capturedRequest) as object) : {},
       error: err instanceof Error ? err.message : String(err),
       errorPhase: 'openai',
+      // Include repo usage even on error (0119)
+      _repoUsage: repoUsage.length > 0 ? repoUsage : undefined,
     }
   }
 }
