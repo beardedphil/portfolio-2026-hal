@@ -93,8 +93,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     // GitHub API for repo inspection: need token (from session) + repoFullName
     const session = await getSession(req, res)
     const githubToken = session.github?.accessToken
-    // Debug logging (0119: fix PM agent repo selection)
-    console.log(`[PM] Request received - repoFullName: ${repoFullName || 'NOT PROVIDED'}, hasToken: ${!!githubToken}, tokenLength: ${githubToken?.length || 0}`)
+    // Debug logging (0119: fix PM agent repo selection) - use console.warn for visibility
+    console.warn(`[PM] Request received - repoFullName: ${repoFullName || 'NOT PROVIDED'}, hasToken: ${!!githubToken}, tokenLength: ${githubToken?.length || 0}`)
     if (repoFullName && !githubToken) {
       console.warn(`[PM] repoFullName provided (${repoFullName}) but no GitHub token in session`)
     }
@@ -278,8 +278,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       ...(githubSearchCode ? { githubSearchCode } : {}),
       ...(images ? { images } : {}),
     }
-    // Debug: log what's being passed to PM agent (0119)
-    console.log(`[PM] Config passed to runner: repoFullName=${config.repoFullName || 'NOT SET'}, hasGithubReadFile=${typeof config.githubReadFile === 'function'}, hasGithubSearchCode=${typeof config.githubSearchCode === 'function'}`)
+    // Debug: log what's being passed to PM agent (0119) - use console.warn for visibility
+    console.warn(`[PM] Config passed to runner: repoFullName=${config.repoFullName || 'NOT SET'}, hasGithubReadFile=${typeof config.githubReadFile === 'function'}, hasGithubSearchCode=${typeof config.githubSearchCode === 'function'}`)
     const result = (await runner.run(message, config)) as PmAgentResponse & {
       toolCalls: Array<{ name: string; input: unknown; output: unknown }>
     }

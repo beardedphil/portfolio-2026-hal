@@ -1424,14 +1424,15 @@ function App() {
               body.conversationHistory = recentTurns
             }
 
-            // Debug: log what we're sending (0119)
-            console.log('[PM] Sending request:', {
+            // Debug: log what we're sending (0119) - use console.warn for visibility
+            console.warn('[PM] Sending request to /api/pm/respond:', {
               hasRepoFullName: !!body.repoFullName,
-              repoFullName: body.repoFullName,
+              repoFullName: body.repoFullName || 'NOT SET',
               hasProjectId: !!body.projectId,
-              projectId: body.projectId,
+              projectId: body.projectId || 'NOT SET',
               hasSupabaseUrl: !!body.supabaseUrl,
               hasSupabaseAnonKey: !!body.supabaseAnonKey,
+              connectedGithubRepo: connectedGithubRepo?.fullName || 'NOT SET',
             })
             const res = await fetch('/api/pm/respond', {
               method: 'POST',
