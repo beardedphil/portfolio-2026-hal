@@ -1409,6 +1409,13 @@ function App() {
               body.conversationHistory = recentTurns
             }
 
+            // Debug: log what we're sending (0119)
+            console.log('[PM] Sending request:', {
+              hasRepoFullName: !!body.repoFullName,
+              repoFullName: body.repoFullName,
+              hasProjectId: !!body.projectId,
+              projectId: body.projectId,
+            })
             const res = await fetch('/api/pm/respond', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },

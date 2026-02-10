@@ -93,7 +93,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     // GitHub API for repo inspection: need token (from session) + repoFullName
     const session = await getSession(req, res)
     const githubToken = session.github?.accessToken
-    // Log for debugging: check if token and repo are available (0119: fix PM agent repo selection)
+    // Debug logging (0119: fix PM agent repo selection)
+    console.log(`[PM] Request received - repoFullName: ${repoFullName || 'NOT PROVIDED'}, hasToken: ${!!githubToken}, tokenLength: ${githubToken?.length || 0}`)
     if (repoFullName && !githubToken) {
       console.warn(`[PM] repoFullName provided (${repoFullName}) but no GitHub token in session`)
     }
@@ -102,13 +103,21 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
     const githubReadFile =
       githubToken && repoFullName
-        ? (filePath: string, maxLines = 500) =>
-            fetchFileContents(githubToken, repoFullName, filePath, maxLines)
+        ? (filePath: string, maxLines = 500) => {
+            console.log(`[PM] Using GitHub API to read file: ${repoFullName}/${filePath}`)
+            return fetchFileContents(githubToken, repoFullName, filePath, maxLines)
+          }
         : undefined
     const githubSearchCode =
       githubToken && repoFullName
-        ? (pattern: string, glob?: string) => searchCode(githubToken, repoFullName, pattern, glob)
+        ? (pattern: string, glob?: string) => {
+            console.log(`[PM] Using GitHub API to search: ${repoFullName} pattern: ${pattern}`)
+            return searchCode(githubToken, repoFullName, pattern, glob)
+          }
         : undefined
+    if (!githubReadFile && repoFullName) {
+      console.warn(`[PM] githubReadFile is undefined even though repoFullName=${repoFullName} - token missing?`)
+    }
 
     // Allow empty message if images are present
     const hasImages = Array.isArray(body.images) && body.images.length > 0
@@ -253,7 +262,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const createTicketAvailable = !!(supabaseUrl && supabaseAnonKey)
     const images = Array.isArray(body.images) ? body.images : undefined
 
-    const result = (await runner.run(message, {
+    const config = {
       repoRoot,
       openaiApiKey: key,
       openaiModel: model,
@@ -268,7 +277,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       ...(githubReadFile ? { githubReadFile } : {}),
       ...(githubSearchCode ? { githubSearchCode } : {}),
       ...(images ? { images } : {}),
-    })) as PmAgentResponse & {
+    }
+    // Debug: log what's being passed to PM agent (0119)
+    console.log(`[PM] Config passed to runner: repoFullName=${config.repoFullName || 'NOT SET'}, hasGithubReadFile=${typeof config.githubReadFile === 'function'}, hasGithubSearchCode=${typeof config.githubSearchCode === 'function'}`)
+    const result = (await runner.run(message, config)) as PmAgentResponse & {
       toolCalls: Array<{ name: string; input: unknown; output: unknown }>
     }
 
