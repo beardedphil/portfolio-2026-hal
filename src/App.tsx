@@ -422,7 +422,23 @@ function App() {
     }
   }, [theme])
 
-  // Do not restore connected GitHub repo from localStorage on load (0079). User must connect a repo this session so Kanban does not fetch tickets before any connection.
+  // Restore connected GitHub repo from localStorage on load (0119: fix repo display after refresh)
+  // The repo state is restored for UI display; Kanban will receive the connection message when the iframe loads
+  // Note: If GitHub auth fails, refreshGithubAuth will clear the restored repo
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('hal-github-repo')
+      if (saved) {
+        const parsed = JSON.parse(saved) as ConnectedGithubRepo
+        if (parsed?.fullName) {
+          setConnectedGithubRepo(parsed)
+          setConnectedProject(parsed.fullName)
+        }
+      }
+    } catch {
+      // ignore localStorage errors
+    }
+  }, [])
 
   const refreshGithubAuth = useCallback(async () => {
     try {
@@ -432,6 +448,17 @@ function App() {
       if (!res.ok) {
         setGithubAuth(null)
         setGithubConnectError(text.slice(0, 200) || 'Failed to check GitHub auth status.')
+        // If auth fails and we have a restored repo in localStorage, clear it (0119: handle auth failure gracefully)
+        try {
+          const saved = localStorage.getItem('hal-github-repo')
+          if (saved) {
+            setConnectedGithubRepo(null)
+            setConnectedProject(null)
+            localStorage.removeItem('hal-github-repo')
+          }
+        } catch {
+          // ignore
+        }
         return
       }
       const json = JSON.parse(text) as GithubAuthMe
@@ -439,6 +466,17 @@ function App() {
     } catch (err) {
       setGithubAuth(null)
       setGithubConnectError(err instanceof Error ? err.message : String(err))
+      // If auth check fails and we have a restored repo in localStorage, clear it (0119: handle auth failure gracefully)
+      try {
+        const saved = localStorage.getItem('hal-github-repo')
+        if (saved) {
+          setConnectedGithubRepo(null)
+          setConnectedProject(null)
+          localStorage.removeItem('hal-github-repo')
+        }
+      } catch {
+        // ignore
+      }
     }
   }, [])
 

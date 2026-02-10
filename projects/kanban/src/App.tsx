@@ -1442,6 +1442,20 @@ function App() {
       // ignore
     }
   }, [])
+
+  // Restore connected repo from localStorage on load (0119: fix repo display after refresh)
+  // This restores the repo state for UI display; HAL will also send HAL_CONNECT_REPO when iframe loads
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(CONNECTED_REPO_KEY)
+      if (saved && saved.trim()) {
+        setConnectedRepoFullName(saved.trim())
+        setProjectName(saved.trim())
+      }
+    } catch {
+      // ignore localStorage errors
+    }
+  }, [])
   const [supabaseTickets, setSupabaseTickets] = useState<SupabaseTicketRow[]>([])
   const [supabaseColumnsRows, setSupabaseColumnsRows] = useState<SupabaseKanbanColumnRow[]>([])
   const [supabaseLastRefresh, setSupabaseLastRefresh] = useState<Date | null>(null)
