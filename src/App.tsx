@@ -5,6 +5,7 @@ import {
   type KanbanTicketRow,
   type KanbanColumnRow,
   type KanbanAgentRunRow,
+  type KanbanAgentArtifactRow,
 } from 'portfolio-2026-kanban'
 import 'portfolio-2026-kanban/style.css'
 
@@ -1413,6 +1414,56 @@ function App() {
     [supabaseUrl, supabaseAnonKey, fetchKanbanData]
   )
 
+  /** Fetch artifacts for a ticket (HAL owns DB). Used by Kanban when opening ticket detail. */
+  const fetchArtifactsForTicket = useCallback(
+    async (ticketPk: string): Promise<KanbanAgentArtifactRow[]> => {
+      const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
+      const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
+      if (!url || !key) return []
+      try {
+        const supabase = createClient(url, key)
+        const { data, error } = await supabase
+          .from('agent_artifacts')
+          .select('artifact_id, ticket_pk, repo_full_name, agent_type, title, body_md, created_at, updated_at')
+          .eq('ticket_pk', ticketPk)
+          .order('created_at', { ascending: false })
+        if (error) {
+          console.warn('[HAL] fetchArtifactsForTicket:', error.message)
+          return []
+        }
+        let list = (data ?? []) as KanbanAgentArtifactRow[]
+        if (list.length === 0) {
+          try {
+            const syncRes = await fetch('/api/agent-runs/sync-artifacts', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ ticketPk }),
+            })
+            const syncJson = (await syncRes.json().catch(() => ({}))) as { success?: boolean; artifacts?: KanbanAgentArtifactRow[] }
+            if (syncRes.ok && Array.isArray(syncJson.artifacts) && syncJson.artifacts.length > 0) {
+              list = syncJson.artifacts
+            } else if (syncRes.ok) {
+              const { data: data2 } = await supabase
+                .from('agent_artifacts')
+                .select('artifact_id, ticket_pk, repo_full_name, agent_type, title, body_md, created_at, updated_at')
+                .eq('ticket_pk', ticketPk)
+                .order('created_at', { ascending: false })
+              list = (data2 ?? []) as KanbanAgentArtifactRow[]
+            }
+          } catch {
+            // ignore sync failure
+          }
+        }
+        return list
+      } catch (e) {
+        console.warn('[HAL] fetchArtifactsForTicket:', e)
+        return []
+      }
+    },
+    [supabaseUrl, supabaseAnonKey]
+  )
+
   /** Trigger agent run for a given message and target (used by handleSend and HAL_OPEN_CHAT_AND_SEND) */
   const triggerAgentRun = useCallback(
     (content: string, target: ChatTarget, imageAttachments?: ImageAttachment[], conversationId?: string) => {
@@ -2681,6 +2732,7 @@ function App() {
               onOpenChatAndSend={handleKanbanOpenChatAndSend}
               implementationAgentTicketId={implAgentTicketId}
               qaAgentTicketId={qaAgentTicketId}
+              fetchArtifactsForTicket={fetchArtifactsForTicket}
             />
           </div>
         </section>
