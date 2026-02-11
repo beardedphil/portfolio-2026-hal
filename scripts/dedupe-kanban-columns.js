@@ -46,22 +46,24 @@ async function main() {
     return
   }
 
+  const countById = new Map()
+  for (const row of rows) {
+    countById.set(row.id, (countById.get(row.id) ?? 0) + 1)
+  }
+  console.log(`kanban_columns: ${rows.length} row(s), ${countById.size} unique id(s)`)
+  const duplicateIds = [...countById.entries()].filter(([, n]) => n > 1).map(([id]) => id)
+  const uniqueDuplicateIds = duplicateIds
+
+  if (uniqueDuplicateIds.length === 0) {
+    console.log('No duplicate column ids found. Exiting.')
+    return
+  }
+
   const byId = new Map()
   for (const row of rows) {
     if (!byId.has(row.id)) {
       byId.set(row.id, row)
     }
-  }
-
-  const duplicateIds = rows.filter((r) => {
-    const first = byId.get(r.id)
-    return first !== r
-  }).map((r) => r.id)
-  const uniqueDuplicateIds = [...new Set(duplicateIds)]
-
-  if (uniqueDuplicateIds.length === 0) {
-    console.log('No duplicate column ids found. Exiting.')
-    return
   }
 
   console.log('Duplicate column ids:', uniqueDuplicateIds.join(', '))
