@@ -194,7 +194,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             process.env.GITHUB_TOKEN?.trim() ||
             (await getSession(req, res).catch(() => null))?.github?.accessToken
           let prFiles: Array<{ filename: string; status: string; additions: number; deletions: number }> = []
-          if (ghToken && prUrl) {
+          if (ghToken && prUrl && /\/pull\/\d+/i.test(prUrl)) {
             const filesResult = await fetchPullRequestFiles(ghToken, prUrl)
             if ('files' in filesResult) prFiles = filesResult.files
             else if ('error' in filesResult) console.warn('[agent-runs] fetch PR files failed:', filesResult.error)

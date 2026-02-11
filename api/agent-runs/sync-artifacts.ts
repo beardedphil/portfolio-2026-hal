@@ -103,7 +103,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         process.env.GITHUB_TOKEN?.trim() ||
         (await getSession(req, res).catch(() => null))?.github?.accessToken
       let prFiles: Array<{ filename: string; status: string; additions: number; deletions: number }> = []
-      if (ghToken && prUrl && prUrl.startsWith('http')) {
+      if (ghToken && prUrl && /\/pull\/\d+/i.test(prUrl)) {
         const filesResult = await fetchPullRequestFiles(ghToken, prUrl)
         if ('files' in filesResult) prFiles = filesResult.files
       }
@@ -119,7 +119,18 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       }
     }
 
-    json(res, 200, { success: true })
+    // Return artifacts we just wrote so the UI can show them without relying on client Supabase read
+    const { data: artifactRows, error: readErr } = await supabase
+      .from('agent_artifacts')
+      .select('artifact_id, ticket_pk, repo_full_name, agent_type, title, body_md, created_at, updated_at')
+      .eq('ticket_pk', ticketPk)
+      .order('created_at', { ascending: false })
+    if (readErr) {
+      console.warn('[agent-runs] sync-artifacts read-back failed:', readErr.message)
+      json(res, 200, { success: true })
+      return
+    }
+    json(res, 200, { success: true, artifacts: artifactRows ?? [] })
   } catch (err) {
     console.error('[agent-runs] sync-artifacts error:', err)
     json(res, 500, { success: false, error: err instanceof Error ? err.message : String(err) })
