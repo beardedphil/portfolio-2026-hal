@@ -1,5 +1,12 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import {
+  KanbanBoard,
+  type KanbanTicketRow,
+  type KanbanColumnRow,
+  type KanbanAgentRunRow,
+} from 'portfolio-2026-kanban'
+import 'portfolio-2026-kanban/style.css'
 
 type Agent = 'project-manager' | 'implementation-agent' | 'qa-agent'
 type ChatTarget = Agent | 'standup'
@@ -244,9 +251,6 @@ const CHAT_OPTIONS: { id: ChatTarget; label: string }[] = [
 // DEBUG: QA option should be visible
 console.log('CHAT_OPTIONS:', CHAT_OPTIONS.map(o => o.label))
 
-/** Kanban iframe URL: use proxy path so HAL dev server (5173) proxies to kanban (5174); trailing slash required for Vite base. */
-const KANBAN_URL = '/kanban-app/'
-
 function formatTime(date: Date): string {
   return date.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
@@ -288,7 +292,6 @@ function App() {
   const [persistenceError, setPersistenceError] = useState<string | null>(null)
   const [openaiLastStatus, setOpenaiLastStatus] = useState<string | null>(null)
   const [openaiLastError, setOpenaiLastError] = useState<string | null>(null)
-  const [kanbanLoaded, setKanbanLoaded] = useState(false)
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const [connectedProject, setConnectedProject] = useState<string | null>(null)
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
@@ -307,12 +310,15 @@ function App() {
   const [githubRepoQuery, setGithubRepoQuery] = useState('')
   const [connectedGithubRepo, setConnectedGithubRepo] = useState<ConnectedGithubRepo | null>(null)
   const [githubConnectError, setGithubConnectError] = useState<string | null>(null)
+  /** Kanban data (HAL owns DB; fetches and passes to KanbanBoard). */
+  const [kanbanTickets, setKanbanTickets] = useState<KanbanTicketRow[]>([])
+  const [kanbanColumns, setKanbanColumns] = useState<KanbanColumnRow[]>([])
+  const [kanbanAgentRunsByTicketPk, setKanbanAgentRunsByTicketPk] = useState<Record<string, KanbanAgentRunRow>>({})
   const [outboundRequestExpanded, setOutboundRequestExpanded] = useState(false)
   const [toolCallsExpanded, setToolCallsExpanded] = useState(false)
   const messageIdRef = useRef(0)
   const pmMaxSequenceRef = useRef(0)
   const transcriptRef = useRef<HTMLDivElement>(null)
-  const kanbanIframeRef = useRef<HTMLIFrameElement>(null)
   const selectedChatTargetRef = useRef<ChatTarget>(selectedChatTarget)
   
   const [unreadByTarget, setUnreadByTarget] = useState<Record<ChatTarget, number>>(() => ({
@@ -549,26 +555,10 @@ function App() {
     const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
     const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
 
-    // Tell Kanban iframe which repo is connected (0079)
-    if (kanbanIframeRef.current?.contentWindow) {
-      kanbanIframeRef.current.contentWindow.postMessage(
-        { type: 'HAL_CONNECT_REPO', repoFullName: repo.full_name },
-        window.location.origin
-      )
-    }
-
     // If Supabase isn't set yet, use Vercel-provided VITE_ env as default (hosted path)
-    if (!supabaseUrl || !supabaseAnonKey) {
-      if (url && key) {
-        setSupabaseUrl(url)
-        setSupabaseAnonKey(key)
-        if (kanbanIframeRef.current?.contentWindow) {
-          kanbanIframeRef.current.contentWindow.postMessage(
-            { type: 'HAL_CONNECT_SUPABASE', url, key },
-            window.location.origin
-          )
-        }
-      }
+    if ((!supabaseUrl || !supabaseAnonKey) && url && key) {
+      setSupabaseUrl(url)
+      setSupabaseAnonKey(key)
     }
 
     // Restore agent status from localStorage (0097: preserve agent status across disconnect/reconnect)
@@ -665,33 +655,6 @@ function App() {
 
     setGithubRepoPickerOpen(false)
   }, [supabaseUrl, supabaseAnonKey])
-
-  // Send theme to Kanban iframe when theme changes or iframe loads (0078)
-  useEffect(() => {
-    if (kanbanLoaded && kanbanIframeRef.current?.contentWindow) {
-      kanbanIframeRef.current.contentWindow.postMessage(
-        { type: 'HAL_THEME_CHANGE', theme },
-        '*'
-      )
-    }
-  }, [theme, kanbanLoaded])
-
-
-
-  // When Kanban iframe loads, push current repo + Supabase so it syncs (iframe may load after user connected)
-  useEffect(() => {
-    if (!kanbanLoaded || !kanbanIframeRef.current?.contentWindow) return
-    const win = kanbanIframeRef.current.contentWindow
-    const origin = window.location.origin
-    const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
-    const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
-    if (url && key) {
-      win.postMessage({ type: 'HAL_CONNECT_SUPABASE', url, key }, origin)
-    }
-    if (connectedGithubRepo?.fullName) {
-      win.postMessage({ type: 'HAL_CONNECT_REPO', repoFullName: connectedGithubRepo.fullName }, origin)
-    }
-  }, [kanbanLoaded, connectedGithubRepo, supabaseUrl, supabaseAnonKey])
 
   // Auto-expand QA and Implementation groups when conversations are restored after reconnect (0097)
   useEffect(() => {
@@ -1325,18 +1288,102 @@ function App() {
     [formatUnassignedCheckMessage, addMessage]
   )
 
-  // When Kanban completes sync, run Unassigned check and post result to PM chat
-  useEffect(() => {
-    const handler = (event: MessageEvent) => {
-      const data = event.data
-      if (data?.type !== 'HAL_SYNC_COMPLETED') return
-      if (supabaseUrl && supabaseAnonKey && connectedProject) {
-        runUnassignedCheck(supabaseUrl, supabaseAnonKey, connectedProject).catch(() => {})
-      }
+  /** Fetch tickets and columns from Supabase (HAL owns data; passes to KanbanBoard). */
+  const fetchKanbanData = useCallback(async () => {
+    const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
+    const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
+    if (!url || !key || !connectedProject) {
+      setKanbanTickets([])
+      setKanbanColumns([])
+      setKanbanAgentRunsByTicketPk({})
+      return
     }
-    window.addEventListener('message', handler)
-    return () => window.removeEventListener('message', handler)
+    try {
+      const supabase = createClient(url, key)
+      const { data: ticketRows } = await supabase
+        .from('tickets')
+        .select('pk, id, repo_full_name, ticket_number, display_id, filename, title, body_md, kanban_column_id, kanban_position, kanban_moved_at, updated_at')
+        .eq('repo_full_name', connectedProject)
+        .order('ticket_number', { ascending: true })
+      const { data: colRows } = await supabase
+        .from('kanban_columns')
+        .select('id, title, position, created_at, updated_at')
+        .order('position', { ascending: true })
+      const { data: runRows } = await supabase
+        .from('hal_agent_runs')
+        .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, status, created_at, updated_at')
+        .eq('repo_full_name', connectedProject)
+
+      setKanbanTickets((ticketRows ?? []) as KanbanTicketRow[])
+      setKanbanColumns((colRows ?? []) as KanbanColumnRow[])
+      const byPk: Record<string, KanbanAgentRunRow> = {}
+      for (const r of (runRows ?? []) as KanbanAgentRunRow[]) {
+        if (r.ticket_pk) byPk[r.ticket_pk] = r
+      }
+      setKanbanAgentRunsByTicketPk(byPk)
+      runUnassignedCheck(url, key, connectedProject).catch(() => {})
+    } catch {
+      setKanbanTickets([])
+      setKanbanColumns([])
+      setKanbanAgentRunsByTicketPk({})
+    }
   }, [supabaseUrl, supabaseAnonKey, connectedProject, runUnassignedCheck])
+
+  useEffect(() => {
+    fetchKanbanData()
+  }, [fetchKanbanData])
+
+  const KANBAN_POLL_MS = 10_000
+  useEffect(() => {
+    if (!connectedProject || !supabaseUrl || !supabaseAnonKey) return
+    const id = setInterval(fetchKanbanData, KANBAN_POLL_MS)
+    return () => clearInterval(id)
+  }, [connectedProject, supabaseUrl, supabaseAnonKey, fetchKanbanData])
+
+  const handleKanbanMoveTicket = useCallback(
+    async (ticketPk: string, columnId: string, position?: number) => {
+      const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
+      const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
+      if (!url || !key) return
+      const supabase = createClient(url, key)
+      await supabase
+        .from('tickets')
+        .update({
+          kanban_column_id: columnId,
+          kanban_position: position ?? 0,
+          kanban_moved_at: new Date().toISOString(),
+        })
+        .eq('pk', ticketPk)
+      await fetchKanbanData()
+    },
+    [supabaseUrl, supabaseAnonKey, fetchKanbanData]
+  )
+
+  const handleKanbanReorderColumn = useCallback(
+    async (_columnId: string, orderedTicketPks: string[]) => {
+      const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
+      const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
+      if (!url || !key) return
+      const supabase = createClient(url, key)
+      for (let i = 0; i < orderedTicketPks.length; i++) {
+        await supabase.from('tickets').update({ kanban_position: i }).eq('pk', orderedTicketPks[i])
+      }
+      await fetchKanbanData()
+    },
+    [supabaseUrl, supabaseAnonKey, fetchKanbanData]
+  )
+
+  const handleKanbanUpdateTicketBody = useCallback(
+    async (ticketPk: string, bodyMd: string) => {
+      const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
+      const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
+      if (!url || !key) return
+      const supabase = createClient(url, key)
+      await supabase.from('tickets').update({ body_md: bodyMd }).eq('pk', ticketPk)
+      await fetchKanbanData()
+    },
+    [supabaseUrl, supabaseAnonKey, fetchKanbanData]
+  )
 
   /** Trigger agent run for a given message and target (used by handleSend and HAL_OPEN_CHAT_AND_SEND) */
   const triggerAgentRun = useCallback(
@@ -1554,16 +1601,7 @@ function App() {
         }
 
         const ticketId = extractTicketId(content)
-        if (ticketId) {
-          setImplAgentTicketId(ticketId)
-          // Notify Kanban iframe about agent assignment (0114)
-          if (kanbanIframeRef.current?.contentWindow) {
-            kanbanIframeRef.current.contentWindow.postMessage(
-              { type: 'HAL_AGENT_ASSIGNMENT', ticketId, agentName: 'Implementation Agent', assigned: true },
-              '*'
-            )
-          }
-        }
+        if (ticketId) setImplAgentTicketId(ticketId)
 
         // Show run start status with ticket ID
         if (ticketId) {
@@ -1678,22 +1716,18 @@ function App() {
                 addProgress('Implementation completed successfully.')
                 addMessage(convId, 'implementation-agent', `**Completion summary**\n\n${full}`)
                 
-                // Notify Kanban iframe to move ticket from Doing to QA (0084)
-                const ticketIdForMove = implAgentTicketId
-                if (ticketIdForMove && kanbanIframeRef.current?.contentWindow) {
-                  kanbanIframeRef.current.contentWindow.postMessage(
-                    { type: 'HAL_TICKET_IMPLEMENTATION_COMPLETE', ticketId: ticketIdForMove },
-                    '*'
-                  )
-                }
-                
                 setImplAgentRunId(null)
-                // Notify Kanban iframe about agent unassignment (0114)
-                if (implAgentTicketId && kanbanIframeRef.current?.contentWindow) {
-                  kanbanIframeRef.current.contentWindow.postMessage(
-                    { type: 'HAL_AGENT_ASSIGNMENT', ticketId: implAgentTicketId, agentName: 'Implementation Agent', assigned: false },
-                    '*'
+                const ticketIdForMove = implAgentTicketId
+                if (ticketIdForMove) {
+                  const ticket = kanbanTickets.find(
+                    (t) =>
+                      (t.display_id ?? String(t.ticket_number ?? t.id).padStart(4, '0')) === ticketIdForMove ||
+                      t.pk === ticketIdForMove
                   )
+                  if (ticket?.kanban_column_id === 'col-doing') {
+                    const qaCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-qa').length
+                    handleKanbanMoveTicket(ticket.pk, 'col-qa', qaCount).catch(() => {})
+                  }
                 }
                 setImplAgentTicketId(null)
                 setCursorRunAgentType(null)
@@ -1731,16 +1765,7 @@ function App() {
         }
 
         const ticketId = extractTicketId(content)
-        if (ticketId) {
-          setQaAgentTicketId(ticketId)
-          // Notify Kanban iframe about agent assignment (0114)
-          if (kanbanIframeRef.current?.contentWindow) {
-            kanbanIframeRef.current.contentWindow.postMessage(
-              { type: 'HAL_AGENT_ASSIGNMENT', ticketId, agentName: 'QA Agent', assigned: true },
-              '*'
-            )
-          }
-        }
+        if (ticketId) setQaAgentTicketId(ticketId)
 
         // Show run start status with ticket ID
         if (ticketId) {
@@ -1853,13 +1878,6 @@ function App() {
                 addProgress('QA completed successfully.')
                 addMessage(convId, 'qa-agent', `**Completion summary**\n\n${summary}`)
                 setQaAgentRunId(null)
-                // Notify Kanban iframe about agent unassignment (0114)
-                if (qaAgentTicketId && kanbanIframeRef.current?.contentWindow) {
-                  kanbanIframeRef.current.contentWindow.postMessage(
-                    { type: 'HAL_AGENT_ASSIGNMENT', ticketId: qaAgentTicketId, agentName: 'QA Agent', assigned: false },
-                    '*'
-                  )
-                }
                 setQaAgentTicketId(null)
                 setCursorRunAgentType(null)
                 setAgentTypingTarget(null)
@@ -1903,50 +1921,36 @@ function App() {
       setCursorRunAgentType,
       setOrphanedCompletionSummary,
       getDefaultConversationId,
+      kanbanTickets,
+      handleKanbanMoveTicket,
     ]
   )
 
   // Track most recent work button click event for diagnostics (0072)
   const [lastWorkButtonClick, setLastWorkButtonClick] = useState<{ eventId: string; timestamp: Date; chatTarget: ChatTarget; message: string } | null>(null)
 
-  // Handle chat open and send message requests from Kanban
-  useEffect(() => {
-    const handler = (event: MessageEvent) => {
-      const data = event.data as { type?: string; chatTarget?: ChatTarget; message?: string }
-      if (data?.type !== 'HAL_OPEN_CHAT_AND_SEND') return
+  /** Kanban work button: open chat and send message. When ticketPk + implementation-agent, move ticket to Doing first. */
+  const handleKanbanOpenChatAndSend = useCallback(
+    async (data: { chatTarget: ChatTarget; message: string; ticketPk?: string }) => {
       if (!data.chatTarget || !data.message) return
-      
-      // Generate unique event ID for this click
       const eventId = `work-btn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
-      setLastWorkButtonClick({
-        eventId,
-        timestamp: new Date(),
-        chatTarget: data.chatTarget,
-        message: data.message,
-      })
-      
-      // Switch to the requested chat target
+      setLastWorkButtonClick({ eventId, timestamp: new Date(), chatTarget: data.chatTarget, message: data.message })
       setSelectedChatTarget(data.chatTarget)
-      
-      // For Implementation and QA agents, create a new conversation instance (0070)
       let conversationId: string | undefined
       if (data.chatTarget === 'implementation-agent' || data.chatTarget === 'qa-agent') {
         conversationId = getOrCreateConversation(data.chatTarget)
         setSelectedConversationId(conversationId)
       } else {
-        // For PM and standup, use default conversation
-        conversationId = getDefaultConversationId(data.chatTarget === 'project-manager' ? 'project-manager' : 'project-manager')
+        conversationId = getDefaultConversationId('project-manager')
       }
-      
-      // Don't add message here - triggerAgentRun handles it appropriately based on DB usage
-      // This prevents duplicate messages (0072)
-      
-      // Trigger the agent run (which will add the message if needed)
+      if (data.ticketPk && data.chatTarget === 'implementation-agent') {
+        const doingCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-doing').length
+        await handleKanbanMoveTicket(data.ticketPk, 'col-doing', doingCount)
+      }
       triggerAgentRun(data.message, data.chatTarget, undefined, conversationId)
-    }
-    window.addEventListener('message', handler)
-    return () => window.removeEventListener('message', handler)
-  }, [triggerAgentRun, getOrCreateConversation, getDefaultConversationId])
+    },
+    [triggerAgentRun, getOrCreateConversation, getDefaultConversationId, kanbanTickets, handleKanbanMoveTicket]
+  )
 
   const handleImageSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -2081,45 +2085,15 @@ function App() {
     }
   }, [handleSend])
 
-  const handleIframeLoad = useCallback(() => {
-    setKanbanLoaded(true)
-    setLastError(null)
-    // Send current theme to Kanban iframe immediately on load (0078)
-    if (kanbanIframeRef.current?.contentWindow) {
-      kanbanIframeRef.current.contentWindow.postMessage(
-        { type: 'HAL_THEME_CHANGE', theme },
-        '*'
-      )
-    }
-  }, [theme])
-
-  const handleIframeError = useCallback(() => {
-    setKanbanLoaded(false)
-    setLastError('Failed to load kanban board. Run "npm run dev" from the repo root to start HAL and Kanban together.')
-  }, [])
-
-  // If iframe does not load within 8s, show error (proxy target 5174 may not be running)
-  useEffect(() => {
-    if (kanbanLoaded) return
-    const t = window.setTimeout(() => {
-      setLastError((prev) =>
-        prev ? prev : 'Kanban did not load. Run "npm run dev" from the repo root to start both HAL and Kanban.'
-      )
-    }, 8000)
-    return () => window.clearTimeout(t)
-  }, [kanbanLoaded])
-
   const handleThemeToggle = useCallback(() => {
     setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))
   }, [])
 
   const handleDisconnect = useCallback(() => {
-    if (kanbanIframeRef.current?.contentWindow) {
-      kanbanIframeRef.current.contentWindow.postMessage(
-        { type: 'HAL_DISCONNECT' },
-        window.location.origin
-      )
-    }
+    setKanbanTickets([])
+    setKanbanColumns([])
+    setKanbanAgentRunsByTicketPk({})
+    setLastError(null)
     // Clear conversations from state (UI will show placeholder), but keep in localStorage for reconnect (0097)
     setConversations(getEmptyConversations())
     messageIdRef.current = 0
@@ -2162,15 +2136,15 @@ function App() {
   })()
 
   const diagnostics: DiagnosticsInfo = {
-    kanbanRenderMode: 'iframe (fallback)',
+    kanbanRenderMode: 'library',
     selectedChatTarget,
     pmImplementationSource: selectedChatTarget === 'project-manager' ? 'hal-agents' : 'inline',
     lastAgentError,
     lastError,
     openaiLastStatus,
     openaiLastError,
-    kanbanLoaded,
-    kanbanUrl: KANBAN_URL,
+    kanbanLoaded: true,
+    kanbanUrl: 'library',
     connectedProject,
     lastPmOutboundRequest,
     lastPmToolCalls,
@@ -2644,25 +2618,21 @@ function App() {
               </>
             )}
           </div>
-          {/* Kanban iframe (0096: always mounted to prevent empty board after closing chat) */}
+          {/* Kanban board (HAL owns data; passes tickets/columns and callbacks) */}
           <div className={`kanban-frame-container ${openChatTarget ? 'kanban-frame-hidden' : 'kanban-frame-visible'}`}>
-            <iframe
-              ref={kanbanIframeRef}
-              src={KANBAN_URL}
-              title="Kanban Board"
-              className="kanban-iframe"
-              onLoad={handleIframeLoad}
-              onError={handleIframeError}
+            <KanbanBoard
+              tickets={kanbanTickets}
+              columns={kanbanColumns}
+              agentRunsByTicketPk={kanbanAgentRunsByTicketPk}
+              repoFullName={connectedProject ?? null}
+              theme={theme}
+              onMoveTicket={handleKanbanMoveTicket}
+              onReorderColumn={handleKanbanReorderColumn}
+              onUpdateTicketBody={handleKanbanUpdateTicketBody}
+              onOpenChatAndSend={handleKanbanOpenChatAndSend}
+              implementationAgentTicketId={implAgentTicketId}
+              qaAgentTicketId={qaAgentTicketId}
             />
-            {!kanbanLoaded && (
-              <div className="kanban-loading-overlay">
-                <p>Loading kanban board...</p>
-                <p className="kanban-hint">
-                  Run <code>npm run dev</code> from the repo root to start HAL and Kanban together.
-                </p>
-                {lastError && <p className="kanban-hint">{lastError}</p>}
-              </div>
-            )}
           </div>
         </section>
 

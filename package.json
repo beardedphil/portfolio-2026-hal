@@ -5,12 +5,10 @@
   "type": "module",
   "scripts": {
     "predev": "node scripts/check-main-branch.js",
-    "dev": "concurrently -n hal,kanban -c blue,yellow \"npm run dev:hal\" \"npm run dev:kanban\"",
+    "dev": "npm run dev:hal",
     "dev:hal": "npm run build:agents && vite --port 5173 --strictPort",
-    "build:agents": "npm run build --prefix projects/hal-agents",
+    "build:agents": "npm run build --prefix node_modules/portfolio-2026-hal-agents",
     "build:hal": "tsc -b && vite build",
-    "build:kanban": "npm --prefix projects/kanban run build",
-    "dev:kanban": "npm --prefix projects/kanban run dev -- --port 5174 --strictPort",
     "build": "node scripts/build-vercel.js",
     "preview": "vite preview",
     "sync-tickets": "node scripts/sync-tickets.js",
@@ -27,10 +25,11 @@
     "ai": "^4.3.0",
     "dotenv": "^17.2.4",
     "iron-session": "^8.0.4",
-    "portfolio-2026-hal-agents": "file:projects/hal-agents",
+    "portfolio-2026-hal-agents": "file:../portfolio-2026-hal-agents",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-markdown": "^10.1.0"
+    "react-markdown": "^10.1.0",
+    "portfolio-2026-kanban": "file:../portfolio-2026-basic-kanban"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",

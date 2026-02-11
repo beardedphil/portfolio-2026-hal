@@ -1,16 +1,14 @@
 /**
  * Vercel build helper:
- * - Build hal-agents (so serverless imports can load dist)
+ * - Build hal-agents package (linked via file:../portfolio-2026-hal-agents) so serverless can load dist
  * - Build HAL (root Vite app) into dist/
- * - Build Kanban (projects/kanban) and copy into dist/kanban-app/
+ * Kanban is embedded as library (portfolio-2026-kanban); no separate Kanban app build.
  */
 
 import { spawnSync } from 'child_process'
-import fs from 'fs'
 import path from 'path'
 
 function run(cmd, args, opts = {}) {
-  // IMPORTANT: do not use `shell: true` on Windows here; it breaks paths with spaces.
   const r = spawnSync(cmd, args, { stdio: 'inherit', shell: false, ...opts })
   if (r.error) {
     throw new Error(`Command error: ${cmd} ${args.join(' ')} — ${r.error.message}`)
@@ -28,10 +26,6 @@ function runNpm(args, opts = {}) {
   run(process.execPath, [npmExecPath, ...args], opts)
 }
 
-function rmIfExists(p) {
-  if (fs.existsSync(p)) fs.rmSync(p, { recursive: true, force: true })
-}
-
 function main() {
   const repoRoot = process.cwd()
 
@@ -39,15 +33,6 @@ function main() {
   runNpm(['run', 'build:agents'], { cwd: repoRoot })
   console.log('[build-vercel] build:hal')
   runNpm(['run', 'build:hal'], { cwd: repoRoot })
-  console.log('[build-vercel] build:kanban')
-  runNpm(['run', 'build:kanban'], { cwd: repoRoot })
-
-  const from = path.join(repoRoot, 'projects', 'kanban', 'dist')
-  const to = path.join(repoRoot, 'dist', 'kanban-app')
-  rmIfExists(to)
-  fs.mkdirSync(path.dirname(to), { recursive: true })
-  fs.cpSync(from, to, { recursive: true })
-  console.log('[build-vercel] copied kanban dist -> dist/kanban-app')
 }
 
 main()

@@ -164,7 +164,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       | null = null
 
     try {
-      const runnerDistPath = path.resolve(repoRoot, 'projects/hal-agents/dist/agents/runner.js')
+      const runnerDistPath = path.resolve(repoRoot, 'node_modules/portfolio-2026-hal-agents/dist/agents/runner.js')
       runnerModule = await import(pathToFileURL(runnerDistPath).href)
     } catch {
       // If dist isn't present, we'll fall through and return stub.

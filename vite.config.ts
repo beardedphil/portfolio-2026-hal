@@ -103,7 +103,7 @@ export default defineConfig({
       configureServer() {
         // Pre-build hal-agents at dev server start so first /api/pm/check-unassigned is fast (avoids "Failed to fetch" from long build)
         const repoRoot = path.resolve(__dirname)
-        spawn('npm', ['run', 'build', '--prefix', path.join(repoRoot, 'projects/hal-agents')], {
+        spawn('npm', ['run', 'build', '--prefix', path.join(repoRoot, 'node_modules/portfolio-2026-hal-agents')], {
           cwd: repoRoot,
           stdio: ['ignore', 'ignore', 'ignore'],
         }).on('error', () => {})
@@ -215,7 +215,7 @@ export default defineConfig({
 
             // Import shared runner (and summarizeForContext) from hal-agents built dist (0043)
             let runnerModule: { getSharedRunner?: () => { label: string; run: (msg: string, config: object) => Promise<object> }; summarizeForContext?: (msgs: unknown[], key: string, model: string) => Promise<string> } | null = null
-            const runnerDistPath = path.resolve(__dirname, 'projects/hal-agents/dist/agents/runner.js')
+            const runnerDistPath = path.resolve(__dirname, 'node_modules/portfolio-2026-hal-agents/dist/agents/runner.js')
             try {
               runnerModule = await import(pathToFileURL(runnerDistPath).href)
             } catch (err) {
@@ -1604,7 +1604,7 @@ export default defineConfig({
             }
 
             const repoRoot = path.resolve(__dirname)
-            const distPath = path.resolve(repoRoot, 'projects/hal-agents/dist/agents/projectManager.js')
+            const distPath = path.resolve(repoRoot, 'node_modules/portfolio-2026-hal-agents/dist/agents/projectManager.js')
 
             let pmModule: { checkUnassignedTickets?: (url: string, key: string) => Promise<unknown> } | null = null
             try {
@@ -1613,7 +1613,7 @@ export default defineConfig({
               // Build may be missing; try building hal-agents once then re-import
               try {
                 await new Promise<void>((resolve, reject) => {
-                  const child = spawn('npm', ['run', 'build', '--prefix', path.join(repoRoot, 'projects/hal-agents')], {
+                  const child = spawn('npm', ['run', 'build', '--prefix', path.join(repoRoot, 'node_modules/portfolio-2026-hal-agents')], {
                     cwd: repoRoot,
                     stdio: ['ignore', 'pipe', 'pipe'],
                   })
@@ -1636,7 +1636,7 @@ export default defineConfig({
             if (!checkUnassignedTickets && pmModule !== undefined) {
               try {
                 await new Promise<void>((resolve, reject) => {
-                  const child = spawn('npm', ['run', 'build', '--prefix', path.join(repoRoot, 'projects/hal-agents')], {
+                  const child = spawn('npm', ['run', 'build', '--prefix', path.join(repoRoot, 'node_modules/portfolio-2026-hal-agents')], {
                     cwd: repoRoot,
                     stdio: ['ignore', 'pipe', 'pipe'],
                   })
@@ -1661,7 +1661,7 @@ export default defineConfig({
                 JSON.stringify({
                   moved: [],
                   notReady: [],
-                  error: 'checkUnassignedTickets not available (hal-agents build may be missing or outdated). Run: npm run build --prefix projects/hal-agents',
+                  error: 'checkUnassignedTickets not available (hal-agents build may be missing or outdated). Run: npm run build:agents',
                 })
               )
               return
@@ -1913,18 +1913,13 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '@hal-agents': path.resolve(__dirname, 'projects/hal-agents/src'),
+      '@hal-agents': path.resolve(__dirname, 'node_modules/portfolio-2026-hal-agents/src'),
     },
   },
   server: {
     port: 5173,
     strictPort: true,
-    proxy: {
-      // Forward /kanban-app to kanban dev server (5174); kanban runs with base '/kanban-app/'
-      '/kanban-app': {
-        target: 'http://localhost:5174',
-        changeOrigin: true,
-      },
-    },
+    // Kanban is embedded as library; no standalone dev server proxy.
+    proxy: {},
   },
 })
