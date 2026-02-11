@@ -1,12 +1,12 @@
 /**
  * Vercel build helper:
- * - Build hal-agents package (linked via file:../portfolio-2026-hal-agents) so serverless can load dist
+ * - Install deps (portfolio-2026-hal-agents and portfolio-2026-kanban from GitHub)
+ * - Build hal-agents so serverless can load dist
+ * - Build Kanban library (dist-kanban-lib) so HAL can import it
  * - Build HAL (root Vite app) into dist/
- * Kanban is embedded as library (portfolio-2026-kanban); no separate Kanban app build.
  */
 
 import { spawnSync } from 'child_process'
-import path from 'path'
 
 function run(cmd, args, opts = {}) {
   const r = spawnSync(cmd, args, { stdio: 'inherit', shell: false, ...opts })
@@ -31,6 +31,8 @@ function main() {
 
   console.log('[build-vercel] build:agents')
   runNpm(['run', 'build:agents'], { cwd: repoRoot })
+  console.log('[build-vercel] build:kanban')
+  runNpm(['run', 'build:kanban'], { cwd: repoRoot })
   console.log('[build-vercel] build:hal')
   runNpm(['run', 'build:hal'], { cwd: repoRoot })
 }

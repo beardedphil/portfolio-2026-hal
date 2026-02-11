@@ -8,6 +8,7 @@
     "dev": "npm run dev:hal",
     "dev:hal": "npm run build:agents && vite --port 5173 --strictPort",
     "build:agents": "npm run build --prefix node_modules/portfolio-2026-hal-agents",
+    "build:kanban": "npm run build:lib --prefix node_modules/portfolio-2026-kanban",
     "build:hal": "tsc -b && vite build",
     "build": "node scripts/build-vercel.js",
     "preview": "vite preview",
@@ -25,11 +26,11 @@
     "ai": "^4.3.0",
     "dotenv": "^17.2.4",
     "iron-session": "^8.0.4",
-    "portfolio-2026-hal-agents": "file:../portfolio-2026-hal-agents",
+    "portfolio-2026-hal-agents": "github:beardedphil/portfolio-2026-hal-agents#main",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",
-    "portfolio-2026-kanban": "file:../portfolio-2026-basic-kanban"
+    "portfolio-2026-kanban": "github:beardedphil/portfolio-2026-basic-kanban#main"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",
