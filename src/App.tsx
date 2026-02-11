@@ -2668,6 +2668,8 @@ function App() {
               onOpenChatAndSend={handleKanbanOpenChatAndSend}
               implementationAgentTicketId={implAgentTicketId}
               qaAgentTicketId={qaAgentTicketId}
+              supabaseUrl={(supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()) ?? undefined}
+              supabaseAnonKey={(supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()) ?? undefined}
             />
           </div>
         </section>

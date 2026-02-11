@@ -120,7 +120,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
-    let statusData: { status?: string; summary?: string; target?: { prUrl?: string } }
+    let statusData: { status?: string; summary?: string; target?: { prUrl?: string; pr_url?: string } }
     try {
       statusData = JSON.parse(statusText) as typeof statusData
     } catch {
@@ -144,7 +144,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     if (cursorStatus === 'FINISHED') {
       nextStatus = 'finished'
       summary = statusData.summary ?? 'Completed.'
-      prUrl = statusData.target?.prUrl ?? prUrl
+      prUrl = statusData.target?.prUrl ?? statusData.target?.pr_url ?? prUrl
+      if (!prUrl) console.warn('[agent-runs] FINISHED but no prUrl in Cursor response. target=', JSON.stringify(statusData.target))
       finishedAt = new Date().toISOString()
     } else if (cursorStatus === 'FAILED' || cursorStatus === 'CANCELLED' || cursorStatus === 'ERROR') {
       nextStatus = 'failed'
@@ -189,6 +190,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             const filesResult = await fetchPullRequestFiles(ghToken, prUrl)
             if ('files' in filesResult) prFiles = filesResult.files
             else if ('error' in filesResult) console.warn('[agent-runs] fetch PR files failed:', filesResult.error)
+          } else if (!prUrl) {
+            console.warn('[agent-runs] No prUrl available; artifacts will have empty changed-files')
           }
           const artifacts = generateImplementationArtifacts(
             displayId,
@@ -212,7 +215,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
                 title: a.title,
                 body_md: a.body_md,
               })
-              if (insErr) console.error('[agent-runs] artifact insert failed:', insErr.message)
+              if (insErr) console.error('[agent-runs] artifact insert failed:', a.title, insErr.message)
               else insertedArtifacts = true
             }
           }
