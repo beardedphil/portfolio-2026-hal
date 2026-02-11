@@ -1308,14 +1308,36 @@ function App() {
       const { data: colRows } = await supabase
         .from('kanban_columns')
         .select('id, title, position, created_at, updated_at')
-        .order('position', { ascending: true })
       const { data: runRows } = await supabase
         .from('hal_agent_runs')
         .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, status, created_at, updated_at')
         .eq('repo_full_name', connectedProject)
 
       setKanbanTickets((ticketRows ?? []) as KanbanTicketRow[])
-      setKanbanColumns((colRows ?? []) as KanbanColumnRow[])
+      const canonicalColumnOrder = [
+        'col-unassigned',
+        'col-todo',
+        'col-doing',
+        'col-qa',
+        'col-human-in-the-loop',
+        'col-process-review',
+        'col-done',
+        'col-wont-implement',
+      ] as const
+      const columns = (colRows ?? []) as KanbanColumnRow[]
+      const order = canonicalColumnOrder as unknown as string[]
+      const sorted = [...columns].sort((a, b) => {
+        const ia = order.indexOf(a.id)
+        const ib = order.indexOf(b.id)
+        if (ia === -1 && ib === -1) return 0
+        if (ia === -1) return 1
+        if (ib === -1) return -1
+        return ia - ib
+      })
+      const withTitles = sorted.map((c) =>
+        c.id === 'col-qa' ? { ...c, title: 'Ready for QA' } : c
+      )
+      setKanbanColumns(withTitles)
       const byPk: Record<string, KanbanAgentRunRow> = {}
       for (const r of (runRows ?? []) as KanbanAgentRunRow[]) {
         if (r.ticket_pk) byPk[r.ticket_pk] = r
