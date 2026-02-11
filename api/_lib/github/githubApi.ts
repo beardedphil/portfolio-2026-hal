@@ -224,45 +224,102 @@ export async function fetchFileContents(
   }
 }
 
-/** Required implementation audit artifacts (excluding qa-report). */
-export const IMPLEMENTATION_ARTIFACT_FILES = [
-  { name: 'plan.md', title: 'Plan' },
-  { name: 'worklog.md', title: 'Worklog' },
-  { name: 'changed-files.md', title: 'Changed Files' },
-  { name: 'decisions.md', title: 'Decisions' },
-  { name: 'verification.md', title: 'Verification' },
-  { name: 'pm-review.md', title: 'PM Review' },
-] as const
+export type PrFile = { filename: string; status: string; additions: number; deletions: number }
 
-/** Fetch implementation artifacts from a branch. Returns map of artifact title -> content. */
-export async function fetchImplementationArtifactsFromBranch(
+/** Fetch PR files from GitHub. prUrl e.g. https://github.com/owner/repo/pull/123 */
+export async function fetchPullRequestFiles(
   token: string,
-  repoFullName: string,
-  branch: string,
-  displayId: string
-): Promise<{ artifacts: Array<{ title: string; body_md: string }> } | { error: string }> {
-  const [owner, repo] = repoFullName.split('/')
-  if (!owner || !repo) return { error: 'Invalid repo: expected owner/repo' }
-
-  const listResult = await listDirectoryContents(token, repoFullName, 'docs/audit', branch)
-  if ('error' in listResult) return listResult
-
-  const normalized = String(displayId).padStart(4, '0')
-  const auditFolder = listResult.entries.find((e) => e.startsWith(`${normalized}-`))
-  if (!auditFolder) return { error: `No audit folder found for ticket ${normalized}` }
-
-  const artifacts: Array<{ title: string; body_md: string }> = []
-  for (const file of IMPLEMENTATION_ARTIFACT_FILES) {
-    const path = `docs/audit/${auditFolder}/${file.name}`
-    const result = await fetchFileContents(token, repoFullName, path, 10000, branch)
-    if ('content' in result) {
-      artifacts.push({
-        title: `${file.title} for ticket ${displayId}`,
-        body_md: result.content,
-      })
-    }
+  prUrl: string
+): Promise<{ files: PrFile[] } | { error: string }> {
+  try {
+    const m = prUrl.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/i)
+    if (!m) return { error: 'Invalid PR URL' }
+    const [, owner, repo, pullNumber] = m
+    const url = `https://api.github.com/repos/${owner}/${repo}/pulls/${pullNumber}/files`
+    const data = await githubFetch<PrFile[]>(token, url, { method: 'GET' })
+    return { files: Array.isArray(data) ? data : [] }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) }
   }
-  return { artifacts }
+}
+
+/** Generate the 6 implementation artifacts from PR data and Cursor summary. Stored in Supabase only. */
+export function generateImplementationArtifacts(
+  displayId: string,
+  summary: string,
+  prUrl: string,
+  prFiles: PrFile[]
+): Array<{ title: string; body_md: string }> {
+  const modified = prFiles.filter((f) => f.status === 'modified' || f.status === 'added')
+  const changedFilesBody =
+    modified.length > 0
+      ? [
+          '## Modified',
+          '',
+          ...modified.map(
+            (f) =>
+              `- \`${f.filename}\`\n  - ${f.status === 'added' ? 'Added' : 'Modified'} (+${f.additions} −${f.deletions})`
+          ),
+        ].join('\n')
+      : '## Modified\n\n(No files changed in this PR)'
+
+  const planBody = [
+    `# Plan: ${displayId}`,
+    '',
+    '## Summary',
+    summary || '(No summary provided)',
+    '',
+    '## Approach',
+    'Implementation delivered via Cursor Cloud Agent.',
+    '',
+    prUrl ? `**Pull request:** ${prUrl}` : '',
+  ].join('\n')
+
+  const worklogBody = [
+    `# Worklog: ${displayId}`,
+    '',
+    '## Session',
+    `- Implementation completed by Cursor Cloud Agent`,
+    `- Summary: ${summary || '(none)'}`,
+    '',
+    prUrl ? `- Pull request: ${prUrl}` : '',
+  ].join('\n')
+
+  const decisionsBody = [
+    `# Decisions: ${displayId}`,
+    '',
+    '## Implementation',
+    'Implementation delivered by Cursor Cloud Agent. Key decisions reflected in code changes.',
+  ].join('\n')
+
+  const verificationBody = [
+    `# Verification: ${displayId}`,
+    '',
+    '## Code Review',
+    '- [ ] Review changed files',
+    '- [ ] Verify acceptance criteria met',
+    '',
+    '## Changed Files',
+    modified.length > 0 ? modified.map((f) => `- \`${f.filename}\` (+${f.additions} −${f.deletions})`).join('\n') : '(none)',
+  ].join('\n')
+
+  const pmReviewBody = [
+    `# PM Review: ${displayId}`,
+    '',
+    '## Summary',
+    summary || 'Implementation completed.',
+    '',
+    prUrl ? `**Pull request:** ${prUrl}` : '',
+  ].join('\n')
+
+  return [
+    { title: `Plan for ticket ${displayId}`, body_md: planBody },
+    { title: `Worklog for ticket ${displayId}`, body_md: worklogBody },
+    { title: `Changed Files for ticket ${displayId}`, body_md: changedFilesBody },
+    { title: `Decisions for ticket ${displayId}`, body_md: decisionsBody },
+    { title: `Verification for ticket ${displayId}`, body_md: verificationBody },
+    { title: `PM Review for ticket ${displayId}`, body_md: pmReviewBody },
+  ]
 }
 
 export type CodeSearchMatch = { path: string; line: number; text: string }

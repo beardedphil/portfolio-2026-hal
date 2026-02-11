@@ -1,7 +1,10 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { createClient } from '@supabase/supabase-js'
 import { getSession } from '../_lib/github/session.js'
-import { fetchImplementationArtifactsFromBranch } from '../_lib/github/githubApi.js'
+import {
+  fetchPullRequestFiles,
+  generateImplementationArtifacts,
+} from '../_lib/github/githubApi.js'
 
 type AgentType = 'implementation' | 'qa'
 
@@ -175,42 +178,50 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           // ignore
         }
         // Insert implementation artifacts (plan, worklog, changed-files, decisions, verification, pm-review)
+        // Generated from PR data and Cursor summary; stored in Supabase only (no repo docs/audit)
+        let insertedArtifacts = false
         try {
-          const session = await getSession(req, res)
-          const ghToken = session.github?.accessToken
-          const branch = `ticket/${String(displayId).padStart(4, '0')}-implementation`
-          let insertedFromBranch = false
-          if (ghToken) {
-            const fetched = await fetchImplementationArtifactsFromBranch(
-              ghToken,
-              repoFullName,
-              branch,
-              displayId
-            )
-            if ('artifacts' in fetched && fetched.artifacts.length > 0) {
-              insertedFromBranch = true
-              for (const a of fetched.artifacts) {
-                const { data: existing } = await supabase
-                  .from('agent_artifacts')
-                  .select('artifact_id')
-                  .eq('ticket_pk', ticketPk)
-                  .eq('agent_type', 'implementation')
-                  .eq('title', a.title)
-                  .maybeSingle()
-                if (!existing) {
-                  await supabase.from('agent_artifacts').insert({
-                    ticket_pk: ticketPk,
-                    repo_full_name: repoFullName,
-                    agent_type: 'implementation',
-                    title: a.title,
-                    body_md: a.body_md,
-                  })
-                }
-              }
+          const ghToken =
+            process.env.GITHUB_TOKEN?.trim() ||
+            (await getSession(req, res).catch(() => null))?.github?.accessToken
+          let prFiles: Array<{ filename: string; status: string; additions: number; deletions: number }> = []
+          if (ghToken && prUrl) {
+            const filesResult = await fetchPullRequestFiles(ghToken, prUrl)
+            if ('files' in filesResult) prFiles = filesResult.files
+            else if ('error' in filesResult) console.warn('[agent-runs] fetch PR files failed:', filesResult.error)
+          }
+          const artifacts = generateImplementationArtifacts(
+            displayId,
+            summary ?? '',
+            prUrl ?? '',
+            prFiles
+          )
+          for (const a of artifacts) {
+            const { data: existing } = await supabase
+              .from('agent_artifacts')
+              .select('artifact_id')
+              .eq('ticket_pk', ticketPk)
+              .eq('agent_type', 'implementation')
+              .eq('title', a.title)
+              .maybeSingle()
+            if (!existing) {
+              const { error: insErr } = await supabase.from('agent_artifacts').insert({
+                ticket_pk: ticketPk,
+                repo_full_name: repoFullName,
+                agent_type: 'implementation',
+                title: a.title,
+                body_md: a.body_md,
+              })
+              if (insErr) console.error('[agent-runs] artifact insert failed:', insErr.message)
+              else insertedArtifacts = true
             }
           }
-          // Fallback: if no GitHub token or artifacts not found, insert summary report
-          if (!insertedFromBranch) {
+        } catch (e) {
+          console.warn('[agent-runs] artifact generation error:', e instanceof Error ? e.message : e)
+        }
+        // Fallback: if no artifacts were inserted (e.g. Supabase error), insert minimal summary
+        if (!insertedArtifacts) {
+          try {
             const artifactTitle = `Implementation report for ticket ${displayId}`
             const { data: existing } = await supabase
               .from('agent_artifacts')
@@ -220,20 +231,21 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
               .eq('title', artifactTitle)
               .maybeSingle()
             if (!existing) {
-              let artifactBody = summary ?? 'Implementation completed.'
-              if (prUrl) artifactBody += `\n\nPull request: ${prUrl}`
-              artifactBody += `\n\nTicket ${displayId} implementation completed and moved to QA.`
-              await supabase.from('agent_artifacts').insert({
+              let body = summary ?? 'Implementation completed.'
+              if (prUrl) body += `\n\nPull request: ${prUrl}`
+              body += `\n\nTicket ${displayId} implementation completed and moved to QA.`
+              const { error: insErr } = await supabase.from('agent_artifacts').insert({
                 ticket_pk: ticketPk,
                 repo_full_name: repoFullName,
                 agent_type: 'implementation',
                 title: artifactTitle,
-                body_md: artifactBody,
+                body_md: body,
               })
+              if (insErr) console.error('[agent-runs] fallback artifact insert failed:', insErr.message)
             }
+          } catch (e) {
+            console.error('[agent-runs] fallback artifact insert error:', e instanceof Error ? e.message : e)
           }
-        } catch {
-          // ignore
         }
       }
     }
