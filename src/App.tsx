@@ -1711,7 +1711,9 @@ function App() {
             addProgress(`Run launched. Polling status (runId: ${launchData.runId.slice(0, 8)}...)`)
 
             const poll = async () => {
-              const r = await fetch(`/api/agent-runs/status?runId=${encodeURIComponent(launchData.runId!)}`)
+              const r = await fetch(`/api/agent-runs/status?runId=${encodeURIComponent(launchData.runId!)}`, {
+                credentials: 'include',
+              })
               const implStatusText = await r.text()
               let data: { status?: string; cursor_status?: string; error?: string; summary?: string; pr_url?: string }
               try {
@@ -1877,7 +1879,9 @@ function App() {
             addProgress(`Run launched. Polling status (runId: ${launchData.runId.slice(0, 8)}...)`)
 
             const poll = async () => {
-              const r = await fetch(`/api/agent-runs/status?runId=${encodeURIComponent(launchData.runId!)}`)
+              const r = await fetch(`/api/agent-runs/status?runId=${encodeURIComponent(launchData.runId!)}`, {
+                credentials: 'include',
+              })
               const text = await r.text()
               let data: { status?: string; cursor_status?: string; error?: string; summary?: string }
               try {

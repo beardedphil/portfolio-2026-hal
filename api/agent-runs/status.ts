@@ -1,5 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { createClient } from '@supabase/supabase-js'
+import { getSession } from '../_lib/github/session.js'
+import { fetchImplementationArtifactsFromBranch } from '../_lib/github/githubApi.js'
 
 type AgentType = 'implementation' | 'qa'
 
@@ -149,10 +151,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const progress = appendProgress((run as any).progress, `Status: ${cursorStatus}`)
 
-    // If finished and Implementation: move ticket to QA (best-effort)
+    // If finished and Implementation: move ticket to QA and insert artifact (best-effort)
     if (nextStatus === 'finished' && ((run as any).agent_type as AgentType) === 'implementation') {
       const repoFullName = (run as any).repo_full_name as string
       const ticketPk = (run as any).ticket_pk as string | null
+      const displayId = (run as any).display_id as string ?? ''
       if (repoFullName && ticketPk) {
         try {
           const { data: inColumn } = await supabase
@@ -168,6 +171,67 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             .from('tickets')
             .update({ kanban_column_id: 'col-qa', kanban_position: nextPosition, kanban_moved_at: movedAt })
             .eq('pk', ticketPk)
+        } catch {
+          // ignore
+        }
+        // Insert implementation artifacts (plan, worklog, changed-files, decisions, verification, pm-review)
+        try {
+          const session = await getSession(req, res)
+          const ghToken = session.github?.accessToken
+          const branch = `ticket/${String(displayId).padStart(4, '0')}-implementation`
+          let insertedFromBranch = false
+          if (ghToken) {
+            const fetched = await fetchImplementationArtifactsFromBranch(
+              ghToken,
+              repoFullName,
+              branch,
+              displayId
+            )
+            if ('artifacts' in fetched && fetched.artifacts.length > 0) {
+              insertedFromBranch = true
+              for (const a of fetched.artifacts) {
+                const { data: existing } = await supabase
+                  .from('agent_artifacts')
+                  .select('artifact_id')
+                  .eq('ticket_pk', ticketPk)
+                  .eq('agent_type', 'implementation')
+                  .eq('title', a.title)
+                  .maybeSingle()
+                if (!existing) {
+                  await supabase.from('agent_artifacts').insert({
+                    ticket_pk: ticketPk,
+                    repo_full_name: repoFullName,
+                    agent_type: 'implementation',
+                    title: a.title,
+                    body_md: a.body_md,
+                  })
+                }
+              }
+            }
+          }
+          // Fallback: if no GitHub token or artifacts not found, insert summary report
+          if (!insertedFromBranch) {
+            const artifactTitle = `Implementation report for ticket ${displayId}`
+            const { data: existing } = await supabase
+              .from('agent_artifacts')
+              .select('artifact_id')
+              .eq('ticket_pk', ticketPk)
+              .eq('agent_type', 'implementation')
+              .eq('title', artifactTitle)
+              .maybeSingle()
+            if (!existing) {
+              let artifactBody = summary ?? 'Implementation completed.'
+              if (prUrl) artifactBody += `\n\nPull request: ${prUrl}`
+              artifactBody += `\n\nTicket ${displayId} implementation completed and moved to QA.`
+              await supabase.from('agent_artifacts').insert({
+                ticket_pk: ticketPk,
+                repo_full_name: repoFullName,
+                agent_type: 'implementation',
+                title: artifactTitle,
+                body_md: artifactBody,
+              })
+            }
+          }
         } catch {
           // ignore
         }

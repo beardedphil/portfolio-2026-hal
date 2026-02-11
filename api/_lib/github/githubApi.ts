@@ -140,21 +140,22 @@ export async function ensureInitialCommit(
   }
 }
 
-/** List directory contents in a repo. Uses default branch. Returns format matching listDirectory tool. */
+/** List directory contents in a repo. Uses default branch unless ref is provided. */
 export async function listDirectoryContents(
   token: string,
   repoFullName: string,
-  path: string
+  path: string,
+  ref?: string
 ): Promise<{ entries: string[] } | { error: string }> {
   try {
     const [owner, repo] = repoFullName.split('/')
     if (!owner || !repo) {
       return { error: 'Invalid repo: expected owner/repo' }
     }
-    // GitHub Contents API: empty path or path ending with / lists directory
     const apiPath = path === '' || path === '.' ? '' : path.endsWith('/') ? path : `${path}`
-    const url = `https://api.github.com/repos/${owner}/${repo}/contents/${apiPath}`
-    const res = await fetch(url, {
+    const url = new URL(`https://api.github.com/repos/${owner}/${repo}/contents/${apiPath}`)
+    if (ref) url.searchParams.set('ref', ref)
+    const res = await fetch(url.toString(), {
       method: 'GET',
       headers: {
         Accept: 'application/vnd.github+json',
@@ -182,20 +183,22 @@ export async function listDirectoryContents(
   }
 }
 
-/** Fetch raw file contents from a repo. Uses default branch. */
+/** Fetch raw file contents from a repo. Uses default branch unless ref is provided. */
 export async function fetchFileContents(
   token: string,
   repoFullName: string,
   path: string,
-  maxLines = 500
+  maxLines = 500,
+  ref?: string
 ): Promise<{ content: string } | { error: string }> {
   try {
     const [owner, repo] = repoFullName.split('/')
     if (!owner || !repo) {
       return { error: 'Invalid repo: expected owner/repo' }
     }
-    const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`
-    const res = await fetch(url, {
+    const url = new URL(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`)
+    if (ref) url.searchParams.set('ref', ref)
+    const res = await fetch(url.toString(), {
       method: 'GET',
       headers: {
         Accept: 'application/vnd.github.raw',
@@ -219,6 +222,47 @@ export async function fetchFileContents(
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) }
   }
+}
+
+/** Required implementation audit artifacts (excluding qa-report). */
+export const IMPLEMENTATION_ARTIFACT_FILES = [
+  { name: 'plan.md', title: 'Plan' },
+  { name: 'worklog.md', title: 'Worklog' },
+  { name: 'changed-files.md', title: 'Changed Files' },
+  { name: 'decisions.md', title: 'Decisions' },
+  { name: 'verification.md', title: 'Verification' },
+  { name: 'pm-review.md', title: 'PM Review' },
+] as const
+
+/** Fetch implementation artifacts from a branch. Returns map of artifact title -> content. */
+export async function fetchImplementationArtifactsFromBranch(
+  token: string,
+  repoFullName: string,
+  branch: string,
+  displayId: string
+): Promise<{ artifacts: Array<{ title: string; body_md: string }> } | { error: string }> {
+  const [owner, repo] = repoFullName.split('/')
+  if (!owner || !repo) return { error: 'Invalid repo: expected owner/repo' }
+
+  const listResult = await listDirectoryContents(token, repoFullName, 'docs/audit', branch)
+  if ('error' in listResult) return listResult
+
+  const normalized = String(displayId).padStart(4, '0')
+  const auditFolder = listResult.entries.find((e) => e.startsWith(`${normalized}-`))
+  if (!auditFolder) return { error: `No audit folder found for ticket ${normalized}` }
+
+  const artifacts: Array<{ title: string; body_md: string }> = []
+  for (const file of IMPLEMENTATION_ARTIFACT_FILES) {
+    const path = `docs/audit/${auditFolder}/${file.name}`
+    const result = await fetchFileContents(token, repoFullName, path, 10000, branch)
+    if ('content' in result) {
+      artifacts.push({
+        title: `${file.title} for ticket ${displayId}`,
+        body_md: result.content,
+      })
+    }
+  }
+  return { artifacts }
 }
 
 export type CodeSearchMatch = { path: string; line: number; text: string }

@@ -153,6 +153,18 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             '',
             '## Acceptance criteria',
             criteria || '(not specified)',
+            '',
+            '## MANDATORY: Required audit artifacts',
+            '',
+            'You MUST create these 6 files in `docs/audit/<ticketId>-<short-title>/` (e.g. `docs/audit/0097-preserve-chats/`):',
+            '- `plan.md` - Implementation plan',
+            '- `worklog.md` - Session-by-session work log',
+            '- `changed-files.md` - List of modified files with brief descriptions',
+            '- `decisions.md` - Key decisions and trade-offs',
+            '- `verification.md` - Code review checklist and verification steps',
+            '- `pm-review.md` - PM review summary and likelihood-of-success',
+            '',
+            'Commit these files with your implementation. QA will fail if any are missing.',
           ].join('\n')
         : [
             'QA this ticket implementation. Review the code, generate a QA report, and complete the QA workflow.',
