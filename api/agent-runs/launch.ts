@@ -1,5 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { createClient } from '@supabase/supabase-js'
+import { getSession } from '../_lib/github/session.js'
+import { listBranches, ensureInitialCommit } from '../_lib/github/githubApi.js'
 
 export type AgentType = 'implementation' | 'qa'
 
@@ -62,6 +64,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       agentType?: AgentType
       repoFullName?: string
       ticketNumber?: number
+      /** Default branch for the repo (e.g. "main"). Used when repo has no branches yet. */
+      defaultBranch?: string
       // For QA: optionally provide branch hint (still read from ticket body if present)
       message?: string
     }
@@ -190,29 +194,60 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const runId = runRow.run_id as string
 
+    // Use connected repo's default branch (empty repos have no branches until first push)
+    const defaultBranch = (typeof body.defaultBranch === 'string' ? body.defaultBranch.trim() : '') || 'main'
+
+    // If repo has no branches (new empty repo), create initial commit so Cursor API can run
+    const session = await getSession(req, res)
+    const ghToken = session.github?.accessToken
+    if (ghToken) {
+      const branchesResult = await listBranches(ghToken, repoFullName)
+      if ('branches' in branchesResult && branchesResult.branches.length === 0) {
+        const bootstrap = await ensureInitialCommit(ghToken, repoFullName, defaultBranch)
+        if ('error' in bootstrap) {
+          await supabase
+            .from('hal_agent_runs')
+            .update({
+              status: 'failed',
+              error: `Repository has no branches and initial commit failed: ${bootstrap.error}. Ensure you have push access and try again.`,
+              progress: appendProgress(initialProgress, `Bootstrap failed: ${bootstrap.error}`),
+              finished_at: new Date().toISOString(),
+            })
+            .eq('run_id', runId)
+          json(res, 200, { runId, status: 'failed', error: bootstrap.error })
+          return
+        }
+      }
+    }
+
     // Launch Cursor agent
     const branchName =
       agentType === 'implementation'
         ? `ticket/${String(ticketNumber).padStart(4, '0')}-implementation`
-        : 'main'
+        : defaultBranch
     const target =
       agentType === 'implementation'
         ? { autoCreatePr: true, branchName }
-        : { branchName: 'main' }
+        : { branchName: defaultBranch }
 
     const launchRes = await fetch('https://api.cursor.com/v0/agents', {
       method: 'POST',
       headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         prompt: { text: promptText },
-        source: { repository: repoUrl, ref: 'main' },
+        source: { repository: repoUrl, ref: defaultBranch },
         target,
       }),
     })
 
     const launchText = await launchRes.text()
     if (!launchRes.ok) {
-      const msg = humanReadableCursorError(launchRes.status, launchText)
+      const branchNotFound =
+        launchRes.status === 400 &&
+        (/branch\s+.*\s+does not exist/i.test(launchText) || /does not exist.*branch/i.test(launchText))
+      const msg = branchNotFound
+        ? `The repository has no "${defaultBranch}" branch yet. If the repo is new and empty, create an initial commit and push (e.g. add a README) so the default branch exists, then try again.`
+        : humanReadableCursorError(launchRes.status, launchText)
       await supabase
         .from('hal_agent_runs')
         .update({

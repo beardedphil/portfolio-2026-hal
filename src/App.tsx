@@ -1674,11 +1674,13 @@ function App() {
 
             const launchRes = await fetch('/api/agent-runs/launch', {
               method: 'POST',
+              credentials: 'include',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 agentType: 'implementation',
                 repoFullName: connectedGithubRepo.fullName,
                 ticketNumber: parseInt(ticketId, 10),
+                defaultBranch: connectedGithubRepo.defaultBranch || 'main',
               }),
             })
             const implLaunchText = await launchRes.text()
@@ -1838,11 +1840,13 @@ function App() {
 
             const launchRes = await fetch('/api/agent-runs/launch', {
               method: 'POST',
+              credentials: 'include',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 agentType: 'qa',
                 repoFullName: connectedGithubRepo.fullName,
                 ticketNumber: parseInt(ticketId, 10),
+                defaultBranch: connectedGithubRepo.defaultBranch || 'main',
               }),
             })
             const launchText = await launchRes.text()
