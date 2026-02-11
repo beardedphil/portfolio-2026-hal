@@ -1324,7 +1324,13 @@ function App() {
         'col-done',
         'col-wont-implement',
       ] as const
-      const columns = (colRows ?? []) as KanbanColumnRow[]
+      const raw = (colRows ?? []) as KanbanColumnRow[]
+      const seen = new Set<string>()
+      const columns = raw.filter((c) => {
+        if (seen.has(c.id)) return false
+        seen.add(c.id)
+        return true
+      })
       const order = canonicalColumnOrder as unknown as string[]
       const sorted = [...columns].sort((a, b) => {
         const ia = order.indexOf(a.id)
