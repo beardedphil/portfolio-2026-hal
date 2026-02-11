@@ -35,3 +35,32 @@ export function appendProgress(progress: any[] | null | undefined, message: stri
   return arr
 }
 
+/** Upsert one artifact: update body_md if row exists, otherwise insert. */
+export async function upsertArtifact(
+  supabase: ReturnType<typeof createClient>,
+  ticketPk: string,
+  repoFullName: string,
+  agentType: string,
+  title: string,
+  bodyMd: string
+): Promise<void> {
+  const { data: existing } = await supabase
+    .from('agent_artifacts')
+    .select('artifact_id')
+    .eq('ticket_pk', ticketPk)
+    .eq('agent_type', agentType)
+    .eq('title', title)
+    .maybeSingle()
+  if (existing) {
+    await supabase.from('agent_artifacts').update({ body_md: bodyMd }).eq('artifact_id', (existing as any).artifact_id)
+  } else {
+    await supabase.from('agent_artifacts').insert({
+      ticket_pk: ticketPk,
+      repo_full_name: repoFullName,
+      agent_type: agentType,
+      title,
+      body_md: bodyMd,
+    })
+  }
+}
+

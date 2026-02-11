@@ -1747,7 +1747,6 @@ function App() {
                 const full = prUrl ? `${summary}\n\nPull request: ${prUrl}` : summary
                 addProgress('Implementation completed successfully.')
                 addMessage(convId, 'implementation-agent', `**Completion summary**\n\n${full}`)
-                
                 setImplAgentRunId(null)
                 const ticketIdForMove = implAgentTicketId
                 if (ticketIdForMove) {
@@ -1764,6 +1763,8 @@ function App() {
                 setImplAgentTicketId(null)
                 setCursorRunAgentType(null)
                 setAgentTypingTarget(null)
+                // Backend already moved the ticket to QA; refresh board so it updates without manual refresh
+                fetchKanbanData().catch(() => {})
                 return false
               }
               setImplAgentRunStatus('polling')
@@ -1959,6 +1960,7 @@ function App() {
       getDefaultConversationId,
       kanbanTickets,
       handleKanbanMoveTicket,
+      fetchKanbanData,
     ]
   )
 

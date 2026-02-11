@@ -1,24 +1,12 @@
 import type { IncomingMessage, ServerResponse } from 'http'
-import { createClient } from '@supabase/supabase-js'
 import { getSession } from '../_lib/github/session.js'
 import {
   fetchPullRequestFiles,
   generateImplementationArtifacts,
 } from '../_lib/github/githubApi.js'
+import { getServerSupabase, appendProgress, upsertArtifact } from './_shared.js'
 
 type AgentType = 'implementation' | 'qa'
-
-function getServerSupabase() {
-  const url = process.env.SUPABASE_URL?.trim() || process.env.VITE_SUPABASE_URL?.trim()
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
-    process.env.SUPABASE_ANON_KEY?.trim() ||
-    process.env.VITE_SUPABASE_ANON_KEY?.trim()
-  if (!url || !key) {
-    throw new Error('Supabase server env is missing (SUPABASE_URL and SUPABASE_ANON_KEY or SUPABASE_SERVICE_ROLE_KEY).')
-  }
-  return createClient(url, key)
-}
 
 function getCursorApiKey(): string {
   const key = (process.env.CURSOR_API_KEY || process.env.VITE_CURSOR_API_KEY || '').trim()
@@ -35,10 +23,29 @@ function humanReadableCursorError(status: number, detail?: string): string {
   return `Cursor API request failed (${status})${suffix}`
 }
 
-function appendProgress(progress: any[] | null | undefined, message: string) {
-  const arr = Array.isArray(progress) ? progress.slice(-49) : []
-  arr.push({ at: new Date().toISOString(), message })
-  return arr
+type ProgressEntry = { at: string; message: string }
+
+/** Build worklog body from progress array and current status (used for live updates; no PR required). */
+function buildWorklogBodyFromProgress(
+  displayId: string,
+  progress: ProgressEntry[],
+  cursorStatus: string,
+  summary: string | null,
+  errMsg: string | null,
+  prUrl: string | null
+): string {
+  const lines = [
+    `# Worklog: ${displayId}`,
+    '',
+    '## Progress',
+    ...progress.map((p) => `- **${p.at}** — ${p.message}`),
+    '',
+    `**Current status:** ${cursorStatus}`,
+  ]
+  if (summary) lines.push('', '## Summary', summary)
+  if (errMsg) lines.push('', '## Error', errMsg)
+  if (prUrl) lines.push('', '**Pull request:** ' + prUrl)
+  return lines.join('\n')
 }
 
 function json(res: ServerResponse, statusCode: number, body: unknown) {
@@ -153,14 +160,34 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       finishedAt = new Date().toISOString()
     }
 
-    const progress = appendProgress((run as any).progress, `Status: ${cursorStatus}`)
+    const progress = appendProgress((run as any).progress, `Status: ${cursorStatus}`) as ProgressEntry[]
 
-    // If finished and Implementation: move ticket to QA and insert artifact (best-effort)
-    if (nextStatus === 'finished' && ((run as any).agent_type as AgentType) === 'implementation') {
-      const repoFullName = (run as any).repo_full_name as string
-      const ticketPk = (run as any).ticket_pk as string | null
-      const displayId = (run as any).display_id as string ?? ''
-      if (repoFullName && ticketPk) {
+    // Implementation runs: update worklog artifact on every poll (so we have a trail even if agent crashes)
+    const repoFullName = (run as any).repo_full_name as string
+    const ticketPk = (run as any).ticket_pk as string | null
+    const displayId = ((run as any).display_id as string) ?? ''
+    if (
+      ((run as any).agent_type as AgentType) === 'implementation' &&
+      repoFullName &&
+      ticketPk
+    ) {
+      try {
+        const worklogTitle = `Worklog for ticket ${displayId}`
+        const worklogBody = buildWorklogBodyFromProgress(
+          displayId,
+          progress,
+          cursorStatus,
+          summary,
+          errMsg,
+          prUrl
+        )
+        await upsertArtifact(supabase, ticketPk, repoFullName, 'implementation', worklogTitle, worklogBody)
+      } catch (e) {
+        console.warn('[agent-runs] worklog upsert error:', e instanceof Error ? e.message : e)
+      }
+
+      // When finished: move ticket to QA and upsert full artifact set (plan, changed-files, etc.) from PR when available
+      if (nextStatus === 'finished') {
         try {
           const { data: inColumn } = await supabase
             .from('tickets')
@@ -178,9 +205,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         } catch {
           // ignore
         }
-        // Insert implementation artifacts (plan, worklog, changed-files, decisions, verification, pm-review)
-        // Generated from PR data and Cursor summary; stored in Supabase only (no repo docs/audit)
-        let insertedArtifacts = false
         try {
           const ghToken =
             process.env.GITHUB_TOKEN?.trim() ||
@@ -190,8 +214,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             const filesResult = await fetchPullRequestFiles(ghToken, prUrl)
             if ('files' in filesResult) prFiles = filesResult.files
             else if ('error' in filesResult) console.warn('[agent-runs] fetch PR files failed:', filesResult.error)
-          } else if (!prUrl) {
-            console.warn('[agent-runs] No prUrl available; artifacts will have empty changed-files')
           }
           const artifacts = generateImplementationArtifacts(
             displayId,
@@ -200,55 +222,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             prFiles
           )
           for (const a of artifacts) {
-            const { data: existing } = await supabase
-              .from('agent_artifacts')
-              .select('artifact_id')
-              .eq('ticket_pk', ticketPk)
-              .eq('agent_type', 'implementation')
-              .eq('title', a.title)
-              .maybeSingle()
-            if (!existing) {
-              const { error: insErr } = await supabase.from('agent_artifacts').insert({
-                ticket_pk: ticketPk,
-                repo_full_name: repoFullName,
-                agent_type: 'implementation',
-                title: a.title,
-                body_md: a.body_md,
-              })
-              if (insErr) console.error('[agent-runs] artifact insert failed:', a.title, insErr.message)
-              else insertedArtifacts = true
-            }
+            await upsertArtifact(supabase, ticketPk, repoFullName, 'implementation', a.title, a.body_md)
           }
         } catch (e) {
-          console.warn('[agent-runs] artifact generation error:', e instanceof Error ? e.message : e)
-        }
-        // Fallback: if no artifacts were inserted (e.g. Supabase error), insert minimal summary
-        if (!insertedArtifacts) {
-          try {
-            const artifactTitle = `Implementation report for ticket ${displayId}`
-            const { data: existing } = await supabase
-              .from('agent_artifacts')
-              .select('artifact_id')
-              .eq('ticket_pk', ticketPk)
-              .eq('agent_type', 'implementation')
-              .eq('title', artifactTitle)
-              .maybeSingle()
-            if (!existing) {
-              let body = summary ?? 'Implementation completed.'
-              if (prUrl) body += `\n\nPull request: ${prUrl}`
-              body += `\n\nTicket ${displayId} implementation completed and moved to QA.`
-              const { error: insErr } = await supabase.from('agent_artifacts').insert({
-                ticket_pk: ticketPk,
-                repo_full_name: repoFullName,
-                agent_type: 'implementation',
-                title: artifactTitle,
-                body_md: body,
-              })
-              if (insErr) console.error('[agent-runs] fallback artifact insert failed:', insErr.message)
-            }
-          } catch (e) {
-            console.error('[agent-runs] fallback artifact insert error:', e instanceof Error ? e.message : e)
-          }
+          console.warn('[agent-runs] finished artifact upsert error:', e instanceof Error ? e.message : e)
         }
       }
     }

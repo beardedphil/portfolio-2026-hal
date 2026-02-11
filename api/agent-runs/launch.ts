@@ -1,42 +1,15 @@
 import type { IncomingMessage, ServerResponse } from 'http'
-import { createClient } from '@supabase/supabase-js'
 import { getSession } from '../_lib/github/session.js'
 import { listBranches, ensureInitialCommit } from '../_lib/github/githubApi.js'
+import {
+  getServerSupabase,
+  getCursorApiKey,
+  humanReadableCursorError,
+  appendProgress,
+  upsertArtifact,
+} from './_shared.js'
 
 export type AgentType = 'implementation' | 'qa'
-
-function getServerSupabase() {
-  const url = process.env.SUPABASE_URL?.trim() || process.env.VITE_SUPABASE_URL?.trim()
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
-    process.env.SUPABASE_ANON_KEY?.trim() ||
-    process.env.VITE_SUPABASE_ANON_KEY?.trim()
-  if (!url || !key) {
-    throw new Error('Supabase server env is missing (SUPABASE_URL and SUPABASE_ANON_KEY or SUPABASE_SERVICE_ROLE_KEY).')
-  }
-  return createClient(url, key)
-}
-
-function getCursorApiKey(): string {
-  const key = (process.env.CURSOR_API_KEY || process.env.VITE_CURSOR_API_KEY || '').trim()
-  if (!key) throw new Error('Cursor API is not configured (CURSOR_API_KEY).')
-  return key
-}
-
-function humanReadableCursorError(status: number, detail?: string): string {
-  if (status === 401) return 'Cursor API authentication failed. Check that CURSOR_API_KEY is valid.'
-  if (status === 403) return 'Cursor API access denied. Your plan may not include Cloud Agents API.'
-  if (status === 429) return 'Cursor API rate limit exceeded. Please try again in a moment.'
-  if (status >= 500) return `Cursor API server error (${status}). Please try again later.`
-  const suffix = detail ? ` — ${String(detail).slice(0, 140)}` : ''
-  return `Cursor API request failed (${status})${suffix}`
-}
-
-function appendProgress(progress: any[] | null | undefined, message: string) {
-  const arr = Array.isArray(progress) ? progress.slice(-49) : []
-  arr.push({ at: new Date().toISOString(), message })
-  return arr
-}
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []
@@ -296,15 +269,36 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
+    const progressAfterLaunch = appendProgress(initialProgress, `Launched Cursor agent (${cursorStatus}).`)
     await supabase
       .from('hal_agent_runs')
       .update({
         status: 'polling',
         cursor_agent_id: cursorAgentId,
         cursor_status: cursorStatus,
-        progress: appendProgress(initialProgress, `Launched Cursor agent (${cursorStatus}).`),
+        progress: progressAfterLaunch,
       })
       .eq('run_id', runId)
+
+    // Create/update worklog artifact so it exists from the start (implementation runs only)
+    if (agentType === 'implementation' && ticketPk && repoFullName) {
+      try {
+        const worklogTitle = `Worklog for ticket ${displayId}`
+        const worklogLines = [
+          `# Worklog: ${displayId}`,
+          '',
+          '## Progress',
+          ...(Array.isArray(progressAfterLaunch) ? progressAfterLaunch : []).map(
+            (p: { at: string; message: string }) => `- **${p.at}** — ${p.message}`
+          ),
+          '',
+          `**Current status:** ${cursorStatus}`,
+        ]
+        await upsertArtifact(supabase, ticketPk, repoFullName, 'implementation', worklogTitle, worklogLines.join('\n'))
+      } catch (e) {
+        console.warn('[agent-runs] launch worklog upsert error:', e instanceof Error ? e.message : e)
+      }
+    }
 
     json(res, 200, { runId, status: 'polling', cursorAgentId })
   } catch (err) {
