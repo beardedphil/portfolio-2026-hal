@@ -60,6 +60,7 @@ for each row execute function public.agent_artifacts_touch_updated_at();
 alter table public.agent_artifacts enable row level security;
 
 -- Policy: allow all operations (can be restricted later based on auth requirements)
+drop policy if exists "Allow all operations on agent_artifacts" on public.agent_artifacts;
 create policy "Allow all operations on agent_artifacts"
   on public.agent_artifacts
   for all

@@ -4,7 +4,7 @@ import {
   fetchPullRequestFiles,
   generateImplementationArtifacts,
 } from '../_lib/github/githubApi.js'
-import { getServerSupabase, appendProgress, upsertArtifact } from './_shared.js'
+import { getServerSupabase, appendProgress, upsertArtifact, buildWorklogBodyFromProgress, type ProgressEntry } from './_shared.js'
 
 type AgentType = 'implementation' | 'qa'
 
@@ -21,31 +21,6 @@ function humanReadableCursorError(status: number, detail?: string): string {
   if (status >= 500) return `Cursor API server error (${status}). Please try again later.`
   const suffix = detail ? ` — ${String(detail).slice(0, 140)}` : ''
   return `Cursor API request failed (${status})${suffix}`
-}
-
-type ProgressEntry = { at: string; message: string }
-
-/** Build worklog body from progress array and current status (used for live updates; no PR required). */
-function buildWorklogBodyFromProgress(
-  displayId: string,
-  progress: ProgressEntry[],
-  cursorStatus: string,
-  summary: string | null,
-  errMsg: string | null,
-  prUrl: string | null
-): string {
-  const lines = [
-    `# Worklog: ${displayId}`,
-    '',
-    '## Progress',
-    ...progress.map((p) => `- **${p.at}** — ${p.message}`),
-    '',
-    `**Current status:** ${cursorStatus}`,
-  ]
-  if (summary) lines.push('', '## Summary', summary)
-  if (errMsg) lines.push('', '## Error', errMsg)
-  if (prUrl) lines.push('', '**Pull request:** ' + prUrl)
-  return lines.join('\n')
 }
 
 function json(res: ServerResponse, statusCode: number, body: unknown) {
@@ -127,7 +102,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
-    let statusData: { status?: string; summary?: string; target?: { prUrl?: string; pr_url?: string } }
+    let statusData: { status?: string; summary?: string; target?: { prUrl?: string; pr_url?: string; branchName?: string } }
     try {
       statusData = JSON.parse(statusText) as typeof statusData
     } catch {
@@ -152,6 +127,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       nextStatus = 'finished'
       summary = statusData.summary ?? 'Completed.'
       prUrl = statusData.target?.prUrl ?? statusData.target?.pr_url ?? prUrl
+      const repo = (run as any).repo_full_name as string
+      const branchName = statusData.target?.branchName
+      if (!prUrl && repo && branchName) {
+        prUrl = `https://github.com/${repo}/tree/${encodeURIComponent(branchName)}`
+      }
       if (!prUrl) console.warn('[agent-runs] FINISHED but no prUrl in Cursor response. target=', JSON.stringify(statusData.target))
       finishedAt = new Date().toISOString()
     } else if (cursorStatus === 'FAILED' || cursorStatus === 'CANCELLED' || cursorStatus === 'ERROR') {
@@ -173,6 +153,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     ) {
       try {
         const worklogTitle = `Worklog for ticket ${displayId}`
+        if (cursorStatus === 'FINISHED' || progress.length <= 2) {
+          console.warn('[agent-runs] upserting worklog', { displayId, ticketPk, repoFullName })
+        }
         const worklogBody = buildWorklogBodyFromProgress(
           displayId,
           progress,
@@ -181,7 +164,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           errMsg,
           prUrl
         )
-        await upsertArtifact(supabase, ticketPk, repoFullName, 'implementation', worklogTitle, worklogBody)
+        const result = await upsertArtifact(supabase, ticketPk, repoFullName, 'implementation', worklogTitle, worklogBody)
+        if (!result.ok) console.warn('[agent-runs] worklog upsert failed:', result.error)
       } catch (e) {
         console.warn('[agent-runs] worklog upsert error:', e instanceof Error ? e.message : e)
       }
@@ -222,7 +206,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             prFiles
           )
           for (const a of artifacts) {
-            await upsertArtifact(supabase, ticketPk, repoFullName, 'implementation', a.title, a.body_md)
+            const res = await upsertArtifact(supabase, ticketPk, repoFullName, 'implementation', a.title, a.body_md)
+            if (!res.ok) console.warn('[agent-runs] artifact upsert failed:', a.title, res.error)
           }
         } catch (e) {
           console.warn('[agent-runs] finished artifact upsert error:', e instanceof Error ? e.message : e)

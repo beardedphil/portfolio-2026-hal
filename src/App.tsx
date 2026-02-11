@@ -1749,12 +1749,14 @@ function App() {
                 addMessage(convId, 'implementation-agent', `**Completion summary**\n\n${full}`)
                 setImplAgentRunId(null)
                 const ticketIdForMove = implAgentTicketId
+                let ticketPkForSync: string | null = null
                 if (ticketIdForMove) {
                   const ticket = kanbanTickets.find(
                     (t) =>
                       (t.display_id ?? String(t.ticket_number ?? t.id).padStart(4, '0')) === ticketIdForMove ||
                       t.pk === ticketIdForMove
                   )
+                  if (ticket) ticketPkForSync = ticket.pk
                   if (ticket?.kanban_column_id === 'col-doing') {
                     const qaCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-qa').length
                     handleKanbanMoveTicket(ticket.pk, 'col-qa', qaCount).catch(() => {})
@@ -1763,8 +1765,17 @@ function App() {
                 setImplAgentTicketId(null)
                 setCursorRunAgentType(null)
                 setAgentTypingTarget(null)
-                // Backend already moved the ticket to QA; refresh board so it updates without manual refresh
-                fetchKanbanData().catch(() => {})
+                // Backfill artifacts from run (in case poll path didn't write) then refresh board
+                if (ticketPkForSync) {
+                  fetch('/api/agent-runs/sync-artifacts', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ ticketPk: ticketPkForSync }),
+                  }).catch(() => {}).finally(() => fetchKanbanData().catch(() => {}))
+                } else {
+                  fetchKanbanData().catch(() => {})
+                }
                 return false
               }
               setImplAgentRunStatus('polling')

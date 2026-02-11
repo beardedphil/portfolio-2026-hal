@@ -35,7 +35,32 @@ export function appendProgress(progress: any[] | null | undefined, message: stri
   return arr
 }
 
-/** Upsert one artifact: update body_md if row exists, otherwise insert. */
+export type ProgressEntry = { at: string; message: string }
+
+/** Build worklog body from progress array and current status (no PR required). */
+export function buildWorklogBodyFromProgress(
+  displayId: string,
+  progress: ProgressEntry[],
+  cursorStatus: string,
+  summary: string | null,
+  errMsg: string | null,
+  prUrl: string | null
+): string {
+  const lines = [
+    `# Worklog: ${displayId}`,
+    '',
+    '## Progress',
+    ...progress.map((p) => `- **${p.at}** — ${p.message}`),
+    '',
+    `**Current status:** ${cursorStatus}`,
+  ]
+  if (summary) lines.push('', '## Summary', summary)
+  if (errMsg) lines.push('', '## Error', errMsg)
+  if (prUrl) lines.push('', '**Pull request:** ' + prUrl)
+  return lines.join('\n')
+}
+
+/** Upsert one artifact: update body_md if row exists, otherwise insert. Returns error message if failed. */
 export async function upsertArtifact(
   supabase: ReturnType<typeof createClient>,
   ticketPk: string,
@@ -43,24 +68,43 @@ export async function upsertArtifact(
   agentType: string,
   title: string,
   bodyMd: string
-): Promise<void> {
-  const { data: existing } = await supabase
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data: existing, error: selectErr } = await supabase
     .from('agent_artifacts')
     .select('artifact_id')
     .eq('ticket_pk', ticketPk)
     .eq('agent_type', agentType)
     .eq('title', title)
     .maybeSingle()
-  if (existing) {
-    await supabase.from('agent_artifacts').update({ body_md: bodyMd }).eq('artifact_id', (existing as any).artifact_id)
-  } else {
-    await supabase.from('agent_artifacts').insert({
-      ticket_pk: ticketPk,
-      repo_full_name: repoFullName,
-      agent_type: agentType,
-      title,
-      body_md: bodyMd,
-    })
+  if (selectErr) {
+    const msg = `agent_artifacts select: ${selectErr.message}`
+    console.error('[agent-runs]', msg)
+    return { ok: false, error: msg }
   }
+  if (existing) {
+    const { error: updateErr } = await supabase
+      .from('agent_artifacts')
+      .update({ body_md: bodyMd })
+      .eq('artifact_id', (existing as any).artifact_id)
+    if (updateErr) {
+      const msg = `agent_artifacts update: ${updateErr.message}`
+      console.error('[agent-runs]', msg)
+      return { ok: false, error: msg }
+    }
+    return { ok: true }
+  }
+  const { error: insertErr } = await supabase.from('agent_artifacts').insert({
+    ticket_pk: ticketPk,
+    repo_full_name: repoFullName,
+    agent_type: agentType,
+    title,
+    body_md: bodyMd,
+  })
+  if (insertErr) {
+    const msg = `agent_artifacts insert: ${insertErr.message}`
+    console.error('[agent-runs]', msg)
+    return { ok: false, error: msg }
+  }
+  return { ok: true }
 }
 
