@@ -1,13 +1,25 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import {
   KanbanBoard,
   type KanbanTicketRow,
   type KanbanColumnRow,
   type KanbanAgentRunRow,
-  type KanbanAgentArtifactRow,
+  type KanbanBoardProps,
 } from 'portfolio-2026-kanban'
 import 'portfolio-2026-kanban/style.css'
+
+/** Artifact row shape (matches Kanban package KanbanAgentArtifactRow). HAL owns DB so we type locally. */
+type ArtifactRow = {
+  artifact_id: string
+  ticket_pk: string
+  repo_full_name: string
+  agent_type: 'implementation' | 'qa' | 'human-in-the-loop' | 'other'
+  title: string
+  body_md: string
+  created_at: string
+  updated_at: string
+}
 
 type Agent = 'project-manager' | 'implementation-agent' | 'qa-agent'
 type ChatTarget = Agent | 'standup'
@@ -1416,7 +1428,7 @@ function App() {
 
   /** Fetch artifacts for a ticket (HAL owns DB). Used by Kanban when opening ticket detail. */
   const fetchArtifactsForTicket = useCallback(
-    async (ticketPk: string): Promise<KanbanAgentArtifactRow[]> => {
+    async (ticketPk: string): Promise<ArtifactRow[]> => {
       const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
       const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
       if (!url || !key) return []
@@ -1431,7 +1443,7 @@ function App() {
           console.warn('[HAL] fetchArtifactsForTicket:', error.message)
           return []
         }
-        let list = (data ?? []) as KanbanAgentArtifactRow[]
+        let list = (data ?? []) as ArtifactRow[]
         if (list.length === 0) {
           try {
             const syncRes = await fetch('/api/agent-runs/sync-artifacts', {
@@ -1440,7 +1452,7 @@ function App() {
               credentials: 'include',
               body: JSON.stringify({ ticketPk }),
             })
-            const syncJson = (await syncRes.json().catch(() => ({}))) as { success?: boolean; artifacts?: KanbanAgentArtifactRow[] }
+            const syncJson = (await syncRes.json().catch(() => ({}))) as { success?: boolean; artifacts?: ArtifactRow[] }
             if (syncRes.ok && Array.isArray(syncJson.artifacts) && syncJson.artifacts.length > 0) {
               list = syncJson.artifacts
             } else if (syncRes.ok) {
@@ -1449,7 +1461,7 @@ function App() {
                 .select('artifact_id, ticket_pk, repo_full_name, agent_type, title, body_md, created_at, updated_at')
                 .eq('ticket_pk', ticketPk)
                 .order('created_at', { ascending: false })
-              list = (data2 ?? []) as KanbanAgentArtifactRow[]
+              list = (data2 ?? []) as ArtifactRow[]
             }
           } catch {
             // ignore sync failure
@@ -2718,21 +2730,23 @@ function App() {
               </>
             )}
           </div>
-          {/* Kanban board (HAL owns data; passes tickets/columns and callbacks) */}
+          {/* Kanban board (HAL owns data; passes tickets/columns and callbacks). Cast props so fetchArtifactsForTicket is accepted when package types are older (e.g. Vercel cache). */}
           <div className={`kanban-frame-container ${openChatTarget ? 'kanban-frame-hidden' : 'kanban-frame-visible'}`}>
             <KanbanBoard
-              tickets={kanbanTickets}
-              columns={kanbanColumns}
-              agentRunsByTicketPk={kanbanAgentRunsByTicketPk}
-              repoFullName={connectedProject ?? null}
-              theme={theme}
-              onMoveTicket={handleKanbanMoveTicket}
-              onReorderColumn={handleKanbanReorderColumn}
-              onUpdateTicketBody={handleKanbanUpdateTicketBody}
-              onOpenChatAndSend={handleKanbanOpenChatAndSend}
-              implementationAgentTicketId={implAgentTicketId}
-              qaAgentTicketId={qaAgentTicketId}
-              fetchArtifactsForTicket={fetchArtifactsForTicket}
+              {...({
+                tickets: kanbanTickets,
+                columns: kanbanColumns,
+                agentRunsByTicketPk: kanbanAgentRunsByTicketPk,
+                repoFullName: connectedProject ?? null,
+                theme,
+                onMoveTicket: handleKanbanMoveTicket,
+                onReorderColumn: handleKanbanReorderColumn,
+                onUpdateTicketBody: handleKanbanUpdateTicketBody,
+                onOpenChatAndSend: handleKanbanOpenChatAndSend,
+                implementationAgentTicketId: implAgentTicketId,
+                qaAgentTicketId: qaAgentTicketId,
+                fetchArtifactsForTicket,
+              } as KanbanBoardProps)}
             />
           </div>
         </section>
