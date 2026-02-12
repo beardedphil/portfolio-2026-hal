@@ -1,5 +1,9 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import { isEmptyOrPlaceholder } from '../artifacts/_validation'
+import {
+  extractArtifactTypeFromTitle,
+  createCanonicalTitle,
+  findArtifactsByCanonicalId,
+} from '../artifacts/_shared'
 
 export type AgentType = 'implementation' | 'qa'
 
@@ -75,30 +79,75 @@ export async function upsertArtifact(
   title: string,
   bodyMd: string
 ): Promise<UpsertArtifactResult> {
-  // Find ALL existing artifacts with the same title (to handle duplicates)
-  const { data: existingArtifacts, error: selectErr } = await supabase
-    .from('agent_artifacts')
-    .select('artifact_id, body_md, created_at')
-    .eq('ticket_pk', ticketPk)
-    .eq('agent_type', agentType)
-    .eq('title', title)
-    .order('created_at', { ascending: false })
-  if (selectErr) {
-    const msg = `agent_artifacts select: ${selectErr.message}`
-    console.error('[agent-runs]', msg)
-    return { ok: false, error: msg }
+  // Extract artifact type from title and get ticket's display_id for canonical matching (0121)
+  const artifactType = extractArtifactTypeFromTitle(title)
+  let artifacts: Array<{ artifact_id: string; body_md?: string; created_at: string }> = []
+  
+  if (!artifactType) {
+    // If we can't extract artifact type, fall back to exact title matching
+    const { data: existingArtifacts, error: selectErr } = await supabase
+      .from('agent_artifacts')
+      .select('artifact_id, body_md, created_at')
+      .eq('ticket_pk', ticketPk)
+      .eq('agent_type', agentType)
+      .eq('title', title)
+      .order('created_at', { ascending: false })
+    if (selectErr) {
+      const msg = `agent_artifacts select: ${selectErr.message}`
+      console.error('[agent-runs]', msg)
+      return { ok: false, error: msg }
+    }
+    artifacts = (existingArtifacts || []) as Array<{
+      artifact_id: string
+      body_md?: string
+      created_at: string
+    }>
+  } else {
+    // Get ticket's display_id for canonical title normalization
+    const { data: ticket, error: ticketErr } = await supabase
+      .from('tickets')
+      .select('display_id')
+      .eq('pk', ticketPk)
+      .maybeSingle()
+    
+    if (ticketErr) {
+      console.warn('[agent-runs] Failed to fetch ticket display_id, using title as-is:', ticketErr.message)
+    }
+    
+    const displayId = (ticket as { display_id?: string })?.display_id || title.match(/\d+/)?.[0] || ''
+    const canonicalTitle = createCanonicalTitle(artifactType, displayId)
+    
+    // Find existing artifacts by canonical identifier (ticket_pk + agent_type + artifact_type)
+    // instead of exact title match to handle different title formats (0121)
+    const { artifacts: existingArtifacts, error: findError } = await findArtifactsByCanonicalId(
+      supabase,
+      ticketPk,
+      agentType as 'implementation' | 'qa',
+      artifactType
+    )
+    
+    if (findError) {
+      const msg = `agent_artifacts select: ${findError}`
+      console.error('[agent-runs]', msg)
+      return { ok: false, error: msg }
+    }
+    
+    artifacts = (existingArtifacts || []) as Array<{
+      artifact_id: string
+      body_md?: string
+      created_at: string
+    }>
+    
+    // Use canonical title for consistency
+    title = canonicalTitle
   }
 
-  const artifacts = (existingArtifacts || []) as Array<{
-    artifact_id: string
-    body_md?: string
-    created_at: string
-  }>
-
-  // Identify empty/placeholder artifacts using shared validation
+  // Identify empty/placeholder artifacts (body is empty or very short)
   const emptyArtifactIds: string[] = []
   for (const artifact of artifacts) {
-    if (isEmptyOrPlaceholder(artifact.body_md, title)) {
+    const currentBody = (artifact.body_md || '').trim()
+    // Consider empty or very short (< 30 chars) as placeholder
+    if (currentBody.length === 0 || currentBody.length < 30) {
       emptyArtifactIds.push(artifact.artifact_id)
     }
   }
@@ -129,10 +178,10 @@ export async function upsertArtifact(
   }
 
   if (targetArtifactId) {
-    // Update the target artifact
+    // Update the target artifact with canonical title and new body (0121)
     const { error: updateErr } = await supabase
       .from('agent_artifacts')
-      .update({ body_md: bodyMd } as Record<string, unknown>)
+      .update({ title, body_md: bodyMd } as Record<string, unknown>)
       .eq('artifact_id', targetArtifactId)
     if (updateErr) {
       const msg = `agent_artifacts update: ${updateErr.message}`
@@ -142,12 +191,12 @@ export async function upsertArtifact(
     return { ok: true }
   }
 
-  // No existing artifact found (or all were deleted), insert new one
+  // No existing artifact found (or all were deleted), insert new one with canonical title (0121)
   const { error: insertErr } = await supabase.from('agent_artifacts').insert({
     ticket_pk: ticketPk,
     repo_full_name: repoFullName,
     agent_type: agentType,
-    title,
+    title, // Use canonical title if available
     body_md: bodyMd,
   } as Record<string, unknown>)
   if (insertErr) {

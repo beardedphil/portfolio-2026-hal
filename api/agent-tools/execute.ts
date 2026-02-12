@@ -1,6 +1,11 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { createClient } from '@supabase/supabase-js'
-import { hasSubstantiveContent, isEmptyOrPlaceholder } from '../artifacts/_validation'
+import { hasSubstantiveContent } from '../artifacts/_validation'
+import {
+  extractArtifactTypeFromTitle,
+  createCanonicalTitle,
+  findArtifactsByCanonicalId,
+} from '../artifacts/_shared'
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []
@@ -44,8 +49,12 @@ async function insertImplementationArtifact(
     return { success: false, error: `Ticket ${params.ticketId} missing pk.` }
   }
 
+  // Normalize title to use ticket's display_id for consistent formatting (0121)
+  const displayId = (ticket as { display_id?: string }).display_id || params.ticketId
+  const canonicalTitle = createCanonicalTitle(params.artifactType, displayId)
+
   // Validate that body_md contains substantive content
-  const contentValidation = hasSubstantiveContent(params.body_md, params.title)
+  const contentValidation = hasSubstantiveContent(params.body_md, canonicalTitle)
   if (!contentValidation.valid) {
     return {
       success: false,
@@ -54,17 +63,17 @@ async function insertImplementationArtifact(
     }
   }
 
-  // Find ALL existing artifacts with the same title (to handle duplicates)
-  const { data: existingArtifacts, error: findError } = await supabase
-    .from('agent_artifacts')
-    .select('artifact_id, body_md, created_at')
-    .eq('ticket_pk', ticketPk)
-    .eq('agent_type', 'implementation')
-    .eq('title', params.title)
-    .order('created_at', { ascending: false })
+  // Find existing artifacts by canonical identifier (ticket_pk + agent_type + artifact_type)
+  // instead of exact title match to handle different title formats (0121)
+  const { artifacts: existingArtifacts, error: findError } = await findArtifactsByCanonicalId(
+    supabase,
+    ticketPk,
+    'implementation',
+    params.artifactType
+  )
 
   if (findError) {
-    return { success: false, error: `Failed to query existing artifacts: ${findError.message}` }
+    return { success: false, error: findError }
   }
 
   const artifacts = (existingArtifacts || []) as Array<{
@@ -78,13 +87,15 @@ async function insertImplementationArtifact(
   const emptyArtifactIds: string[] = []
 
   for (const artifact of artifacts) {
-    if (isEmptyOrPlaceholder(artifact.body_md, params.title)) {
-      emptyArtifactIds.push(artifact.artifact_id)
-    } else {
+    const currentBody = artifact.body_md || ''
+    const currentValidation = hasSubstantiveContent(currentBody, canonicalTitle)
+    if (currentValidation.valid) {
       artifactsWithContent.push({
         artifact_id: artifact.artifact_id,
         created_at: artifact.created_at,
       })
+    } else {
+      emptyArtifactIds.push(artifact.artifact_id)
     }
   }
 
@@ -116,11 +127,11 @@ async function insertImplementationArtifact(
   }
 
   if (targetArtifactId) {
-    // Update the target artifact
+    // Update the target artifact with canonical title and new body (0121)
     const { error: updateError } = await supabase
       .from('agent_artifacts')
       .update({
-        title: params.title,
+        title: canonicalTitle, // Use canonical title for consistency
         body_md: params.body_md,
       })
       .eq('artifact_id', targetArtifactId)
@@ -137,14 +148,14 @@ async function insertImplementationArtifact(
     }
   }
 
-  // No existing artifact found (or all were deleted), insert new one
+  // No existing artifact found (or all were deleted), insert new one with canonical title (0121)
   const { data: inserted, error: insertError } = await supabase
     .from('agent_artifacts')
     .insert({
       ticket_pk: ticketPk,
       repo_full_name: (ticket as { repo_full_name?: string }).repo_full_name || '',
       agent_type: 'implementation',
-      title: params.title,
+      title: canonicalTitle, // Use canonical title for consistency
       body_md: params.body_md,
     })
     .select('artifact_id')
@@ -222,8 +233,12 @@ async function insertQaArtifact(
     return { success: false, error: `Ticket ${params.ticketId} missing pk.` }
   }
 
+  // Normalize title to use ticket's display_id for consistent formatting (0121)
+  const displayId = (ticket as { display_id?: string }).display_id || params.ticketId
+  const canonicalTitle = createCanonicalTitle('qa-report', displayId)
+
   // Validate that body_md contains substantive content
-  const contentValidation = hasSubstantiveContent(params.body_md, params.title)
+  const contentValidation = hasSubstantiveContent(params.body_md, canonicalTitle)
   if (!contentValidation.valid) {
     return {
       success: false,
@@ -232,17 +247,17 @@ async function insertQaArtifact(
     }
   }
 
-  // Find ALL existing artifacts with the same title (to handle duplicates)
-  const { data: existingArtifacts, error: findError } = await supabase
-    .from('agent_artifacts')
-    .select('artifact_id, body_md, created_at')
-    .eq('ticket_pk', ticketPk)
-    .eq('agent_type', 'qa')
-    .eq('title', params.title)
-    .order('created_at', { ascending: false })
+  // Find existing artifacts by canonical identifier (ticket_pk + agent_type + artifact_type)
+  // instead of exact title match to handle different title formats (0121)
+  const { artifacts: existingArtifacts, error: findError } = await findArtifactsByCanonicalId(
+    supabase,
+    ticketPk,
+    'qa',
+    'qa-report'
+  )
 
   if (findError) {
-    return { success: false, error: `Failed to query existing artifacts: ${findError.message}` }
+    return { success: false, error: findError }
   }
 
   const artifacts = (existingArtifacts || []) as Array<{
@@ -256,13 +271,20 @@ async function insertQaArtifact(
   const emptyArtifactIds: string[] = []
 
   for (const artifact of artifacts) {
+<<<<<<< HEAD
     if (isEmptyOrPlaceholder(artifact.body_md, params.title)) {
       emptyArtifactIds.push(artifact.artifact_id)
     } else {
+=======
+    const currentBody = artifact.body_md || ''
+    const currentValidation = hasSubstantiveContent(currentBody, canonicalTitle)
+    if (currentValidation.valid) {
       artifactsWithContent.push({
         artifact_id: artifact.artifact_id,
         created_at: artifact.created_at,
       })
+    } else {
+      emptyArtifactIds.push(artifact.artifact_id)
     }
   }
 
@@ -294,11 +316,11 @@ async function insertQaArtifact(
   }
 
   if (targetArtifactId) {
-    // Update the target artifact
+    // Update the target artifact with canonical title and new body (0121)
     const { error: updateError } = await supabase
       .from('agent_artifacts')
       .update({
-        title: params.title,
+        title: canonicalTitle, // Use canonical title for consistency
         body_md: params.body_md,
       })
       .eq('artifact_id', targetArtifactId)
@@ -315,14 +337,14 @@ async function insertQaArtifact(
     }
   }
 
-  // No existing artifact found (or all were deleted), insert new one
+  // No existing artifact found (or all were deleted), insert new one with canonical title (0121)
   const { data: inserted, error: insertError } = await supabase
     .from('agent_artifacts')
     .insert({
       ticket_pk: ticketPk,
       repo_full_name: (ticket as { repo_full_name?: string }).repo_full_name || '',
       agent_type: 'qa',
-      title: params.title,
+      title: canonicalTitle, // Use canonical title for consistency
       body_md: params.body_md,
     })
     .select('artifact_id')
