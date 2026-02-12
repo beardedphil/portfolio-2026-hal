@@ -17,6 +17,69 @@ function json(res: ServerResponse, statusCode: number, body: unknown) {
   res.end(JSON.stringify(body))
 }
 
+/**
+ * Validates that body_md contains substantive content beyond just a title/heading.
+ * Returns true if the content is valid, false if it's essentially empty/placeholder-only.
+ */
+function hasSubstantiveContent(body_md: string, title: string): { valid: boolean; reason?: string } {
+  if (!body_md || body_md.trim().length === 0) {
+    return { valid: false, reason: 'Artifact body is empty. Artifacts must contain substantive content, not just a title.' }
+  }
+
+  // Remove markdown headings and check remaining content
+  const withoutHeadings = body_md
+    .replace(/^#{1,6}\s+.*$/gm, '') // Remove markdown headings
+    .replace(/^[-*+]\s+.*$/gm, '') // Remove bullet points (might be just placeholder bullets)
+    .replace(/^\d+\.\s+.*$/gm, '') // Remove numbered lists
+    .trim()
+
+  // If after removing headings and lists, there's no content, it's invalid
+  if (withoutHeadings.length === 0) {
+    return {
+      valid: false,
+      reason: 'Artifact body contains only headings or placeholder structure. Artifacts must include substantive content beyond the title.',
+    }
+  }
+
+  // Check if content is just the title repeated or very short
+  const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]/g, '')
+  const normalizedBody = body_md.toLowerCase().replace(/[^a-z0-9]/g, '')
+  
+  // If body is essentially just the title, it's invalid
+  if (normalizedBody.length < 50 && normalizedBody.includes(normalizedTitle)) {
+    return {
+      valid: false,
+      reason: 'Artifact body is too short or only contains the title. Artifacts must include detailed content (at least 50 characters of substantive text).',
+    }
+  }
+
+  // Check for common placeholder patterns
+  const placeholderPatterns = [
+    /^#\s+[^\n]+\n*$/m, // Just a single heading
+    /^#\s+[^\n]+\n+(TODO|TBD|placeholder|coming soon|not yet|to be determined)/i,
+    /^(TODO|TBD|placeholder|coming soon|not yet|to be determined)/i,
+  ]
+
+  for (const pattern of placeholderPatterns) {
+    if (pattern.test(body_md)) {
+      return {
+        valid: false,
+        reason: 'Artifact body appears to contain only placeholder text. Artifacts must include actual implementation details, not placeholders.',
+      }
+    }
+  }
+
+  // Minimum length check (after removing headings)
+  if (withoutHeadings.length < 30) {
+    return {
+      valid: false,
+      reason: `Artifact body is too short (${withoutHeadings.length} characters after removing headings). Artifacts must contain at least 30 characters of substantive content.`,
+    }
+  }
+
+  return { valid: true }
+}
+
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   // CORS: Allow cross-origin requests
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -68,6 +131,17 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
+    // Validate that body_md contains substantive content
+    const contentValidation = hasSubstantiveContent(body_md, title)
+    if (!contentValidation.valid) {
+      json(res, 400, {
+        success: false,
+        error: contentValidation.reason || 'Artifact body must contain substantive content, not just a title or placeholder text.',
+        validation_failed: true,
+      })
+      return
+    }
+
     if (!supabaseUrl || !supabaseAnonKey) {
       json(res, 400, {
         success: false,
@@ -103,24 +177,82 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
-    // Check if artifact already exists
-    const { data: existing } = await supabase
+    // Find ALL existing artifacts with the same title (to handle duplicates)
+    const { data: existingArtifacts, error: findError } = await supabase
       .from('agent_artifacts')
-      .select('artifact_id')
+      .select('artifact_id, body_md, created_at')
       .eq('ticket_pk', ticket.pk)
       .eq('agent_type', 'qa')
       .eq('title', title)
-      .maybeSingle()
+      .order('created_at', { ascending: false })
 
-    if (existing) {
-      // Update existing artifact
+    if (findError) {
+      json(res, 200, {
+        success: false,
+        error: `Failed to query existing artifacts: ${findError.message}`,
+      })
+      return
+    }
+
+    const artifacts = (existingArtifacts || []) as Array<{
+      artifact_id: string
+      body_md?: string
+      created_at: string
+    }>
+
+    // Separate artifacts into those with content and empty/placeholder ones
+    const artifactsWithContent: Array<{ artifact_id: string; created_at: string }> = []
+    const emptyArtifactIds: string[] = []
+
+    for (const artifact of artifacts) {
+      const currentBody = artifact.body_md || ''
+      const currentValidation = hasSubstantiveContent(currentBody, title)
+      if (currentValidation.valid) {
+        artifactsWithContent.push({
+          artifact_id: artifact.artifact_id,
+          created_at: artifact.created_at,
+        })
+      } else {
+        emptyArtifactIds.push(artifact.artifact_id)
+      }
+    }
+
+    // Delete all empty/placeholder artifacts to clean up duplicates
+    if (emptyArtifactIds.length > 0) {
+      const { error: deleteError } = await supabase
+        .from('agent_artifacts')
+        .delete()
+        .in('artifact_id', emptyArtifactIds)
+
+      if (deleteError) {
+        // Log but don't fail - we can still proceed with update/insert
+        console.warn(`[insert-qa] Failed to delete empty artifacts: ${deleteError.message}`)
+      }
+    }
+
+    // Determine which artifact to update (prefer the most recent one with content, or most recent overall)
+    let targetArtifactId: string | null = null
+    if (artifactsWithContent.length > 0) {
+      // Use the most recent artifact that has content
+      targetArtifactId = artifactsWithContent[0].artifact_id
+    } else if (artifacts.length > 0) {
+      // If all were empty and we deleted them, we'll insert a new one
+      // But if there's still one left (race condition), use it
+      const remaining = artifacts.filter((a) => !emptyArtifactIds.includes(a.artifact_id))
+      if (remaining.length > 0) {
+        targetArtifactId = remaining[0].artifact_id
+      }
+    }
+
+    if (targetArtifactId) {
+      // Update the target artifact
       const { error: updateError } = await supabase
         .from('agent_artifacts')
         .update({
           title,
           body_md,
         })
-        .eq('artifact_id', existing.artifact_id)
+        .eq('artifact_id', targetArtifactId)
 
       if (updateError) {
         json(res, 200, {
@@ -132,13 +264,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
       json(res, 200, {
         success: true,
-        artifact_id: existing.artifact_id,
+        artifact_id: targetArtifactId,
         action: 'updated',
+        cleaned_up_duplicates: emptyArtifactIds.length,
       })
       return
     }
 
-    // Insert new artifact
+    // No existing artifact found (or all were deleted), insert new one
     const { data: inserted, error: insertError } = await supabase
       .from('agent_artifacts')
       .insert({
@@ -163,6 +296,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       success: true,
       artifact_id: inserted.artifact_id,
       action: 'inserted',
+      cleaned_up_duplicates: emptyArtifactIds.length,
     })
   } catch (err) {
     json(res, 500, {
