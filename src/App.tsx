@@ -2,6 +2,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import {
   KanbanBoard,
+  KANBAN_BUILD,
   type KanbanTicketRow,
   type KanbanColumnRow,
   type KanbanAgentRunRow,
@@ -99,6 +100,8 @@ type DiagnosticsInfo = {
   openaiLastError: string | null
   kanbanLoaded: boolean
   kanbanUrl: string
+  /** Kanban library build id (e.g. git commit); confirms which bundle is loaded. */
+  kanbanBuild: string
   connectedProject: string | null
   lastPmOutboundRequest: object | null
   lastPmToolCalls: ToolCallRecord[] | null
@@ -2251,6 +2254,7 @@ function App() {
 
   const diagnostics: DiagnosticsInfo = {
     kanbanRenderMode: 'library',
+    kanbanBuild: KANBAN_BUILD,
     selectedChatTarget,
     pmImplementationSource: selectedChatTarget === 'project-manager' ? 'hal-agents' : 'inline',
     lastAgentError,
@@ -3078,6 +3082,12 @@ function App() {
                   <span className="diag-label">Kanban loaded:</span>
                   <span className="diag-value" data-status={diagnostics.kanbanLoaded ? 'ok' : 'error'}>
                     {String(diagnostics.kanbanLoaded)}
+                  </span>
+                </div>
+                <div className="diag-row">
+                  <span className="diag-label">Kanban build:</span>
+                  <span className="diag-value" title="Library build id; inspect data-kanban-build on board root to confirm.">
+                    {diagnostics.kanbanBuild}
                   </span>
                 </div>
                 <div className="diag-row">
