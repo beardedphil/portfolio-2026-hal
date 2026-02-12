@@ -4,7 +4,7 @@
  * Use this whenever we write body_md to the tickets table (update_ticket_body, API update).
  */
 
-const qaDivOpen = /<div[^>]*class=["'][^"']*qa-(info-section|section)(?:\s[^"']*)?["'][^>]*>/i
+const qaDivOpen = /<div[^>]*class=["'][^"']*qa-(info-section|section|workflow-section)(?:\s[^"']*)?["'][^>]*>/i
 
 export function stripQABlocksFromTicketBody(bodyMd: string): string {
   if (!bodyMd || !bodyMd.trim()) return bodyMd

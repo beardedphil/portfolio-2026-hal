@@ -11,7 +11,7 @@
 import 'dotenv/config'
 import { createClient } from '@supabase/supabase-js'
 
-const qaDivOpen = /<div[^>]*class=["'][^"']*qa-(info-section|section)(?:\s[^"']*)?["'][^>]*>/i
+const qaDivOpen = /<div[^>]*class=["'][^"']*qa-(info-section|section|workflow-section)(?:\s[^"']*)?["'][^>]*>/i
 
 function stripQABlocksFromTicketBody(bodyMd) {
   if (!bodyMd || !bodyMd.trim()) return bodyMd
