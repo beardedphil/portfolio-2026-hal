@@ -1,6 +1,6 @@
 /**
- * Shared validation utilities for artifact content (0121).
- * Ensures consistent validation across all artifact creation paths.
+ * Shared validation logic for artifact content (0121).
+ * Used by all artifact insertion endpoints to ensure consistent duplicate detection.
  */
 
 /**
@@ -41,18 +41,10 @@ export function hasSubstantiveContent(body_md: string, title: string): { valid: 
 
   // Check for common placeholder patterns
   const placeholderPatterns = [
-    /^#\s+[^\n]+\s*$/, // Content is just a single heading with nothing else
-    /^#\s+[^\n]+\n+(TODO|TBD|coming soon|not yet|to be determined)/i, // Heading followed by placeholder text
+    /^#\s+[^\n]+\n*$/m, // Just a single heading
+    /^#\s+[^\n]+\n+(TODO|TBD|placeholder|coming soon|not yet|to be determined)/i,
+    /^(TODO|TBD|placeholder|coming soon|not yet|to be determined)/i,
   ]
-
-  // Check if content starts with placeholder keywords (but allow them in middle of content)
-  const trimmedStart = body_md.trim()
-  if (/^(TODO|TBD|coming soon|not yet|to be determined)/i.test(trimmedStart)) {
-    return {
-      valid: false,
-      reason: 'Artifact body appears to contain only placeholder text. Artifacts must include actual implementation details, not placeholders.',
-    }
-  }
 
   for (const pattern of placeholderPatterns) {
     if (pattern.test(body_md)) {
