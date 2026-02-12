@@ -93,7 +93,24 @@ async function cleanupTicket(ticketId) {
       body: JSON.stringify({ ticketId }),
     })
     
-    const result = await response.json()
+    // Get response text first to check what we're dealing with
+    const responseText = await response.text()
+    
+    // Check if it's HTML/error page
+    if (!response.ok || responseText.includes('NOT_FOUND') || responseText.includes('page could not be found') || responseText.trim().startsWith('<')) {
+      console.log(`  ⚠️  Cleanup endpoint returned ${response.status}, using update-based cleanup instead...`)
+      return await cleanupViaUpdate(ticketId)
+    }
+    
+    // Try to parse as JSON
+    let result
+    try {
+      result = JSON.parse(responseText)
+    } catch (parseErr) {
+      console.log(`  ⚠️  Response is not JSON: ${responseText.substring(0, 200)}`)
+      console.log(`  ⚠️  Using update-based cleanup as fallback...`)
+      return await cleanupViaUpdate(ticketId)
+    }
     
     if (!result.success) {
       console.error(`  ❌ Error: ${result.error}`)
@@ -104,8 +121,99 @@ async function cleanupTicket(ticketId) {
     return { success: true, deleted: result.deleted || 0, updated: result.updated || 0 }
   } catch (err) {
     console.error(`  ❌ Error: ${err instanceof Error ? err.message : String(err)}`)
-    return { success: false, error: err instanceof Error ? err.message : String(err) }
+    console.log(`  ⚠️  Trying update-based cleanup as fallback...`)
+    return await cleanupViaUpdate(ticketId)
   }
+}
+
+/**
+ * Fallback: Cleanup via update (uses existing insert endpoints)
+ */
+async function cleanupViaUpdate(ticketId) {
+  // Fetch artifacts
+  let artifactsData
+  try {
+    const artifactsRes = await fetch(`${baseUrl}/api/artifacts/get`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticketId }),
+    })
+    artifactsData = await artifactsRes.json()
+    
+    if (!artifactsData.success) {
+      return { success: false, error: artifactsData.error }
+    }
+  } catch (err) {
+    return { success: false, error: err.message }
+  }
+
+  const artifacts = artifactsData.artifacts || []
+  if (artifacts.length === 0) {
+    return { success: true, deleted: 0 }
+  }
+
+  // Extract display_id
+  let displayId = ticketId
+  const halTitleMatch = artifacts.find(a => a.title?.includes('HAL-'))?.title?.match(/ticket\s+(HAL-[0-9]+)/i)
+  if (halTitleMatch) {
+    displayId = halTitleMatch[1]
+  }
+
+  // Group by canonical type
+  const byType = new Map()
+  for (const artifact of artifacts) {
+    const type = extractArtifactTypeFromTitle(artifact.title || '')
+    if (!type) continue
+    if (!byType.has(type)) byType.set(type, [])
+    byType.get(type).push(artifact)
+  }
+
+  let totalCleaned = 0
+
+  // For each type with duplicates, update the best artifact once
+  for (const [type, typeArtifacts] of byType.entries()) {
+    if (typeArtifacts.length <= 1) continue
+
+    const withContent = typeArtifacts.filter(a => hasSubstantiveContent(a.body_md))
+    let keepArtifact = null
+    
+    if (withContent.length > 0) {
+      withContent.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+      keepArtifact = withContent[0]
+    } else {
+      typeArtifacts.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+      keepArtifact = typeArtifacts[0]
+    }
+
+    if (!keepArtifact) continue
+
+    const canonicalTitle = createCanonicalTitle(type, displayId)
+    const duplicatesCount = typeArtifacts.length - 1
+
+    // Update once with canonical title - this should trigger duplicate deletion
+    try {
+      const updateRes = await fetch(`${baseUrl}/api/artifacts/${keepArtifact.agent_type === 'qa' ? 'insert-qa' : 'insert-implementation'}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ticketId,
+          ...(keepArtifact.agent_type === 'implementation' ? { artifactType: type } : {}),
+          title: canonicalTitle,
+          body_md: keepArtifact.body_md || '',
+        }),
+      })
+      const updateData = await updateRes.json()
+      if (updateData.success) {
+        totalCleaned += duplicatesCount
+      }
+    } catch (err) {
+      // Continue with other types
+    }
+    
+    await new Promise(resolve => setTimeout(resolve, 500))
+  }
+
+  return { success: true, deleted: totalCleaned }
 }
 
 /**
