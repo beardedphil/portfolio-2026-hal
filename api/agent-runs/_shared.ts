@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
 export type AgentType = 'implementation' | 'qa'
 
@@ -60,15 +60,18 @@ export function buildWorklogBodyFromProgress(
   return lines.join('\n')
 }
 
+/** Result type for upsertArtifact so callers can narrow safely. */
+export type UpsertArtifactResult = { ok: true } | { ok: false; error: string }
+
 /** Upsert one artifact: update body_md if row exists, otherwise insert. Returns error message if failed. */
 export async function upsertArtifact(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseClient<any, 'public', any>,
   ticketPk: string,
   repoFullName: string,
   agentType: string,
   title: string,
   bodyMd: string
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<UpsertArtifactResult> {
   const { data: existing, error: selectErr } = await supabase
     .from('agent_artifacts')
     .select('artifact_id')
@@ -82,10 +85,11 @@ export async function upsertArtifact(
     return { ok: false, error: msg }
   }
   if (existing) {
+    const row = existing as { artifact_id: string }
     const { error: updateErr } = await supabase
       .from('agent_artifacts')
-      .update({ body_md: bodyMd })
-      .eq('artifact_id', (existing as any).artifact_id)
+      .update({ body_md: bodyMd } as Record<string, unknown>)
+      .eq('artifact_id', row.artifact_id)
     if (updateErr) {
       const msg = `agent_artifacts update: ${updateErr.message}`
       console.error('[agent-runs]', msg)
@@ -99,7 +103,7 @@ export async function upsertArtifact(
     agent_type: agentType,
     title,
     body_md: bodyMd,
-  })
+  } as Record<string, unknown>)
   if (insertErr) {
     const msg = `agent_artifacts insert: ${insertErr.message}`
     console.error('[agent-runs]', msg)

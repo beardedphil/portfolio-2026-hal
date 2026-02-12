@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import * as IronSession from 'iron-session'
-import type { IronSessionOptions } from 'iron-session'
+import type { SessionOptions } from 'iron-session'
 import { requireEnv } from './config.js'
 
 export type GithubSession = {
@@ -23,7 +23,7 @@ declare module 'iron-session' {
 /** Session type for use in API handlers (includes github when authenticated). */
 export type Session = IronSession.IronSession<HalSessionData>
 
-function sessionOptions(): IronSessionOptions {
+function sessionOptions(): SessionOptions {
   return {
     cookieName: 'hal_session',
     password: requireEnv('AUTH_SESSION_SECRET'),

@@ -92,9 +92,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       worklogTitle,
       worklogBody
     )
-    if (!worklogResult.ok) {
-      console.warn('[agent-runs] sync-artifacts worklog upsert failed:', worklogResult.error)
-      json(res, 500, { success: false, error: worklogResult.error })
+    if (worklogResult.ok === false) {
+      const errMsg = worklogResult.error
+      console.warn('[agent-runs] sync-artifacts worklog upsert failed:', errMsg)
+      json(res, 500, { success: false, error: errMsg })
       return
     }
 
@@ -115,7 +116,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       )
       for (const a of artifacts) {
         const res2 = await upsertArtifact(supabase, ticketPk, repoFullName, 'implementation', a.title, a.body_md)
-        if (!res2.ok) console.warn('[agent-runs] sync-artifacts artifact upsert failed:', a.title, res2.error)
+        if (res2.ok === false) console.warn('[agent-runs] sync-artifacts artifact upsert failed:', a.title, res2.error)
       }
     }
 

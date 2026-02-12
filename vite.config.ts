@@ -96,6 +96,9 @@ interface PmAgentResponse {
 }
 
 export default defineConfig({
+  build: {
+    cssMinify: false,
+  },
   plugins: [
     react(),
     {
