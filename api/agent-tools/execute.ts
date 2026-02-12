@@ -17,6 +17,69 @@ function json(res: ServerResponse, statusCode: number, body: unknown) {
   res.end(JSON.stringify(body))
 }
 
+/**
+ * Validates that body_md contains substantive content beyond just a title/heading.
+ * Returns true if the content is valid, false if it's essentially empty/placeholder-only.
+ */
+function hasSubstantiveContent(body_md: string, title: string): { valid: boolean; reason?: string } {
+  if (!body_md || body_md.trim().length === 0) {
+    return { valid: false, reason: 'Artifact body is empty. Artifacts must contain substantive content, not just a title.' }
+  }
+
+  // Remove markdown headings and check remaining content
+  const withoutHeadings = body_md
+    .replace(/^#{1,6}\s+.*$/gm, '') // Remove markdown headings
+    .replace(/^[-*+]\s+.*$/gm, '') // Remove bullet points (might be just placeholder bullets)
+    .replace(/^\d+\.\s+.*$/gm, '') // Remove numbered lists
+    .trim()
+
+  // If after removing headings and lists, there's no content, it's invalid
+  if (withoutHeadings.length === 0) {
+    return {
+      valid: false,
+      reason: 'Artifact body contains only headings or placeholder structure. Artifacts must include substantive content beyond the title.',
+    }
+  }
+
+  // Check if content is just the title repeated or very short
+  const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]/g, '')
+  const normalizedBody = body_md.toLowerCase().replace(/[^a-z0-9]/g, '')
+  
+  // If body is essentially just the title, it's invalid
+  if (normalizedBody.length < 50 && normalizedBody.includes(normalizedTitle)) {
+    return {
+      valid: false,
+      reason: 'Artifact body is too short or only contains the title. Artifacts must include detailed content (at least 50 characters of substantive text).',
+    }
+  }
+
+  // Check for common placeholder patterns
+  const placeholderPatterns = [
+    /^#\s+[^\n]+\n*$/m, // Just a single heading
+    /^#\s+[^\n]+\n+(TODO|TBD|placeholder|coming soon|not yet|to be determined)/i,
+    /^(TODO|TBD|placeholder|coming soon|not yet|to be determined)/i,
+  ]
+
+  for (const pattern of placeholderPatterns) {
+    if (pattern.test(body_md)) {
+      return {
+        valid: false,
+        reason: 'Artifact body appears to contain only placeholder text. Artifacts must include actual implementation details, not placeholders.',
+      }
+    }
+  }
+
+  // Minimum length check (after removing headings)
+  if (withoutHeadings.length < 30) {
+    return {
+      valid: false,
+      reason: `Artifact body is too short (${withoutHeadings.length} characters after removing headings). Artifacts must contain at least 30 characters of substantive content.`,
+    }
+  }
+
+  return { valid: true }
+}
+
 // HAL's internal tools for Supabase operations
 async function insertImplementationArtifact(
   supabase: any,
@@ -43,10 +106,20 @@ async function insertImplementationArtifact(
     return { success: false, error: `Ticket ${params.ticketId} missing pk.` }
   }
 
+  // Validate that body_md contains substantive content
+  const contentValidation = hasSubstantiveContent(params.body_md, params.title)
+  if (!contentValidation.valid) {
+    return {
+      success: false,
+      error: contentValidation.reason || 'Artifact body must contain substantive content, not just a title or placeholder text.',
+      validation_failed: true,
+    }
+  }
+
   // Check if artifact already exists
   const { data: existing } = await supabase
     .from('agent_artifacts')
-    .select('artifact_id')
+    .select('artifact_id, body_md')
     .eq('ticket_pk', ticketPk)
     .eq('agent_type', 'implementation')
     .eq('title', params.title)
@@ -56,6 +129,20 @@ async function insertImplementationArtifact(
     const existingId = (existing as { artifact_id?: string }).artifact_id
     if (!existingId) {
       return { success: false, error: 'Existing artifact missing artifact_id.' }
+    }
+    
+    // Prevent overwriting existing artifacts with empty content
+    const currentBody = (existing as { body_md?: string })?.body_md || ''
+    const currentValidation = hasSubstantiveContent(currentBody, params.title)
+    
+    // If existing artifact has content but new one doesn't, reject the update
+    if (currentValidation.valid && !contentValidation.valid) {
+      return {
+        success: false,
+        error: `Cannot overwrite existing artifact with empty/placeholder content. Existing artifact has substantive content. ${contentValidation.reason || ''}`,
+        validation_failed: true,
+        existing_artifact_has_content: true,
+      }
     }
     
     // Update existing artifact
