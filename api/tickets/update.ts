@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { createClient } from '@supabase/supabase-js'
+import { stripQABlocksFromTicketBody } from '../_lib/strip-qa-from-ticket-body'
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []
@@ -76,10 +77,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey)
-
+    // Never persist QA Information / Implementation artifacts blocks; QA is artifacts only
+    const bodyToStore = stripQABlocksFromTicketBody(body_md)
     const update = ticketPk
-      ? await supabase.from('tickets').update({ body_md }).eq('pk', ticketPk)
-      : await supabase.from('tickets').update({ body_md }).eq('id', ticketId!)
+      ? await supabase.from('tickets').update({ body_md: bodyToStore }).eq('pk', ticketPk)
+      : await supabase.from('tickets').update({ body_md: bodyToStore }).eq('id', ticketId!)
 
     if (update.error) {
       json(res, 200, { success: false, error: `Supabase update failed: ${update.error.message}` })

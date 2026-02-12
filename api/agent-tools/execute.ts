@@ -6,6 +6,7 @@ import {
   createCanonicalTitle,
   findArtifactsByCanonicalId,
 } from '../artifacts/_shared'
+import { stripQABlocksFromTicketBody } from '../_lib/strip-qa-from-ticket-body'
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []
@@ -446,8 +447,10 @@ async function updateTicketBody(
     return { success: false, error: `Ticket ${params.ticketId} not found in Supabase.` }
   }
 
+  // Never persist QA Information / Implementation artifacts blocks; QA is artifacts only
+  const bodyToStore = stripQABlocksFromTicketBody(params.body_md)
   const ticketPk = (ticket as { pk?: string }).pk
-  const updateQ = supabase.from('tickets').update({ body_md: params.body_md })
+  const updateQ = supabase.from('tickets').update({ body_md: bodyToStore })
   const { error: updateError } = ticketPk
     ? await updateQ.eq('pk', ticketPk)
     : await updateQ.eq('id', params.ticketId)
