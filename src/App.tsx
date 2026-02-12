@@ -1426,43 +1426,50 @@ function App() {
     [supabaseUrl, supabaseAnonKey, fetchKanbanData]
   )
 
-  /** Fetch artifacts for a ticket via HAL API (server uses Supabase env). Used by Kanban when opening ticket detail. */
-  const fetchArtifactsForTicket = useCallback(async (ticketPk: string): Promise<ArtifactRow[]> => {
-    try {
-      const res = await fetch('/api/artifacts/get', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ ticketPk }),
-      })
-      const json = (await res.json().catch(() => ({}))) as { success?: boolean; artifacts?: ArtifactRow[] }
-      let list = Array.isArray(json.artifacts) ? json.artifacts : []
-      if (list.length === 0 && res.ok) {
-        try {
-          await fetch('/api/agent-runs/sync-artifacts', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ ticketPk }),
-          })
-          const retryRes = await fetch('/api/artifacts/get', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ ticketPk }),
-          })
-          const retryJson = (await retryRes.json().catch(() => ({}))) as { artifacts?: ArtifactRow[] }
-          if (Array.isArray(retryJson.artifacts)) list = retryJson.artifacts
-        } catch {
-          // ignore
+  /** Fetch artifacts for a ticket (same Supabase as tickets). Used by Kanban when opening ticket detail. */
+  const fetchArtifactsForTicket = useCallback(
+    async (ticketPk: string): Promise<ArtifactRow[]> => {
+      const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
+      const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
+      if (!url || !key) return []
+      try {
+        const supabase = createClient(url, key)
+        const { data, error } = await supabase
+          .from('agent_artifacts')
+          .select('artifact_id, ticket_pk, repo_full_name, agent_type, title, body_md, created_at, updated_at')
+          .eq('ticket_pk', ticketPk)
+          .order('created_at', { ascending: false })
+        if (error) {
+          console.warn('[HAL] fetchArtifactsForTicket:', error.message)
+          return []
         }
+        let list = (data ?? []) as ArtifactRow[]
+        if (list.length === 0) {
+          try {
+            await fetch('/api/agent-runs/sync-artifacts', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ ticketPk }),
+            })
+            const { data: data2 } = await supabase
+              .from('agent_artifacts')
+              .select('artifact_id, ticket_pk, repo_full_name, agent_type, title, body_md, created_at, updated_at')
+              .eq('ticket_pk', ticketPk)
+              .order('created_at', { ascending: false })
+            list = (data2 ?? []) as ArtifactRow[]
+          } catch {
+            // ignore
+          }
+        }
+        return list
+      } catch (e) {
+        console.warn('[HAL] fetchArtifactsForTicket:', e)
+        return []
       }
-      return list
-    } catch (e) {
-      console.warn('[HAL] fetchArtifactsForTicket:', e)
-      return []
-    }
-  }, [])
+    },
+    [supabaseUrl, supabaseAnonKey]
+  )
 
   /** Trigger agent run for a given message and target (used by handleSend and HAL_OPEN_CHAT_AND_SEND) */
   const triggerAgentRun = useCallback(

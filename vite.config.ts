@@ -1572,6 +1572,44 @@ export default defineConfig({
       },
     },
     {
+      name: 'artifacts-get-endpoint',
+      configureServer(server) {
+        server.middlewares.use(async (req, res, next) => {
+          if (req.url !== '/api/artifacts/get' || (req.method !== 'POST' && req.method !== 'OPTIONS')) {
+            next()
+            return
+          }
+          try {
+            const handler = await import('./api/artifacts/get.js')
+            await handler.default(req, res)
+          } catch (err) {
+            res.statusCode = 500
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ success: false, error: err instanceof Error ? err.message : String(err), artifacts: [] }))
+          }
+        })
+      },
+    },
+    {
+      name: 'agent-runs-sync-artifacts-endpoint',
+      configureServer(server) {
+        server.middlewares.use(async (req, res, next) => {
+          if (req.url !== '/api/agent-runs/sync-artifacts' || req.method !== 'POST') {
+            next()
+            return
+          }
+          try {
+            const handler = await import('./api/agent-runs/sync-artifacts.js')
+            await handler.default(req, res)
+          } catch (err) {
+            res.statusCode = 500
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ success: false, error: err instanceof Error ? err.message : String(err) }))
+          }
+        })
+      },
+    },
+    {
       name: 'pm-check-unassigned-endpoint',
       configureServer(server) {
         server.middlewares.use(async (req, res, next) => {
