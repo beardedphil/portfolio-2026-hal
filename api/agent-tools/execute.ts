@@ -271,11 +271,6 @@ async function insertQaArtifact(
   const emptyArtifactIds: string[] = []
 
   for (const artifact of artifacts) {
-<<<<<<< HEAD
-    if (isEmptyOrPlaceholder(artifact.body_md, params.title)) {
-      emptyArtifactIds.push(artifact.artifact_id)
-    } else {
-=======
     const currentBody = artifact.body_md || ''
     const currentValidation = hasSubstantiveContent(currentBody, canonicalTitle)
     if (currentValidation.valid) {
