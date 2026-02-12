@@ -1432,6 +1432,21 @@ function App() {
       const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
       const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
       if (!url || !key) return []
+      const trySyncAndUseResponse = async (): Promise<ArtifactRow[]> => {
+        try {
+          const syncRes = await fetch('/api/agent-runs/sync-artifacts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ ticketPk }),
+          })
+          const syncJson = (await syncRes.json().catch(() => ({}))) as { artifacts?: ArtifactRow[] }
+          if (Array.isArray(syncJson.artifacts) && syncJson.artifacts.length > 0) return syncJson.artifacts
+        } catch (e) {
+          console.warn('[HAL] fetchArtifactsForTicket sync:', e)
+        }
+        return []
+      }
       try {
         const supabase = createClient(url, key)
         const { data, error } = await supabase
@@ -1441,26 +1456,18 @@ function App() {
           .order('created_at', { ascending: false })
         if (error) {
           console.warn('[HAL] fetchArtifactsForTicket:', error.message)
-          return []
+          return trySyncAndUseResponse()
         }
         let list = (data ?? []) as ArtifactRow[]
         if (list.length === 0) {
-          try {
-            await fetch('/api/agent-runs/sync-artifacts', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'include',
-              body: JSON.stringify({ ticketPk }),
-            })
-            const { data: data2 } = await supabase
-              .from('agent_artifacts')
-              .select('artifact_id, ticket_pk, repo_full_name, agent_type, title, body_md, created_at, updated_at')
-              .eq('ticket_pk', ticketPk)
-              .order('created_at', { ascending: false })
-            list = (data2 ?? []) as ArtifactRow[]
-          } catch {
-            // ignore
-          }
+          const fromSync = await trySyncAndUseResponse()
+          if (fromSync.length > 0) return fromSync
+          const { data: data2 } = await supabase
+            .from('agent_artifacts')
+            .select('artifact_id, ticket_pk, repo_full_name, agent_type, title, body_md, created_at, updated_at')
+            .eq('ticket_pk', ticketPk)
+            .order('created_at', { ascending: false })
+          list = (data2 ?? []) as ArtifactRow[]
         }
         return list
       } catch (e) {
@@ -2741,6 +2748,8 @@ function App() {
                 implementationAgentTicketId: implAgentTicketId,
                 qaAgentTicketId: qaAgentTicketId,
                 fetchArtifactsForTicket,
+                supabaseUrl: supabaseUrl ?? (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? null,
+                supabaseAnonKey: supabaseAnonKey ?? (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? null,
               } as KanbanBoardProps)}
             />
           </div>
