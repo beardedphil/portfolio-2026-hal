@@ -194,6 +194,23 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     if (targetArtifactId) {
+      // Delete ALL other artifacts with the same canonical type (different title formats) (0121)
+      const duplicateIds = artifacts
+        .map((a) => a.artifact_id)
+        .filter((id) => id !== targetArtifactId && !emptyArtifactIds.includes(id))
+      
+      if (duplicateIds.length > 0) {
+        const { error: deleteDuplicateError } = await supabase
+          .from('agent_artifacts')
+          .delete()
+          .in('artifact_id', duplicateIds)
+
+        if (deleteDuplicateError) {
+          // Log but don't fail - we can still proceed with update
+          console.warn(`[insert-implementation] Failed to delete duplicate artifacts: ${deleteDuplicateError.message}`)
+        }
+      }
+
       // Update the target artifact with canonical title and new body (0121)
       const { error: updateError } = await supabase
         .from('agent_artifacts')
@@ -215,7 +232,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         success: true,
         artifact_id: targetArtifactId,
         action: 'updated',
-        cleaned_up_duplicates: emptyArtifactIds.length,
+        cleaned_up_duplicates: emptyArtifactIds.length + duplicateIds.length,
       })
       return
     }
