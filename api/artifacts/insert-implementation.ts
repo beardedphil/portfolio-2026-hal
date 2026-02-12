@@ -1,5 +1,11 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { createClient } from '@supabase/supabase-js'
+import { hasSubstantiveContent } from './_validation'
+import {
+  extractArtifactTypeFromTitle,
+  createCanonicalTitle,
+  findArtifactsByCanonicalId,
+} from './_shared'
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []
@@ -70,6 +76,17 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
+    // Validate that body_md contains substantive content
+    const contentValidation = hasSubstantiveContent(body_md, title)
+    if (!contentValidation.valid) {
+      json(res, 400, {
+        success: false,
+        error: contentValidation.reason || 'Artifact body must contain substantive content, not just a title or placeholder text.',
+        validation_failed: true,
+      })
+      return
+    }
+
     if (!supabaseUrl || !supabaseAnonKey) {
       json(res, 400, {
         success: false,
@@ -105,24 +122,103 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
-    // Check if artifact already exists
-    const { data: existing } = await supabase
-      .from('agent_artifacts')
-      .select('artifact_id')
-      .eq('ticket_pk', ticket.pk)
-      .eq('agent_type', 'implementation')
-      .eq('title', title)
-      .maybeSingle()
+    // Normalize title to use ticket's display_id for consistent formatting (0121)
+    const displayId = (ticket as { display_id?: string }).display_id || ticketId
+    const canonicalTitle = createCanonicalTitle(artifactType, displayId)
+    
+    // Find existing artifacts by canonical identifier (ticket_pk + agent_type + artifact_type)
+    // instead of exact title match to handle different title formats (0121)
+    const { artifacts: existingArtifacts, error: findError } = await findArtifactsByCanonicalId(
+      supabase,
+      ticket.pk,
+      'implementation',
+      artifactType
+    )
 
-    if (existing) {
-      // Update existing artifact
+    if (findError) {
+      json(res, 200, {
+        success: false,
+        error: findError,
+      })
+      return
+    }
+
+    const artifacts = (existingArtifacts || []) as Array<{
+      artifact_id: string
+      body_md?: string
+      created_at: string
+    }>
+
+    // Separate artifacts into those with content and empty/placeholder ones
+    const artifactsWithContent: Array<{ artifact_id: string; created_at: string }> = []
+    const emptyArtifactIds: string[] = []
+
+    for (const artifact of artifacts) {
+      const currentBody = artifact.body_md || ''
+      const currentValidation = hasSubstantiveContent(currentBody, canonicalTitle)
+      if (currentValidation.valid) {
+        artifactsWithContent.push({
+          artifact_id: artifact.artifact_id,
+          created_at: artifact.created_at,
+        })
+      } else {
+        emptyArtifactIds.push(artifact.artifact_id)
+      }
+    }
+
+    // Delete all empty/placeholder artifacts to clean up duplicates
+    if (emptyArtifactIds.length > 0) {
+      const { error: deleteError } = await supabase
+        .from('agent_artifacts')
+        .delete()
+        .in('artifact_id', emptyArtifactIds)
+
+      if (deleteError) {
+        // Log but don't fail - we can still proceed with update/insert
+        console.warn(`[insert-implementation] Failed to delete empty artifacts: ${deleteError.message}`)
+      }
+    }
+
+    // Determine which artifact to update (prefer the most recent one with content, or most recent overall)
+    let targetArtifactId: string | null = null
+    if (artifactsWithContent.length > 0) {
+      // Use the most recent artifact that has content
+      targetArtifactId = artifactsWithContent[0].artifact_id
+    } else if (artifacts.length > 0) {
+      // If all were empty and we deleted them, we'll insert a new one
+      // But if there's still one left (race condition), use it
+      const remaining = artifacts.filter((a) => !emptyArtifactIds.includes(a.artifact_id))
+      if (remaining.length > 0) {
+        targetArtifactId = remaining[0].artifact_id
+      }
+    }
+
+    if (targetArtifactId) {
+      // Delete ALL other artifacts with the same canonical type (different title formats) (0121)
+      const duplicateIds = artifacts
+        .map((a) => a.artifact_id)
+        .filter((id) => id !== targetArtifactId && !emptyArtifactIds.includes(id))
+      
+      if (duplicateIds.length > 0) {
+        const { error: deleteDuplicateError } = await supabase
+          .from('agent_artifacts')
+          .delete()
+          .in('artifact_id', duplicateIds)
+
+        if (deleteDuplicateError) {
+          // Log but don't fail - we can still proceed with update
+          console.warn(`[insert-implementation] Failed to delete duplicate artifacts: ${deleteDuplicateError.message}`)
+        }
+      }
+
+      // Update the target artifact with canonical title and new body (0121)
       const { error: updateError } = await supabase
         .from('agent_artifacts')
         .update({
-          title,
+          title: canonicalTitle, // Use canonical title for consistency
           body_md,
         })
-        .eq('artifact_id', existing.artifact_id)
+        .eq('artifact_id', targetArtifactId)
 
       if (updateError) {
         json(res, 200, {
@@ -134,26 +230,58 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
       json(res, 200, {
         success: true,
-        artifact_id: existing.artifact_id,
+        artifact_id: targetArtifactId,
         action: 'updated',
+        cleaned_up_duplicates: emptyArtifactIds.length + duplicateIds.length,
       })
       return
     }
 
-    // Insert new artifact
+    // No existing artifact found (or all were deleted), insert new one with canonical title (0121)
     const { data: inserted, error: insertError } = await supabase
       .from('agent_artifacts')
       .insert({
         ticket_pk: ticket.pk,
         repo_full_name: ticket.repo_full_name || '',
         agent_type: 'implementation',
-        title,
+        title: canonicalTitle, // Use canonical title for consistency
         body_md,
       })
       .select('artifact_id')
       .single()
 
     if (insertError) {
+      // Handle race condition: if duplicate key error, try to find and update the existing artifact
+      if (insertError.message.includes('duplicate') || insertError.code === '23505') {
+        const { data: existingArtifact, error: findError } = await supabase
+          .from('agent_artifacts')
+          .select('artifact_id')
+          .eq('ticket_pk', ticket.pk)
+          .eq('agent_type', 'implementation')
+          .eq('title', title)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single()
+
+        if (!findError && existingArtifact?.artifact_id) {
+          const { error: updateError } = await supabase
+            .from('agent_artifacts')
+            .update({ body_md })
+            .eq('artifact_id', existingArtifact.artifact_id)
+
+          if (!updateError) {
+            json(res, 200, {
+              success: true,
+              artifact_id: existingArtifact.artifact_id,
+              action: 'updated',
+              cleaned_up_duplicates: emptyArtifactIds.length,
+              race_condition_handled: true,
+            })
+            return
+          }
+        }
+      }
+
       json(res, 200, {
         success: false,
         error: `Failed to insert artifact: ${insertError.message}`,
@@ -165,6 +293,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       success: true,
       artifact_id: inserted.artifact_id,
       action: 'inserted',
+      cleaned_up_duplicates: emptyArtifactIds.length,
     })
   } catch (err) {
     json(res, 500, {
