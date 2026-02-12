@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { isEmptyOrPlaceholder } from '../artifacts/_validation'
 
 export type AgentType = 'implementation' | 'qa'
 
@@ -94,12 +95,10 @@ export async function upsertArtifact(
     created_at: string
   }>
 
-  // Identify empty/placeholder artifacts (body is empty or very short)
+  // Identify empty/placeholder artifacts using shared validation
   const emptyArtifactIds: string[] = []
   for (const artifact of artifacts) {
-    const currentBody = (artifact.body_md || '').trim()
-    // Consider empty or very short (< 30 chars) as placeholder
-    if (currentBody.length === 0 || currentBody.length < 30) {
+    if (isEmptyOrPlaceholder(artifact.body_md, title)) {
       emptyArtifactIds.push(artifact.artifact_id)
     }
   }
@@ -152,6 +151,30 @@ export async function upsertArtifact(
     body_md: bodyMd,
   } as Record<string, unknown>)
   if (insertErr) {
+    // Handle race condition: if duplicate key error, try to find and update the existing artifact
+    if (insertErr.message.includes('duplicate') || insertErr.code === '23505') {
+      const { data: existingArtifact, error: findErr } = await supabase
+        .from('agent_artifacts')
+        .select('artifact_id')
+        .eq('ticket_pk', ticketPk)
+        .eq('agent_type', agentType)
+        .eq('title', title)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+
+      if (!findErr && existingArtifact?.artifact_id) {
+        const { error: updateErr } = await supabase
+          .from('agent_artifacts')
+          .update({ body_md: bodyMd } as Record<string, unknown>)
+          .eq('artifact_id', existingArtifact.artifact_id)
+
+        if (!updateErr) {
+          return { ok: true }
+        }
+      }
+    }
+
     const msg = `agent_artifacts insert: ${insertErr.message}`
     console.error('[agent-runs]', msg)
     return { ok: false, error: msg }

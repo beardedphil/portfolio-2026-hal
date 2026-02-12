@@ -46,6 +46,14 @@ async function insertAgentArtifact(
   bodyMd: string
 ): Promise<void> {
   try {
+    // Validate content before attempting to insert (0121)
+    const { hasSubstantiveContent } = await import('./api/artifacts/_validation')
+    const validation = hasSubstantiveContent(bodyMd, title)
+    if (!validation.valid) {
+      console.warn(`[Agent Artifact] Skipping ${agentType} artifact "${title}" for ticket ${ticketPk}: ${validation.reason || 'Invalid content'}`)
+      return
+    }
+
     const { createClient } = await import('@supabase/supabase-js')
     const supabase = createClient(supabaseUrl, supabaseAnonKey)
     
@@ -69,12 +77,11 @@ async function insertAgentArtifact(
       created_at: string
     }>
 
-    // Identify empty/placeholder artifacts (body is empty or very short)
+    // Identify empty/placeholder artifacts using shared validation
+    const { isEmptyOrPlaceholder } = await import('./api/artifacts/_validation')
     const emptyArtifactIds: string[] = []
     for (const artifact of artifacts) {
-      const currentBody = (artifact.body_md || '').trim()
-      // Consider empty or very short (< 30 chars) as placeholder
-      if (currentBody.length === 0 || currentBody.length < 30) {
+      if (isEmptyOrPlaceholder(artifact.body_md, title)) {
         emptyArtifactIds.push(artifact.artifact_id)
       }
     }
@@ -115,9 +122,11 @@ async function insertAgentArtifact(
         .eq('artifact_id', targetArtifactId)
 
       if (updateError) {
-        console.error(`[Agent Artifact] Failed to update ${agentType} artifact for ticket ${ticketPk}:`, updateError)
+        console.error(`[Agent Artifact] Failed to update ${agentType} artifact "${title}" for ticket ${ticketPk}:`, updateError)
+        // Don't return - try to insert as fallback if update failed
+      } else {
+        return // Successfully updated
       }
-      return
     }
 
     // No existing artifact found (or all were deleted), insert new one
@@ -129,10 +138,29 @@ async function insertAgentArtifact(
       body_md: bodyMd,
     })
     if (insertError) {
-      console.error(`[Agent Artifact] Failed to insert ${agentType} artifact for ticket ${ticketPk}:`, insertError)
+      console.error(`[Agent Artifact] Failed to insert ${agentType} artifact "${title}" for ticket ${ticketPk}:`, insertError)
+      // Check if it's a duplicate key error (race condition - another process inserted)
+      if (insertError.message.includes('duplicate') || insertError.code === '23505') {
+        // Try to update the newly created artifact
+        const { data: existing } = await supabase
+          .from('agent_artifacts')
+          .select('artifact_id')
+          .eq('ticket_pk', ticketPk)
+          .eq('agent_type', agentType)
+          .eq('title', title)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single()
+        if (existing?.artifact_id) {
+          await supabase
+            .from('agent_artifacts')
+            .update({ body_md: bodyMd })
+            .eq('artifact_id', existing.artifact_id)
+        }
+      }
     }
   } catch (err) {
-    console.error(`[Agent Artifact] Error inserting ${agentType} artifact:`, err)
+    console.error(`[Agent Artifact] Error inserting ${agentType} artifact "${title}" for ticket ${ticketPk}:`, err)
   }
 }
 
