@@ -353,6 +353,10 @@ function App() {
     | 'failed'
   >('idle')
   /** QA Agent run status for on-screen timeline. */
+  const [processReviewStatus, setProcessReviewStatus] = useState<'idle' | 'running' | 'completed' | 'failed'>('idle')
+  const [processReviewError, setProcessReviewError] = useState<string | null>(null)
+  const [processReviewTicketPk, setProcessReviewTicketPk] = useState<string | null>(null)
+  const [processReviewMessage, setProcessReviewMessage] = useState<string | null>(null)
   const [qaAgentRunStatus, setQaAgentRunStatus] = useState<
     | 'idle'
     | 'preparing'
@@ -2066,6 +2070,61 @@ function App() {
     [triggerAgentRun, getOrCreateConversation, getDefaultConversationId, kanbanTickets, handleKanbanMoveTicket]
   )
 
+  /** Process Review button: trigger Process Review agent for top ticket in Process Review column. */
+  const handleKanbanProcessReview = useCallback(
+    async (data: { ticketPk: string; ticketId?: string }) => {
+      if (!data.ticketPk) return
+      
+      // Set status to running
+      setProcessReviewStatus('running')
+      setProcessReviewError(null)
+      setProcessReviewTicketPk(data.ticketPk)
+      setProcessReviewMessage(`Process Review started for ticket ${data.ticketId || data.ticketPk}`)
+
+      try {
+        const response = await fetch('/api/process-review/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ticketPk: data.ticketPk,
+            ticketId: data.ticketId,
+            supabaseUrl: supabaseUrl ?? (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? undefined,
+            supabaseAnonKey: supabaseAnonKey ?? (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? undefined,
+          }),
+        })
+
+        const result = await response.json()
+
+        if (!result.success) {
+          setProcessReviewStatus('failed')
+          setProcessReviewError(result.error || 'Process Review failed')
+          setProcessReviewMessage(`Process Review failed: ${result.error || 'Unknown error'}`)
+          return
+        }
+
+        // Success
+        setProcessReviewStatus('completed')
+        const suggestionCount = result.suggestions?.length || 0
+        setProcessReviewMessage(
+          `Process Review completed for ticket ${data.ticketId || data.ticketPk}. ${suggestionCount} suggestion${suggestionCount !== 1 ? 's' : ''} generated.`
+        )
+
+        // Reset after 5 seconds
+        setTimeout(() => {
+          setProcessReviewStatus('idle')
+          setProcessReviewMessage(null)
+          setProcessReviewTicketPk(null)
+        }, 5000)
+      } catch (err) {
+        setProcessReviewStatus('failed')
+        const errorMsg = err instanceof Error ? err.message : String(err)
+        setProcessReviewError(errorMsg)
+        setProcessReviewMessage(`Process Review failed: ${errorMsg}`)
+      }
+    },
+    [supabaseUrl, supabaseAnonKey]
+  )
+
   const handleImageSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -2408,6 +2467,19 @@ function App() {
               {lastError}
             </div>
           )}
+          {/* Process Review status (0118) */}
+          {processReviewMessage && (
+            <div
+              className={`process-review-status ${processReviewStatus === 'running' ? 'process-review-status-running' : processReviewStatus === 'completed' ? 'process-review-status-completed' : 'process-review-status-failed'}`}
+              role="status"
+              aria-live="polite"
+            >
+              {processReviewStatus === 'running' && '⏳ '}
+              {processReviewStatus === 'completed' && '✅ '}
+              {processReviewStatus === 'failed' && '❌ '}
+              {processReviewMessage}
+            </div>
+          )}
           {/* Chat Window (0087) - overlays Kanban when a chat is open (0096: keep Kanban mounted) */}
           <div className={`chat-window-container ${openChatTarget ? 'chat-window-visible' : 'chat-window-hidden'}`}>
             {openChatTarget && (
@@ -2745,6 +2817,8 @@ function App() {
                 onReorderColumn: handleKanbanReorderColumn,
                 onUpdateTicketBody: handleKanbanUpdateTicketBody,
                 onOpenChatAndSend: handleKanbanOpenChatAndSend,
+                onProcessReview: handleKanbanProcessReview,
+                processReviewRunningForTicketPk: processReviewStatus === 'running' ? processReviewTicketPk : null,
                 implementationAgentTicketId: implAgentTicketId,
                 qaAgentTicketId: qaAgentTicketId,
                 fetchArtifactsForTicket,
