@@ -2133,15 +2133,10 @@ export default defineConfig({
     },
   ],
   resolve: {
-    alias: (() => {
-      const a: Record<string, string> = {
-        '@hal-agents': path.resolve(__dirname, 'node_modules/portfolio-2026-hal-agents/src'),
-      }
-      if (fs.existsSync(path.join(__dirname, 'projects/kanban/src'))) {
-        a['portfolio-2026-kanban'] = path.resolve(__dirname, 'projects/kanban/src')
-      }
-      return a
-    })(),
+    alias: {
+      // Use node_modules so portfolio-2026-kanban/style.css resolves to the package export (dist-kanban-lib/KanbanBoard.css). Do not alias to projects/kanban/src or style.css would be missing there.
+      '@hal-agents': path.resolve(__dirname, 'node_modules/portfolio-2026-hal-agents/src'),
+    },
   },
   server: {
     port: 5173,
