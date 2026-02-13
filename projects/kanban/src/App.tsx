@@ -1139,11 +1139,6 @@ function TicketDetailModal({
                       />
                     </>
                   )}
-                  {!supabaseUrl?.trim() || !supabaseKey?.trim() ? (
-                    <div className="ticket-detail-error" role="alert" style={{ marginBottom: '1rem' }}>
-                      <p>Supabase not configured. Please connect to Supabase first to use the Pass action.</p>
-                    </div>
-                  ) : null}
                   <HumanValidationSection
                     ticketId={ticketId}
                     ticketPk={ticketId}
@@ -3297,55 +3292,33 @@ function App() {
           supabaseUrl={supabaseProjectUrl || ''}
           supabaseKey={supabaseAnonKey || ''}
           onValidationPass={async (ticketPk: string) => {
-            // Move ticket to Process Review (0108)
-            const targetColumn = supabaseColumns.find((c) => c.id === 'col-process-review')
-            if (!targetColumn) {
-              throw new Error('Process Review column not found')
+            // Always use HAL's callbacks - HAL handles all database operations
+            if (!halCtx) {
+              throw new Error('HAL context not available - Kanban component must be used through HAL')
             }
-            const targetPosition = targetColumn.cardIds.length
-            const movedAt = new Date().toISOString()
-            const result = await updateSupabaseTicketKanban(ticketPk, {
-              kanban_column_id: 'col-process-review',
-              kanban_position: targetPosition,
-              kanban_moved_at: movedAt,
-            })
-            if (!result.ok) {
-              throw new Error(result.error)
-            }
+            
+            // Move ticket to Process Review using HAL's callback
+            await halCtx.onMoveTicket(ticketPk, 'col-process-review')
             addLog(`Human validation: Ticket ${ticketPk} passed, moved to Process Review`)
             
             // Automatically trigger Process Review agent (0108)
-            const url = supabaseProjectUrl?.trim()
-            const key = supabaseAnonKey?.trim()
-            if (url && key && detailModal?.ticketId) {
+            if (halCtx.onProcessReview && detailModal?.ticketId) {
               try {
-                // Trigger process review agent in background
-                fetch('/api/process-review/run', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    ticketPk,
-                    ticketId: detailModal.ticketId,
-                    supabaseUrl: url,
-                    supabaseAnonKey: key,
-                  }),
-                }).catch((err) => {
-                  console.error('Failed to trigger process review agent:', err)
-                  addLog(`Warning: Process Review agent trigger failed: ${err instanceof Error ? err.message : String(err)}`)
+                await halCtx.onProcessReview({
+                  ticketPk,
+                  ticketId: detailModal.ticketId,
                 })
               } catch (err) {
-                console.error('Error triggering process review agent:', err)
-                addLog(`Warning: Process Review agent trigger error: ${err instanceof Error ? err.message : String(err)}`)
+                console.error('Failed to trigger process review agent:', err)
+                addLog(`Warning: Process Review agent trigger failed: ${err instanceof Error ? err.message : String(err)}`)
               }
             }
             
-            setTimeout(() => {
-              refetchSupabaseTickets(false)
-            }, REFETCH_AFTER_MOVE_MS)
-            // Close ticket detail modal after move completes (0089)
+            // HAL will update the data and pass it back, so we don't need to update local state
+            // Close ticket detail modal after a short delay to show success message
             setTimeout(() => {
               handleCloseTicketDetail()
-            }, REFETCH_AFTER_MOVE_MS + 100)
+            }, 2000)
           }}
           onValidationFail={async (ticketPk: string, steps: string, notes: string) => {
             // Get current ticket (use sourceTickets which works in both library and Supabase modes)
