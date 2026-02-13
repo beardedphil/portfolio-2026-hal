@@ -573,12 +573,14 @@ function ProcessReviewSection({
   artifacts,
   supabaseUrl,
   supabaseAnonKey,
+  onRefreshArtifacts,
 }: {
   ticketId: string
   ticketPk: string
   artifacts: SupabaseAgentArtifactRow[]
   supabaseUrl?: string
   supabaseAnonKey?: string
+  onRefreshArtifacts?: () => void
 }) {
   const halCtx = useContext(HalKanbanContext)
   const [suggestions, setSuggestions] = useState<Array<{ id: string; text: string; justification: string; selected: boolean }>>([])
@@ -587,8 +589,8 @@ function ProcessReviewSection({
   const [reviewError, setReviewError] = useState<string | null>(null)
   const [createdTicketId, setCreatedTicketId] = useState<string | null>(null)
   const [createError, setCreateError] = useState<string | null>(null)
-  const [lastRunStatus, setLastRunStatus] = useState<'completed' | 'failed' | null>(null)
-  const [lastRunTimestamp, setLastRunTimestamp] = useState<string | null>(null)
+  const [lastRunStatus, setLastRunStatus] = useState<{ status: 'success' | 'failed'; createdAt: string; errorMessage?: string } | null>(null)
+  const [isLoadingReview, setIsLoadingReview] = useState(true)
 
   const handleRunReview = async () => {
     if (!supabaseUrl || !supabaseAnonKey) {
@@ -599,6 +601,7 @@ function ProcessReviewSection({
     setIsRunningReview(true)
     setReviewError(null)
     setSuggestions([])
+    setLastRunStatus(null)
 
     try {
       const response = await fetch('/api/process-review/run', {
@@ -616,78 +619,99 @@ function ProcessReviewSection({
 
       if (!result.success) {
         setReviewError(result.error || 'Failed to run review')
-        setLastRunStatus('failed')
-        setLastRunTimestamp(new Date().toISOString())
+        setLastRunStatus({
+          status: 'failed',
+          createdAt: result.createdAt || new Date().toISOString(),
+          errorMessage: result.error || 'Failed to run review',
+        })
         return
       }
 
-      const suggestionsList = (result.suggestions || []).map((s: { text: string; justification?: string } | string, i: number) => {
-        if (typeof s === 'string') {
-          return {
+      // Update last run status
+      setLastRunStatus({
+        status: result.status || 'success',
+        createdAt: result.createdAt || new Date().toISOString(),
+      })
+
+      // Use suggestionsWithJustifications if available, otherwise fall back to suggestions array
+      const suggestionsWithJustifications = result.suggestionsWithJustifications || []
+      const suggestionsList = suggestionsWithJustifications.length > 0
+        ? suggestionsWithJustifications.map((s: { suggestion: string; justification: string }, i: number) => ({
+            id: `suggestion-${i}`,
+            text: s.suggestion,
+            justification: s.justification,
+            selected: false,
+          }))
+        : (result.suggestions || []).map((s: string, i: number) => ({
             id: `suggestion-${i}`,
             text: s,
-            justification: '',
+            justification: 'Generated from artifact analysis',
             selected: false,
-          }
-        }
-        return {
-          id: `suggestion-${i}`,
-          text: s.text,
-          justification: s.justification || '',
-          selected: false,
-        }
-      })
+          }))
       setSuggestions(suggestionsList)
-      setLastRunStatus('completed')
-      setLastRunTimestamp(new Date().toISOString())
     } catch (err) {
-      setReviewError(err instanceof Error ? err.message : 'Failed to run review')
-      setLastRunStatus('failed')
-      setLastRunTimestamp(new Date().toISOString())
+      const errorMsg = err instanceof Error ? err.message : 'Failed to run review'
+      setReviewError(errorMsg)
+      setLastRunStatus({
+        status: 'failed',
+        createdAt: new Date().toISOString(),
+        errorMessage: errorMsg,
+      })
     } finally {
       setIsRunningReview(false)
     }
   }
 
-  // Load stored process review results when component mounts (0134)
+  // Load stored review results when component mounts
   useEffect(() => {
-    if (!supabaseUrl || !supabaseAnonKey) return
-    
-    const loadStoredResults = async () => {
+    if (!supabaseUrl || !supabaseAnonKey || !ticketPk) {
+      setIsLoadingReview(false)
+      return
+    }
+
+    const loadStoredReview = async () => {
       try {
-        const response = await fetch('/api/process-review/get', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ticketPk,
-            ticketId,
-            supabaseUrl,
-            supabaseAnonKey,
-          }),
-        })
-        
-        const result = await response.json()
-        if (result.success && result.review) {
-          const suggestionsList = (result.review.suggestions || []).map((s: { text: string; justification?: string }, i: number) => ({
-            id: `suggestion-${i}`,
-            text: s.text,
-            justification: s.justification || '',
-            selected: false,
-          }))
-          setSuggestions(suggestionsList)
-          setLastRunStatus(result.review.status || 'completed')
-          setLastRunTimestamp(result.review.created_at || null)
+        const supabase = (await import('@supabase/supabase-js')).createClient(supabaseUrl, supabaseAnonKey)
+        const { data, error } = await supabase
+          .from('process_reviews')
+          .select('suggestions_json, status, error_message, created_at')
+          .eq('ticket_pk', ticketPk)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+        if (error) {
+          console.error('Failed to load stored review:', error)
+          setIsLoadingReview(false)
+          return
+        }
+
+        if (data) {
+          setLastRunStatus({
+            status: data.status as 'success' | 'failed',
+            createdAt: data.created_at,
+            errorMessage: data.error_message || undefined,
+          })
+
+          if (data.status === 'success' && Array.isArray(data.suggestions_json)) {
+            const loadedSuggestions = (data.suggestions_json as Array<{ suggestion: string; justification: string }>).map((s, i) => ({
+              id: `suggestion-${i}`,
+              text: s.suggestion,
+              justification: s.justification,
+              selected: false,
+            }))
+            setSuggestions(loadedSuggestions)
+          }
         }
       } catch (err) {
-        // Silently fail - no stored results is fine
-        console.debug('No stored process review results found:', err)
+        console.error('Error loading stored review:', err)
+      } finally {
+        setIsLoadingReview(false)
       }
     }
-    
-    loadStoredResults()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ticketPk, ticketId, supabaseUrl, supabaseAnonKey])
 
+    loadStoredReview()
+  }, [supabaseUrl, supabaseAnonKey, ticketPk])
   const handleToggleSuggestion = (id: string) => {
     setSuggestions((prev) =>
       prev.map((s) => (s.id === id ? { ...s, selected: !s.selected } : s))
@@ -762,6 +786,24 @@ function ProcessReviewSection({
     <div className="process-review-section">
       <h3 className="process-review-title">Process Review</h3>
       
+      {lastRunStatus && (
+        <div className="process-review-last-run" style={{ marginBottom: '1rem', padding: '0.75rem', backgroundColor: lastRunStatus.status === 'success' ? '#e8f5e9' : '#ffebee', borderRadius: '4px', fontSize: '0.875rem' }}>
+          <strong>Last run:</strong> {new Date(lastRunStatus.createdAt).toLocaleString()} —{' '}
+          <span style={{ color: lastRunStatus.status === 'success' ? '#2e7d32' : '#c62828', fontWeight: 'bold' }}>
+            {lastRunStatus.status === 'success' ? 'Success' : 'Failed'}
+          </span>
+          {lastRunStatus.errorMessage && (
+            <div style={{ marginTop: '0.5rem', color: '#c62828' }}>
+              {lastRunStatus.errorMessage}
+            </div>
+          )}
+        </div>
+      )}
+
+      {isLoadingReview && (
+        <p className="process-review-empty" style={{ marginBottom: '1rem' }}>Loading review data...</p>
+      )}
+
       <div className="process-review-artifacts">
         <h4 className="process-review-subtitle">Artifacts</h4>
         {artifacts.length === 0 ? (
@@ -800,21 +842,17 @@ function ProcessReviewSection({
         </div>
       )}
 
-      {(lastRunStatus || lastRunTimestamp) && (
-        <div className="process-review-last-run">
-          <h4 className="process-review-subtitle">Last run</h4>
-          <p className="process-review-last-run-info">
-            {lastRunTimestamp && (
-              <span className="process-review-timestamp">
-                {new Date(lastRunTimestamp).toLocaleString()}
-              </span>
-            )}
-            {lastRunStatus && (
-              <span className={`process-review-status-badge process-review-status-${lastRunStatus}`}>
-                {lastRunStatus === 'completed' ? '✅ Completed' : '❌ Failed'}
-              </span>
-            )}
-          </p>
+      {lastRunStatus && (
+        <div className="process-review-last-run" style={{ marginBottom: '1rem', padding: '0.75rem', backgroundColor: lastRunStatus.status === 'success' ? '#e8f5e9' : '#ffebee', borderRadius: '4px', fontSize: '0.875rem' }}>
+          <strong>Last run:</strong> {new Date(lastRunStatus.createdAt).toLocaleString()} —{' '}
+          <span style={{ color: lastRunStatus.status === 'success' ? '#2e7d32' : '#c62828', fontWeight: 'bold' }}>
+            {lastRunStatus.status === 'success' ? 'Success' : 'Failed'}
+          </span>
+          {lastRunStatus.errorMessage && (
+            <div style={{ marginTop: '0.5rem', color: '#c62828' }}>
+              {lastRunStatus.errorMessage}
+            </div>
+          )}
         </div>
       )}
 
@@ -831,10 +869,10 @@ function ProcessReviewSection({
                     onChange={() => handleToggleSuggestion(suggestion.id)}
                     disabled={isCreatingTicket}
                   />
-                  <div className="process-review-suggestion-content">
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                     <span className="process-review-suggestion-text">{suggestion.text}</span>
                     {suggestion.justification && (
-                      <span className="process-review-suggestion-justification">
+                      <span style={{ fontSize: '0.875rem', color: '#666', fontStyle: 'italic', marginLeft: '1.5rem' }}>
                         {suggestion.justification}
                       </span>
                     )}
@@ -1256,6 +1294,7 @@ function TicketDetailModal({
                   artifacts={artifacts}
                   supabaseUrl={supabaseUrl}
                   supabaseAnonKey={supabaseKey}
+                  onRefreshArtifacts={onRefreshArtifacts}
                 />
               )}
             </>
@@ -3402,8 +3441,7 @@ function App() {
             await halCtx.onMoveTicket(ticketPk, 'col-process-review')
             addLog(`Human validation: Ticket ${ticketPk} passed, moved to Process Review`)
             
-            // Note: Process Review agent is triggered manually via "Run Process Review" button in column header (0134)
-            
+            // Note: Process Review is now manual-only (0134). User must click "Run Process Review" button in column header.
             // HAL will update the data and pass it back, so we don't need to update local state
             // Close ticket detail modal after a short delay to show success message
             setTimeout(() => {

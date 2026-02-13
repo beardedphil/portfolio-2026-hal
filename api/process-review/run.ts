@@ -37,6 +37,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return
   }
 
+  // Store these for error handling
+  let ticketPk: string | undefined
+  let ticketId: string | undefined
+  let supabaseUrl: string | undefined
+  let supabaseAnonKey: string | undefined
+  let supabase: ReturnType<typeof createClient> | null = null
+  let ticket: { pk: string; id: string; display_id?: string | null } | null = null
+
   try {
     const body = (await readJsonBody(req)) as {
       ticketPk?: string
@@ -45,16 +53,16 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       supabaseAnonKey?: string
     }
 
-    const ticketPk = typeof body.ticketPk === 'string' ? body.ticketPk.trim() : undefined
-    const ticketId = typeof body.ticketId === 'string' ? body.ticketId.trim() : undefined
+    ticketPk = typeof body.ticketPk === 'string' ? body.ticketPk.trim() : undefined
+    ticketId = typeof body.ticketId === 'string' ? body.ticketId.trim() : undefined
 
     // Use credentials from request body if provided, otherwise fall back to server environment variables
-    const supabaseUrl =
+    supabaseUrl =
       (typeof body.supabaseUrl === 'string' ? body.supabaseUrl.trim() : undefined) ||
       process.env.SUPABASE_URL?.trim() ||
       process.env.VITE_SUPABASE_URL?.trim() ||
       undefined
-    const supabaseAnonKey =
+    supabaseAnonKey =
       (typeof body.supabaseAnonKey === 'string' ? body.supabaseAnonKey.trim() : undefined) ||
       process.env.SUPABASE_ANON_KEY?.trim() ||
       process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
@@ -68,7 +76,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey)
+    supabase = createClient(supabaseUrl, supabaseAnonKey)
 
     // Fetch ticket and artifacts
     const ticketQuery = ticketPk
@@ -76,14 +84,15 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       : await supabase.from('tickets').select('pk, id, display_id, title, body_md, repo_full_name').eq('id', ticketId!).maybeSingle()
 
     if (ticketQuery.error || !ticketQuery.data) {
+      const errorMsg = `Ticket not found: ${ticketQuery.error?.message || 'Unknown error'}`
       json(res, 200, {
         success: false,
-        error: `Ticket not found: ${ticketQuery.error?.message || 'Unknown error'}`,
+        error: errorMsg,
       })
       return
     }
 
-    const ticket = ticketQuery.data
+    ticket = ticketQuery.data
 
     // Fetch all artifacts for this ticket
     const { data: artifacts, error: artifactsError } = await supabase
@@ -94,22 +103,29 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     if (artifactsError) {
       const errorMsg = `Failed to fetch artifacts: ${artifactsError.message}`
-      
-      // Store the error in database
-      const { error: storeError } = await supabase
-        .from('process_reviews')
-        .insert({
-          ticket_pk: ticket.pk,
-          repo_full_name: ticket.repo_full_name,
-          suggestions: [],
-          status: 'failed',
-          error_message: errorMsg,
-        })
-      
-      if (storeError) {
-        console.error('Failed to store process review error:', storeError)
+      // Try to store failure as artifact (if we have ticket.pk)
+      if (ticketQuery.data?.pk) {
+        const artifactBody = `# Process Review Result
+
+Status: failed
+
+Error: ${errorMsg}
+
+## Suggestions
+
+### Unable to fetch artifacts
+Justification: Process review requires access to ticket artifacts to analyze patterns.
+`
+        await supabase
+          .from('agent_artifacts')
+          .insert({
+            ticket_pk: ticketQuery.data.pk,
+            agent_type: 'process-review-result',
+            title: `Process Review for ticket ${ticketQuery.data.display_id || ticketQuery.data.id}`,
+            body_md: artifactBody,
+          })
+          .catch((err) => console.error('Failed to store process review artifact:', err))
       }
-      
       json(res, 200, {
         success: false,
         error: errorMsg,
@@ -118,28 +134,31 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     if (!artifacts || artifacts.length === 0) {
-      const noArtifactsSuggestion = [{
-        text: 'No artifacts found for this ticket. Process review requires artifacts to analyze.',
-        justification: '',
-      }]
-      
-      // Store the result even when no artifacts found
-      const { error: storeError } = await supabase
-        .from('process_reviews')
+      // Store result as artifact (success with message)
+      const artifactBody = `# Process Review Result
+
+Status: success
+
+Note: No artifacts found for this ticket. Process review requires artifacts to analyze.
+
+## Suggestions
+
+### No artifacts available
+Justification: Process review requires ticket artifacts to analyze patterns and suggest improvements.
+`
+      await supabase
+        .from('agent_artifacts')
         .insert({
           ticket_pk: ticket.pk,
-          repo_full_name: ticket.repo_full_name,
-          suggestions: noArtifactsSuggestion,
-          status: 'completed',
+          agent_type: 'process-review-result',
+          title: `Process Review for ticket ${ticket.display_id || ticket.id}`,
+          body_md: artifactBody,
         })
-      
-      if (storeError) {
-        console.error('Failed to store process review results:', storeError)
-      }
-      
+        .catch((err) => console.error('Failed to store process review artifact:', err))
+
       json(res, 200, {
         success: true,
-        suggestions: noArtifactsSuggestion,
+        suggestions: [{ text: 'No artifacts found for this ticket. Process review requires artifacts to analyze.', justification: 'Process review requires ticket artifacts to analyze patterns and suggest improvements.' }],
       })
       return
     }
@@ -154,22 +173,28 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const openaiApiKey = process.env.OPENAI_API_KEY
     if (!openaiApiKey) {
       const errorMsg = 'OPENAI_API_KEY not configured. Process review requires OpenAI API access.'
-      
-      // Store the error in database
-      const { error: storeError } = await supabase
-        .from('process_reviews')
+      // Store failure as artifact
+      const artifactBody = `# Process Review Result
+
+Status: failed
+
+Error: ${errorMsg}
+
+## Suggestions
+
+### Configure OpenAI API key
+Justification: Process review uses OpenAI to analyze artifacts and generate improvement suggestions.
+`
+      await supabase
+        .from('agent_artifacts')
         .insert({
           ticket_pk: ticket.pk,
-          repo_full_name: ticket.repo_full_name,
-          suggestions: [],
-          status: 'failed',
-          error_message: errorMsg,
+          agent_type: 'process-review-result',
+          title: `Process Review for ticket ${ticket.display_id || ticket.id}`,
+          body_md: artifactBody,
         })
-      
-      if (storeError) {
-        console.error('Failed to store process review error:', storeError)
-      }
-      
+        .catch((err) => console.error('Failed to store process review artifact:', err))
+
       json(res, 200, {
         success: false,
         error: errorMsg,
@@ -188,26 +213,33 @@ ${artifactSummaries}
 
 Review the artifacts above and suggest specific, actionable improvements to agent instructions (rules, templates, or process documentation) that would help prevent issues or improve outcomes for similar tickets in the future.
 
-Format your response as a JSON array of objects, where each object has:
-- "text": the suggestion text (specific and actionable)
-- "justification": a brief explanation of why this improvement would help (1-2 sentences)
-
-Example format:
+Format your response as JSON array with this structure:
 [
   {
-    "text": "Add a rule requiring agents to verify file paths exist before attempting to read them",
-    "justification": "This would prevent file-not-found errors that occurred in this ticket when the agent tried to read a non-existent file."
+    "suggestion": "Add a rule requiring agents to verify file paths exist before attempting to read them",
+    "justification": "The artifacts show multiple file read errors that could be prevented by path validation."
   },
   {
-    "text": "Update the ticket template to include a 'Dependencies' section",
-    "justification": "This ticket had implicit dependencies that weren't documented, leading to confusion about prerequisites."
+    "suggestion": "Update the ticket template to include a 'Dependencies' section",
+    "justification": "Several tickets lacked dependency information, causing implementation delays."
   }
 ]
 
+Each suggestion should be:
+- Specific and actionable
+- Focused on improving agent instructions/rules
+- Clear about what should change
+
+Each justification should be:
+- Brief (1-2 sentences)
+- Explain why this improvement would help
+- Reference specific issues or patterns from the artifacts
+
 Provide 3-5 suggestions. If no meaningful improvements are apparent, return an empty array [].`
 
-    let suggestions: Array<{ text: string; justification: string }> = []
-    
+    let suggestionsWithJustifications: Array<{ suggestion: string; justification: string }> = []
+    let errorMessage: string | undefined
+
     try {
       const result = await generateText({
         model: openai('gpt-4o-mini'),
@@ -215,97 +247,153 @@ Provide 3-5 suggestions. If no meaningful improvements are apparent, return an e
         maxTokens: 1500,
       })
 
-      // Parse suggestions from JSON response
       const responseText = result.text.trim()
       
+      // Try to parse as JSON first
       try {
-        // Try to parse as JSON first
-        const jsonMatch = responseText.match(/\[[\s\S]*\]/)
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0])
-          if (Array.isArray(parsed)) {
-            suggestions = parsed.map((item) => ({
-              text: typeof item.text === 'string' ? item.text : String(item.text || ''),
-              justification: typeof item.justification === 'string' ? item.justification : String(item.justification || ''),
+        const parsed = JSON.parse(responseText)
+        if (Array.isArray(parsed)) {
+          suggestionsWithJustifications = parsed
+            .filter((item) => item && typeof item.suggestion === 'string')
+            .map((item) => ({
+              suggestion: item.suggestion.trim(),
+              justification: (typeof item.justification === 'string' ? item.justification.trim() : 'No justification provided') || 'No justification provided',
             }))
+        }
+      } catch {
+        // Fallback 1: Try parsing as markdown with ### headers
+        const suggestionBlocks = responseText.split(/^###\s+/m).filter(Boolean)
+        if (suggestionBlocks.length > 0) {
+          for (const block of suggestionBlocks) {
+            const lines = block.split('\n').map(l => l.trim()).filter(Boolean)
+            if (lines.length === 0) continue
+            
+            const suggestion = lines[0]
+            const justificationMatch = block.match(/Justification:\s*(.+?)(?=\n\n|\n###|$)/is)
+            const justification = justificationMatch?.[1]?.trim() || 'Generated from artifact analysis'
+            
+            if (suggestion) {
+              suggestionsWithJustifications.push({ suggestion, justification })
+            }
           }
         }
-      } catch (parseError) {
-        // Fallback: parse as bullet list (legacy format)
-        const lines = responseText
-          .split('\n')
-          .map((line) => line.trim())
-          .filter((line) => {
-            if (!line) return false
-            return /^[-*•]\s+/.test(line) || /^\d+\.\s+/.test(line)
-          })
-          .map((line) => {
-            return line.replace(/^[-*•]\s+/, '').replace(/^\d+\.\s+/, '').trim()
-          })
-          .filter((line) => line.length > 0)
         
-        suggestions = lines.map((text) => ({
-          text,
-          justification: '',
-        }))
+        // Fallback 2: Parse as bulleted list
+        if (suggestionsWithJustifications.length === 0) {
+          const lines = responseText
+            .split('\n')
+            .map((line) => line.trim())
+            .filter((line) => {
+              if (!line) return false
+              return /^[-*•]\s+/.test(line) || /^\d+\.\s+/.test(line)
+            })
+            .map((line) => {
+              return line.replace(/^[-*•]\s+/, '').replace(/^\d+\.\s+/, '').trim()
+            })
+            .filter((line) => line.length > 0)
+
+          suggestionsWithJustifications = lines.map((line) => ({
+            suggestion: line,
+            justification: 'Generated from artifact analysis',
+          }))
+        }
       }
 
-      // If no suggestions parsed, use the full response as a single suggestion
-      if (suggestions.length === 0) {
-        suggestions.push({
-          text: responseText || 'No specific suggestions generated.',
-          justification: '',
-        })
-      }
-
-      // Store results in database
-      const { error: storeError } = await supabase
-        .from('process_reviews')
-        .insert({
-          ticket_pk: ticket.pk,
-          repo_full_name: ticket.repo_full_name,
-          suggestions: suggestions,
-          status: 'completed',
-        })
-
-      if (storeError) {
-        console.error('Failed to store process review results:', storeError)
-        // Continue anyway - results are still returned to the client
+      // If still no suggestions, check for "no improvements" message
+      if (suggestionsWithJustifications.length === 0) {
+        const lowerText = responseText.toLowerCase()
+        if (lowerText.includes('no significant improvements') || lowerText.includes('no meaningful improvements')) {
+          // This is valid - no suggestions needed
+          suggestionsWithJustifications = []
+        } else if (responseText.length > 0) {
+          // Use the full response as a single suggestion
+          suggestionsWithJustifications = [
+            {
+              suggestion: responseText,
+              justification: 'Generated from artifact analysis',
+            },
+          ]
+        }
       }
     } catch (llmError) {
-      const errorMsg = llmError instanceof Error ? llmError.message : String(llmError)
-      
-      // Store the error in database
-      const { error: storeError } = await supabase
-        .from('process_reviews')
-        .insert({
-          ticket_pk: ticket.pk,
-          repo_full_name: ticket.repo_full_name,
-          suggestions: [],
-          status: 'failed',
-          error_message: errorMsg,
-        })
-      
-      if (storeError) {
-        console.error('Failed to store process review error:', storeError)
-      }
-      
+      errorMessage = llmError instanceof Error ? llmError.message : String(llmError)
+    }
+
+    // Store review results in database
+    const reviewStatus = errorMessage ? 'failed' : 'success'
+    const { data: reviewData, error: reviewError } = await supabase
+      .from('process_reviews')
+      .insert({
+        ticket_pk: ticket.pk,
+        repo_full_name: ticket.repo_full_name,
+        suggestions_json: suggestionsWithJustifications,
+        status: reviewStatus,
+        error_message: errorMessage || null,
+      })
+      .select('review_id, created_at, status')
+      .single()
+
+    if (reviewError) {
       json(res, 200, {
         success: false,
-        error: errorMsg,
+        error: `Failed to store review results: ${reviewError.message}`,
+      })
+      return
+    }
+
+    if (errorMessage) {
+      json(res, 200, {
+        success: false,
+        error: errorMessage,
+        reviewId: reviewData.review_id,
+        createdAt: reviewData.created_at,
       })
       return
     }
 
     json(res, 200, {
       success: true,
-      suggestions,
+      suggestions: suggestionsWithJustifications.map((s) => s.suggestion),
+      suggestionsWithJustifications,
+      reviewId: reviewData.review_id,
+      createdAt: reviewData.created_at,
+      status: reviewData.status,
     })
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err)
+    const errorMsg = err instanceof Error ? err.message : String(err)
+    
+    // Try to store failure as artifact if we have ticket info
+    if (supabase && ticket) {
+      try {
+        const artifactBody = `# Process Review Result
+
+Status: failed
+
+Error: ${errorMsg}
+
+## Suggestions
+
+### Review failed
+Justification: An error occurred during process review execution.
+`
+        await supabase
+          .from('agent_artifacts')
+          .insert({
+            ticket_pk: ticket.pk,
+            agent_type: 'process-review-result',
+            title: `Process Review for ticket ${ticket.display_id || ticket.id}`,
+            body_md: artifactBody,
+          })
+          .catch((artifactErr) => console.error('Failed to store process review artifact:', artifactErr))
+      } catch (artifactStoreErr) {
+        // Ignore errors when trying to store failure artifact
+        console.error('Failed to store process review failure artifact:', artifactStoreErr)
+      }
+    }
+
     json(res, 500, {
       success: false,
-      error: errorMessage,
+      error: errorMsg,
     })
   }
 }

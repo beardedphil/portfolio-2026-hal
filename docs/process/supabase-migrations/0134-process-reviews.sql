@@ -1,9 +1,10 @@
--- Ticket 0134: Process Review results storage
+-- Ticket 0134: Process Review storage
 --
 -- Goal:
--- - Store Process Review results (suggestions with justifications, status, timestamp)
+-- - Store Process Review results (suggestions, justifications, last-run status)
 -- - Link reviews to tickets via ticket_pk
--- - Enable UI to display last-run status and suggestions with justifications
+-- - Enable UI to display review results in ticket detail view
+-- - Track last-run timestamp and status (success/failure)
 
 create extension if not exists pgcrypto;
 
@@ -14,18 +15,19 @@ create table if not exists public.process_reviews (
   ticket_pk uuid not null,
   repo_full_name text not null,
   
-  -- Review results
-  suggestions jsonb not null default '[]'::jsonb,
-  -- Format: [{"text": "suggestion text", "justification": "why this helps"}]
+  -- Review results: suggestions with justifications
+  -- Stored as JSON array: [{ suggestion: string, justification: string }]
+  suggestions_json jsonb not null default '[]'::jsonb,
   
-  -- Status: completed | failed
-  status text not null default 'completed',
+  -- Status: success | failed
+  status text not null default 'success',
   
-  -- Error message if failed
+  -- Error message if status is 'failed'
   error_message text,
   
   -- Metadata
   created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
   
   -- Foreign key to tickets table
   constraint process_reviews_ticket_fk foreign key (ticket_pk) references public.tickets (pk) on delete cascade
@@ -37,6 +39,22 @@ create index if not exists process_reviews_ticket_idx
 
 create index if not exists process_reviews_repo_idx
   on public.process_reviews (repo_full_name, created_at desc);
+
+-- Auto-update updated_at timestamp
+create or replace function public.process_reviews_touch_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists process_reviews_touch on public.process_reviews;
+create trigger process_reviews_touch
+before update on public.process_reviews
+for each row execute function public.process_reviews_touch_updated_at();
 
 -- Enable row-level security (allow all reads/writes for now; can be restricted later)
 alter table public.process_reviews enable row level security;
