@@ -595,6 +595,12 @@ body {
   font-weight: 500;
 }
 
+.agent-status-box-ticket {
+  font-size: 0.8rem;
+  color: var(--hal-text-secondary);
+  margin-top: 0.25rem;
+}
+
 .agent-status-preparing,
 .agent-status-fetching_ticket,
 .agent-status-resolving_repo,

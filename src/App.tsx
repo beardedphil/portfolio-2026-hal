@@ -994,6 +994,14 @@ function App() {
     return 'No messages yet'
   }, [conversations, getConversationPreview])
 
+  // Format ticket ID as HAL-XXXX (0098)
+  const formatTicketId = useCallback((ticketId: string | null): string => {
+    if (!ticketId) return 'No ticket'
+    // Ensure ticket ID is 4 digits, pad with zeros if needed
+    const padded = ticketId.padStart(4, '0')
+    return `HAL-${padded}`
+  }, [])
+
   // Format agent status for display (0087)
   const formatAgentStatus = useCallback((status: typeof implAgentRunStatus | typeof qaAgentRunStatus): string => {
     if (status === 'preparing') return 'Preparing'
@@ -3294,6 +3302,9 @@ function App() {
                       {formatAgentStatus(implAgentRunStatus)}
                     </span>
                   </div>
+                  <div className="agent-status-box-ticket">
+                    {formatTicketId(implAgentTicketId)}
+                  </div>
                   {implAgentError && (
                     <div className="agent-status-box-error" role="alert">
                       {implAgentError}
@@ -3309,6 +3320,9 @@ function App() {
                     <span className={`agent-status-box-status agent-status-${qaAgentRunStatus}`}>
                       {formatAgentStatus(qaAgentRunStatus)}
                     </span>
+                  </div>
+                  <div className="agent-status-box-ticket">
+                    {formatTicketId(qaAgentTicketId)}
                   </div>
                   {qaAgentError && (
                     <div className="agent-status-box-error" role="alert">
