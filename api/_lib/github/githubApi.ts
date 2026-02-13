@@ -380,7 +380,7 @@ export function generateImplementationArtifacts(
     prUrl ? `**Pull request:** ${prUrl}` : '',
   ].join('\n')
 
-  return [
+  const allArtifacts: ArtifactGenerationResult[] = [
     { title: `Plan for ticket ${displayId}`, body_md: planBody },
     { title: `Worklog for ticket ${displayId}`, body_md: worklogBody },
     changedFilesResult,
@@ -388,6 +388,37 @@ export function generateImplementationArtifacts(
     verificationResult,
     { title: `PM Review for ticket ${displayId}`, body_md: pmReviewBody },
   ]
+
+  // Separate artifacts with content from those with errors
+  const artifacts: ArtifactGenerationResult[] = []
+  const errors: Array<{ artifactType: string; reason: string }> = []
+  
+  for (const artifact of allArtifacts) {
+    if (artifact.body_md === null) {
+      // Extract artifact type from title (e.g., "Changed Files for ticket 0137" -> "changed-files")
+      const artifactType = artifact.title.toLowerCase().includes('changed files')
+        ? 'changed-files'
+        : artifact.title.toLowerCase().includes('verification')
+        ? 'verification'
+        : artifact.title.toLowerCase().includes('plan')
+        ? 'plan'
+        : artifact.title.toLowerCase().includes('worklog')
+        ? 'worklog'
+        : artifact.title.toLowerCase().includes('decisions')
+        ? 'decisions'
+        : artifact.title.toLowerCase().includes('pm review')
+        ? 'pm-review'
+        : 'unknown'
+      errors.push({
+        artifactType,
+        reason: artifact.error || 'Data unavailable',
+      })
+    } else {
+      artifacts.push(artifact)
+    }
+  }
+
+  return { artifacts, errors }
 }
 
 export type CodeSearchMatch = { path: string; line: number; text: string }
