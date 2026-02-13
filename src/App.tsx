@@ -5,7 +5,8 @@ import type { KanbanTicketRow, KanbanColumnRow, KanbanAgentRunRow, KanbanBoardPr
 import 'portfolio-2026-kanban/style.css'
 
 const KanbanBoard = Kanban.default
-const KANBAN_BUILD = typeof (Kanban as { KANBAN_BUILD?: string }).KANBAN_BUILD === 'string' ? (Kanban as { KANBAN_BUILD: string }).KANBAN_BUILD : 'unknown'
+const _kanbanBuild = (Kanban as unknown as { KANBAN_BUILD?: string }).KANBAN_BUILD
+const KANBAN_BUILD: string = typeof _kanbanBuild === 'string' ? _kanbanBuild : 'unknown'
 
 /** Artifact row shape (matches Kanban package KanbanAgentArtifactRow). HAL owns DB so we type locally. */
 type ArtifactRow = {
