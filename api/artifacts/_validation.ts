@@ -21,12 +21,28 @@ export function hasSubstantiveContent(body_md: string, title: string): { valid: 
     }
   }
 
-  // Only check for obvious placeholder patterns at the very start
+  // Check for obvious placeholder patterns at the very start
   const trimmed = body_md.trim()
   if (/^(TODO|TBD|placeholder|coming soon)$/i.test(trimmed)) {
     return {
       valid: false,
       reason: 'Artifact body appears to contain only placeholder text. Artifacts must include actual content.',
+    }
+  }
+
+  // Check for specific placeholder patterns that indicate missing data (0137)
+  const placeholderPatterns = [
+    /\(No files changed in this PR\)/i,
+    /\(none\)/i,
+    /^##\s+[^\n]+\n+\n*\(No files changed/i,
+    /^##\s+[^\n]+\n+\n*\(none\)/i,
+  ]
+  for (const pattern of placeholderPatterns) {
+    if (pattern.test(body_md)) {
+      return {
+        valid: false,
+        reason: 'Artifact body contains placeholder text indicating missing data. Artifacts must include actual content.',
+      }
     }
   }
 
