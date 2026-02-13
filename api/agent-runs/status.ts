@@ -206,6 +206,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             prFiles
           )
           for (const a of artifacts) {
+            // Skip artifacts with null body_md (0137: prevent blank/placeholder artifacts)
+            if (a.body_md === null) {
+              console.log('[agent-runs] skipping artifact (no data available):', a.title)
+              continue
+            }
             const res = await upsertArtifact(supabase, ticketPk, repoFullName, 'implementation', a.title, a.body_md)
             if (!res.ok) console.warn('[agent-runs] artifact upsert failed:', a.title, (res as { ok: false; error: string }).error)
           }

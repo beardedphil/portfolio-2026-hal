@@ -908,6 +908,35 @@ h1 {
   font-family: ui-monospace, monospace;
 }
 
+/* Artifact error states (0137: missing artifacts) */
+.artifacts-error-state {
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: 6px;
+  color: #856404;
+}
+[data-theme="dark"] .artifacts-error-state {
+  background: rgba(255, 193, 7, 0.15);
+  border-color: rgba(255, 193, 7, 0.4);
+  color: #ffc107;
+}
+.artifacts-error-title {
+  margin: 0 0 0.5rem 0;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.artifacts-error-list {
+  margin: 0;
+  padding-left: 1.25rem;
+  list-style: disc;
+}
+.artifacts-error-item {
+  margin: 0.25rem 0;
+  font-size: 0.85rem;
+}
+
 /* Dark theme adjustments for artifacts */
 [data-theme="dark"] .artifacts-item-button {
   background: var(--kanban-surface-alt);

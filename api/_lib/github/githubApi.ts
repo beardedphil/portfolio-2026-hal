@@ -243,15 +243,20 @@ export async function fetchPullRequestFiles(
   }
 }
 
-/** Generate the 6 implementation artifacts from PR data and Cursor summary. Stored in Supabase only. */
+/** Generate the 6 implementation artifacts from PR data and Cursor summary. Stored in Supabase only.
+ * Returns artifacts with null body_md for artifacts that cannot be generated (e.g., missing PR/files data).
+ * Callers should skip storing artifacts with null body_md (0137: prevent blank/placeholder artifacts).
+ */
 export function generateImplementationArtifacts(
   displayId: string,
   summary: string,
   prUrl: string,
   prFiles: PrFile[]
-): Array<{ title: string; body_md: string }> {
+): Array<{ title: string; body_md: string | null }> {
   const modified = prFiles.filter((f) => f.status === 'modified' || f.status === 'added')
-  const changedFilesBody =
+  
+  // Changed Files: only create if we have file data (0137: skip instead of placeholder)
+  const changedFilesBody: string | null =
     modified.length > 0
       ? [
           '## Modified',
@@ -261,7 +266,7 @@ export function generateImplementationArtifacts(
               `- \`${f.filename}\`\n  - ${f.status === 'added' ? 'Added' : 'Modified'} (+${f.additions} −${f.deletions})`
           ),
         ].join('\n')
-      : '## Modified\n\n(No files changed in this PR)'
+      : null // Skip if no files (don't create placeholder)
 
   const planBody = [
     `# Plan: ${displayId}`,
@@ -292,16 +297,20 @@ export function generateImplementationArtifacts(
     'Implementation delivered by Cursor Cloud Agent. Key decisions reflected in code changes.',
   ].join('\n')
 
-  const verificationBody = [
-    `# Verification: ${displayId}`,
-    '',
-    '## Code Review',
-    '- [ ] Review changed files',
-    '- [ ] Verify acceptance criteria met',
-    '',
-    '## Changed Files',
-    modified.length > 0 ? modified.map((f) => `- \`${f.filename}\` (+${f.additions} −${f.deletions})`).join('\n') : '(none)',
-  ].join('\n')
+  // Verification: only create if we have file data (0137: skip instead of placeholder)
+  const verificationBody: string | null =
+    modified.length > 0
+      ? [
+          `# Verification: ${displayId}`,
+          '',
+          '## Code Review',
+          '- [ ] Review changed files',
+          '- [ ] Verify acceptance criteria met',
+          '',
+          '## Changed Files',
+          modified.map((f) => `- \`${f.filename}\` (+${f.additions} −${f.deletions})`).join('\n'),
+        ].join('\n')
+      : null // Skip if no files (don't create placeholder)
 
   const pmReviewBody = [
     `# PM Review: ${displayId}`,

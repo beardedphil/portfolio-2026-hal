@@ -4,6 +4,7 @@ import {
   createCanonicalTitle,
   findArtifactsByCanonicalId,
 } from '../artifacts/_shared.js'
+import { hasSubstantiveContent } from '../artifacts/_validation.js'
 
 export type AgentType = 'implementation' | 'qa'
 
@@ -178,6 +179,14 @@ export async function upsertArtifact(
   }
 
   if (targetArtifactId) {
+    // Validate content before updating (0137: prevent blank/placeholder artifacts)
+    const contentValidation = hasSubstantiveContent(bodyMd, title)
+    if (!contentValidation.valid) {
+      const msg = `Artifact content validation failed: ${contentValidation.reason || 'Content is empty or placeholder-only'}`
+      console.warn('[agent-runs]', msg, 'Title:', title, 'Body length:', bodyMd.length)
+      return { ok: false, error: msg }
+    }
+
     // Update the target artifact with canonical title and new body (0121)
     const { error: updateErr } = await supabase
       .from('agent_artifacts')
@@ -189,6 +198,14 @@ export async function upsertArtifact(
       return { ok: false, error: msg }
     }
     return { ok: true }
+  }
+
+  // Validate content before inserting (0137: prevent blank/placeholder artifacts)
+  const contentValidation = hasSubstantiveContent(bodyMd, title)
+  if (!contentValidation.valid) {
+    const msg = `Artifact content validation failed: ${contentValidation.reason || 'Content is empty or placeholder-only'}`
+    console.warn('[agent-runs]', msg, 'Title:', title, 'Body length:', bodyMd.length)
+    return { ok: false, error: msg }
   }
 
   // No existing artifact found (or all were deleted), insert new one with canonical title (0121)

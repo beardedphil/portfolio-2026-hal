@@ -803,7 +803,20 @@ function ProcessReviewSection({
   )
 }
 
-/** Artifacts section component (0082) */
+/** Extract artifact type from title (0137: detect missing artifacts) */
+function extractArtifactTypeFromTitle(title: string): string | null {
+  const normalized = title.toLowerCase().trim()
+  if (normalized.startsWith('plan for ticket')) return 'plan'
+  if (normalized.startsWith('worklog for ticket')) return 'worklog'
+  if (normalized.startsWith('changed files for ticket')) return 'changed-files'
+  if (normalized.startsWith('decisions for ticket')) return 'decisions'
+  if (normalized.startsWith('verification for ticket')) return 'verification'
+  if (normalized.startsWith('pm review for ticket')) return 'pm-review'
+  if (normalized.startsWith('qa report for ticket')) return 'qa-report'
+  return null
+}
+
+/** Artifacts section component (0082, 0137: error states for missing artifacts) */
 function ArtifactsSection({
   artifacts,
   loading,
@@ -821,6 +834,15 @@ function ArtifactsSection({
 }) {
   const showRefresh = typeof onRefresh === 'function'
   const isLoading = loading || refreshing
+
+  // Detect missing required implementation artifacts (0137)
+  const implementationArtifacts = artifacts.filter((a) => a.agent_type === 'implementation')
+  const presentTypes = new Set(
+    implementationArtifacts.map((a) => extractArtifactTypeFromTitle(a.title || '')).filter((t): t is string => t !== null)
+  )
+  const requiredTypes = ['plan', 'worklog', 'changed-files', 'decisions', 'verification', 'pm-review']
+  const missingTypes = requiredTypes.filter((t) => !presentTypes.has(t))
+  const hasMissingArtifacts = missingTypes.length > 0 && implementationArtifacts.length > 0
 
   if (isLoading) {
     return (
@@ -857,6 +879,13 @@ function ArtifactsSection({
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   )
 
+  // Map artifact type to display name (0137)
+  const typeDisplayNames: Record<string, string> = {
+    'changed-files': 'Changed Files',
+    'pm-review': 'PM Review',
+    'qa-report': 'QA Report',
+  }
+
   return (
     <div className="artifacts-section">
       <h3 className="artifacts-section-title">Artifacts</h3>
@@ -865,6 +894,23 @@ function ArtifactsSection({
         <button type="button" className="artifacts-refresh-btn" onClick={onRefresh}>
           Refresh artifacts
         </button>
+      )}
+      {hasMissingArtifacts && (
+        <div className="artifacts-error-state" role="alert">
+          <p className="artifacts-error-title">Some artifacts could not be generated:</p>
+          <ul className="artifacts-error-list">
+            {missingTypes.map((type) => {
+              const displayName = typeDisplayNames[type] || type.charAt(0).toUpperCase() + type.slice(1).replace(/-/g, ' ')
+              return (
+                <li key={type} className="artifacts-error-item">
+                  <strong>{displayName}</strong> — {type === 'changed-files' || type === 'verification' 
+                    ? 'Required data unavailable (e.g., missing PR/files information)' 
+                    : 'Not available'}
+                </li>
+              )
+            })}
+          </ul>
+        </div>
       )}
       <ul className="artifacts-list">
         {sortedArtifacts.map((artifact) => {
