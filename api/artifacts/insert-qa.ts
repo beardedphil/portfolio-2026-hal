@@ -54,6 +54,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const title = typeof body.title === 'string' ? body.title.trim() : undefined
     const body_md = typeof body.body_md === 'string' ? body.body_md : undefined
 
+    // Log artifact creation request for tracing
+    console.log(`[insert-qa] Artifact creation request: ticketId=${ticketId}, title="${title}", body_md length=${body_md?.length ?? 'undefined'}`)
+
     // Use credentials from request body if provided, otherwise fall back to server environment variables
     const supabaseUrl =
       (typeof body.supabaseUrl === 'string' ? body.supabaseUrl.trim() : undefined) ||
@@ -77,6 +80,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     // Validate that body_md contains substantive QA report content
     // Use QA-specific validation that accepts structured reports with sections/tables/lists
     const contentValidation = hasSubstantiveQAContent(body_md, title)
+    console.log(`[insert-qa] Content validation: valid=${contentValidation.valid}, reason=${contentValidation.reason || 'none'}, body_md length=${body_md?.length ?? 'undefined'}`)
     if (!contentValidation.valid) {
       json(res, 400, {
         success: false,
@@ -212,6 +216,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       }
 
       // Update the target artifact with canonical title and new body (0121)
+      console.log(`[insert-qa] Updating artifact ${targetArtifactId} with body_md length=${body_md.length}`)
       const { error: updateError } = await supabase
         .from('agent_artifacts')
         .update({
@@ -221,11 +226,26 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         .eq('artifact_id', targetArtifactId)
 
       if (updateError) {
+        console.error(`[insert-qa] Update failed: ${updateError.message}`)
         json(res, 200, {
           success: false,
           error: `Failed to update artifact: ${updateError.message}`,
         })
         return
+      }
+
+      // Verify the update by reading back the artifact
+      const { data: updatedArtifact, error: readError } = await supabase
+        .from('agent_artifacts')
+        .select('body_md')
+        .eq('artifact_id', targetArtifactId)
+        .single()
+      
+      if (readError) {
+        console.warn(`[insert-qa] Failed to read back updated artifact: ${readError.message}`)
+      } else {
+        const persistedLength = updatedArtifact?.body_md?.length ?? 0
+        console.log(`[insert-qa] Artifact updated successfully. Persisted body_md length=${persistedLength}`)
       }
 
       json(res, 200, {
@@ -238,6 +258,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     // No existing artifact found (or all were deleted), insert new one with canonical title (0121)
+    console.log(`[insert-qa] Inserting new artifact with body_md length=${body_md.length}`)
     const { data: inserted, error: insertError } = await supabase
       .from('agent_artifacts')
       .insert({
@@ -282,11 +303,27 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         }
       }
 
+      console.error(`[insert-qa] Insert failed: ${insertError.message}`)
       json(res, 200, {
         success: false,
         error: `Failed to insert artifact: ${insertError.message}`,
       })
       return
+    }
+
+    // Verify the insert by reading back the artifact
+    const insertedId = inserted.artifact_id
+    const { data: insertedArtifact, error: readError } = await supabase
+      .from('agent_artifacts')
+      .select('body_md')
+      .eq('artifact_id', insertedId)
+      .single()
+    
+    if (readError) {
+      console.warn(`[insert-qa] Failed to read back inserted artifact: ${readError.message}`)
+    } else {
+      const persistedLength = insertedArtifact?.body_md?.length ?? 0
+      console.log(`[insert-qa] Artifact inserted successfully. Persisted body_md length=${persistedLength}`)
     }
 
     json(res, 200, {

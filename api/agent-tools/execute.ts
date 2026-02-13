@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { createClient } from '@supabase/supabase-js'
-import { hasSubstantiveContent } from '../artifacts/_validation.js'
+import { hasSubstantiveContent, hasSubstantiveQAContent } from '../artifacts/_validation.js'
 import {
   extractArtifactTypeFromTitle,
   createCanonicalTitle,
@@ -54,8 +54,12 @@ async function insertImplementationArtifact(
   const displayId = (ticket as { display_id?: string }).display_id || params.ticketId
   const canonicalTitle = createCanonicalTitle(params.artifactType, displayId)
 
+  // Log artifact creation request for tracing
+  console.log(`[agent-tools] Implementation artifact creation request: ticketId=${params.ticketId}, artifactType=${params.artifactType}, title="${params.title}", body_md length=${params.body_md?.length ?? 'undefined'}`)
+
   // Validate that body_md contains substantive content
   const contentValidation = hasSubstantiveContent(params.body_md, canonicalTitle)
+  console.log(`[agent-tools] Implementation content validation: valid=${contentValidation.valid}, reason=${contentValidation.reason || 'none'}, body_md length=${params.body_md?.length ?? 'undefined'}`)
   if (!contentValidation.valid) {
     return {
       success: false,
@@ -146,6 +150,7 @@ async function insertImplementationArtifact(
     }
 
     // Update the target artifact with canonical title and new body (0121)
+    console.log(`[agent-tools] Updating implementation artifact ${targetArtifactId} with body_md length=${params.body_md.length}`)
     const { error: updateError } = await supabase
       .from('agent_artifacts')
       .update({
@@ -155,7 +160,22 @@ async function insertImplementationArtifact(
       .eq('artifact_id', targetArtifactId)
 
     if (updateError) {
+      console.error(`[agent-tools] Implementation artifact update failed: ${updateError.message}`)
       return { success: false, error: `Failed to update artifact: ${updateError.message}` }
+    }
+
+    // Verify the update by reading back the artifact
+    const { data: updatedArtifact, error: readError } = await supabase
+      .from('agent_artifacts')
+      .select('body_md')
+      .eq('artifact_id', targetArtifactId)
+      .single()
+    
+    if (readError) {
+      console.warn(`[agent-tools] Failed to read back updated implementation artifact: ${readError.message}`)
+    } else {
+      const persistedLength = updatedArtifact?.body_md?.length ?? 0
+      console.log(`[agent-tools] Implementation artifact updated successfully. Persisted body_md length=${persistedLength}`)
     }
 
     return {
@@ -167,6 +187,7 @@ async function insertImplementationArtifact(
   }
 
   // No existing artifact found (or all were deleted), insert new one with canonical title (0121)
+  console.log(`[agent-tools] Inserting new implementation artifact with body_md length=${params.body_md.length}`)
   const { data: inserted, error: insertError } = await supabase
     .from('agent_artifacts')
     .insert({
@@ -210,12 +231,28 @@ async function insertImplementationArtifact(
       }
     }
 
+    console.error(`[agent-tools] Implementation artifact insert failed: ${insertError.message}`)
     return { success: false, error: `Failed to insert artifact: ${insertError.message}` }
   }
 
   const insertedId = (inserted as { artifact_id?: string }).artifact_id
   if (!insertedId) {
+    console.error(`[agent-tools] Inserted implementation artifact missing artifact_id`)
     return { success: false, error: 'Inserted artifact missing artifact_id.' }
+  }
+
+  // Verify the insert by reading back the artifact
+  const { data: insertedArtifact, error: readError } = await supabase
+    .from('agent_artifacts')
+    .select('body_md')
+    .eq('artifact_id', insertedId)
+    .single()
+  
+  if (readError) {
+    console.warn(`[agent-tools] Failed to read back inserted implementation artifact: ${readError.message}`)
+  } else {
+    const persistedLength = insertedArtifact?.body_md?.length ?? 0
+    console.log(`[agent-tools] Implementation artifact inserted successfully. Persisted body_md length=${persistedLength}`)
   }
 
   return {
@@ -255,12 +292,16 @@ async function insertQaArtifact(
   const displayId = (ticket as { display_id?: string }).display_id || params.ticketId
   const canonicalTitle = createCanonicalTitle('qa-report', displayId)
 
-  // Validate that body_md contains substantive content
-  const contentValidation = hasSubstantiveContent(params.body_md, canonicalTitle)
+  // Log artifact creation request for tracing
+  console.log(`[agent-tools] QA artifact creation request: ticketId=${params.ticketId}, title="${params.title}", body_md length=${params.body_md?.length ?? 'undefined'}`)
+
+  // Validate that body_md contains substantive QA report content (use QA-specific validation)
+  const contentValidation = hasSubstantiveQAContent(params.body_md, canonicalTitle)
+  console.log(`[agent-tools] QA content validation: valid=${contentValidation.valid}, reason=${contentValidation.reason || 'none'}, body_md length=${params.body_md?.length ?? 'undefined'}`)
   if (!contentValidation.valid) {
     return {
       success: false,
-      error: contentValidation.reason || 'Artifact body must contain substantive content, not just a title or placeholder text.',
+      error: contentValidation.reason || 'Artifact body must contain substantive QA report content, not just a title or placeholder text.',
       validation_failed: true,
     }
   }
@@ -347,6 +388,7 @@ async function insertQaArtifact(
     }
 
     // Update the target artifact with canonical title and new body (0121)
+    console.log(`[agent-tools] Updating QA artifact ${targetArtifactId} with body_md length=${params.body_md.length}`)
     const { error: updateError } = await supabase
       .from('agent_artifacts')
       .update({
@@ -356,7 +398,22 @@ async function insertQaArtifact(
       .eq('artifact_id', targetArtifactId)
 
     if (updateError) {
+      console.error(`[agent-tools] QA artifact update failed: ${updateError.message}`)
       return { success: false, error: `Failed to update artifact: ${updateError.message}` }
+    }
+
+    // Verify the update by reading back the artifact
+    const { data: updatedArtifact, error: readError } = await supabase
+      .from('agent_artifacts')
+      .select('body_md')
+      .eq('artifact_id', targetArtifactId)
+      .single()
+    
+    if (readError) {
+      console.warn(`[agent-tools] Failed to read back updated QA artifact: ${readError.message}`)
+    } else {
+      const persistedLength = updatedArtifact?.body_md?.length ?? 0
+      console.log(`[agent-tools] QA artifact updated successfully. Persisted body_md length=${persistedLength}`)
     }
 
     return {
@@ -368,6 +425,7 @@ async function insertQaArtifact(
   }
 
   // No existing artifact found (or all were deleted), insert new one with canonical title (0121)
+  console.log(`[agent-tools] Inserting new QA artifact with body_md length=${params.body_md.length}`)
   const { data: inserted, error: insertError } = await supabase
     .from('agent_artifacts')
     .insert({
@@ -411,12 +469,28 @@ async function insertQaArtifact(
       }
     }
 
+    console.error(`[agent-tools] QA artifact insert failed: ${insertError.message}`)
     return { success: false, error: `Failed to insert artifact: ${insertError.message}` }
   }
 
   const insertedId = (inserted as { artifact_id?: string }).artifact_id
   if (!insertedId) {
+    console.error(`[agent-tools] Inserted QA artifact missing artifact_id`)
     return { success: false, error: 'Inserted artifact missing artifact_id.' }
+  }
+
+  // Verify the insert by reading back the artifact
+  const { data: insertedArtifact, error: readError } = await supabase
+    .from('agent_artifacts')
+    .select('body_md')
+    .eq('artifact_id', insertedId)
+    .single()
+  
+  if (readError) {
+    console.warn(`[agent-tools] Failed to read back inserted QA artifact: ${readError.message}`)
+  } else {
+    const persistedLength = insertedArtifact?.body_md?.length ?? 0
+    console.log(`[agent-tools] QA artifact inserted successfully. Persisted body_md length=${persistedLength}`)
   }
 
   return {
@@ -622,6 +696,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const tool = typeof body.tool === 'string' ? body.tool.trim() : undefined
     const params = body.params || {}
 
+    // Log tool call request for tracing
+    if (tool === 'insert_implementation_artifact' || tool === 'insert_qa_artifact') {
+      const p = params as { ticketId?: string; artifactType?: string; title?: string; body_md?: string }
+      console.log(`[agent-tools] Tool call received: tool=${tool}, ticketId=${p.ticketId}, title="${p.title}", body_md length=${p.body_md?.length ?? 'undefined'}, body_md type=${typeof p.body_md}`)
+    }
+
     if (!tool) {
       json(res, 400, {
         success: false,
@@ -649,8 +729,15 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     switch (tool) {
       case 'insert_implementation_artifact': {
         const p = params as { ticketId?: string; artifactType?: string; title?: string; body_md?: string }
+        console.log(`[agent-tools] Processing insert_implementation_artifact: ticketId=${p.ticketId}, artifactType=${p.artifactType}, title="${p.title}", body_md length=${p.body_md?.length ?? 'undefined'}, body_md present=${p.body_md !== undefined && p.body_md !== null}`)
         if (!p.ticketId || !p.artifactType || !p.title || !p.body_md) {
-          result = { success: false, error: 'ticketId, artifactType, title, and body_md are required.' }
+          const missing = []
+          if (!p.ticketId) missing.push('ticketId')
+          if (!p.artifactType) missing.push('artifactType')
+          if (!p.title) missing.push('title')
+          if (!p.body_md) missing.push('body_md')
+          console.error(`[agent-tools] Missing required parameters: ${missing.join(', ')}`)
+          result = { success: false, error: `Missing required parameters: ${missing.join(', ')}. All of ticketId, artifactType, title, and body_md are required.` }
         } else {
           result = await insertImplementationArtifact(supabase, {
             ticketId: p.ticketId,
@@ -663,8 +750,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       }
       case 'insert_qa_artifact': {
         const p = params as { ticketId?: string; title?: string; body_md?: string }
+        console.log(`[agent-tools] Processing insert_qa_artifact: ticketId=${p.ticketId}, title="${p.title}", body_md length=${p.body_md?.length ?? 'undefined'}, body_md present=${p.body_md !== undefined && p.body_md !== null}`)
         if (!p.ticketId || !p.title || !p.body_md) {
-          result = { success: false, error: 'ticketId, title, and body_md are required.' }
+          const missing = []
+          if (!p.ticketId) missing.push('ticketId')
+          if (!p.title) missing.push('title')
+          if (!p.body_md) missing.push('body_md')
+          console.error(`[agent-tools] Missing required parameters: ${missing.join(', ')}`)
+          result = { success: false, error: `Missing required parameters: ${missing.join(', ')}. All of ticketId, title, and body_md are required.` }
         } else {
           result = await insertQaArtifact(supabase, {
             ticketId: p.ticketId,

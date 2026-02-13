@@ -481,10 +481,12 @@ function ArtifactReportViewer({
         </div>
         <div className="ticket-detail-body-wrap">
           <div className="ticket-detail-body">
-            {artifact.body_md ? (
+            {artifact.body_md && artifact.body_md.trim().length > 0 ? (
               <ReactMarkdown>{artifact.body_md}</ReactMarkdown>
             ) : (
-              <p className="ticket-detail-empty">No content.</p>
+              <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
+                No output produced. This artifact was created but contains no content.
+              </p>
             )}
           </div>
         </div>
