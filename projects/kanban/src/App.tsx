@@ -144,6 +144,58 @@ function extractFeatureBranch(bodyMd: string | null): string | null {
   return branchMatch ? branchMatch[1].trim() : null
 }
 
+/** Strip embedded QA blocks (markdown and raw HTML) from body; QA is represented by artifacts only. */
+function stripQAInformationBlockFromBody(bodyMd: string): string {
+  if (!bodyMd || !bodyMd.trim()) return bodyMd
+  const lines = bodyMd.split('\n')
+  const out: string[] = []
+  let inQABlock = false
+  let inQAHtmlBlock = false
+  let htmlDepth = 0
+  const qaDivOpen = /<div[^>]*class=["'][^"']*qa-(info-section|section|workflow-section)(?:\s[^"']*)?["'][^>]*>/i
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    const trimmed = line.trim()
+    if (inQAHtmlBlock) {
+      const opens = (line.match(/<div[^>]*>/gi) || []).length
+      const closes = (line.match(/<\/div\s*>/gi) || []).length
+      htmlDepth += opens - closes
+      if (htmlDepth <= 0) inQAHtmlBlock = false
+      continue
+    }
+    if (qaDivOpen.test(line)) {
+      inQAHtmlBlock = true
+      htmlDepth = 1
+      const closes = (line.match(/<\/div\s*>/gi) || []).length
+      htmlDepth -= closes
+      if (htmlDepth <= 0) inQAHtmlBlock = false
+      continue
+    }
+    const looksLikeQAHeading =
+      /^#{1,6}\s*QA\b/i.test(trimmed) ||
+      /\*\*QA\s+Information\*\*/i.test(trimmed) ||
+      /^<h[1-6][^>]*>[\s\S]*QA\s+Information[\s\S]*<\/h[1-6]>/i.test(trimmed) ||
+      (/QA\s+Information/i.test(trimmed) && (trimmed.length < 50 || /^#?\s*\*?\*?/.test(trimmed)))
+    const isOtherSectionHeading =
+      /^#{1,6}\s/.test(trimmed) &&
+      !/^#{1,6}\s*QA\b/i.test(trimmed) &&
+      !/^#{1,6}\s*Implementation\s+artifacts\s*:?\s*$/i.test(trimmed)
+    if (looksLikeQAHeading) {
+      inQABlock = true
+      continue
+    }
+    if (inQABlock) {
+      if (isOtherSectionHeading) {
+        inQABlock = false
+        out.push(line)
+      }
+      continue
+    }
+    out.push(line)
+  }
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim()
+}
+
 /** Check if ticket body_md indicates branch was merged to main. Returns { merged: boolean, timestamp: string | null }. */
 function checkMergedToMain(bodyMd: string | null): { merged: boolean; timestamp: string | null } {
   if (!bodyMd) return { merged: false, timestamp: null }
@@ -818,92 +870,6 @@ function ArtifactsSection({
   )
 }
 
-/** QA Info Section: displays feature branch and implementation artifacts when ticket is in QA column (0113) */
-function QAInfoSection({
-  bodyMd,
-  artifacts,
-  artifactsLoading,
-  onOpenArtifact,
-}: {
-  bodyMd: string | null
-  artifacts: SupabaseAgentArtifactRow[]
-  artifactsLoading: boolean
-  onOpenArtifact: (artifact: SupabaseAgentArtifactRow) => void
-}) {
-  const featureBranch = extractFeatureBranch(bodyMd)
-  const mergeStatus = checkMergedToMain(bodyMd)
-  
-  // Filter to implementation artifacts only
-  const implementationArtifacts = artifacts.filter(a => a.agent_type === 'implementation')
-  
-  return (
-    <div className="qa-info-section">
-      <h3 className="qa-info-section-title">QA Information</h3>
-      
-      <div className="qa-info-field">
-        <strong>Feature branch:</strong>{' '}
-        {featureBranch ? (
-          <code className="qa-branch-name">{featureBranch}</code>
-        ) : (
-          <span className="qa-missing">Not specified</span>
-        )}
-      </div>
-      
-      <div className="qa-info-field">
-        <strong>Merged to main:</strong>{' '}
-        {mergeStatus.merged ? (
-          <span className="qa-merged-yes">
-            ✅ Yes
-            {mergeStatus.timestamp && (
-              <span className="qa-merged-timestamp"> ({mergeStatus.timestamp})</span>
-            )}
-          </span>
-        ) : (
-          <span className="qa-merged-no">❌ No</span>
-        )}
-      </div>
-      
-      <div className="qa-info-field">
-        <strong>Implementation artifacts:</strong>
-        {artifactsLoading ? (
-          <p className="qa-artifacts-loading">Loading artifacts…</p>
-        ) : implementationArtifacts.length === 0 ? (
-          <p className="qa-artifacts-empty">No implementation artifacts found.</p>
-        ) : (
-          <ul className="qa-artifacts-list">
-            {implementationArtifacts
-              .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-              .map((artifact) => {
-                const displayName = artifact.title || getAgentTypeDisplayName(artifact.agent_type)
-                return (
-                  <li key={artifact.artifact_id} className="qa-artifacts-item">
-                    <button
-                      type="button"
-                      className="qa-artifacts-item-button"
-                      onClick={() => onOpenArtifact(artifact)}
-                      aria-label={`Open ${displayName}`}
-                    >
-                      <span className="qa-artifacts-item-title">{displayName}</span>
-                      <span className="qa-artifacts-item-meta">
-                        {new Date(artifact.created_at).toLocaleString()}
-                      </span>
-                    </button>
-                  </li>
-                )
-              })}
-          </ul>
-        )}
-      </div>
-      
-      {!mergeStatus.merged && (
-        <div className="qa-workflow-warning" role="alert">
-          <strong>Warning:</strong> This ticket must be merged to main before it can be moved to Human in the Loop.
-        </div>
-      )}
-    </div>
-  )
-}
-
 /** Ticket detail modal (0033): title, metadata, markdown body, close/escape/backdrop, scroll lock, focus trap */
 function TicketDetailModal({
   open,
@@ -1038,10 +1004,9 @@ function TicketDetailModal({
 
   const { frontmatter, body: bodyOnly } = body ? parseFrontmatter(body) : { frontmatter: {}, body: '' }
   const priority = body ? extractPriority(frontmatter, body) : null
-  const markdownBody = body ? bodyOnly : ''
+  const markdownBody = body ? stripQAInformationBlockFromBody(bodyOnly) : ''
   const showValidationSection = columnId === 'col-human-in-the-loop'
   const showProcessReviewSection = columnId === 'col-process-review'
-  const showQASection = columnId === 'col-qa'
 
   return (
     <div
@@ -1100,14 +1065,6 @@ function TicketDetailModal({
                   <p className="ticket-detail-empty">No content.</p>
                 )}
               </div>
-              {showQASection && (
-                <QAInfoSection
-                  bodyMd={body}
-                  artifacts={artifacts}
-                  artifactsLoading={artifactsLoading}
-                  onOpenArtifact={onOpenArtifact}
-                />
-              )}
               <ArtifactsSection
                 artifacts={artifacts}
                 loading={artifactsLoading}
@@ -1116,14 +1073,6 @@ function TicketDetailModal({
                 onRefresh={onRefreshArtifacts}
                 refreshing={false}
               />
-              {showQASection && (
-                <QAInfoSection
-                  bodyMd={body}
-                  artifacts={artifacts}
-                  artifactsLoading={artifactsLoading}
-                  onOpenArtifact={onOpenArtifact}
-                />
-              )}
               {showValidationSection && (
                 <HumanValidationSection
                   ticketId={ticketId}
@@ -1255,7 +1204,7 @@ function SortableColumn({
   const topTicketId = firstCard ? (firstCard.displayId ?? extractTicketId(firstCard.id) ?? null) : null
 
   // Determine if this column should show a work button
-  const shouldShowWorkButton = col.id === 'col-unassigned' || col.id === 'col-todo' || col.id === 'col-qa' || col.id === 'col-process-review'
+  const shouldShowWorkButton = col.id === 'col-unassigned' || col.id === 'col-todo' || col.id === 'col-qa'
   
   const ticketRef = topTicketId ?? firstCard?.id ?? 'top'
   // Get button label and chat target based on column
@@ -1266,8 +1215,6 @@ function SortableColumn({
       return { label: 'Implement top ticket', chatTarget: 'implementation-agent', message: `Implement ticket ${ticketRef}.` }
     } else if (col.id === 'col-qa') {
       return { label: 'QA top ticket', chatTarget: 'qa-agent', message: `QA ticket ${ticketRef}.` }
-    } else if (col.id === 'col-process-review') {
-      return { label: 'Review top ticket', chatTarget: 'process-review', message: `Review ticket ${ticketRef}.` }
     }
     return null
   }
@@ -1277,27 +1224,6 @@ function SortableColumn({
   const handleWorkButtonClick = async () => {
     if (!hasTickets || !buttonConfig) return
     const firstCardId = col.cardIds[0] ?? null
-
-    // Process Review: use dedicated callback
-    if (buttonConfig.chatTarget === 'process-review' && firstCardId) {
-      if (halCtx?.onProcessReview) {
-        const ticket = supabaseTickets.find((t) => t.pk === firstCardId)
-        await halCtx.onProcessReview({
-          ticketPk: firstCardId,
-          ticketId: ticket?.id ?? ticket?.display_id ?? undefined,
-        })
-        return
-      }
-      // Fallback: postMessage for iframe mode
-      if (typeof window !== 'undefined' && window.parent !== window) {
-        window.parent.postMessage(
-          { type: 'HAL_PROCESS_REVIEW', ticketPk: firstCardId, ticketId: ticket?.id ?? ticket?.display_id ?? undefined },
-          '*'
-        )
-        return
-      }
-      return
-    }
 
     // Library mode: HAL owns data; tell HAL to open chat (HAL will move ticket to Doing for Implement if needed)
     if (halCtx?.onOpenChatAndSend) {
@@ -1354,7 +1280,7 @@ function SortableColumn({
               type="button"
               className="column-work-button"
               onClick={handleWorkButtonClick}
-              disabled={!hasTickets || (col.id === 'col-process-review' && halCtx?.processReviewRunningForTicketPk === firstCardId)}
+              disabled={!hasTickets}
               aria-label={hasTickets ? buttonConfig.label : 'No tickets in this column'}
               title={hasTickets ? buttonConfig.label : 'No tickets in this column'}
             >

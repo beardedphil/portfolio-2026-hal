@@ -1,8 +1,7 @@
 /**
  * Vercel build helper:
- * - Install deps (portfolio-2026-hal-agents and portfolio-2026-kanban from GitHub)
- * - Build hal-agents so serverless can load dist
- * - Build Kanban library (dist-kanban-lib) so HAL can import it
+ * - Build in-repo agents (agents/dist) so serverless can load PM/runner
+ * - Build Kanban library (projects/kanban dist-kanban-lib) for HAL import
  * - Build HAL (root Vite app) into dist/
  */
 

@@ -4,6 +4,7 @@
 import './index.css'
 export {
   KanbanBoard,
+  KANBAN_BUILD,
   default,
   type KanbanBoardProps,
   type HalKanbanContextValue,

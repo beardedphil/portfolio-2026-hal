@@ -51,7 +51,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     const repoRoot = process.cwd()
-    const distPath = path.resolve(repoRoot, 'node_modules/portfolio-2026-hal-agents/dist/agents/projectManager.js')
+    const distPath = path.resolve(repoRoot, 'agents/dist/agents/projectManager.js')
 
     let pmModule:
       | { checkUnassignedTickets?: (url: string, key: string) => Promise<unknown> }
@@ -72,7 +72,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         moved: [],
         notReady: [],
         error:
-          'checkUnassignedTickets not available (hal-agents dist missing). Ensure build runs `npm run build:agents` before deployment.',
+          'checkUnassignedTickets not available (agents dist missing). Ensure build runs `npm run build:agents` before deployment.',
       })
       return
     }

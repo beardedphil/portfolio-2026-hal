@@ -207,10 +207,7 @@ export default defineConfig({
       configureServer() {
         // Pre-build hal-agents at dev server start so first /api/pm/check-unassigned is fast (avoids "Failed to fetch" from long build)
         const repoRoot = path.resolve(__dirname)
-        spawn('npm', ['run', 'build', '--prefix', path.join(repoRoot, 'node_modules/portfolio-2026-hal-agents')], {
-          cwd: repoRoot,
-          stdio: ['ignore', 'ignore', 'ignore'],
-        }).on('error', () => {})
+        spawn('npm', ['run', 'build:agents'], { cwd: repoRoot, stdio: ['ignore', 'ignore', 'ignore'] }).on('error', () => {})
       },
     },
     {
@@ -319,7 +316,7 @@ export default defineConfig({
 
             // Import shared runner (and summarizeForContext) from hal-agents built dist (0043)
             let runnerModule: { getSharedRunner?: () => { label: string; run: (msg: string, config: object) => Promise<object> }; summarizeForContext?: (msgs: unknown[], key: string, model: string) => Promise<string> } | null = null
-            const runnerDistPath = path.resolve(__dirname, 'node_modules/portfolio-2026-hal-agents/dist/agents/runner.js')
+            const runnerDistPath = path.resolve(__dirname, 'agents/dist/agents/runner.js')
             try {
               runnerModule = await import(pathToFileURL(runnerDistPath).href)
             } catch (err) {
@@ -1804,7 +1801,7 @@ export default defineConfig({
             }
 
             const repoRoot = path.resolve(__dirname)
-            const distPath = path.resolve(repoRoot, 'node_modules/portfolio-2026-hal-agents/dist/agents/projectManager.js')
+            const distPath = path.resolve(repoRoot, 'agents/dist/agents/projectManager.js')
 
             let pmModule: { checkUnassignedTickets?: (url: string, key: string) => Promise<unknown> } | null = null
             try {
@@ -1813,10 +1810,7 @@ export default defineConfig({
               // Build may be missing; try building hal-agents once then re-import
               try {
                 await new Promise<void>((resolve, reject) => {
-                  const child = spawn('npm', ['run', 'build', '--prefix', path.join(repoRoot, 'node_modules/portfolio-2026-hal-agents')], {
-                    cwd: repoRoot,
-                    stdio: ['ignore', 'pipe', 'pipe'],
-                  })
+                  const child = spawn('npm', ['run', 'build:agents'], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'] })
                   let stderr = ''
                   child.stderr?.on('data', (d) => { stderr += String(d) })
                   child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(stderr || `build exited ${code}`))))
@@ -1836,10 +1830,7 @@ export default defineConfig({
             if (!checkUnassignedTickets && pmModule !== undefined) {
               try {
                 await new Promise<void>((resolve, reject) => {
-                  const child = spawn('npm', ['run', 'build', '--prefix', path.join(repoRoot, 'node_modules/portfolio-2026-hal-agents')], {
-                    cwd: repoRoot,
-                    stdio: ['ignore', 'pipe', 'pipe'],
-                  })
+                  const child = spawn('npm', ['run', 'build:agents'], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'] })
                   let stderr = ''
                   child.stderr?.on('data', (d) => { stderr += String(d) })
                   child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(stderr || `build exited ${code}`))))
@@ -1861,7 +1852,7 @@ export default defineConfig({
                 JSON.stringify({
                   moved: [],
                   notReady: [],
-                  error: 'checkUnassignedTickets not available (hal-agents build may be missing or outdated). Run: npm run build:agents',
+                  error: 'checkUnassignedTickets not available (agents build may be missing or outdated). Run: npm run build:agents',
                 })
               )
               return
@@ -2133,10 +2124,11 @@ export default defineConfig({
     },
   ],
   resolve: {
-    alias: {
-      // Use node_modules so portfolio-2026-kanban/style.css resolves to the package export (dist-kanban-lib/KanbanBoard.css). Do not alias to projects/kanban/src or style.css would be missing there.
-      '@hal-agents': path.resolve(__dirname, 'node_modules/portfolio-2026-hal-agents/src'),
-    },
+    alias: [
+      { find: 'portfolio-2026-kanban/style.css', replacement: path.resolve(__dirname, 'projects/kanban/src/index.css') },
+      { find: 'portfolio-2026-kanban', replacement: path.resolve(__dirname, 'projects/kanban/src/entry-lib.tsx') },
+      { find: '@hal-agents', replacement: path.resolve(__dirname, 'agents/src') },
+    ],
   },
   server: {
     port: 5173,

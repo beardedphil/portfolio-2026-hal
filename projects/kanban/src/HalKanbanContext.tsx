@@ -8,7 +8,7 @@ import { createContext } from 'react'
 import type { KanbanTicketRow, KanbanColumnRow, KanbanAgentRunRow, KanbanAgentArtifactRow } from './types'
 
 /** Chat target for one-click work buttons (matches HAL's ChatTarget). */
-export type HalChatTarget = 'project-manager' | 'implementation-agent' | 'qa-agent' | 'standup' | 'process-review'
+export type HalChatTarget = 'project-manager' | 'implementation-agent' | 'qa-agent' | 'standup'
 
 export interface HalKanbanContextValue {
   /** Tickets (from HAL's Supabase fetch). */
@@ -29,10 +29,6 @@ export interface HalKanbanContextValue {
   onUpdateTicketBody?: (ticketPk: string, bodyMd: string) => void | Promise<void>
   /** Called when user clicks a work button (Prepare/Implement/QA). HAL opens chat and sends the message. */
   onOpenChatAndSend?: (data: { chatTarget: HalChatTarget; message: string; ticketPk?: string }) => void
-  /** Called when user clicks Process Review button. HAL triggers Process Review agent. */
-  onProcessReview?: (data: { ticketPk: string; ticketId?: string }) => void | Promise<void>
-  /** Process Review status: ticketPk if a review is running for that ticket, null otherwise. */
-  processReviewRunningForTicketPk?: string | null
   /** Ticket ID currently assigned to Implementation Agent (for UI indicator). */
   implementationAgentTicketId: string | null
   /** Ticket ID currently assigned to QA Agent (for UI indicator). */

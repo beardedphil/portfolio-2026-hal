@@ -17,8 +17,9 @@
     "noFallthroughCasesInSwitch": true,
     "baseUrl": ".",
     "paths": {
-      "@hal-agents/*": ["projects/hal-agents/src/*"]
+      "@hal-agents/*": ["agents/src/*"],
+      "portfolio-2026-kanban": ["projects/kanban/src/entry-lib.tsx"]
     }
   },
-  "include": ["src", "projects/hal-agents/src"]
+  "include": ["src", "agents/src"]
 }

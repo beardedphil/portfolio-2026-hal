@@ -3,6 +3,9 @@
  * HAL owns all data (fetches from Supabase) and passes data + callbacks; no credentials.
  */
 
+/** Build identifier: bump when deploying so HAL can confirm which kanban build is loaded (inspect data-kanban-build on root). Export for HAL diagnostics. */
+export const KANBAN_BUILD = '70d27a4'
+
 import React from 'react'
 import { HalKanbanContext, type HalKanbanContextValue } from './HalKanbanContext'
 import type { KanbanTicketRow, KanbanColumnRow, KanbanAgentRunRow } from './types'
@@ -25,8 +28,6 @@ export interface KanbanBoardProps {
     message: string
     ticketPk?: string
   }) => void
-  onProcessReview?: (data: { ticketPk: string; ticketId?: string }) => void | Promise<void>
-  processReviewRunningForTicketPk?: string | null
   implementationAgentTicketId?: string | null
   qaAgentTicketId?: string | null
   /** HAL fetches artifacts from DB; called when ticket detail opens. */
@@ -46,8 +47,6 @@ export function KanbanBoard({
   onReorderColumn,
   onUpdateTicketBody,
   onOpenChatAndSend,
-  onProcessReview,
-  processReviewRunningForTicketPk = null,
   implementationAgentTicketId = null,
   qaAgentTicketId = null,
   fetchArtifactsForTicket,
@@ -65,8 +64,6 @@ export function KanbanBoard({
       onReorderColumn,
       onUpdateTicketBody,
       onOpenChatAndSend,
-      onProcessReview,
-      processReviewRunningForTicketPk,
       implementationAgentTicketId,
       qaAgentTicketId,
       fetchArtifactsForTicket,
@@ -83,8 +80,6 @@ export function KanbanBoard({
       onReorderColumn,
       onUpdateTicketBody,
       onOpenChatAndSend,
-      onProcessReview,
-      processReviewRunningForTicketPk,
       implementationAgentTicketId,
       qaAgentTicketId,
       fetchArtifactsForTicket,
@@ -95,7 +90,9 @@ export function KanbanBoard({
 
   return (
     <HalKanbanContext.Provider value={value}>
-      <KanbanBoardInner />
+      <div data-kanban-build={KANBAN_BUILD} style={{ display: 'contents' }}>
+        <KanbanBoardInner />
+      </div>
     </HalKanbanContext.Provider>
   )
 }

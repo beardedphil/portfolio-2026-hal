@@ -1,5 +1,7 @@
 node_modules
 dist
+agents/dist
+projects/kanban/dist-kanban-lib
 *.local
 .DS_Store
 *.tsbuildinfo
