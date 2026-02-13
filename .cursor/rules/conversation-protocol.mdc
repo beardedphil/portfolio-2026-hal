@@ -14,7 +14,8 @@ alwaysApply: true
   1. **MANDATORY: Read existing artifacts first** - This is non-negotiable. See **auditability-and-traceability**: Implementation Agent: First Step.
      - Read `.hal/api-base-url` and call `POST ${baseUrl}/api/artifacts/get` with `{ ticketId: "<ticket-id>" }`
      - **CRITICAL:** Check for QA reports with FAIL verdicts - read them completely to understand what went wrong
+     - **CRITICAL:** Check for Human in the Loop failures in QA reports - read them completely to understand what failed in user testing
      - Review all existing implementation artifacts to understand previous work
-     - **DO NOT skip this step** - Tickets often fail QA multiple times, and you must understand the failure context
+     - **DO NOT skip this step** - Tickets often fail QA multiple times or fail Human in the Loop validation, and you must understand the failure context
   2. Run `git status -sb` and create/checkout `ticket/<id>-<short-title-kebab>` if not already on it. FORBIDDEN: editing files on `main`. See **change-ownership-and-staging-discipline**: FIRST.
 - **When you have finished a feature/task** (implementation + audit): before sending any summary or "done" message, follow **done-means-pushed**: run `git add`, `git commit`, `git push`, then include `git status -sb` in your reply. Do not delegate commit/push to the user.

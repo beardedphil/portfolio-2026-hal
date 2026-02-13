@@ -21,16 +21,24 @@ For any coding task assigned to an implementation agent, the work must be **full
 - If API call fails (404, 500, network error, timeout), note the failure but proceed with caution
 - If API call succeeds, you will receive an array of artifacts
 
-**Step 2: Check for QA reports (CRITICAL)**
+**Step 2: Check for QA reports and Human in the Loop failures (CRITICAL)**
 - Filter artifacts to find QA reports: `agent_type === "qa"` and title matching `QA report for ticket <ticket-id>`
 - **If a QA report exists:**
   - **READ IT IMMEDIATELY** - Do not skip this
   - Check the verdict: Look for "QA RESULT: FAIL" or "QA RESULT: PASS" in the report
+  - **Check for Human validation failure:** Look for "Human validation failure" section in the report
   - **If verdict is FAIL:**
     - Read the entire QA report carefully
     - Identify all blocking issues listed
     - Understand what fixes are required
     - Understand why the previous implementation failed
+    - **DO NOT repeat the same mistakes**
+    - **DO NOT start coding until you understand the failure context**
+  - **If Human validation failure section exists:**
+    - Read the entire QA report carefully, including the Human validation failure section
+    - Identify all issues that caused the Human in the Loop failure
+    - Understand what fixes are required based on the failure notes
+    - Understand why the previous implementation failed human validation
     - **DO NOT repeat the same mistakes**
     - **DO NOT start coding until you understand the failure context**
 - **If no QA report exists:** This may be a fresh ticket (proceed to Step 3)
@@ -50,6 +58,10 @@ For any coding task assigned to an implementation agent, the work must be **full
   - Document in your Plan artifact that you are addressing previous QA failures
   - List the specific issues you will fix
   - Explain how your approach addresses the previous failures
+- If the ticket has failed Human in the Loop validation before:
+  - Document in your Plan artifact that you are addressing previous Human in the Loop failures
+  - List the specific issues you will fix based on the Human validation failure notes
+  - Explain how your approach addresses the previous failures
 - If the ticket has been worked before but passed QA:
   - Understand what was done and build on it appropriately
 - If this is a fresh ticket:
@@ -63,7 +75,9 @@ For any coding task assigned to an implementation agent, the work must be **full
 ### Why This Matters
 
 - **Tickets often fail QA multiple times** - The same ticket may have been worked by previous agents who made mistakes
+- **Tickets often fail Human in the Loop validation** - Even after passing QA, tickets can fail when users test them in the UI
 - **QA reports contain critical information** - They tell you exactly what was wrong and what needs to be fixed
+- **Human validation failure notes contain critical information** - They tell you exactly what failed in user testing and what needs to be fixed
 - **Repeating mistakes wastes time** - Understanding previous failures prevents you from making the same errors
 - **Building on previous work** - If work was partially completed, you should understand what was done before
 
@@ -71,9 +85,10 @@ For any coding task assigned to an implementation agent, the work must be **full
 
 If you find yourself:
 - Starting to code without checking artifacts first
-- Creating a Plan artifact without mentioning previous QA failures
+- Creating a Plan artifact without mentioning previous QA failures or Human in the Loop failures
 - Implementing features that were already identified as problematic in a QA report
 - Making the same mistakes that caused a previous QA failure
+- Making the same mistakes that caused a previous Human in the Loop failure
 
 **STOP and go back to Step 1.**
 
