@@ -29,6 +29,10 @@ export interface HalKanbanContextValue {
   onUpdateTicketBody?: (ticketPk: string, bodyMd: string) => void | Promise<void>
   /** Called when user clicks a work button (Prepare/Implement/QA). HAL opens chat and sends the message. */
   onOpenChatAndSend?: (data: { chatTarget: HalChatTarget; message: string; ticketPk?: string }) => void
+  /** Called when user clicks Process Review button. HAL triggers Process Review agent for the ticket. */
+  onProcessReview?: (data: { ticketPk: string; ticketId?: string }) => void | Promise<void>
+  /** Ticket PK currently being reviewed by Process Review agent (for UI indicator/button disabled state). */
+  processReviewRunningForTicketPk: string | null
   /** Ticket ID currently assigned to Implementation Agent (for UI indicator). */
   implementationAgentTicketId: string | null
   /** Ticket ID currently assigned to QA Agent (for UI indicator). */

@@ -28,6 +28,10 @@ export interface KanbanBoardProps {
     message: string
     ticketPk?: string
   }) => void
+  /** Called when user clicks Process Review button. HAL triggers Process Review agent for the ticket. */
+  onProcessReview?: (data: { ticketPk: string; ticketId?: string }) => void | Promise<void>
+  /** Ticket PK currently being reviewed by Process Review agent (for UI indicator/button disabled state). */
+  processReviewRunningForTicketPk?: string | null
   implementationAgentTicketId?: string | null
   qaAgentTicketId?: string | null
   /** HAL fetches artifacts from DB; called when ticket detail opens. */
@@ -47,6 +51,8 @@ export function KanbanBoard({
   onReorderColumn,
   onUpdateTicketBody,
   onOpenChatAndSend,
+  onProcessReview,
+  processReviewRunningForTicketPk = null,
   implementationAgentTicketId = null,
   qaAgentTicketId = null,
   fetchArtifactsForTicket,
@@ -64,6 +70,8 @@ export function KanbanBoard({
       onReorderColumn,
       onUpdateTicketBody,
       onOpenChatAndSend,
+      onProcessReview,
+      processReviewRunningForTicketPk,
       implementationAgentTicketId,
       qaAgentTicketId,
       fetchArtifactsForTicket,
@@ -80,6 +88,8 @@ export function KanbanBoard({
       onReorderColumn,
       onUpdateTicketBody,
       onOpenChatAndSend,
+      onProcessReview,
+      processReviewRunningForTicketPk,
       implementationAgentTicketId,
       qaAgentTicketId,
       fetchArtifactsForTicket,

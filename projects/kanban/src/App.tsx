@@ -1259,29 +1259,61 @@ function SortableColumn({
   const topTicketId = firstCard ? (firstCard.displayId ?? extractTicketId(firstCard.id) ?? null) : null
 
   // Determine if this column should show a work button
-  const shouldShowWorkButton = col.id === 'col-unassigned' || col.id === 'col-todo' || col.id === 'col-qa'
+  const shouldShowWorkButton = col.id === 'col-unassigned' || col.id === 'col-todo' || col.id === 'col-qa' || col.id === 'col-process-review'
   
   const ticketRef = topTicketId ?? firstCard?.id ?? 'top'
   // Get button label and chat target based on column
   const getButtonConfig = () => {
     if (col.id === 'col-unassigned') {
-      return { label: 'Prepare top ticket', chatTarget: 'project-manager', message: `Please prepare ticket ${ticketRef} and get it ready (Definition of Ready).` }
+      return { label: 'Prepare top ticket', chatTarget: 'project-manager' as const, message: `Please prepare ticket ${ticketRef} and get it ready (Definition of Ready).` }
     } else if (col.id === 'col-todo') {
-      return { label: 'Implement top ticket', chatTarget: 'implementation-agent', message: `Implement ticket ${ticketRef}.` }
+      return { label: 'Implement top ticket', chatTarget: 'implementation-agent' as const, message: `Implement ticket ${ticketRef}.` }
     } else if (col.id === 'col-qa') {
-      return { label: 'QA top ticket', chatTarget: 'qa-agent', message: `QA ticket ${ticketRef}.` }
+      return { label: 'QA top ticket', chatTarget: 'qa-agent' as const, message: `QA ticket ${ticketRef}.` }
+    } else if (col.id === 'col-process-review') {
+      return { label: 'Review top ticket', isProcessReview: true as const }
     }
     return null
   }
 
   const buttonConfig = shouldShowWorkButton ? getButtonConfig() : null
+  const isProcessReview = buttonConfig && 'isProcessReview' in buttonConfig && buttonConfig.isProcessReview
+  const firstCardId = hasTickets ? col.cardIds[0] ?? null : null
+  const isProcessReviewRunning = halCtx?.processReviewRunningForTicketPk === firstCardId
+
+  const handleProcessReviewButtonClick = async () => {
+    if (!hasTickets || !firstCardId) return
+    
+    // Library mode: HAL owns data; tell HAL to trigger Process Review
+    if (halCtx?.onProcessReview) {
+      await halCtx.onProcessReview({
+        ticketPk: firstCardId,
+        ticketId: topTicketId ?? undefined,
+      })
+      return
+    }
+
+    // Iframe/standalone: postMessage to parent
+    if (typeof window !== 'undefined' && window.parent !== window) {
+      window.parent.postMessage(
+        { type: 'HAL_PROCESS_REVIEW', ticketPk: firstCardId, ticketId: topTicketId ?? undefined },
+        '*'
+      )
+    }
+  }
 
   const handleWorkButtonClick = async () => {
     if (!hasTickets || !buttonConfig) return
     const firstCardId = col.cardIds[0] ?? null
 
+    // Process Review uses a different handler
+    if (isProcessReview) {
+      await handleProcessReviewButtonClick()
+      return
+    }
+
     // Library mode: HAL owns data; tell HAL to open chat (HAL will move ticket to Doing for Implement if needed)
-    if (halCtx?.onOpenChatAndSend) {
+    if (halCtx?.onOpenChatAndSend && buttonConfig.chatTarget) {
       halCtx.onOpenChatAndSend({
         chatTarget: buttonConfig.chatTarget as import('./HalKanbanContext').HalChatTarget,
         message: buttonConfig.message,
@@ -1310,7 +1342,7 @@ function SortableColumn({
       }
     }
 
-    if (typeof window !== 'undefined' && window.parent !== window) {
+    if (typeof window !== 'undefined' && window.parent !== window && buttonConfig.chatTarget) {
       window.parent.postMessage(
         { type: 'HAL_OPEN_CHAT_AND_SEND', chatTarget: buttonConfig.chatTarget, message: buttonConfig.message },
         '*'
@@ -1335,11 +1367,27 @@ function SortableColumn({
               type="button"
               className="column-work-button"
               onClick={handleWorkButtonClick}
-              disabled={!hasTickets}
-              aria-label={hasTickets ? buttonConfig.label : 'No tickets in this column'}
-              title={hasTickets ? buttonConfig.label : 'No tickets in this column'}
+              disabled={!hasTickets || isProcessReviewRunning}
+              aria-label={
+                isProcessReviewRunning
+                  ? 'Process Review in progress'
+                  : hasTickets
+                  ? buttonConfig.label
+                  : 'No tickets in this column'
+              }
+              title={
+                isProcessReviewRunning
+                  ? 'Process Review in progress'
+                  : hasTickets
+                  ? buttonConfig.label
+                  : 'No tickets in this column'
+              }
             >
-              {hasTickets ? (buttonConfig.label || 'Work top ticket') : 'No tickets'}
+              {isProcessReviewRunning
+                ? 'Reviewing...'
+                : hasTickets
+                ? buttonConfig.label || 'Work top ticket'
+                : 'No tickets'}
             </button>
           )}
           {!hideRemove && (
