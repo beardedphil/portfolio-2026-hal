@@ -3380,15 +3380,37 @@ ${notes || '(none provided)'}
             const updatedBody = feedbackSection + ticket.body_md
             
             // Update ticket: move to To Do and update body with feedback
-            // Use updateSupabaseTicketKanban for column/position, then update body via API if needed
-            const moveResult = await updateSupabaseTicketKanban(ticketPk, {
-              kanban_column_id: 'col-todo',
-              kanban_position: targetPosition,
-              kanban_moved_at: movedAt,
-            })
-            
-            if (!moveResult.ok) {
-              throw new Error(moveResult.error)
+            // Use updateSupabaseTicketKanban for column/position (if available)
+            if (updateSupabaseTicketKanban) {
+              const moveResult = await updateSupabaseTicketKanban(ticketPk, {
+                kanban_column_id: 'col-todo',
+                kanban_position: targetPosition,
+                kanban_moved_at: movedAt,
+              })
+              
+              if (!moveResult.ok) {
+                throw new Error(moveResult.error)
+              }
+            } else {
+              // Fallback: direct Supabase update if updateSupabaseTicketKanban not available
+              const url = supabaseProjectUrl?.trim()
+              const key = supabaseAnonKey?.trim()
+              if (!url || !key) {
+                throw new Error('Supabase not configured and updateSupabaseTicketKanban not available')
+              }
+              const client = createClient(url, key)
+              const { error: updateError } = await client
+                .from('tickets')
+                .update({
+                  kanban_column_id: 'col-todo',
+                  kanban_position: targetPosition,
+                  kanban_moved_at: movedAt,
+                })
+                .eq('pk', ticketPk)
+              
+              if (updateError) {
+                throw new Error(updateError.message ?? String(updateError))
+              }
             }
             
             // Update body via API endpoint (works in both library and Supabase modes)
