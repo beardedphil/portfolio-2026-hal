@@ -29,6 +29,8 @@ export function hasSubstantiveContent(body_md: string, title: string): { valid: 
     /\(none\)/i,
     /^##\s+Modified\s*$/m, // Just "## Modified" with no content
     /^##\s+Changed Files\s*$/m, // Just "## Changed Files" with no content
+    /^##\s+[^\n]+\n+\n*\(No files changed/i,
+    /^##\s+[^\n]+\n+\n*\(none\)/i,
   ]
 
   for (const pattern of placeholderPatterns) {

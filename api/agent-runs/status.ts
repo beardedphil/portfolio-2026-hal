@@ -193,19 +193,30 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           const ghToken =
             process.env.GITHUB_TOKEN?.trim() ||
             (await getSession(req, res).catch(() => null))?.github?.accessToken
-          let prFiles: Array<{ filename: string; status: string; additions: number; deletions: number }> = []
+          let prFiles: Array<{ filename: string; status: string; additions: number; deletions: number }> | null = null
+          let prFilesError: string | null = null
           if (ghToken && prUrl && /\/pull\/\d+/i.test(prUrl)) {
             const filesResult = await fetchPullRequestFiles(ghToken, prUrl)
-            if ('files' in filesResult) prFiles = filesResult.files
-            else if ('error' in filesResult) console.warn('[agent-runs] fetch PR files failed:', filesResult.error)
+            if ('files' in filesResult) {
+              prFiles = filesResult.files
+            } else if ('error' in filesResult) {
+              prFilesError = filesResult.error
+              console.warn('[agent-runs] fetch PR files failed:', prFilesError)
+            }
           }
           const { artifacts, errors } = generateImplementationArtifacts(
             displayId,
             summary ?? '',
-            prUrl ?? '',
-            prFiles
+            prUrl ?? null,
+            prFiles,
+            prFilesError
           )
           for (const a of artifacts) {
+            // Only store artifacts with non-null body_md (skip error states)
+            if (a.body_md === null) {
+              console.warn(`[agent-runs] Skipping artifact "${a.title}" - ${a.error || 'data unavailable'}`)
+              continue
+            }
             const res = await upsertArtifact(supabase, ticketPk, repoFullName, 'implementation', a.title, a.body_md)
             if (!res.ok) console.warn('[agent-runs] artifact upsert failed:', a.title, (res as { ok: false; error: string }).error)
           }

@@ -243,27 +243,66 @@ export async function fetchPullRequestFiles(
   }
 }
 
-/** Result type for artifact generation - includes artifacts and any errors for missing data */
-export type GenerateArtifactsResult = {
-  artifacts: Array<{ title: string; body_md: string; artifactType: string }>
-  errors: Array<{ artifactType: string; reason: string }>
+/** Result type for artifact generation - includes error state when data unavailable */
+export type ArtifactGenerationResult = {
+  title: string
+  body_md: string | null // null indicates error state - should not be stored
+  error?: string // Error reason when body_md is null
 }
 
 /** Generate the 6 implementation artifacts from PR data and Cursor summary. Stored in Supabase only.
- * Only returns artifacts with substantive content. Returns error info for artifacts that cannot be generated.
+ * Returns artifacts with body_md set to null when data is unavailable (e.g., no PR files, missing PR URL).
+ * Callers should NOT store artifacts where body_md is null - instead show error state in UI.
  */
 export function generateImplementationArtifacts(
   displayId: string,
   summary: string,
-  prUrl: string,
-  prFiles: PrFile[]
-): GenerateArtifactsResult {
-  const artifacts: Array<{ title: string; body_md: string; artifactType: string }> = []
-  const errors: Array<{ artifactType: string; reason: string }> = []
+  prUrl: string | null,
+  prFiles: PrFile[] | null,
+  prFilesError?: string | null
+): Array<ArtifactGenerationResult> {
+  const modified = (prFiles || []).filter((f) => f.status === 'modified' || f.status === 'added')
+  
+  // Changed Files artifact: only generate if we have file data
+  let changedFilesResult: ArtifactGenerationResult
+  if (!prUrl) {
+    changedFilesResult = {
+      title: `Changed Files for ticket ${displayId}`,
+      body_md: null,
+      error: 'Pull request URL not available. Cannot determine changed files.',
+    }
+  } else if (prFilesError) {
+    changedFilesResult = {
+      title: `Changed Files for ticket ${displayId}`,
+      body_md: null,
+      error: `Failed to fetch PR files: ${prFilesError}`,
+    }
+  } else if (prFiles === null) {
+    changedFilesResult = {
+      title: `Changed Files for ticket ${displayId}`,
+      body_md: null,
+      error: 'PR files data not available. Cannot determine changed files.',
+    }
+  } else if (modified.length === 0) {
+    changedFilesResult = {
+      title: `Changed Files for ticket ${displayId}`,
+      body_md: null,
+      error: 'No files changed in this PR. If code changes exist, they may not be reflected in the PR yet.',
+    }
+  } else {
+    changedFilesResult = {
+      title: `Changed Files for ticket ${displayId}`,
+      body_md: [
+        '## Modified',
+        '',
+        ...modified.map(
+          (f) =>
+            `- \`${f.filename}\`\n  - ${f.status === 'added' ? 'Added' : 'Modified'} (+${f.additions} −${f.deletions})`
+        ),
+      ].join('\n'),
+    }
+  }
 
-  const modified = prFiles.filter((f) => f.status === 'modified' || f.status === 'added')
-
-  // Plan artifact - always generated (has summary/approach)
   const planBody = [
     `# Plan: ${displayId}`,
     '',
@@ -275,9 +314,7 @@ export function generateImplementationArtifacts(
     '',
     prUrl ? `**Pull request:** ${prUrl}` : '',
   ].join('\n')
-  artifacts.push({ title: `Plan for ticket ${displayId}`, body_md: planBody, artifactType: 'plan' })
 
-  // Worklog artifact - always generated (has session info)
   const worklogBody = [
     `# Worklog: ${displayId}`,
     '',
@@ -287,18 +324,53 @@ export function generateImplementationArtifacts(
     '',
     prUrl ? `- Pull request: ${prUrl}` : '',
   ].join('\n')
-  artifacts.push({ title: `Worklog for ticket ${displayId}`, body_md: worklogBody, artifactType: 'worklog' })
 
-  // Decisions artifact - always generated (has implementation note)
   const decisionsBody = [
     `# Decisions: ${displayId}`,
     '',
     '## Implementation',
     'Implementation delivered by Cursor Cloud Agent. Key decisions reflected in code changes.',
   ].join('\n')
-  artifacts.push({ title: `Decisions for ticket ${displayId}`, body_md: decisionsBody, artifactType: 'decisions' })
 
-  // PM Review artifact - always generated (has summary)
+  // Verification artifact: only generate if we have file data
+  let verificationResult: ArtifactGenerationResult
+  if (!prUrl || prFiles === null || prFilesError) {
+    verificationResult = {
+      title: `Verification for ticket ${displayId}`,
+      body_md: null,
+      error: prFilesError 
+        ? `Failed to fetch PR files: ${prFilesError}. Cannot generate verification checklist.`
+        : !prUrl
+        ? 'Pull request URL not available. Cannot generate verification checklist.'
+        : 'PR files data not available. Cannot generate verification checklist.',
+    }
+  } else if (modified.length === 0) {
+    verificationResult = {
+      title: `Verification for ticket ${displayId}`,
+      body_md: null,
+      error: 'No files changed in this PR. If code changes exist, they may not be reflected in the PR yet. Cannot generate verification checklist.',
+    }
+  } else {
+    verificationResult = {
+      title: `Verification for ticket ${displayId}`,
+      body_md: [
+        `# Verification: ${displayId}`,
+        '',
+        '## Code Review',
+        '- [ ] Review changed files',
+        '- [ ] Verify acceptance criteria met',
+        '',
+        '## Changed Files',
+        ...modified.map((f) => `- \`${f.filename}\` (+${f.additions} −${f.deletions})`),
+        '',
+        '## Verification Steps',
+        '- [ ] Run automated checks (build, lint)',
+        '- [ ] Verify acceptance criteria are met',
+        '- [ ] Check for regressions in adjacent UI',
+      ].join('\n'),
+    }
+  }
+
   const pmReviewBody = [
     `# PM Review: ${displayId}`,
     '',
@@ -307,76 +379,15 @@ export function generateImplementationArtifacts(
     '',
     prUrl ? `**Pull request:** ${prUrl}` : '',
   ].join('\n')
-  artifacts.push({ title: `PM Review for ticket ${displayId}`, body_md: pmReviewBody, artifactType: 'pm-review' })
 
-  // Changed Files artifact - only generated if there are actual file changes
-  if (modified.length > 0) {
-    const changedFilesBody = [
-      '## Modified',
-      '',
-      ...modified.map(
-        (f) =>
-          `- \`${f.filename}\`\n  - ${f.status === 'added' ? 'Added' : 'Modified'} (+${f.additions} −${f.deletions})`
-      ),
-    ].join('\n')
-    artifacts.push({
-      title: `Changed Files for ticket ${displayId}`,
-      body_md: changedFilesBody,
-      artifactType: 'changed-files',
-    })
-  } else if (!prUrl || !/\/pull\/\d+/i.test(prUrl)) {
-    errors.push({
-      artifactType: 'changed-files',
-      reason: 'Pull request URL not available. Cannot determine changed files without PR information.',
-    })
-  } else if (prFiles.length === 0) {
-    errors.push({
-      artifactType: 'changed-files',
-      reason: 'No files changed in this PR. Changed Files artifact not generated.',
-    })
-  } else {
-    errors.push({
-      artifactType: 'changed-files',
-      reason: 'No modified or added files found. Changed Files artifact not generated.',
-    })
-  }
-
-  // Verification artifact - only generated if there are file changes to verify
-  if (modified.length > 0) {
-    const verificationBody = [
-      `# Verification: ${displayId}`,
-      '',
-      '## Code Review',
-      '- [ ] Review changed files',
-      '- [ ] Verify acceptance criteria met',
-      '',
-      '## Changed Files',
-      modified.map((f) => `- \`${f.filename}\` (+${f.additions} −${f.deletions})`).join('\n'),
-      '',
-      '## Verification Steps',
-      '1. Review the changed files listed above',
-      '2. Verify that all acceptance criteria are met',
-      '3. Run automated checks (build, lint)',
-      '4. Test the changes in the UI to confirm they work as expected',
-    ].join('\n')
-    artifacts.push({
-      title: `Verification for ticket ${displayId}`,
-      body_md: verificationBody,
-      artifactType: 'verification',
-    })
-  } else if (!prUrl || !/\/pull\/\d+/i.test(prUrl)) {
-    errors.push({
-      artifactType: 'verification',
-      reason: 'Pull request URL not available. Cannot generate verification artifact without PR information.',
-    })
-  } else {
-    errors.push({
-      artifactType: 'verification',
-      reason: 'No file changes to verify. Verification artifact not generated.',
-    })
-  }
-
-  return { artifacts, errors }
+  return [
+    { title: `Plan for ticket ${displayId}`, body_md: planBody },
+    { title: `Worklog for ticket ${displayId}`, body_md: worklogBody },
+    changedFilesResult,
+    { title: `Decisions for ticket ${displayId}`, body_md: decisionsBody },
+    verificationResult,
+    { title: `PM Review for ticket ${displayId}`, body_md: pmReviewBody },
+  ]
 }
 
 export type CodeSearchMatch = { path: string; line: number; text: string }
