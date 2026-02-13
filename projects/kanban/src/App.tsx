@@ -584,7 +584,6 @@ function ProcessReviewSection({
   const [suggestions, setSuggestions] = useState<Array<{ id: string; text: string; justification: string; selected: boolean }>>([])
   const [lastRunStatus, setLastRunStatus] = useState<{ timestamp: string; success: boolean; error?: string } | null>(null)
   const [isCreatingTicket, setIsCreatingTicket] = useState(false)
-  const [reviewError, setReviewError] = useState<string | null>(null)
   const [createdTicketId, setCreatedTicketId] = useState<string | null>(null)
   const [createError, setCreateError] = useState<string | null>(null)
   
@@ -784,12 +783,6 @@ function ProcessReviewSection({
               <span className="process-review-error-detail"> — {lastRunStatus.error}</span>
             )}
           </p>
-        </div>
-      )}
-
-      {reviewError && (
-        <div className="process-review-error" role="alert">
-          <p>{reviewError}</p>
         </div>
       )}
 
