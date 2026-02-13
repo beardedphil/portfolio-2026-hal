@@ -355,7 +355,6 @@ function App() {
   >('idle')
   /** QA Agent run status for on-screen timeline. */
   const [processReviewStatus, setProcessReviewStatus] = useState<'idle' | 'running' | 'completed' | 'failed'>('idle')
-  const [processReviewError, setProcessReviewError] = useState<string | null>(null)
   const [processReviewTicketPk, setProcessReviewTicketPk] = useState<string | null>(null)
   const [processReviewMessage, setProcessReviewMessage] = useState<string | null>(null)
   const [qaAgentRunStatus, setQaAgentRunStatus] = useState<
@@ -2078,7 +2077,6 @@ function App() {
       
       // Set status to running
       setProcessReviewStatus('running')
-      setProcessReviewError(null)
       setProcessReviewTicketPk(data.ticketPk)
       setProcessReviewMessage(`Process Review started for ticket ${data.ticketId || data.ticketPk}`)
 
@@ -2098,7 +2096,6 @@ function App() {
 
         if (!result.success) {
           setProcessReviewStatus('failed')
-          setProcessReviewError(result.error || 'Process Review failed')
           setProcessReviewMessage(`Process Review failed: ${result.error || 'Unknown error'}`)
           return
         }
@@ -2119,7 +2116,6 @@ function App() {
       } catch (err) {
         setProcessReviewStatus('failed')
         const errorMsg = err instanceof Error ? err.message : String(err)
-        setProcessReviewError(errorMsg)
         setProcessReviewMessage(`Process Review failed: ${errorMsg}`)
       }
     },
