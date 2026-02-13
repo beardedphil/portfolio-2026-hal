@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { createClient } from '@supabase/supabase-js'
-import { stripQABlocksFromTicketBody } from '../_lib/strip-qa-from-ticket-body'
+import { stripQABlocksFromTicketBody } from '../_lib/strip-qa-from-ticket-body.js'
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []

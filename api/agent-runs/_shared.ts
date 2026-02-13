@@ -3,7 +3,7 @@ import {
   extractArtifactTypeFromTitle,
   createCanonicalTitle,
   findArtifactsByCanonicalId,
-} from '../artifacts/_shared'
+} from '../artifacts/_shared.js'
 
 export type AgentType = 'implementation' | 'qa'
 

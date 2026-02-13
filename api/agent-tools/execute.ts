@@ -1,12 +1,12 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { createClient } from '@supabase/supabase-js'
-import { hasSubstantiveContent } from '../artifacts/_validation'
+import { hasSubstantiveContent } from '../artifacts/_validation.js'
 import {
   extractArtifactTypeFromTitle,
   createCanonicalTitle,
   findArtifactsByCanonicalId,
-} from '../artifacts/_shared'
-import { stripQABlocksFromTicketBody } from '../_lib/strip-qa-from-ticket-body'
+} from '../artifacts/_shared.js'
+import { stripQABlocksFromTicketBody } from '../_lib/strip-qa-from-ticket-body.js'
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []

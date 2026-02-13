@@ -1,11 +1,11 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { createClient } from '@supabase/supabase-js'
-import { hasSubstantiveContent } from './_validation'
+import { hasSubstantiveContent } from './_validation.js'
 import {
   extractArtifactTypeFromTitle,
   createCanonicalTitle,
   findArtifactsByCanonicalId,
-} from './_shared'
+} from './_shared.js'
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []
