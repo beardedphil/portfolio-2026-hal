@@ -1385,6 +1385,118 @@ function App() {
     return () => clearInterval(id)
   }, [connectedProject, supabaseUrl, supabaseAnonKey, fetchKanbanData])
 
+  // Supabase Realtime subscriptions for live updates (0140)
+  useEffect(() => {
+    const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
+    const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
+    if (!url || !key || !connectedProject) return
+
+    const supabase = getSupabaseClient(url, key)
+    const subscriptions: Array<{ unsubscribe: () => void }> = []
+
+    // Subscribe to tickets table changes
+    const ticketsChannel = supabase
+      .channel(`kanban-tickets-${connectedProject}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'tickets',
+        },
+        (payload) => {
+          // Filter by repo_full_name in callback since postgres_changes filter may not support column filters
+          const ticket = (payload.new || payload.old) as KanbanTicketRow | { pk: string; repo_full_name?: string }
+          if (ticket.repo_full_name !== connectedProject) return
+
+          if (payload.eventType === 'INSERT' && payload.new) {
+            const newTicket = payload.new as KanbanTicketRow
+            setKanbanTickets((prev) => {
+              // Prevent duplicates by checking if ticket already exists
+              if (prev.some((t) => t.pk === newTicket.pk)) return prev
+              return [...prev, newTicket].sort((a, b) => (a.ticket_number ?? 0) - (b.ticket_number ?? 0))
+            })
+          } else if (payload.eventType === 'UPDATE' && payload.new) {
+            const updatedTicket = payload.new as KanbanTicketRow
+            setKanbanTickets((prev) => {
+              // Replace ticket by pk to prevent duplicates
+              const filtered = prev.filter((t) => t.pk !== updatedTicket.pk)
+              return [...filtered, updatedTicket].sort((a, b) => (a.ticket_number ?? 0) - (b.ticket_number ?? 0))
+            })
+          } else if (payload.eventType === 'DELETE' && payload.old) {
+            const deletedTicket = payload.old as { pk: string }
+            setKanbanTickets((prev) => prev.filter((t) => t.pk !== deletedTicket.pk))
+          }
+        }
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('[HAL] Realtime: Subscribed to tickets changes')
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.warn('[HAL] Realtime: Tickets subscription error, falling back to polling')
+        }
+      })
+
+    subscriptions.push({ unsubscribe: () => ticketsChannel.unsubscribe() })
+
+    // Subscribe to agent runs table changes
+    const agentRunsChannel = supabase
+      .channel(`kanban-agent-runs-${connectedProject}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'hal_agent_runs',
+        },
+        (payload) => {
+          // Filter by repo_full_name in callback
+          const run = (payload.new || payload.old) as KanbanAgentRunRow | { repo_full_name?: string; ticket_pk?: string }
+          if (run.repo_full_name !== connectedProject) return
+
+          if (payload.eventType === 'INSERT' && payload.new) {
+            const newRun = payload.new as KanbanAgentRunRow
+            if (newRun.ticket_pk) {
+              setKanbanAgentRunsByTicketPk((prev) => ({
+                ...prev,
+                [newRun.ticket_pk]: newRun,
+              }))
+            }
+          } else if (payload.eventType === 'UPDATE' && payload.new) {
+            const updatedRun = payload.new as KanbanAgentRunRow
+            if (updatedRun.ticket_pk) {
+              setKanbanAgentRunsByTicketPk((prev) => ({
+                ...prev,
+                [updatedRun.ticket_pk]: updatedRun,
+              }))
+            }
+          } else if (payload.eventType === 'DELETE' && payload.old) {
+            const deletedRun = payload.old as { ticket_pk?: string }
+            if (deletedRun.ticket_pk) {
+              setKanbanAgentRunsByTicketPk((prev) => {
+                const next = { ...prev }
+                delete next[deletedRun.ticket_pk!]
+                return next
+              })
+            }
+          }
+        }
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('[HAL] Realtime: Subscribed to agent runs changes')
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.warn('[HAL] Realtime: Agent runs subscription error, falling back to polling')
+        }
+      })
+
+    subscriptions.push({ unsubscribe: () => agentRunsChannel.unsubscribe() })
+
+    return () => {
+      subscriptions.forEach((sub) => sub.unsubscribe())
+    }
+  }, [connectedProject, supabaseUrl, supabaseAnonKey])
+
   const handleKanbanMoveTicket = useCallback(
     async (ticketPk: string, columnId: string, position?: number) => {
       const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
