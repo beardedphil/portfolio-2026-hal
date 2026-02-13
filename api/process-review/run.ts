@@ -72,8 +72,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     // Fetch ticket and artifacts
     const ticketQuery = ticketPk
-      ? await supabase.from('tickets').select('pk, id, display_id, title, body_md, repo_full_name').eq('pk', ticketPk).maybeSingle()
-      : await supabase.from('tickets').select('pk, id, display_id, title, body_md, repo_full_name').eq('id', ticketId!).maybeSingle()
+      ? await supabase.from('tickets').select('pk, id, display_id, title, body_md').eq('pk', ticketPk).maybeSingle()
+      : await supabase.from('tickets').select('pk, id, display_id, title, body_md').eq('id', ticketId!).maybeSingle()
 
     if (ticketQuery.error || !ticketQuery.data) {
       json(res, 200, {
@@ -101,33 +101,25 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     if (!artifacts || artifacts.length === 0) {
-      const emptySuggestion = [{
-        text: 'No artifacts found for this ticket. Process review requires artifacts to analyze.',
-        justification: 'Process review cannot generate suggestions without artifacts to analyze.',
-      }]
-
-      // Store review result in database (even for empty case)
+      // Store failure in database
       try {
-        const { error: insertError } = await supabase
+        await supabase
           .from('process_reviews')
           .insert({
             ticket_pk: ticket.pk,
             ticket_id: ticket.id,
-            suggestions: emptySuggestion,
-            status: 'success',
-            error_message: null,
+            suggestions: [],
+            status: 'failed',
+            error_message: 'No artifacts found for this ticket. Process review requires artifacts to analyze.',
           })
-
-        if (insertError) {
-          console.error('Failed to store process review result:', insertError)
-        }
-      } catch (storageErr) {
-        console.error('Error storing process review result:', storageErr)
+      } catch (storageError) {
+        console.error('Error storing process review failure:', storageError)
       }
-
+      
       json(res, 200, {
         success: true,
-        suggestions: emptySuggestion,
+        suggestions: [],
+        error: 'No artifacts found for this ticket. Process review requires artifacts to analyze.',
       })
       return
     }
@@ -141,30 +133,24 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     // Use OpenAI to generate suggestions
     const openaiApiKey = process.env.OPENAI_API_KEY
     if (!openaiApiKey) {
-      const errorMsg = 'OPENAI_API_KEY not configured. Process review requires OpenAI API access.'
-
-      // Store failed review result in database
+      // Store failure in database
       try {
-        const { error: insertError } = await supabase
+        await supabase
           .from('process_reviews')
           .insert({
             ticket_pk: ticket.pk,
             ticket_id: ticket.id,
             suggestions: [],
             status: 'failed',
-            error_message: errorMsg,
+            error_message: 'OPENAI_API_KEY not configured. Process review requires OpenAI API access.',
           })
-
-        if (insertError) {
-          console.error('Failed to store process review result:', insertError)
-        }
-      } catch (storageErr) {
-        console.error('Error storing process review result:', storageErr)
+      } catch (storageError) {
+        console.error('Error storing process review failure:', storageError)
       }
-
+      
       json(res, 200, {
         success: false,
-        error: errorMsg,
+        error: 'OPENAI_API_KEY not configured. Process review requires OpenAI API access.',
       })
       return
     }
@@ -181,52 +167,53 @@ ${artifactSummaries}
 Review the artifacts above and suggest specific, actionable improvements to agent instructions (rules, templates, or process documentation) that would help prevent issues or improve outcomes for similar tickets in the future.
 
 Format your response as a JSON array of objects, where each object has "text" and "justification" fields:
-- "text": The suggestion itself (specific and actionable)
+- "text": The suggestion itself (specific and actionable, focused on improving agent instructions/rules)
 - "justification": A short explanation (1-2 sentences) of why this suggestion would help
 
 Example format:
 [
   {
     "text": "Add a rule requiring agents to verify file paths exist before attempting to read them",
-    "justification": "This would prevent file not found errors that occurred in this ticket when the agent tried to read a non-existent file."
+    "justification": "This would prevent file-not-found errors that cause agent failures and require manual intervention."
   },
   {
     "text": "Update the ticket template to include a 'Dependencies' section",
-    "justification": "The artifacts show confusion about task dependencies, which could be avoided with explicit dependency tracking."
+    "justification": "This would help agents understand prerequisite work and avoid blocking issues during implementation."
+  },
+  {
+    "text": "Clarify in the branching rules that feature branches must be created before any file edits",
+    "justification": "This would prevent accidental commits to main and ensure proper code review workflow."
   }
 ]
 
-Provide 3-5 suggestions. If no meaningful improvements are apparent, respond with: [{"text": "No significant improvements identified.", "justification": "The artifacts show no clear patterns that would benefit from instruction changes."}]`
+Provide 3-5 suggestions. If no meaningful improvements are apparent, return an empty array [].`
 
     const result = await generateText({
       model: openai('gpt-4o-mini'),
       prompt,
-      maxTokens: 1000,
+      maxTokens: 1500,
     })
 
-    // Parse suggestions from the response
-    const responseText = result.text.trim()
+    // Parse structured suggestions from JSON response
     let suggestions: Array<{ text: string; justification: string }> = []
-
-    // Try to parse as JSON first
     try {
-      const parsed = JSON.parse(responseText)
+      const responseText = result.text.trim()
+      // Try to extract JSON from the response (may be wrapped in markdown code blocks)
+      const jsonMatch = responseText.match(/\[[\s\S]*\]/)
+      const jsonText = jsonMatch ? jsonMatch[0] : responseText
+      const parsed = JSON.parse(jsonText)
+      
       if (Array.isArray(parsed)) {
         suggestions = parsed
-          .filter((item) => item && typeof item.text === 'string')
+          .filter((item) => item && typeof item.text === 'string' && typeof item.justification === 'string')
           .map((item) => ({
-            text: item.text,
-            justification: typeof item.justification === 'string' ? item.justification : 'No justification provided.',
+            text: item.text.trim(),
+            justification: item.justification.trim(),
           }))
-      } else if (parsed && typeof parsed.text === 'string') {
-        // Single object instead of array
-        suggestions = [{
-          text: parsed.text,
-          justification: typeof parsed.justification === 'string' ? parsed.justification : 'No justification provided.',
-        }]
       }
-    } catch {
-      // Fallback: parse as bulleted list (legacy format)
+    } catch (parseError) {
+      // Fallback: if JSON parsing fails, try to parse as bullet list and create suggestions without justifications
+      const responseText = result.text.trim()
       const lines = responseText
         .split('\n')
         .map((line) => line.trim())
@@ -234,28 +221,26 @@ Provide 3-5 suggestions. If no meaningful improvements are apparent, respond wit
           if (!line) return false
           return /^[-*•]\s+/.test(line) || /^\d+\.\s+/.test(line)
         })
-        .map((line) => {
-          return line.replace(/^[-*•]\s+/, '').replace(/^\d+\.\s+/, '').trim()
-        })
+        .map((line) => line.replace(/^[-*•]\s+/, '').replace(/^\d+\.\s+/, '').trim())
         .filter((line) => line.length > 0)
-
-      suggestions = lines.map((line) => ({
-        text: line,
-        justification: 'No justification provided.',
-      }))
+      
+      if (lines.length > 0) {
+        suggestions = lines.map((text) => ({
+          text,
+          justification: 'Justification not available (parsing error).',
+        }))
+      } else {
+        suggestions = [{
+          text: responseText || 'No specific suggestions generated.',
+          justification: 'Justification not available (parsing error).',
+        }]
+      }
     }
 
-    // If no suggestions parsed, use the full response as a single suggestion
-    if (suggestions.length === 0) {
-      suggestions.push({
-        text: responseText || 'No specific suggestions generated.',
-        justification: 'No justification provided.',
-      })
-    }
-
-    // Store review result in database
+    // Store review results in database
+    let reviewId: string | null = null
     try {
-      const { error: insertError } = await supabase
+      const { data: reviewData, error: reviewError } = await supabase
         .from('process_reviews')
         .insert({
           ticket_pk: ticket.pk,
@@ -264,76 +249,31 @@ Provide 3-5 suggestions. If no meaningful improvements are apparent, respond wit
           status: 'success',
           error_message: null,
         })
+        .select('id')
+        .single()
 
-      if (insertError) {
-        console.error('Failed to store process review result:', insertError)
-        // Non-blocking: continue even if storage fails
+      if (reviewError) {
+        console.error('Failed to store process review:', reviewError)
+        // Continue even if storage fails - we still return the suggestions
+      } else {
+        reviewId = reviewData?.id || null
       }
-    } catch (storageErr) {
-      console.error('Error storing process review result:', storageErr)
-      // Non-blocking: continue even if storage fails
+    } catch (storageError) {
+      console.error('Error storing process review:', storageError)
+      // Continue even if storage fails
     }
 
     json(res, 200, {
       success: true,
-      suggestions,
+      suggestions: suggestions.map((s) => ({ text: s.text, justification: s.justification })),
+      reviewId,
     })
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err)
-
-      // Try to store failed review result in database (if we have ticket info)
-      // Note: body may not be defined if error occurred before readJsonBody
-      let storedError = false
-      if (ticketPk || ticketId) {
-        try {
-          let body: unknown
-          try {
-            body = await readJsonBody(req)
-          } catch {
-            // If we can't read body, use env vars only
-            body = {}
-          }
-
-          const supabaseUrl =
-            (typeof (body as { supabaseUrl?: string })?.supabaseUrl === 'string' ? (body as { supabaseUrl: string }).supabaseUrl.trim() : undefined) ||
-            process.env.SUPABASE_URL?.trim() ||
-            process.env.VITE_SUPABASE_URL?.trim() ||
-            undefined
-          const supabaseAnonKey =
-            (typeof (body as { supabaseAnonKey?: string })?.supabaseAnonKey === 'string' ? (body as { supabaseAnonKey: string }).supabaseAnonKey.trim() : undefined) ||
-            process.env.SUPABASE_ANON_KEY?.trim() ||
-            process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
-            undefined
-
-          if (supabaseUrl && supabaseAnonKey) {
-            const supabase = createClient(supabaseUrl, supabaseAnonKey)
-            const ticketQuery = ticketPk
-              ? await supabase.from('tickets').select('pk, id').eq('pk', ticketPk).maybeSingle()
-              : await supabase.from('tickets').select('pk, id').eq('id', ticketId!).maybeSingle()
-
-            if (ticketQuery.data) {
-              await supabase
-                .from('process_reviews')
-                .insert({
-                  ticket_pk: ticketQuery.data.pk,
-                  ticket_id: ticketQuery.data.id,
-                  suggestions: [],
-                  status: 'failed',
-                  error_message: errorMsg,
-                })
-              storedError = true
-            }
-          }
-        } catch (storageErr) {
-          // Non-blocking: ignore storage errors in error handler
-          console.error('Error storing failed process review result:', storageErr)
-        }
-      }
-
-      json(res, 500, {
-        success: false,
-        error: errorMsg,
-      })
-    }
+  } catch (err) {
+    // Note: We can't store errors in the database here because we don't have access to the request body
+    // (it's already been consumed). Errors are logged and returned to the client.
+    json(res, 500, {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+    })
   }
 }

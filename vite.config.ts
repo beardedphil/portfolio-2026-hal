@@ -2100,7 +2100,7 @@ export default defineConfig({
           next()
         })
 
-        // Process Review endpoint (0118)
+        // Process Review endpoints (0118, 0134)
         server.middlewares.use(async (req, res, next) => {
           if (req.url === '/api/process-review/run' && req.method === 'POST') {
             try {
