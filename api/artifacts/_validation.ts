@@ -68,31 +68,22 @@ export function hasSubstantiveContent(body_md: string, title: string): { valid: 
 
 /**
  * Validates that body_md contains substantive content for QA reports.
- * More lenient than hasSubstantiveContent to accept structured QA reports with
- * sections, tables, and lists while still rejecting placeholders.
+ * Simple check: is the report significantly larger than a basic template?
  * 
- * QA reports typically have:
- * - Multiple sections (## Ticket & Deliverable, ## Code Review, ## Verdict, etc.)
- * - Tables with structured data
- * - Bullet points and checkmarks
- * - Lists of requirements/evidence
+ * A basic QA report template might be:
+ * - Title heading
+ * - A few section headings
+ * - Minimal placeholder text
  * 
- * This function accepts such structured content as substantive even if it
- * doesn't have long prose paragraphs.
+ * We check if the actual content is substantially larger than this.
  */
 export function hasSubstantiveQAContent(body_md: string, title: string): { valid: boolean; reason?: string } {
   if (!body_md || body_md.trim().length === 0) {
     return { valid: false, reason: 'Artifact body is empty. Artifacts must contain substantive content, not just a title.' }
   }
 
-  // Check for common placeholder patterns first (strict check)
-  // Note: QA reports always start with a heading, so we don't check for "just a heading"
+  // Check for obvious placeholder patterns
   const placeholderPatterns = [
-    // Body is only a single heading with nothing else (after trimming)
-    /^#\s+[^\n]+\s*$/m,
-    // Heading followed immediately by placeholder text
-    /^#\s+[^\n]+\n+(TODO|TBD|placeholder|coming soon|not yet|to be determined)/i,
-    // Starts with placeholder text
     /^(TODO|TBD|placeholder|coming soon|not yet|to be determined)/i,
   ]
 
@@ -105,68 +96,14 @@ export function hasSubstantiveQAContent(body_md: string, title: string): { valid
     }
   }
 
-  // Check if content is just the title repeated or very short
-  const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]/g, '')
-  const normalizedBody = body_md.toLowerCase().replace(/[^a-z0-9]/g, '')
-  
-  // If body is essentially just the title, it's invalid
-  if (normalizedBody.length < 50 && normalizedBody.includes(normalizedTitle)) {
+  // Simple check: count total characters (excluding just whitespace)
+  // A basic template would be ~200-300 chars. We want significantly more.
+  const trimmedLength = body_md.trim().length
+
+  if (trimmedLength < 300) {
     return {
       valid: false,
-      reason: 'Artifact body is too short or only contains the title. Artifacts must include detailed content (at least 50 characters of substantive text).',
-    }
-  }
-
-  // Count sections (## headings) - QA reports typically have multiple sections
-  const sectionCount = (body_md.match(/^##\s+/gm) || []).length
-  
-  // Count table rows (markdown tables use | separators)
-  const tableRowCount = (body_md.match(/^\|.+\|$/gm) || []).length
-  
-  // Count words in the body (more lenient than character count)
-  // Remove only the main heading (# Title) but keep section headings and content
-  const withoutMainHeading = body_md.replace(/^#\s+[^\n]+\n*/m, '').trim()
-  const words = withoutMainHeading.split(/\s+/).filter(word => word.length > 0)
-  const wordCount = words.length
-
-  // QA reports are valid if they have:
-  // 1. Multiple sections (at least 2), OR
-  // 2. At least one table with multiple rows (structured data), OR
-  // 3. At least 50 words of content (even if mostly in lists/tables)
-  
-  if (sectionCount >= 2) {
-    // Multiple sections indicate structured QA report
-    return { valid: true }
-  }
-  
-  if (tableRowCount >= 3) {
-    // Tables with multiple rows indicate structured content
-    return { valid: true }
-  }
-  
-  if (wordCount >= 50) {
-    // Sufficient word count indicates substantive content
-    return { valid: true }
-  }
-
-  // If none of the above, check for minimum content
-  // Remove markdown formatting but keep the text content
-  const textOnly = body_md
-    .replace(/^#{1,6}\s+/gm, '') // Remove heading markers but keep text
-    .replace(/^\s*[-*+]\s+/gm, '') // Remove bullet markers but keep text
-    .replace(/^\s*\d+\.\s+/gm, '') // Remove numbered list markers but keep text
-    .replace(/\|/g, ' ') // Replace table separators with spaces
-    .replace(/```[\s\S]*?```/g, '') // Remove code blocks
-    .replace(/`[^`]+`/g, '') // Remove inline code
-    .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1') // Replace links with link text
-    .trim()
-
-  const textWordCount = textOnly.split(/\s+/).filter(word => word.length > 0).length
-
-  if (textWordCount < 20) {
-    return {
-      valid: false,
-      reason: `Artifact body is too short (${textWordCount} words of substantive content). QA reports must contain at least 20 words of substantive content, or multiple structured sections/tables.`,
+      reason: `Artifact body is too short (${trimmedLength} characters). QA reports must contain substantially more content than a basic template (at least 300 characters).`,
     }
   }
 
