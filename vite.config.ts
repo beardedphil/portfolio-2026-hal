@@ -2108,11 +2108,33 @@ export default defineConfig({
           }
           next()
         })
+
+        // Process Review endpoint (0118)
+        server.middlewares.use(async (req, res, next) => {
+          if (req.url === '/api/process-review/run' && req.method === 'POST') {
+            try {
+              const processReviewHandler = await import('./api/process-review/run')
+              await processReviewHandler.default(req, res)
+            } catch (err) {
+              res.statusCode = 500
+              res.setHeader('Content-Type', 'application/json')
+              res.end(
+                JSON.stringify({
+                  success: false,
+                  error: err instanceof Error ? err.message : String(err),
+                })
+              )
+            }
+            return
+          }
+          next()
+        })
       },
     },
   ],
   resolve: {
     alias: {
+      'portfolio-2026-kanban': path.resolve(__dirname, 'projects/kanban/src'),
       '@hal-agents': path.resolve(__dirname, 'node_modules/portfolio-2026-hal-agents/src'),
     },
   },

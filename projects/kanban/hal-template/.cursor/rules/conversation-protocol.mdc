@@ -1,0 +1,13 @@
+---
+description: Conversation protocol (one question when input needed)
+alwaysApply: true
+---
+
+# Conversation Protocol
+
+- You may do as much work as needed per message.
+- When you need user input, you may ask **at most one** question in that message.
+- Do not bundle multiple questions; spread them across messages.
+- When the user provides a new agent rule, record it in `.cursor/rules/` at the workspace root (not inside individual project folders).
+- After updating any rule file(s), explicitly state **which** `.cursor/rules/*.mdc` file(s) were updated.
+- **When you have finished a feature/task** (implementation + audit): before sending any summary or "done" message, follow **done-means-pushed**: run `git add`, `git commit`, `git push`, then include `git status -sb` in your reply. Do not delegate commit/push to the user.

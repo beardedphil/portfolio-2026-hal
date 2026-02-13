@@ -1,0 +1,18 @@
+---
+description: Track QA failures and bugfix follow-ups
+alwaysApply: true
+---
+
+# Bugfix Tracking (QA Failures + Follow-ups)
+
+## When QA fails
+
+- If a ticket is “done” but fails QA, create a **new bugfix ticket** (next sequential ID).
+- The bugfix ticket must include:
+  - **Fixes**: the original ticket ID (e.g. `Fixes: 0007`)
+  - **QA failure summary**: what failed, in human terms
+  - **Category**: pick one: `DnD`, `State`, `CSS`, `Build`, `Process`, `Other`
+
+## Why
+
+- We want a clear, auditable trail of problem points (what keeps breaking and why).

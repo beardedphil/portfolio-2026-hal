@@ -1,0 +1,13 @@
+{
+  "name": "hal-project-scaffold",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "sync-tickets": "node scripts/sync-tickets.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.93.3",
+    "dotenv": "^16.6.1"
+  }
+}

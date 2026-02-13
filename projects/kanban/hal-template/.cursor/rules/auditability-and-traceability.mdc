@@ -1,0 +1,96 @@
+---
+description: Auditability and traceability requirements for all agent work
+alwaysApply: true
+---
+
+# Auditability (Always On)
+
+For any coding task assigned to an implementation agent, the work must be **fully auditable**.
+
+## Standard Prompt Format
+
+- All new stories/tasks must be written as **tickets** at:
+  - `docs/tickets/<task-id>-<short-title>.md`
+- Use the workspace template:
+  - `docs/templates/ticket.template.md`
+- The ticket itself is the canonical “prompt” (we do **not** create a `prompt.md` artifact).
+
+## Task ID Convention (Uniqueness)
+
+- Task IDs must be **sequential numbers**, zero-padded to 4 digits (e.g. `0001`, `0002`, ...).
+- Task IDs must remain **globally unique** within this workspace; they will be used as keys later.
+
+## Required Artifacts (per task)
+
+Create a task folder under `docs/audit/`:
+
+- `docs/tickets/<task-id>-<short-title>.md`
+  - Canonical ticket used to brief the implementation agent (includes acceptance criteria).
+- `docs/audit/<task-id>-<short-title>/plan.md`
+  - 3–10 bullets: intended approach and file touchpoints.
+- `docs/audit/<task-id>-<short-title>/worklog.md`
+  - Timestamped (rough) notes of what was done, in order.
+- `docs/audit/<task-id>-<short-title>/changed-files.md`
+  - List of files created/modified/deleted with 1–2 line purpose each.
+- `docs/audit/<task-id>-<short-title>/decisions.md`
+  - Any trade-offs/assumptions + why.
+- `docs/audit/<task-id>-<short-title>/verification.md`
+  - Human-verifiable steps **inside the app UI** (no console/devtools).
+  - If verification involves visuals, include screenshot filenames.
+
+## Artifact Format: Source of Truth (No “Copy From Old Audits”)
+
+- The source of truth for artifact **format and required files** is:
+  - `.cursor/rules/*.mdc` (workspace rules)
+  - `docs/templates/ticket.template.md`
+  - `docs/process/ticket-verification-rules.md`
+- Do **not** determine artifact format by inspecting prior folders in `docs/audit/`.
+  - You may reference older audits only as **examples** after you have already checked the rules/templates.
+  - Avoid narration like “Checking an existing audit folder for format”; instead confirm you are following the rules/templates above.
+
+## Ready-for-Verification (Commit + Push)
+
+- An implementation agent must **commit** all work for the ticket and **push** it to the remote before claiming the ticket is “done” or “ready for verification.”
+- “Ready for verification” additionally requires a **clean + synced repo**:
+  - working tree is clean (no uncommitted changes, no untracked files created by the task)
+  - branch is synced with remote (not ahead/behind)
+- If any untracked/modified files remain, the agent must either:
+  - commit them (if they belong to the ticket), or
+  - delete/ignore/revert them (if they are accidental/generated), before claiming “ready.”
+- The ticket file itself must be **committed to the repo**:
+  - `docs/tickets/<task-id>-<short-title>.md` must exist on the branch being verified.
+
+- “Ready for verification” instructions must be **UI-only**:
+  - Do not ask the user/PM to commit, push, or otherwise “finish” the task.
+  - If the agent still needs to commit/push or update audit artifacts, the task is **not** ready.
+
+- The completion message to the user/PM must include:
+  - the exact `git status -sb` output.
+
+- Audit artifacts must be **in git**:
+  - `docs/audit/<task-id>-<short-title>/` must be committed and pushed before claiming “ready.”
+  - `worklog.md` must not contain “handoff chores” (e.g. “after you commit…”).
+
+## Commit message linkage (no commit hashes in docs)
+
+- Every commit that belongs to a ticket must include the ticket ID in the commit subject (e.g. `feat(0010): ...`, `fix(0008): ...`, `docs(0009): ...`).
+ 
+Note: Workspace-wide, the definition of “done” for **all agents** is enforced by `.cursor/rules/done-means-pushed.mdc`.
+
+## In-App Trace Requirement
+
+- Any meaningful state change performed by the app should be visible in an **in-app debug/diagnostics UI** (not the console).
+- Errors should have an in-app representation suitable for a non-technical verifier.
+
+## Scope
+
+- These artifacts live at the **workspace level** (not inside individual project folders).
+- Keep each artifact concise; prefer bullets over prose.
+
+## PM Review Artifact (after implementation completes)
+
+- Create `docs/audit/<task-id>-<short-title>/pm-review.md` using:
+  - `docs/templates/pm-review.template.md`
+- The PM review must include:
+  - **likelihood of success** (0–100%)
+  - a ranked list of **potential failures** and how to diagnose them using **in-app** diagnostics
