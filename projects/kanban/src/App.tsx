@@ -803,20 +803,27 @@ function ProcessReviewSection({
   )
 }
 
-/** Extract artifact type from title (0137: detect missing artifacts) */
+/** Check if artifact body contains placeholder patterns (0137) */
+function containsPlaceholder(body_md: string | null | undefined): boolean {
+  if (!body_md) return false
+  const placeholderPatterns = [
+    /\(No files changed in this PR\)/i,
+    /\(none\)/i,
+    /^##\s+[^\n]+\n+\n*\(No files changed/i,
+    /^##\s+[^\n]+\n+\n*\(none\)/i,
+  ]
+  return placeholderPatterns.some((pattern) => pattern.test(body_md))
+}
+
+/** Extract artifact type from title (0137) */
 function extractArtifactTypeFromTitle(title: string): string | null {
   const normalized = title.toLowerCase().trim()
-  if (normalized.startsWith('plan for ticket')) return 'plan'
-  if (normalized.startsWith('worklog for ticket')) return 'worklog'
   if (normalized.startsWith('changed files for ticket')) return 'changed-files'
-  if (normalized.startsWith('decisions for ticket')) return 'decisions'
   if (normalized.startsWith('verification for ticket')) return 'verification'
-  if (normalized.startsWith('pm review for ticket')) return 'pm-review'
-  if (normalized.startsWith('qa report for ticket')) return 'qa-report'
   return null
 }
 
-/** Artifacts section component (0082, 0137: error states for missing artifacts) */
+/** Artifacts section component (0082, enhanced 0137) */
 function ArtifactsSection({
   artifacts,
   loading,
@@ -835,14 +842,24 @@ function ArtifactsSection({
   const showRefresh = typeof onRefresh === 'function'
   const isLoading = loading || refreshing
 
-  // Detect missing required implementation artifacts (0137)
+  // Check for required implementation artifacts and placeholder content (0137)
   const implementationArtifacts = artifacts.filter((a) => a.agent_type === 'implementation')
-  const presentTypes = new Set(
-    implementationArtifacts.map((a) => extractArtifactTypeFromTitle(a.title || '')).filter((t): t is string => t !== null)
-  )
-  const requiredTypes = ['plan', 'worklog', 'changed-files', 'decisions', 'verification', 'pm-review']
-  const missingTypes = requiredTypes.filter((t) => !presentTypes.has(t))
-  const hasMissingArtifacts = missingTypes.length > 0 && implementationArtifacts.length > 0
+  const hasChangedFiles = implementationArtifacts.some((a) => extractArtifactTypeFromTitle(a.title) === 'changed-files')
+  const hasVerification = implementationArtifacts.some((a) => extractArtifactTypeFromTitle(a.title) === 'verification')
+  
+  const changedFilesArtifact = implementationArtifacts.find((a) => extractArtifactTypeFromTitle(a.title) === 'changed-files')
+  const verificationArtifact = implementationArtifacts.find((a) => extractArtifactTypeFromTitle(a.title) === 'verification')
+  
+  const changedFilesHasPlaceholder = changedFilesArtifact ? containsPlaceholder(changedFilesArtifact.body_md) : false
+  const verificationHasPlaceholder = verificationArtifact ? containsPlaceholder(verificationArtifact.body_md) : false
+  
+  // Check for contradictory information (0137)
+  const qaReports = artifacts.filter((a) => a.agent_type === 'qa')
+  const qaMentionsChangedFiles = qaReports.some((qa) => {
+    const body = qa.body_md || ''
+    return /changed files?/i.test(body) && !/no files changed/i.test(body)
+  })
+  const hasContradiction = changedFilesHasPlaceholder && qaMentionsChangedFiles
 
   if (isLoading) {
     return (
@@ -879,13 +896,6 @@ function ArtifactsSection({
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   )
 
-  // Map artifact type to display name (0137)
-  const typeDisplayNames: Record<string, string> = {
-    'changed-files': 'Changed Files',
-    'pm-review': 'PM Review',
-    'qa-report': 'QA Report',
-  }
-
   return (
     <div className="artifacts-section">
       <h3 className="artifacts-section-title">Artifacts</h3>
@@ -895,36 +905,58 @@ function ArtifactsSection({
           Refresh artifacts
         </button>
       )}
-      {hasMissingArtifacts && (
-        <div className="artifacts-error-state" role="alert">
-          <p className="artifacts-error-title">Some artifacts could not be generated:</p>
-          <ul className="artifacts-error-list">
-            {missingTypes.map((type) => {
-              const displayName = typeDisplayNames[type] || type.charAt(0).toUpperCase() + type.slice(1).replace(/-/g, ' ')
-              return (
-                <li key={type} className="artifacts-error-item">
-                  <strong>{displayName}</strong> — {type === 'changed-files' || type === 'verification' 
-                    ? 'Required data unavailable (e.g., missing PR/files information)' 
-                    : 'Not available'}
-                </li>
-              )
-            })}
-          </ul>
+      
+      {/* Warning banner for contradictory information (0137) */}
+      {hasContradiction && (
+        <div className="artifacts-warning-banner" role="alert">
+          <strong>⚠️ Warning:</strong> QA report mentions changed files, but "Changed Files" artifact indicates no files changed. This may indicate missing data or a generation failure.
         </div>
       )}
+      
+      {/* Error states for missing required artifacts (0137) */}
+      {implementationArtifacts.length > 0 && (
+        <div className="artifacts-error-states">
+          {!hasChangedFiles && (
+            <div className="artifacts-error-state" role="status">
+              <strong>⚠️ Changed Files:</strong> Artifact not available. Changed files could not be determined (missing PR/branch info or GitHub API failure).
+            </div>
+          )}
+          {hasChangedFiles && changedFilesHasPlaceholder && (
+            <div className="artifacts-error-state" role="status">
+              <strong>⚠️ Changed Files:</strong> Contains placeholder content. Changed files could not be determined (missing PR/branch info or GitHub API failure).
+            </div>
+          )}
+          {!hasVerification && (
+            <div className="artifacts-error-state" role="status">
+              <strong>⚠️ Verification:</strong> Artifact not available. Verification content could not be generated (missing PR/branch info or GitHub API failure).
+            </div>
+          )}
+          {hasVerification && verificationHasPlaceholder && (
+            <div className="artifacts-error-state" role="status">
+              <strong>⚠️ Verification:</strong> Contains placeholder content. Verification content could not be generated (missing PR/branch info or GitHub API failure).
+            </div>
+          )}
+        </div>
+      )}
+      
       <ul className="artifacts-list">
         {sortedArtifacts.map((artifact) => {
           // Use artifact title directly, or fall back to agent type display name
           const displayName = artifact.title || getAgentTypeDisplayName(artifact.agent_type)
+          const artifactType = extractArtifactTypeFromTitle(artifact.title)
+          const hasPlaceholder = artifactType && containsPlaceholder(artifact.body_md)
           return (
             <li key={artifact.artifact_id} className="artifacts-item">
               <button
                 type="button"
-                className="artifacts-item-button"
+                className={`artifacts-item-button ${hasPlaceholder ? 'artifacts-item-placeholder' : ''}`}
                 onClick={() => onOpenArtifact(artifact)}
                 aria-label={`Open ${displayName}`}
               >
-                <span className="artifacts-item-title">{displayName}</span>
+                <span className="artifacts-item-title">
+                  {displayName}
+                  {hasPlaceholder && <span className="artifacts-item-placeholder-badge" title="Contains placeholder content">⚠️</span>}
+                </span>
                 <span className="artifacts-item-meta">
                   {new Date(artifact.created_at).toLocaleString()}
                 </span>

@@ -215,13 +215,21 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         }
       }
 
-      // Update the target artifact with canonical title and new body (0121)
-      console.log(`[insert-implementation] Updating artifact ${targetArtifactId} with body_md length=${body_md.length}`)
+      // Append to existing artifact instead of replacing (0137: preserve history when tickets are reworked)
+      const existingArtifact = artifacts.find((a) => a.artifact_id === targetArtifactId)
+      const existingBody = existingArtifact?.body_md || ''
+      const timestamp = new Date().toISOString()
+      const separator = '\n\n---\n\n'
+      const appendedBody = existingBody.trim()
+        ? `${existingBody.trim()}${separator}**Update (${timestamp}):**\n\n${body_md}`
+        : body_md // If existing body is empty, just use new body
+      
+      console.log(`[insert-implementation] Appending to artifact ${targetArtifactId} (existing length=${existingBody.length}, new length=${body_md.length})`)
       const { error: updateError } = await supabase
         .from('agent_artifacts')
         .update({
           title: canonicalTitle, // Use canonical title for consistency
-          body_md,
+          body_md: appendedBody,
         })
         .eq('artifact_id', targetArtifactId)
 

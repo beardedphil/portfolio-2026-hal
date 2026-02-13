@@ -861,6 +861,54 @@ h1 {
   opacity: 0.6;
   cursor: not-allowed;
 }
+/* Artifacts error states and warnings (0137) */
+.artifacts-warning-banner {
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: 4px;
+  color: #856404;
+  font-size: 0.9rem;
+}
+
+[data-theme="dark"] .artifacts-warning-banner {
+  background: #664d03;
+  border-color: #ffc107;
+  color: #ffc107;
+}
+
+.artifacts-error-states {
+  margin: 0.75rem 0;
+}
+
+.artifacts-error-state {
+  margin: 0.5rem 0;
+  padding: 0.6rem;
+  background: #f8d7da;
+  border: 1px solid #dc3545;
+  border-radius: 4px;
+  color: #721c24;
+  font-size: 0.85rem;
+}
+
+[data-theme="dark"] .artifacts-error-state {
+  background: #3d1a1d;
+  border-color: #dc3545;
+  color: #f5c6cb;
+}
+
+.artifacts-item-placeholder {
+  opacity: 0.7;
+}
+
+.artifacts-item-placeholder-badge {
+  display: inline-block;
+  margin-left: 0.4rem;
+  font-size: 0.85em;
+  vertical-align: middle;
+}
+
 .artifacts-list {
   list-style: none;
   padding: 0;

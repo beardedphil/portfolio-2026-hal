@@ -71,6 +71,7 @@ export type UpsertArtifactResult = { ok: true } | { ok: false; error: string }
 
 /** Upsert one artifact: update body_md if row exists, otherwise insert. Returns error message if failed.
  * Handles duplicates and empty artifacts (0121).
+ * Validates content before storing to prevent blank/placeholder artifacts (0137).
  */
 export async function upsertArtifact(
   supabase: SupabaseClient<any, 'public', any>,
@@ -80,6 +81,13 @@ export async function upsertArtifact(
   title: string,
   bodyMd: string
 ): Promise<UpsertArtifactResult> {
+  // Validate that body_md contains substantive content before storing (0137)
+  const contentValidation = hasSubstantiveContent(bodyMd, title)
+  if (!contentValidation.valid) {
+    const msg = `Artifact "${title}" validation failed: ${contentValidation.reason || 'insufficient content'}. Skipping storage to prevent blank/placeholder artifacts.`
+    console.warn('[agent-runs]', msg)
+    return { ok: false, error: msg }
+  }
   // Extract artifact type from title and get ticket's display_id for canonical matching (0121)
   const artifactType = extractArtifactTypeFromTitle(title)
   let artifacts: Array<{ artifact_id: string; body_md?: string; created_at: string }> = []

@@ -30,12 +30,12 @@ export function hasSubstantiveContent(body_md: string, title: string): { valid: 
     }
   }
 
-  // Check for common placeholder patterns in content (e.g., "(No files changed in this PR)", "(none)")
+  // Check for specific placeholder patterns that indicate missing data (0137)
   const placeholderPatterns = [
-    /\(No files changed/i,
+    /\(No files changed in this PR\)/i,
     /\(none\)/i,
-    /^##\s+Modified\s*\n\s*\(No files changed/i,
-    /Changed Files \(none\)/i,
+    /^##\s+[^\n]+\n+\n*\(No files changed/i,
+    /^##\s+[^\n]+\n+\n*\(none\)/i,
   ]
   for (const pattern of placeholderPatterns) {
     if (pattern.test(body_md)) {
