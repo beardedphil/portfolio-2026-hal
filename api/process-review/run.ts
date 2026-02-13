@@ -101,9 +101,25 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     if (!artifacts || artifacts.length === 0) {
+      // Store failure in database
+      try {
+        await supabase
+          .from('process_reviews')
+          .insert({
+            ticket_pk: ticket.pk,
+            ticket_id: ticket.id,
+            suggestions: [],
+            status: 'failed',
+            error_message: 'No artifacts found for this ticket. Process review requires artifacts to analyze.',
+          })
+      } catch (storageError) {
+        console.error('Error storing process review failure:', storageError)
+      }
+      
       json(res, 200, {
         success: true,
-        suggestions: ['No artifacts found for this ticket. Process review requires artifacts to analyze.'],
+        suggestions: [],
+        error: 'No artifacts found for this ticket. Process review requires artifacts to analyze.',
       })
       return
     }
@@ -117,6 +133,21 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     // Use OpenAI to generate suggestions
     const openaiApiKey = process.env.OPENAI_API_KEY
     if (!openaiApiKey) {
+      // Store failure in database
+      try {
+        await supabase
+          .from('process_reviews')
+          .insert({
+            ticket_pk: ticket.pk,
+            ticket_id: ticket.id,
+            suggestions: [],
+            status: 'failed',
+            error_message: 'OPENAI_API_KEY not configured. Process review requires OpenAI API access.',
+          })
+      } catch (storageError) {
+        console.error('Error storing process review failure:', storageError)
+      }
+      
       json(res, 200, {
         success: false,
         error: 'OPENAI_API_KEY not configured. Process review requires OpenAI API access.',
@@ -135,51 +166,111 @@ ${artifactSummaries}
 
 Review the artifacts above and suggest specific, actionable improvements to agent instructions (rules, templates, or process documentation) that would help prevent issues or improve outcomes for similar tickets in the future.
 
-Format your response as a bulleted list, one suggestion per line. Each suggestion should be:
-- Specific and actionable
-- Focused on improving agent instructions/rules
-- Clear about what should change and why
+Format your response as a JSON array of objects, where each object has "text" and "justification" fields:
+- "text": The suggestion itself (specific and actionable, focused on improving agent instructions/rules)
+- "justification": A short explanation (1-2 sentences) of why this suggestion would help
 
 Example format:
-- Add a rule requiring agents to verify file paths exist before attempting to read them
-- Update the ticket template to include a "Dependencies" section
-- Clarify in the branching rules that feature branches must be created before any file edits
+[
+  {
+    "text": "Add a rule requiring agents to verify file paths exist before attempting to read them",
+    "justification": "This would prevent file-not-found errors that cause agent failures and require manual intervention."
+  },
+  {
+    "text": "Update the ticket template to include a 'Dependencies' section",
+    "justification": "This would help agents understand prerequisite work and avoid blocking issues during implementation."
+  },
+  {
+    "text": "Clarify in the branching rules that feature branches must be created before any file edits",
+    "justification": "This would prevent accidental commits to main and ensure proper code review workflow."
+  }
+]
 
-Provide 3-5 suggestions. If no meaningful improvements are apparent, respond with "No significant improvements identified."`
+Provide 3-5 suggestions. If no meaningful improvements are apparent, return an empty array [].`
 
     const result = await generateText({
       model: openai('gpt-4o-mini'),
       prompt,
-      maxTokens: 1000,
+      maxTokens: 1500,
     })
 
-    // Parse suggestions from the response
-    const responseText = result.text.trim()
-    const suggestions = responseText
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => {
-        // Filter out empty lines and non-bullet lines
-        if (!line) return false
-        // Accept lines starting with - or * or numbered lists
-        return /^[-*•]\s+/.test(line) || /^\d+\.\s+/.test(line)
-      })
-      .map((line) => {
-        // Remove bullet markers
-        return line.replace(/^[-*•]\s+/, '').replace(/^\d+\.\s+/, '').trim()
-      })
-      .filter((line) => line.length > 0)
+    // Parse structured suggestions from JSON response
+    let suggestions: Array<{ text: string; justification: string }> = []
+    try {
+      const responseText = result.text.trim()
+      // Try to extract JSON from the response (may be wrapped in markdown code blocks)
+      const jsonMatch = responseText.match(/\[[\s\S]*\]/)
+      const jsonText = jsonMatch ? jsonMatch[0] : responseText
+      const parsed = JSON.parse(jsonText)
+      
+      if (Array.isArray(parsed)) {
+        suggestions = parsed
+          .filter((item) => item && typeof item.text === 'string' && typeof item.justification === 'string')
+          .map((item) => ({
+            text: item.text.trim(),
+            justification: item.justification.trim(),
+          }))
+      }
+    } catch (parseError) {
+      // Fallback: if JSON parsing fails, try to parse as bullet list and create suggestions without justifications
+      const responseText = result.text.trim()
+      const lines = responseText
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => {
+          if (!line) return false
+          return /^[-*•]\s+/.test(line) || /^\d+\.\s+/.test(line)
+        })
+        .map((line) => line.replace(/^[-*•]\s+/, '').replace(/^\d+\.\s+/, '').trim())
+        .filter((line) => line.length > 0)
+      
+      if (lines.length > 0) {
+        suggestions = lines.map((text) => ({
+          text,
+          justification: 'Justification not available (parsing error).',
+        }))
+      } else {
+        suggestions = [{
+          text: responseText || 'No specific suggestions generated.',
+          justification: 'Justification not available (parsing error).',
+        }]
+      }
+    }
 
-    // If no suggestions parsed, use the full response as a single suggestion
-    if (suggestions.length === 0) {
-      suggestions.push(responseText || 'No specific suggestions generated.')
+    // Store review results in database
+    let reviewId: string | null = null
+    try {
+      const { data: reviewData, error: reviewError } = await supabase
+        .from('process_reviews')
+        .insert({
+          ticket_pk: ticket.pk,
+          ticket_id: ticket.id,
+          suggestions: suggestions,
+          status: 'success',
+          error_message: null,
+        })
+        .select('id')
+        .single()
+
+      if (reviewError) {
+        console.error('Failed to store process review:', reviewError)
+        // Continue even if storage fails - we still return the suggestions
+      } else {
+        reviewId = reviewData?.id || null
+      }
+    } catch (storageError) {
+      console.error('Error storing process review:', storageError)
+      // Continue even if storage fails
     }
 
     json(res, 200, {
       success: true,
-      suggestions,
+      suggestions: suggestions.map((s) => ({ text: s.text, justification: s.justification })),
+      reviewId,
     })
   } catch (err) {
+    // Note: We can't store errors in the database here because we don't have access to the request body
+    // (it's already been consumed). Errors are logged and returned to the client.
     json(res, 500, {
       success: false,
       error: err instanceof Error ? err.message : String(err),
