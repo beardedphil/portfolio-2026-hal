@@ -7,6 +7,37 @@ alwaysApply: true
 
 For any coding task assigned to an implementation agent, the work must be **fully auditable**.
 
+## Implementation Agent: First Step (MANDATORY)
+
+**BEFORE starting any implementation work on a ticket, implementation agents MUST:**
+
+1. **Check for existing artifacts** using HAL API endpoint `/api/artifacts/get` with `{ ticketId: "<ticket-id>" }`.
+   - If `.hal/api-base-url` exists, read it and call: `POST ${baseUrl}/api/artifacts/get`
+   - If API call fails (404, 500, network error, timeout), proceed with caution but note the failure.
+   - If API call succeeds, review all existing artifacts for the ticket.
+
+2. **Read any QA reports** to determine if the ticket has been worked before and failed QA.
+   - Look for artifacts with `agent_type === "qa"` and title matching `QA report for ticket <ticket-id>`.
+   - If a QA report exists with a **FAIL** verdict, read it carefully to understand:
+     - What blocking issues were identified
+     - What fixes are required
+     - Why the previous implementation failed
+   - **If the ticket has failed QA:** The agent must understand the failure context before starting work. Do not repeat the same mistakes.
+
+3. **Review existing implementation artifacts** (if any) to understand:
+   - What approach was previously taken (Plan artifact)
+   - What was actually done (Worklog artifact)
+   - What files were changed (Changed Files artifact)
+   - What decisions were made (Decisions artifact)
+   - What issues were identified (Verification/PM Review artifacts)
+
+4. **Only after reviewing existing artifacts** should the agent proceed with:
+   - Creating/checking out the feature branch (see **change-ownership-and-staging-discipline**)
+   - Reading the ticket content (if not already reviewed)
+   - Creating a new Plan artifact (or updating if continuing previous work)
+
+**Why this matters:** Tickets may have been worked before and failed QA. Implementation agents must understand the failure context to avoid repeating mistakes and to build on previous work appropriately.
+
 ## Standard Prompt Format (Supabase source of truth)
 
 - All new stories/tasks must be **tickets** stored in **Supabase** (source of truth). **Do not create or edit ticket files** under `docs/tickets/` directly; tickets are created via the HAL app (PM agent) or a script that writes to the Supabase `tickets` table. The app uses Supabase-only mode (0065) and does not read from `docs/tickets/*.md`.
