@@ -3380,24 +3380,48 @@ ${notes || '(none provided)'}
             const updatedBody = feedbackSection + ticket.body_md
             
             // Update ticket: move to To Do and update body with feedback
-            const url = supabaseProjectUrl.trim()
-            const key = supabaseAnonKey.trim()
-            if (!url || !key) {
-              throw new Error('Supabase not configured')
-            }
-            const client = createClient(url, key)
-            const { error: updateError } = await client
-              .from('tickets')
-              .update({
-                kanban_column_id: 'col-todo',
-                kanban_position: targetPosition,
-                kanban_moved_at: movedAt,
-                body_md: updatedBody,
-              })
-              .eq('pk', ticketPk)
+            // Use updateSupabaseTicketKanban for column/position, then update body via API if needed
+            const moveResult = await updateSupabaseTicketKanban(ticketPk, {
+              kanban_column_id: 'col-todo',
+              kanban_position: targetPosition,
+              kanban_moved_at: movedAt,
+            })
             
-            if (updateError) {
-              throw new Error(updateError.message ?? String(updateError))
+            if (!moveResult.ok) {
+              throw new Error(moveResult.error)
+            }
+            
+            // Update body via API endpoint (works in both library and Supabase modes)
+            const url = supabaseProjectUrl?.trim() || ''
+            const key = supabaseAnonKey?.trim() || ''
+            if (url && key) {
+              try {
+                const updateBodyResponse = await fetch('/api/tickets/update', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    ticketPk,
+                    body_md: updatedBody,
+                    supabaseUrl: url,
+                    supabaseAnonKey: key,
+                  }),
+                })
+                
+                const updateBodyResult = await updateBodyResponse.json()
+                if (!updateBodyResult.success) {
+                  console.warn('Failed to update ticket body:', updateBodyResult.error)
+                  addLog(`Warning: Failed to update ticket body: ${updateBodyResult.error}`)
+                  // Continue even if body update fails - column move succeeded
+                }
+              } catch (err) {
+                console.warn('Error updating ticket body:', err)
+                addLog(`Warning: Error updating ticket body: ${err instanceof Error ? err.message : String(err)}`)
+                // Continue even if body update fails - column move succeeded
+              }
+            } else {
+              // In library mode, body update might be handled by HAL
+              // Just log a warning but don't fail
+              console.warn('Supabase not configured for body update, column move succeeded')
             }
             
             addLog(`Human validation: Ticket ${ticketPk} failed, moved to To Do with feedback`)
