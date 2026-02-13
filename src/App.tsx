@@ -1397,7 +1397,8 @@ function App() {
   useEffect(() => {
     if (!connectedProject || !supabaseUrl || !supabaseAnonKey) return
     // Only poll when realtime is not connected (fallback mode)
-    if (kanbanRealtimeStatus !== 'disconnected') return
+    // Polling should run when status is 'disconnected' OR 'polling', but not when 'connected'
+    if (kanbanRealtimeStatus === 'connected') return
     const id = setInterval(() => fetchKanbanData(true), KANBAN_POLL_MS)
     return () => clearInterval(id)
   }, [connectedProject, supabaseUrl, supabaseAnonKey, fetchKanbanData, kanbanRealtimeStatus])
