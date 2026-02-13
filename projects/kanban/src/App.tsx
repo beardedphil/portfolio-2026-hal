@@ -3286,12 +3286,17 @@ function App() {
             const isInHumanInTheLoop = ticket.kanban_column_id === 'col-human-in-the-loop'
             
             // If in Human in the Loop, create/update QA artifact with FAIL verdict (0130)
-            if (isInHumanInTheLoop && detailModal?.ticketId) {
-              const ticketId = detailModal.ticketId
-              const displayId = ticket.display_id || ticketId
+            if (isInHumanInTheLoop) {
+              // Use ticket_number for API call (numeric ID required by API)
+              const ticketNumber = ticket.ticket_number
+              const displayId = ticket.display_id || (ticketNumber ? String(ticketNumber).padStart(4, '0') : 'UNKNOWN')
               
-              // Create QA report with FAIL verdict
-              const qaReportBody = `# QA Report for ticket ${displayId}
+              if (!ticketNumber) {
+                console.warn('Ticket number not available, skipping QA artifact creation')
+                addLog('Warning: Cannot create QA artifact - ticket number not available')
+              } else {
+                // Create QA report with FAIL verdict
+                const qaReportBody = `# QA Report for ticket ${displayId}
 
 ## Ticket & deliverable
 ${ticket.title || 'N/A'}
@@ -3316,36 +3321,37 @@ ${notes || '(none provided)'}
 
 QA RESULT: FAIL — ${displayId}
 `
-              
-              try {
-                const qaResponse = await fetch('/api/artifacts/insert-qa', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    ticketId,
-                    title: `QA report for ticket ${displayId}`,
-                    body_md: qaReportBody,
-                  }),
-                })
                 
-                const qaResult = await qaResponse.json()
-                if (!qaResult.success) {
-                  console.warn(`Failed to create QA artifact for ticket ${ticketId}:`, qaResult.error)
-                  addLog(`Warning: Failed to create QA artifact: ${qaResult.error}`)
-                  // Continue with ticket update even if artifact creation fails
-                } else {
-                  addLog(`QA artifact created/updated for ticket ${ticketId} with FAIL verdict`)
-                  // Refresh artifacts to show the new QA artifact
-                  if (refreshDetailModalArtifacts) {
-                    setTimeout(() => {
-                      refreshDetailModalArtifacts()
-                    }, 500)
+                try {
+                  const qaResponse = await fetch('/api/artifacts/insert-qa', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      ticketId: String(ticketNumber),
+                      title: `QA report for ticket ${displayId}`,
+                      body_md: qaReportBody,
+                    }),
+                  })
+                
+                  const qaResult = await qaResponse.json()
+                  if (!qaResult.success) {
+                    console.warn(`Failed to create QA artifact for ticket ${ticketNumber}:`, qaResult.error)
+                    addLog(`Warning: Failed to create QA artifact: ${qaResult.error}`)
+                    // Continue with ticket update even if artifact creation fails
+                  } else {
+                    addLog(`QA artifact created/updated for ticket ${displayId} with FAIL verdict`)
+                    // Refresh artifacts to show the new QA artifact
+                    if (refreshDetailModalArtifacts) {
+                      setTimeout(() => {
+                        refreshDetailModalArtifacts()
+                      }, 500)
+                    }
                   }
+                } catch (err) {
+                  console.error('Error creating QA artifact:', err)
+                  addLog(`Warning: Error creating QA artifact: ${err instanceof Error ? err.message : String(err)}`)
+                  // Continue with ticket update even if artifact creation fails
                 }
-              } catch (err) {
-                console.error('Error creating QA artifact:', err)
-                addLog(`Warning: Error creating QA artifact: ${err instanceof Error ? err.message : String(err)}`)
-                // Continue with ticket update even if artifact creation fails
               }
             }
             
