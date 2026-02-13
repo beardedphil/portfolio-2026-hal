@@ -2133,13 +2133,15 @@ export default defineConfig({
     },
   ],
   resolve: {
-    alias: {
-      // Only alias kanban to local source when projects/kanban exists (e.g. local dev); on Vercel we use node_modules.
-      ...(fs.existsSync(path.join(__dirname, 'projects/kanban/src'))
-        ? { 'portfolio-2026-kanban': path.resolve(__dirname, 'projects/kanban/src') }
-        : {},
-      '@hal-agents': path.resolve(__dirname, 'node_modules/portfolio-2026-hal-agents/src'),
-    },
+    alias: (() => {
+      const a: Record<string, string> = {
+        '@hal-agents': path.resolve(__dirname, 'node_modules/portfolio-2026-hal-agents/src'),
+      }
+      if (fs.existsSync(path.join(__dirname, 'projects/kanban/src'))) {
+        a['portfolio-2026-kanban'] = path.resolve(__dirname, 'projects/kanban/src')
+      }
+      return a
+    })(),
   },
   server: {
     port: 5173,
