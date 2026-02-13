@@ -4,6 +4,7 @@ import {
   createCanonicalTitle,
   findArtifactsByCanonicalId,
 } from '../artifacts/_shared.js'
+import { hasSubstantiveContent } from '../artifacts/_validation.js'
 
 export type AgentType = 'implementation' | 'qa'
 
@@ -70,6 +71,7 @@ export type UpsertArtifactResult = { ok: true } | { ok: false; error: string }
 
 /** Upsert one artifact: update body_md if row exists, otherwise insert. Returns error message if failed.
  * Handles duplicates and empty artifacts (0121).
+ * Skips artifacts with error states or invalid content (0137).
  */
 export async function upsertArtifact(
   supabase: SupabaseClient<any, 'public', any>,
@@ -77,8 +79,21 @@ export async function upsertArtifact(
   repoFullName: string,
   agentType: string,
   title: string,
-  bodyMd: string
+  bodyMd: string,
+  error?: string
 ): Promise<UpsertArtifactResult> {
+  // Skip artifacts with error states - don't create blank artifacts (0137)
+  if (error || !bodyMd || bodyMd.trim().length === 0) {
+    console.log(`[agent-runs] Skipping artifact "${title}" - ${error || 'empty body'}`)
+    return { ok: true } // Return success but don't insert
+  }
+
+  // Validate content before inserting (0137)
+  const validation = hasSubstantiveContent(bodyMd, title)
+  if (!validation.valid) {
+    console.log(`[agent-runs] Skipping artifact "${title}" - validation failed: ${validation.reason}`)
+    return { ok: true } // Return success but don't insert
+  }
   // Extract artifact type from title and get ticket's display_id for canonical matching (0121)
   const artifactType = extractArtifactTypeFromTitle(title)
   let artifacts: Array<{ artifact_id: string; body_md?: string; created_at: string }> = []
@@ -142,12 +157,12 @@ export async function upsertArtifact(
     title = canonicalTitle
   }
 
-  // Identify empty/placeholder artifacts (body is empty or very short)
+  // Identify empty/placeholder artifacts using proper validation (0137)
   const emptyArtifactIds: string[] = []
   for (const artifact of artifacts) {
     const currentBody = (artifact.body_md || '').trim()
-    // Consider empty or very short (< 30 chars) as placeholder
-    if (currentBody.length === 0 || currentBody.length < 30) {
+    const validation = hasSubstantiveContent(currentBody, title)
+    if (!validation.valid) {
       emptyArtifactIds.push(artifact.artifact_id)
     }
   }

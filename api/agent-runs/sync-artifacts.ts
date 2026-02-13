@@ -115,7 +115,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         prFiles
       )
       for (const a of artifacts) {
-        const res2 = await upsertArtifact(supabase, ticketPk, repoFullName, 'implementation', a.title, a.body_md)
+        // Skip artifacts with error states - they won't be inserted (0137)
+        if (a.error) {
+          console.log(`[agent-runs] sync-artifacts skipping artifact "${a.title}" - ${a.error}`)
+          continue
+        }
+        const res2 = await upsertArtifact(supabase, ticketPk, repoFullName, 'implementation', a.title, a.body_md, a.error)
         if (res2.ok === false) console.warn('[agent-runs] sync-artifacts artifact upsert failed:', a.title, res2.error)
       }
     }

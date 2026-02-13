@@ -6,7 +6,7 @@
 /**
  * Validates that body_md contains substantive content beyond just a title/heading.
  * Returns true if the content is valid, false if it's essentially empty/placeholder-only.
- * Simplified validation: just check for empty and obvious placeholders.
+ * Detects placeholder patterns like "(No files changed in this PR)" and "(none)".
  */
 export function hasSubstantiveContent(body_md: string, title: string): { valid: boolean; reason?: string } {
   if (!body_md || body_md.trim().length === 0) {
@@ -21,9 +21,29 @@ export function hasSubstantiveContent(body_md: string, title: string): { valid: 
     }
   }
 
-  // Only check for obvious placeholder patterns at the very start
+  // Check for placeholder patterns anywhere in the content (not just at start)
+  const placeholderPatterns = [
+    /^\(No files changed in this PR\)$/i,
+    /^\(none\)$/i,
+    /^\(No files changed in this PR\)$/m,
+    /^\(none\)$/m,
+    /^## Modified\s*\n\s*\(No files changed in this PR\)$/i,
+    /^## Changed Files\s*\n\s*\(none\)$/i,
+    /^(TODO|TBD|placeholder|coming soon)$/i,
+  ]
+
   const trimmed = body_md.trim()
-  if (/^(TODO|TBD|placeholder|coming soon)$/i.test(trimmed)) {
+  for (const pattern of placeholderPatterns) {
+    if (pattern.test(trimmed)) {
+      return {
+        valid: false,
+        reason: 'Artifact body appears to contain only placeholder text. Artifacts must include actual content.',
+      }
+    }
+  }
+
+  // Check if content is just a heading with placeholder text
+  if (/^#{1,6}\s+[^\n]+\s*\n\s*\(No files changed|\(none\)/i.test(trimmed)) {
     return {
       valid: false,
       reason: 'Artifact body appears to contain only placeholder text. Artifacts must include actual content.',

@@ -842,6 +842,51 @@ h1 {
   font-size: 0.8rem;
 }
 
+/* Error states and warning banners for artifacts (0137) */
+.artifacts-error-state {
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  background: #fee;
+  border: 1px solid #fcc;
+  border-radius: 4px;
+  color: #c33;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.artifacts-error-state strong {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-weight: 600;
+}
+
+.artifacts-warning-banner {
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  background: #ffd;
+  border: 1px solid #fc8;
+  border-radius: 4px;
+  color: #840;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.artifacts-warning-banner strong {
+  font-weight: 600;
+}
+
+[data-theme="dark"] .artifacts-error-state {
+  background: #300;
+  border-color: #600;
+  color: #faa;
+}
+
+[data-theme="dark"] .artifacts-warning-banner {
+  background: #420;
+  border-color: #640;
+  color: #fd8;
+}
+
 .artifacts-refresh-btn {
   margin-top: 0.5rem;
   padding: 0.35rem 0.6rem;

@@ -803,7 +803,7 @@ function ProcessReviewSection({
   )
 }
 
-/** Artifacts section component (0082) */
+/** Artifacts section component (0082) with error state detection (0137) */
 function ArtifactsSection({
   artifacts,
   loading,
@@ -811,6 +811,7 @@ function ArtifactsSection({
   statusMessage = null,
   onRefresh = undefined,
   refreshing = false,
+  columnId = null,
 }: {
   artifacts: SupabaseAgentArtifactRow[]
   loading: boolean
@@ -818,9 +819,42 @@ function ArtifactsSection({
   statusMessage?: string | null
   onRefresh?: () => void
   refreshing?: boolean
+  columnId?: string | null
 }) {
   const showRefresh = typeof onRefresh === 'function'
   const isLoading = loading || refreshing
+
+  // Detect missing expected artifacts for implementation tickets in QA or later columns (0137)
+  const isImplementationTicket = artifacts.some((a) => a.agent_type === 'implementation')
+  const isInQaOrLater = columnId === 'col-qa' || columnId === 'col-human-in-the-loop' || columnId === 'col-process-review'
+  const hasChangedFiles = artifacts.some((a) => 
+    a.title?.toLowerCase().includes('changed files') && 
+    a.agent_type === 'implementation' &&
+    a.body_md && 
+    a.body_md.trim().length > 0 &&
+    !a.body_md.includes('(No files changed in this PR)') &&
+    !a.body_md.includes('(none)')
+  )
+  const hasVerification = artifacts.some((a) => 
+    a.title?.toLowerCase().includes('verification') && 
+    a.agent_type === 'implementation' &&
+    a.body_md && 
+    a.body_md.trim().length > 0 &&
+    !a.body_md.includes('(none)')
+  )
+
+  const missingChangedFiles = isImplementationTicket && isInQaOrLater && !hasChangedFiles
+  const missingVerification = isImplementationTicket && isInQaOrLater && !hasVerification
+
+  // Detect contradictory information (0137)
+  const qaReport = artifacts.find((a) => 
+    a.agent_type === 'qa' && 
+    a.title?.toLowerCase().includes('qa report')
+  )
+  const hasContradiction = qaReport && qaReport.body_md && (
+    (missingChangedFiles && qaReport.body_md.toLowerCase().includes('changed files')) ||
+    (missingVerification && qaReport.body_md.toLowerCase().includes('verification'))
+  )
 
   if (isLoading) {
     return (
@@ -861,6 +895,26 @@ function ArtifactsSection({
     <div className="artifacts-section">
       <h3 className="artifacts-section-title">Artifacts</h3>
       {statusMessage && <p className="artifacts-status" role="status">{statusMessage}</p>}
+      
+      {/* Warning banner for contradictory information (0137) */}
+      {hasContradiction && (
+        <div className="artifacts-warning-banner" role="alert">
+          <strong>Warning:</strong> QA report references artifacts that are missing or unavailable. This may indicate a data synchronization issue.
+        </div>
+      )}
+
+      {/* Error states for missing expected artifacts (0137) */}
+      {missingChangedFiles && (
+        <div className="artifacts-error-state" role="alert">
+          <strong>Changed Files artifact unavailable:</strong> Unable to determine changed files. This may be due to missing PR/branch information or GitHub API failure.
+        </div>
+      )}
+      {missingVerification && (
+        <div className="artifacts-error-state" role="alert">
+          <strong>Verification artifact unavailable:</strong> Unable to generate verification content. This may be due to missing PR/branch information or GitHub API failure.
+        </div>
+      )}
+
       {showRefresh && (
         <button type="button" className="artifacts-refresh-btn" onClick={onRefresh}>
           Refresh artifacts
@@ -1139,6 +1193,7 @@ function TicketDetailModal({
                 statusMessage={artifactsStatus}
                 onRefresh={onRefreshArtifacts}
                 refreshing={false}
+                columnId={columnId}
               />
               {showValidationSection && (
                 <>
