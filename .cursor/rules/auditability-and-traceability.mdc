@@ -7,36 +7,75 @@ alwaysApply: true
 
 For any coding task assigned to an implementation agent, the work must be **fully auditable**.
 
-## Implementation Agent: First Step (MANDATORY)
+## Implementation Agent: First Step (MANDATORY - DO THIS FIRST)
 
-**BEFORE starting any implementation work on a ticket, implementation agents MUST:**
+**CRITICAL: This is the ABSOLUTE FIRST action when picking up a ticket. Do this BEFORE reading the ticket, BEFORE creating a branch, BEFORE any file edits.**
 
-1. **Check for existing artifacts** using HAL API endpoint `/api/artifacts/get` with `{ ticketId: "<ticket-id>" }`.
-   - If `.hal/api-base-url` exists, read it and call: `POST ${baseUrl}/api/artifacts/get`
-   - If API call fails (404, 500, network error, timeout), proceed with caution but note the failure.
-   - If API call succeeds, review all existing artifacts for the ticket.
+**FORBIDDEN:** Starting implementation work without first checking for existing artifacts. This step is non-negotiable.
 
-2. **Read any QA reports** to determine if the ticket has been worked before and failed QA.
-   - Look for artifacts with `agent_type === "qa"` and title matching `QA report for ticket <ticket-id>`.
-   - If a QA report exists with a **FAIL** verdict, read it carefully to understand:
-     - What blocking issues were identified
-     - What fixes are required
-     - Why the previous implementation failed
-   - **If the ticket has failed QA:** The agent must understand the failure context before starting work. Do not repeat the same mistakes.
+### Step-by-Step Checklist (MUST COMPLETE IN ORDER):
 
-3. **Review existing implementation artifacts** (if any) to understand:
-   - What approach was previously taken (Plan artifact)
-   - What was actually done (Worklog artifact)
-   - What files were changed (Changed Files artifact)
-   - What decisions were made (Decisions artifact)
-   - What issues were identified (Verification/PM Review artifacts)
+**Step 1: Fetch all existing artifacts**
+- Read `.hal/api-base-url` file to get the HAL base URL
+- Call HAL API: `POST ${baseUrl}/api/artifacts/get` with `{ ticketId: "<ticket-id>" }`
+- If API call fails (404, 500, network error, timeout), note the failure but proceed with caution
+- If API call succeeds, you will receive an array of artifacts
 
-4. **Only after reviewing existing artifacts** should the agent proceed with:
-   - Creating/checking out the feature branch (see **change-ownership-and-staging-discipline**)
-   - Reading the ticket content (if not already reviewed)
-   - Creating a new Plan artifact (or updating if continuing previous work)
+**Step 2: Check for QA reports (CRITICAL)**
+- Filter artifacts to find QA reports: `agent_type === "qa"` and title matching `QA report for ticket <ticket-id>`
+- **If a QA report exists:**
+  - **READ IT IMMEDIATELY** - Do not skip this
+  - Check the verdict: Look for "QA RESULT: FAIL" or "QA RESULT: PASS" in the report
+  - **If verdict is FAIL:**
+    - Read the entire QA report carefully
+    - Identify all blocking issues listed
+    - Understand what fixes are required
+    - Understand why the previous implementation failed
+    - **DO NOT repeat the same mistakes**
+    - **DO NOT start coding until you understand the failure context**
+- **If no QA report exists:** This may be a fresh ticket (proceed to Step 3)
 
-**Why this matters:** Tickets may have been worked before and failed QA. Implementation agents must understand the failure context to avoid repeating mistakes and to build on previous work appropriately.
+**Step 3: Review existing implementation artifacts (if any)**
+- Look for implementation artifacts (`agent_type === "implementation"`)
+- Read these artifacts to understand:
+  - **Plan artifact:** What approach was previously taken
+  - **Worklog artifact:** What was actually done
+  - **Changed Files artifact:** What files were changed
+  - **Decisions artifact:** What trade-offs/assumptions were made
+  - **Verification artifact:** What issues were identified during verification
+  - **PM Review artifact:** What potential failures were identified
+
+**Step 4: Synthesize understanding**
+- If the ticket has failed QA before:
+  - Document in your Plan artifact that you are addressing previous QA failures
+  - List the specific issues you will fix
+  - Explain how your approach addresses the previous failures
+- If the ticket has been worked before but passed QA:
+  - Understand what was done and build on it appropriately
+- If this is a fresh ticket:
+  - Proceed with normal implementation
+
+**Step 5: Only after completing Steps 1-4, proceed with:**
+- Creating/checking out the feature branch (see **change-ownership-and-staging-discipline**)
+- Reading the ticket content (if not already reviewed)
+- Creating a new Plan artifact (or updating if continuing previous work)
+
+### Why This Matters
+
+- **Tickets often fail QA multiple times** - The same ticket may have been worked by previous agents who made mistakes
+- **QA reports contain critical information** - They tell you exactly what was wrong and what needs to be fixed
+- **Repeating mistakes wastes time** - Understanding previous failures prevents you from making the same errors
+- **Building on previous work** - If work was partially completed, you should understand what was done before
+
+### Warning Signs You Skipped This Step
+
+If you find yourself:
+- Starting to code without checking artifacts first
+- Creating a Plan artifact without mentioning previous QA failures
+- Implementing features that were already identified as problematic in a QA report
+- Making the same mistakes that caused a previous QA failure
+
+**STOP and go back to Step 1.**
 
 ## Standard Prompt Format (Supabase source of truth)
 
