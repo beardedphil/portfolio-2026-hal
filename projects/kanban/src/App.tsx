@@ -3389,32 +3389,11 @@ ${notes || '(none provided)'}
             
             addLog(`Human validation: Ticket ${ticketPk} failed, moved to To Do with feedback`)
             
-            // Refresh tickets and modal body to show updated feedback (0127)
-            // Update local state immediately so modal body shows feedback right away
-            setSupabaseTickets((prev) =>
-              prev.map((t) =>
-                t.pk === ticketPk
-                  ? {
-                      ...t,
-                      kanban_column_id: 'col-todo',
-                      kanban_position: targetPosition,
-                      kanban_moved_at: movedAt,
-                      body_md: updatedBody,
-                    }
-                  : t
-              )
-            )
-            
-            // Also refetch from server to ensure consistency
-            setTimeout(async () => {
-              await refetchSupabaseTickets(false)
-            }, REFETCH_AFTER_MOVE_MS)
-            
-            // Close ticket detail modal after showing success message and updated body (0127)
-            // Give enough time for user to see the success feedback (2 seconds after refetch delay)
+            // HAL will update the data and pass it back, so we don't need to update local state
+            // Close ticket detail modal after a short delay to show success message
             setTimeout(() => {
               handleCloseTicketDetail()
-            }, REFETCH_AFTER_MOVE_MS + 2000)
+            }, 2000)
           }}
           onTicketUpdate={refetchSupabaseTickets}
         />
