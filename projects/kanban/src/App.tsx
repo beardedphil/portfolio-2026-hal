@@ -995,7 +995,10 @@ function TicketDetailModal({
     setIsProcessing(true)
     try {
       await onValidationFail(ticketId, validationSteps, validationNotes)
-      setValidationSuccess('Ticket failed successfully. Moving to To Do...')
+      // Success message will be set based on whether QA artifact was created
+      setValidationSuccess(columnId === 'col-human-in-the-loop' 
+        ? 'Ticket failed. QA artifact created with FAIL verdict. Moving to To Do...'
+        : 'Ticket failed successfully. Moving to To Do...')
       setValidationSteps('')
       setValidationNotes('')
       
@@ -1013,7 +1016,7 @@ function TicketDetailModal({
     } finally {
       setIsProcessing(false)
     }
-  }, [ticketId, validationSteps, validationNotes, isProcessing, onValidationFail, _onTicketUpdate])
+  }, [ticketId, validationSteps, validationNotes, isProcessing, onValidationFail, _onTicketUpdate, columnId])
 
   // Reset validation fields when modal closes
   useEffect(() => {
@@ -3273,6 +3276,79 @@ function App() {
             }, REFETCH_AFTER_MOVE_MS + 100)
           }}
           onValidationFail={async (ticketPk: string, steps: string, notes: string) => {
+            // Get current ticket
+            const ticket = supabaseTickets.find((t) => t.pk === ticketPk)
+            if (!ticket) {
+              throw new Error('Ticket not found')
+            }
+            
+            // Check if ticket is in Human in the Loop column (0130)
+            const isInHumanInTheLoop = ticket.kanban_column_id === 'col-human-in-the-loop'
+            
+            // If in Human in the Loop, create/update QA artifact with FAIL verdict (0130)
+            if (isInHumanInTheLoop && detailModal?.ticketId) {
+              const ticketId = detailModal.ticketId
+              const displayId = ticket.display_id || ticketId
+              
+              // Create QA report with FAIL verdict
+              const qaReportBody = `# QA Report for ticket ${displayId}
+
+## Ticket & deliverable
+${ticket.title || 'N/A'}
+
+## Human validation failure
+
+**Verdict: FAIL**
+
+This ticket failed human validation in the Human in the Loop phase.
+
+**Steps to validate:**
+${steps || '(none provided)'}
+
+**Notes:**
+${notes || '(none provided)'}
+
+**Failure recorded:** ${new Date().toLocaleString()}
+
+## Verdict
+
+**FAIL** — Ticket failed human validation and has been moved back to To Do for rework.
+
+QA RESULT: FAIL — ${displayId}
+`
+              
+              try {
+                const qaResponse = await fetch('/api/artifacts/insert-qa', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    ticketId,
+                    title: `QA report for ticket ${displayId}`,
+                    body_md: qaReportBody,
+                  }),
+                })
+                
+                const qaResult = await qaResponse.json()
+                if (!qaResult.success) {
+                  console.warn(`Failed to create QA artifact for ticket ${ticketId}:`, qaResult.error)
+                  addLog(`Warning: Failed to create QA artifact: ${qaResult.error}`)
+                  // Continue with ticket update even if artifact creation fails
+                } else {
+                  addLog(`QA artifact created/updated for ticket ${ticketId} with FAIL verdict`)
+                  // Refresh artifacts to show the new QA artifact
+                  if (refreshDetailModalArtifacts) {
+                    setTimeout(() => {
+                      refreshDetailModalArtifacts()
+                    }, 500)
+                  }
+                }
+              } catch (err) {
+                console.error('Error creating QA artifact:', err)
+                addLog(`Warning: Error creating QA artifact: ${err instanceof Error ? err.message : String(err)}`)
+                // Continue with ticket update even if artifact creation fails
+              }
+            }
+            
             // Move ticket to To Do and add human feedback to body
             const targetColumn = supabaseColumns.find((c) => c.id === 'col-todo')
             if (!targetColumn) {
@@ -3280,12 +3356,6 @@ function App() {
             }
             const targetPosition = targetColumn.cardIds.length
             const movedAt = new Date().toISOString()
-            
-            // Get current ticket body
-            const ticket = supabaseTickets.find((t) => t.pk === ticketPk)
-            if (!ticket) {
-              throw new Error('Ticket not found')
-            }
             
             // Prepend human feedback to body (visually emphasized)
             const feedbackSection = `## ⚠️ Human Feedback (${new Date().toLocaleString()})
