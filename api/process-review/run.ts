@@ -213,99 +213,151 @@ ${artifactSummaries}
 
 Review the artifacts above and suggest specific, actionable improvements to agent instructions (rules, templates, or process documentation) that would help prevent issues or improve outcomes for similar tickets in the future.
 
-Format your response as a structured list. For each suggestion, provide:
-1. The suggestion text (specific and actionable)
-2. A brief justification explaining why this improvement would help
+Format your response as JSON array with this structure:
+[
+  {
+    "suggestion": "Add a rule requiring agents to verify file paths exist before attempting to read them",
+    "justification": "The artifacts show multiple file read errors that could be prevented by path validation."
+  },
+  {
+    "suggestion": "Update the ticket template to include a 'Dependencies' section",
+    "justification": "Several tickets lacked dependency information, causing implementation delays."
+  }
+]
 
-Use this exact format for each suggestion:
+Each suggestion should be:
+- Specific and actionable
+- Focused on improving agent instructions/rules
+- Clear about what should change
 
-### Suggestion Text Here
-Justification: Brief explanation of why this improvement would help
+Each justification should be:
+- Brief (1-2 sentences)
+- Explain why this improvement would help
+- Reference specific issues or patterns from the artifacts
 
-Example:
-### Add a rule requiring agents to verify file paths exist before attempting to read them
-Justification: This would prevent file not found errors that occurred in this ticket when the agent tried to read a file that didn't exist.
+Provide 3-5 suggestions. If no meaningful improvements are apparent, return an empty array [].`
 
-Provide 3-5 suggestions. If no meaningful improvements are apparent, respond with:
-### No significant improvements identified
-Justification: The artifacts show no clear patterns that would benefit from instruction changes.`
+    let suggestionsWithJustifications: Array<{ suggestion: string; justification: string }> = []
+    let errorMessage: string | undefined
 
-    const result = await generateText({
-      model: openai('gpt-4o-mini'),
-      prompt,
-      maxTokens: 1500,
-    })
-
-    // Parse structured suggestions with justifications
-    const responseText = result.text.trim()
-    const suggestions: Array<{ text: string; justification: string }> = []
-    
-    // Split by ### markers to get individual suggestions
-    const suggestionBlocks = responseText.split(/^###\s+/m).filter(Boolean)
-    
-    for (const block of suggestionBlocks) {
-      const lines = block.split('\n').map(l => l.trim()).filter(Boolean)
-      if (lines.length === 0) continue
-      
-      const text = lines[0]
-      const justificationMatch = block.match(/Justification:\s*(.+?)(?=\n\n|\n###|$)/is)
-      const justification = justificationMatch?.[1]?.trim() || ''
-      
-      if (text) {
-        suggestions.push({ text, justification })
-      }
-    }
-
-    // Fallback: if no structured suggestions found, try parsing as simple bullet list
-    if (suggestions.length === 0) {
-      const fallbackSuggestions = responseText
-        .split('\n')
-        .map((line) => line.trim())
-        .filter((line) => {
-          if (!line) return false
-          return /^[-*•]\s+/.test(line) || /^\d+\.\s+/.test(line)
-        })
-        .map((line) => {
-          return line.replace(/^[-*•]\s+/, '').replace(/^\d+\.\s+/, '').trim()
-        })
-        .filter((line) => line.length > 0)
-        .map((text) => ({ text, justification: '' }))
-      
-      if (fallbackSuggestions.length > 0) {
-        suggestions.push(...fallbackSuggestions)
-      } else {
-        suggestions.push({ text: responseText || 'No specific suggestions generated.', justification: '' })
-      }
-    }
-
-    // Store result as artifact in Supabase
-    const artifactBody = `# Process Review Result
-
-Status: success
-
-## Suggestions
-
-${suggestions.map((s, i) => `### ${s.text}
-Justification: ${s.justification || 'No justification provided'}`).join('\n\n')}
-`
-
-    const { error: artifactError } = await supabase
-      .from('agent_artifacts')
-      .insert({
-        ticket_pk: ticket.pk,
-        agent_type: 'process-review-result',
-        title: `Process Review for ticket ${ticket.display_id || ticket.id}`,
-        body_md: artifactBody,
+    try {
+      const result = await generateText({
+        model: openai('gpt-4o-mini'),
+        prompt,
+        maxTokens: 1500,
       })
 
-    if (artifactError) {
-      console.error('Failed to store process review artifact:', artifactError)
-      // Continue anyway - the review succeeded even if artifact storage failed
+      const responseText = result.text.trim()
+      
+      // Try to parse as JSON first
+      try {
+        const parsed = JSON.parse(responseText)
+        if (Array.isArray(parsed)) {
+          suggestionsWithJustifications = parsed
+            .filter((item) => item && typeof item.suggestion === 'string')
+            .map((item) => ({
+              suggestion: item.suggestion.trim(),
+              justification: (typeof item.justification === 'string' ? item.justification.trim() : 'No justification provided') || 'No justification provided',
+            }))
+        }
+      } catch {
+        // Fallback 1: Try parsing as markdown with ### headers
+        const suggestionBlocks = responseText.split(/^###\s+/m).filter(Boolean)
+        if (suggestionBlocks.length > 0) {
+          for (const block of suggestionBlocks) {
+            const lines = block.split('\n').map(l => l.trim()).filter(Boolean)
+            if (lines.length === 0) continue
+            
+            const suggestion = lines[0]
+            const justificationMatch = block.match(/Justification:\s*(.+?)(?=\n\n|\n###|$)/is)
+            const justification = justificationMatch?.[1]?.trim() || 'Generated from artifact analysis'
+            
+            if (suggestion) {
+              suggestionsWithJustifications.push({ suggestion, justification })
+            }
+          }
+        }
+        
+        // Fallback 2: Parse as bulleted list
+        if (suggestionsWithJustifications.length === 0) {
+          const lines = responseText
+            .split('\n')
+            .map((line) => line.trim())
+            .filter((line) => {
+              if (!line) return false
+              return /^[-*•]\s+/.test(line) || /^\d+\.\s+/.test(line)
+            })
+            .map((line) => {
+              return line.replace(/^[-*•]\s+/, '').replace(/^\d+\.\s+/, '').trim()
+            })
+            .filter((line) => line.length > 0)
+
+          suggestionsWithJustifications = lines.map((line) => ({
+            suggestion: line,
+            justification: 'Generated from artifact analysis',
+          }))
+        }
+      }
+
+      // If still no suggestions, check for "no improvements" message
+      if (suggestionsWithJustifications.length === 0) {
+        const lowerText = responseText.toLowerCase()
+        if (lowerText.includes('no significant improvements') || lowerText.includes('no meaningful improvements')) {
+          // This is valid - no suggestions needed
+          suggestionsWithJustifications = []
+        } else if (responseText.length > 0) {
+          // Use the full response as a single suggestion
+          suggestionsWithJustifications = [
+            {
+              suggestion: responseText,
+              justification: 'Generated from artifact analysis',
+            },
+          ]
+        }
+      }
+    } catch (llmError) {
+      errorMessage = llmError instanceof Error ? llmError.message : String(llmError)
+    }
+
+    // Store review results in database
+    const reviewStatus = errorMessage ? 'failed' : 'success'
+    const { data: reviewData, error: reviewError } = await supabase
+      .from('process_reviews')
+      .insert({
+        ticket_pk: ticket.pk,
+        repo_full_name: ticket.repo_full_name,
+        suggestions_json: suggestionsWithJustifications,
+        status: reviewStatus,
+        error_message: errorMessage || null,
+      })
+      .select('review_id, created_at, status')
+      .single()
+
+    if (reviewError) {
+      json(res, 200, {
+        success: false,
+        error: `Failed to store review results: ${reviewError.message}`,
+      })
+      return
+    }
+
+    if (errorMessage) {
+      json(res, 200, {
+        success: false,
+        error: errorMessage,
+        reviewId: reviewData.review_id,
+        createdAt: reviewData.created_at,
+      })
+      return
     }
 
     json(res, 200, {
       success: true,
-      suggestions,
+      suggestions: suggestionsWithJustifications.map((s) => s.suggestion),
+      suggestionsWithJustifications,
+      reviewId: reviewData.review_id,
+      createdAt: reviewData.created_at,
+      status: reviewData.status,
     })
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err)
