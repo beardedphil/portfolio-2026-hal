@@ -784,6 +784,51 @@ h1 {
   flex: 1;
   color: #333;
   line-height: 1.5;
+  font-weight: 500;
+}
+.process-review-suggestion-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex: 1;
+}
+.process-review-suggestion-justification {
+  font-size: 0.9rem;
+  color: #666;
+  font-style: italic;
+  line-height: 1.4;
+  margin-top: 0.25rem;
+}
+.process-review-last-run {
+  margin-bottom: 1.5rem;
+  padding: 0.75rem;
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+}
+.process-review-last-run-info {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin: 0.5rem 0 0 0;
+  font-size: 0.9rem;
+}
+.process-review-timestamp {
+  color: #666;
+}
+.process-review-status-badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+.process-review-status-completed {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+.process-review-status-failed {
+  background: #ffebee;
+  color: #c62828;
 }
 .process-review-create-actions {
   margin-top: 1rem;
