@@ -580,6 +580,7 @@ function ProcessReviewSection({
   supabaseUrl?: string
   supabaseAnonKey?: string
 }) {
+  const halCtx = useContext(HalKanbanContext)
   const [suggestions, setSuggestions] = useState<Array<{ id: string; text: string; selected: boolean }>>([])
   const [isRunningReview, setIsRunningReview] = useState(false)
   const [isCreatingTicket, setIsCreatingTicket] = useState(false)
@@ -687,6 +688,24 @@ function ProcessReviewSection({
       setCreatedTicketId(result.ticketId || result.id || 'Unknown')
       // Clear selections after successful creation
       setSuggestions((prev) => prev.map((s) => ({ ...s, selected: false })))
+      
+      // Immediately refresh tickets to show the new ticket (0133)
+      if (halCtx?.onTicketCreated) {
+        // Library mode: HAL provides callback to refresh its data
+        try {
+          await halCtx.onTicketCreated()
+        } catch (err) {
+          console.warn('[Kanban] Failed to refresh tickets after creation:', err)
+          // Non-blocking: continue normal polling
+        }
+      } else if (typeof window !== 'undefined' && window.parent !== window.self) {
+        // Embedded iframe mode: notify parent via postMessage
+        try {
+          window.parent.postMessage({ type: 'HAL_TICKET_CREATED' }, '*')
+        } catch (err) {
+          console.warn('[Kanban] Failed to notify parent of ticket creation:', err)
+        }
+      }
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : 'Failed to create ticket')
     } finally {
@@ -2363,6 +2382,18 @@ function App() {
       } else if (data.type === 'HAL_THEME_CHANGE' && data.theme) {
         // Apply theme to document root (0078)
         document.documentElement.setAttribute('data-theme', data.theme)
+      } else if (data.type === 'HAL_TICKET_CREATED' && supabaseBoardActive && refetchSupabaseTickets) {
+        // Immediately refresh tickets when a new ticket is created (0133)
+        try {
+          const success = await refetchSupabaseTickets(false)
+          if (!success) {
+            // Non-blocking error: show message but continue normal polling
+            console.warn('[Kanban] Failed to refresh tickets after creation, will retry on next poll')
+          }
+        } catch (err) {
+          console.warn('[Kanban] Error refreshing tickets after creation:', err)
+          // Continue normal polling; error is non-blocking
+        }
       } else if (data.type === 'HAL_TICKET_IMPLEMENTATION_COMPLETE' && supabaseBoardActive && updateSupabaseTicketKanban && refetchSupabaseTickets) {
         // Move ticket from Doing to QA when Implementation agent completes work (0084)
         const ticketIdOrPk = data.ticketPk || data.ticketId
