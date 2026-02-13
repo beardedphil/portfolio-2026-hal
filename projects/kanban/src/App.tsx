@@ -3332,7 +3332,7 @@ QA RESULT: FAIL — ${displayId}
                       body_md: qaReportBody,
                     }),
                   })
-                
+                  
                   const qaResult = await qaResponse.json()
                   if (!qaResult.success) {
                     console.warn(`Failed to create QA artifact for ticket ${ticketNumber}:`, qaResult.error)
@@ -3355,14 +3355,6 @@ QA RESULT: FAIL — ${displayId}
               }
             }
             
-            // Move ticket to To Do and add human feedback to body
-            const targetColumn = supabaseColumns.find((c) => c.id === 'col-todo')
-            if (!targetColumn) {
-              throw new Error('To Do column not found')
-            }
-            const targetPosition = targetColumn.cardIds.length
-            const movedAt = new Date().toISOString()
-            
             // Prepend human feedback to body (visually emphasized)
             const feedbackSection = `## ⚠️ Human Feedback (${new Date().toLocaleString()})
 
@@ -3379,71 +3371,90 @@ ${notes || '(none provided)'}
 `
             const updatedBody = feedbackSection + ticket.body_md
             
-            // Update ticket: move to To Do and update body with feedback
-            // Use updateSupabaseTicketKanban for column/position (if available)
-            if (updateSupabaseTicketKanban) {
-              const moveResult = await updateSupabaseTicketKanban(ticketPk, {
-                kanban_column_id: 'col-todo',
-                kanban_position: targetPosition,
-                kanban_moved_at: movedAt,
-              })
+            // In library mode (HAL context), use HAL's callbacks to update ticket
+            if (halCtx) {
+              // Move ticket to To Do using HAL's callback
+              await halCtx.onMoveTicket(ticketPk, 'col-todo')
               
-              if (!moveResult.ok) {
-                throw new Error(moveResult.error)
+              // Update ticket body using HAL's callback (if available)
+              if (halCtx.onUpdateTicketBody) {
+                await halCtx.onUpdateTicketBody(ticketPk, updatedBody)
+              } else {
+                console.warn('onUpdateTicketBody not available in HAL context')
+                addLog('Warning: Ticket body update not available - column move succeeded')
               }
             } else {
-              // Fallback: direct Supabase update if updateSupabaseTicketKanban not available
-              const url = supabaseProjectUrl?.trim()
-              const key = supabaseAnonKey?.trim()
-              if (!url || !key) {
-                throw new Error('Supabase not configured and updateSupabaseTicketKanban not available')
+              // Standalone/Supabase mode: use updateSupabaseTicketKanban and API endpoint
+              const targetColumn = supabaseColumns.find((c) => c.id === 'col-todo')
+              if (!targetColumn) {
+                throw new Error('To Do column not found')
               }
-              const client = createClient(url, key)
-              const { error: updateError } = await client
-                .from('tickets')
-                .update({
+              const targetPosition = targetColumn.cardIds.length
+              const movedAt = new Date().toISOString()
+              
+              // Move ticket using updateSupabaseTicketKanban (if available)
+              if (updateSupabaseTicketKanban) {
+                const moveResult = await updateSupabaseTicketKanban(ticketPk, {
                   kanban_column_id: 'col-todo',
                   kanban_position: targetPosition,
                   kanban_moved_at: movedAt,
                 })
-                .eq('pk', ticketPk)
-              
-              if (updateError) {
-                throw new Error(updateError.message ?? String(updateError))
-              }
-            }
-            
-            // Update body via API endpoint (works in both library and Supabase modes)
-            const url = supabaseProjectUrl?.trim() || ''
-            const key = supabaseAnonKey?.trim() || ''
-            if (url && key) {
-              try {
-                const updateBodyResponse = await fetch('/api/tickets/update', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    ticketPk,
-                    body_md: updatedBody,
-                    supabaseUrl: url,
-                    supabaseAnonKey: key,
-                  }),
-                })
                 
-                const updateBodyResult = await updateBodyResponse.json()
-                if (!updateBodyResult.success) {
-                  console.warn('Failed to update ticket body:', updateBodyResult.error)
-                  addLog(`Warning: Failed to update ticket body: ${updateBodyResult.error}`)
+                if (!moveResult.ok) {
+                  throw new Error(moveResult.error)
+                }
+              } else {
+                // Fallback: direct Supabase update if updateSupabaseTicketKanban not available
+                const url = supabaseProjectUrl?.trim()
+                const key = supabaseAnonKey?.trim()
+                if (!url || !key) {
+                  throw new Error('Supabase not configured and updateSupabaseTicketKanban not available')
+                }
+                const client = createClient(url, key)
+                const { error: updateError } = await client
+                  .from('tickets')
+                  .update({
+                    kanban_column_id: 'col-todo',
+                    kanban_position: targetPosition,
+                    kanban_moved_at: movedAt,
+                  })
+                  .eq('pk', ticketPk)
+                
+                if (updateError) {
+                  throw new Error(updateError.message ?? String(updateError))
+                }
+              }
+              
+              // Update body via API endpoint
+              const url = supabaseProjectUrl?.trim() || ''
+              const key = supabaseAnonKey?.trim() || ''
+              if (url && key) {
+                try {
+                  const updateBodyResponse = await fetch('/api/tickets/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      ticketPk,
+                      body_md: updatedBody,
+                      supabaseUrl: url,
+                      supabaseAnonKey: key,
+                    }),
+                  })
+                  
+                  const updateBodyResult = await updateBodyResponse.json()
+                  if (!updateBodyResult.success) {
+                    console.warn('Failed to update ticket body:', updateBodyResult.error)
+                    addLog(`Warning: Failed to update ticket body: ${updateBodyResult.error}`)
+                    // Continue even if body update fails - column move succeeded
+                  }
+                } catch (err) {
+                  console.warn('Error updating ticket body:', err)
+                  addLog(`Warning: Error updating ticket body: ${err instanceof Error ? err.message : String(err)}`)
                   // Continue even if body update fails - column move succeeded
                 }
-              } catch (err) {
-                console.warn('Error updating ticket body:', err)
-                addLog(`Warning: Error updating ticket body: ${err instanceof Error ? err.message : String(err)}`)
-                // Continue even if body update fails - column move succeeded
+              } else {
+                console.warn('Supabase not configured for body update, column move succeeded')
               }
-            } else {
-              // In library mode, body update might be handled by HAL
-              // Just log a warning but don't fail
-              console.warn('Supabase not configured for body update, column move succeeded')
             }
             
             addLog(`Human validation: Ticket ${ticketPk} failed, moved to To Do with feedback`)
