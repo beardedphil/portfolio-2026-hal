@@ -1511,9 +1511,19 @@ function App() {
           kanban_moved_at: new Date().toISOString(),
         })
         .eq('pk', ticketPk)
+      
+      // Clear Process Review banner when moving a ticket to Process Review column
+      // (unless it's the ticket currently being reviewed)
+      if (columnId === 'col-process-review' && processReviewTicketPk !== ticketPk) {
+        setProcessReviewStatus('idle')
+        setProcessReviewMessage(null)
+        // Don't clear processReviewTicketPk if a review is running for a different ticket
+        // (let it finish and auto-clear after 5 seconds)
+      }
+      
       await fetchKanbanData()
     },
-    [supabaseUrl, supabaseAnonKey, fetchKanbanData]
+    [supabaseUrl, supabaseAnonKey, fetchKanbanData, processReviewTicketPk]
   )
 
   const handleKanbanReorderColumn = useCallback(

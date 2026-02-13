@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useMemo, useContext } from 'react'
+import React, { useState, useCallback, useRef, useEffect, useMemo, useContext } from 'react'
 import { HalKanbanContext } from './HalKanbanContext'
 import {
   DndContext,
@@ -582,141 +582,89 @@ function ProcessReviewSection({
 }) {
   const halCtx = useContext(HalKanbanContext)
   const [suggestions, setSuggestions] = useState<Array<{ id: string; text: string; justification: string; selected: boolean }>>([])
-  const [isRunningReview, setIsRunningReview] = useState(false)
   const [lastRunStatus, setLastRunStatus] = useState<{ timestamp: string; success: boolean; error?: string } | null>(null)
   const [isCreatingTicket, setIsCreatingTicket] = useState(false)
   const [reviewError, setReviewError] = useState<string | null>(null)
   const [createdTicketId, setCreatedTicketId] = useState<string | null>(null)
   const [createError, setCreateError] = useState<string | null>(null)
+  
+  // Check if Process Review is currently running for this ticket (from column header button)
+  const isRunningReview = halCtx?.processReviewRunningForTicketPk === ticketPk
 
-  const handleRunReview = async () => {
-    if (!supabaseUrl || !supabaseAnonKey) {
-      setReviewError('Supabase not configured. Connect to Supabase to run review.')
-      return
-    }
-
-    setIsRunningReview(true)
-    setReviewError(null)
-    setSuggestions([])
+  // Load last run status from database on mount and when review completes
+  const loadLastRunStatus = React.useCallback(async () => {
+    if (!supabaseUrl || !supabaseAnonKey || !ticketPk) return
 
     try {
-      const response = await fetch('/api/process-review/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ticketPk,
-          ticketId,
-          supabaseUrl,
-          supabaseAnonKey,
-        }),
-      })
+      const supabase = createClient(supabaseUrl, supabaseAnonKey)
+      const { data, error } = await supabase
+        .from('process_reviews')
+        .select('created_at, status, error_message, suggestions')
+        .eq('ticket_pk', ticketPk)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
 
-      const result = await response.json()
-
-      if (!result.success) {
-        setReviewError(result.error || 'Failed to run review')
-        setLastRunStatus({
-          timestamp: new Date().toISOString(),
-          success: false,
-          error: result.error || 'Failed to run review',
-        })
+      if (error) {
+        console.error('Failed to load process review status:', error)
         return
       }
 
-      // Handle both old format (string[]) and new format (Array<{text, justification}>)
-      const suggestionsList = (result.suggestions || []).map((s: string | { text: string; justification?: string }, i: number) => {
-        if (typeof s === 'string') {
-          // Legacy format: just a string
-          return {
-            id: `suggestion-${i}`,
-            text: s,
-            justification: 'No justification provided.',
-            selected: false,
-          }
-        } else {
-          // New format: object with text and justification
-          return {
-            id: `suggestion-${i}`,
-            text: s.text || '',
-            justification: s.justification || 'No justification provided.',
-            selected: false,
-          }
-        }
-      })
-      setSuggestions(suggestionsList)
-      setLastRunStatus({
-        timestamp: new Date().toISOString(),
-        success: true,
-      })
-    } catch (err) {
-      setReviewError(err instanceof Error ? err.message : 'Failed to run review')
-      setLastRunStatus({
-        timestamp: new Date().toISOString(),
-        success: false,
-        error: err instanceof Error ? err.message : 'Failed to run review',
-      })
-    } finally {
-      setIsRunningReview(false)
-    }
-  }
+      if (data) {
+        setLastRunStatus({
+          timestamp: data.created_at,
+          success: data.status === 'success',
+          error: data.error_message || undefined,
+        })
 
-  // Load last run status from database on mount
-  useEffect(() => {
-    if (!supabaseUrl || !supabaseAnonKey || !ticketPk) return
-
-    const loadLastRunStatus = async () => {
-      try {
-        const supabase = createClient(supabaseUrl, supabaseAnonKey)
-        const { data, error } = await supabase
-          .from('process_reviews')
-          .select('created_at, status, error_message, suggestions')
-          .eq('ticket_pk', ticketPk)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle()
-
-        if (error) {
-          console.error('Failed to load process review status:', error)
-          return
-        }
-
-        if (data) {
-          setLastRunStatus({
-            timestamp: data.created_at,
-            success: data.status === 'success',
-            error: data.error_message || undefined,
-          })
-
-          // If we have stored suggestions and no current suggestions, load them
-          if (data.suggestions && Array.isArray(data.suggestions) && data.suggestions.length > 0 && suggestions.length === 0) {
-            const loadedSuggestions = data.suggestions.map((s: string | { text: string; justification?: string }, i: number) => {
-              if (typeof s === 'string') {
-                return {
-                  id: `suggestion-${i}`,
-                  text: s,
-                  justification: 'No justification provided.',
-                  selected: false,
-                }
-              } else {
-                return {
-                  id: `suggestion-${i}`,
-                  text: s.text || '',
-                  justification: s.justification || 'No justification provided.',
-                  selected: false,
-                }
+        // Load suggestions if available
+        if (data.suggestions && Array.isArray(data.suggestions) && data.suggestions.length > 0) {
+          const loadedSuggestions = data.suggestions.map((s: string | { text: string; justification?: string }, i: number) => {
+            if (typeof s === 'string') {
+              return {
+                id: `suggestion-${i}`,
+                text: s,
+                justification: 'No justification provided.',
+                selected: false,
               }
-            })
-            setSuggestions(loadedSuggestions)
-          }
+            } else {
+              return {
+                id: `suggestion-${i}`,
+                text: s.text || '',
+                justification: s.justification || 'No justification provided.',
+                selected: false,
+              }
+            }
+          })
+          setSuggestions(loadedSuggestions)
+        } else {
+          // Clear suggestions if no data
+          setSuggestions([])
         }
-      } catch (err) {
-        console.error('Error loading process review status:', err)
+      } else {
+        // No review data found
+        setLastRunStatus(null)
+        setSuggestions([])
       }
+    } catch (err) {
+      console.error('Error loading process review status:', err)
     }
-
-    loadLastRunStatus()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [supabaseUrl, supabaseAnonKey, ticketPk])
+
+  // Load on mount and when ticketPk changes
+  useEffect(() => {
+    loadLastRunStatus()
+  }, [loadLastRunStatus])
+
+  // Refresh when review completes (isRunningReview changes from true to false)
+  const prevIsRunningReview = React.useRef(isRunningReview)
+  useEffect(() => {
+    if (prevIsRunningReview.current && !isRunningReview) {
+      // Review just completed, refresh data
+      loadLastRunStatus()
+    }
+    prevIsRunningReview.current = isRunningReview
+  }, [isRunningReview, loadLastRunStatus])
 
   const handleToggleSuggestion = (id: string) => {
     setSuggestions((prev) =>
@@ -813,7 +761,16 @@ function ProcessReviewSection({
         )}
       </div>
 
-      {lastRunStatus && (
+      {isRunningReview && (
+        <div className="process-review-last-run" role="status">
+          <p>
+            <strong>Status:</strong>{' '}
+            <span className="process-review-status-running">⏳ Process Review in progress...</span>
+          </p>
+        </div>
+      )}
+
+      {!isRunningReview && lastRunStatus && (
         <div className="process-review-last-run" role="status">
           <p>
             <strong>Last run:</strong>{' '}
@@ -829,17 +786,6 @@ function ProcessReviewSection({
           </p>
         </div>
       )}
-
-      <div className="process-review-actions">
-        <button
-          type="button"
-          className="process-review-button process-review-button-run"
-          onClick={handleRunReview}
-          disabled={isRunningReview || isCreatingTicket}
-        >
-          {isRunningReview ? 'Running review...' : 'Run review'}
-        </button>
-      </div>
 
       {reviewError && (
         <div className="process-review-error" role="alert">
