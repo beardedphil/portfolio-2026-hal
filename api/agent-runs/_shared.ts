@@ -142,12 +142,21 @@ export async function upsertArtifact(
     title = canonicalTitle
   }
 
-  // Identify empty/placeholder artifacts (body is empty or very short)
+  // Validate the new body_md before storing (prevent blank artifacts)
+  const { hasSubstantiveContent } = await import('../artifacts/_validation.js')
+  const contentValidation = hasSubstantiveContent(bodyMd, title)
+  if (!contentValidation.valid) {
+    const msg = `Cannot store blank/placeholder artifact: ${contentValidation.reason || 'Artifact body is empty or placeholder-only'}`
+    console.warn('[agent-runs]', msg)
+    return { ok: false, error: msg }
+  }
+
+  // Identify empty/placeholder artifacts using proper validation
   const emptyArtifactIds: string[] = []
   for (const artifact of artifacts) {
-    const currentBody = (artifact.body_md || '').trim()
-    // Consider empty or very short (< 30 chars) as placeholder
-    if (currentBody.length === 0 || currentBody.length < 30) {
+    const currentBody = artifact.body_md || ''
+    const currentValidation = hasSubstantiveContent(currentBody, title)
+    if (!currentValidation.valid) {
       emptyArtifactIds.push(artifact.artifact_id)
     }
   }

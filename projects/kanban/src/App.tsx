@@ -803,6 +803,59 @@ function ProcessReviewSection({
   )
 }
 
+/** Helper to check if artifact is blank/placeholder */
+function isArtifactBlank(body_md: string | null | undefined, title: string): boolean {
+  if (!body_md || body_md.trim().length === 0) {
+    return true
+  }
+
+  // Check for placeholder patterns
+  const trimmed = body_md.trim()
+  const placeholderPatterns = [
+    /^##\s+Modified\s*$/m, // Just "## Modified" with no content
+    /\(No files changed in this PR\)/i,
+    /\(none\)/i,
+    /^##\s+Changed Files\s*$/m, // Just "## Changed Files" with no content
+  ]
+
+  for (const pattern of placeholderPatterns) {
+    if (pattern.test(trimmed)) {
+      return true
+    }
+  }
+
+  // For "Changed Files" artifacts, check that there's actual file content
+  if (title.toLowerCase().includes('changed files')) {
+    const withoutHeadings = trimmed.replace(/^#{1,6}\s+.*$/gm, '').trim()
+    if (withoutHeadings.length < 30 || /^(\(none\)|\(No files changed)/i.test(withoutHeadings)) {
+      return true
+    }
+  }
+
+  // For "Verification" artifacts, check that there's actual verification content
+  if (title.toLowerCase().includes('verification')) {
+    const withoutCheckboxes = trimmed.replace(/^[-*+]\s+\[[ x]\]\s+.*$/gm, '').replace(/^#{1,6}\s+.*$/gm, '').trim()
+    if (withoutCheckboxes.length < 30 || /^(\(none\)|Changed Files \(none\))/i.test(withoutCheckboxes)) {
+      return true
+    }
+  }
+
+  return false
+}
+
+/** Extract artifact type from title */
+function extractArtifactType(title: string): string | null {
+  const normalized = title.toLowerCase().trim()
+  if (normalized.startsWith('changed files for ticket')) return 'changed-files'
+  if (normalized.startsWith('verification for ticket')) return 'verification'
+  if (normalized.startsWith('plan for ticket')) return 'plan'
+  if (normalized.startsWith('worklog for ticket')) return 'worklog'
+  if (normalized.startsWith('decisions for ticket')) return 'decisions'
+  if (normalized.startsWith('pm review for ticket')) return 'pm-review'
+  if (normalized.startsWith('qa report for ticket')) return 'qa-report'
+  return null
+}
+
 /** Artifacts section component (0082) */
 function ArtifactsSection({
   artifacts,
@@ -821,6 +874,47 @@ function ArtifactsSection({
 }) {
   const showRefresh = typeof onRefresh === 'function'
   const isLoading = loading || refreshing
+
+  // Check for required implementation artifacts
+  const implementationArtifacts = artifacts.filter((a) => a.agent_type === 'implementation')
+  const changedFilesArtifact = implementationArtifacts.find((a) => extractArtifactType(a.title) === 'changed-files')
+  const hasChangedFiles = !!changedFilesArtifact
+  const hasVerification = implementationArtifacts.some((a) => extractArtifactType(a.title) === 'verification')
+  
+  // Check for blank/placeholder artifacts
+  const blankArtifacts = artifacts.filter((a) => isArtifactBlank(a.body_md, a.title))
+  const hasBlankChangedFiles = hasChangedFiles && changedFilesArtifact && isArtifactBlank(changedFilesArtifact.body_md, changedFilesArtifact.title)
+  const hasBlankVerification = hasVerification && implementationArtifacts.some(
+    (a) => extractArtifactType(a.title) === 'verification' && isArtifactBlank(a.body_md, a.title)
+  )
+
+  // Check for contradictory information: QA report mentions files but Changed Files says none (or vice versa)
+  const qaArtifacts = artifacts.filter((a) => a.agent_type === 'qa' && extractArtifactType(a.title) === 'qa-report')
+  let hasContradiction = false
+  let contradictionMessage = ''
+  
+  if (hasChangedFiles && changedFilesArtifact && qaArtifacts.length > 0) {
+    const changedFilesBody = (changedFilesArtifact.body_md || '').toLowerCase()
+    const changedFilesSaysNone = /\(no files changed|\(none\)|no files changed/i.test(changedFilesBody)
+    
+    // Check if QA report mentions specific files
+    for (const qaArtifact of qaArtifacts) {
+      const qaBody = (qaArtifact.body_md || '').toLowerCase()
+      // Look for file mentions in QA report (common patterns: "changed files", "modified files", file paths, etc.)
+      const qaMentionsFiles = /(changed files|modified files|files? (were|are) (changed|modified|added|deleted)|`[^`]+\.(ts|tsx|js|jsx|css|md|json|yml|yaml))/i.test(qaBody)
+      
+      if (qaMentionsFiles && changedFilesSaysNone) {
+        hasContradiction = true
+        contradictionMessage = 'QA report mentions file changes, but Changed Files artifact indicates no files were changed. This may indicate a data inconsistency.'
+        break
+      } else if (!qaMentionsFiles && !changedFilesSaysNone && changedFilesBody.length > 50) {
+        // Changed Files has content but QA doesn't mention files (less critical, but worth noting)
+        hasContradiction = true
+        contradictionMessage = 'Changed Files artifact lists file changes, but QA report does not mention specific files. This may indicate incomplete QA review.'
+        break
+      }
+    }
+  }
 
   if (isLoading) {
     return (
@@ -861,6 +955,38 @@ function ArtifactsSection({
     <div className="artifacts-section">
       <h3 className="artifacts-section-title">Artifacts</h3>
       {statusMessage && <p className="artifacts-status" role="status">{statusMessage}</p>}
+      
+      {/* Error states for missing or blank artifacts */}
+      {implementationArtifacts.length > 0 && (
+        <div className="artifacts-errors" role="alert">
+          {!hasChangedFiles && (
+            <div className="artifacts-error-item">
+              <strong>Changed Files artifact unavailable:</strong> Pull request information not available or no files changed. This artifact was not generated.
+            </div>
+          )}
+          {hasBlankChangedFiles && (
+            <div className="artifacts-error-item">
+              <strong>Changed Files artifact is blank:</strong> The artifact contains placeholder content. This should not happen.
+            </div>
+          )}
+          {!hasVerification && (
+            <div className="artifacts-error-item">
+              <strong>Verification artifact unavailable:</strong> Cannot generate verification artifact without file changes or PR information. This artifact was not generated.
+            </div>
+          )}
+          {hasBlankVerification && (
+            <div className="artifacts-error-item">
+              <strong>Verification artifact is blank:</strong> The artifact contains placeholder content. This should not happen.
+            </div>
+          )}
+          {hasContradiction && contradictionMessage && (
+            <div className="artifacts-error-item artifacts-contradiction">
+              <strong>⚠️ Contradictory information detected:</strong> {contradictionMessage}
+            </div>
+          )}
+        </div>
+      )}
+
       {showRefresh && (
         <button type="button" className="artifacts-refresh-btn" onClick={onRefresh}>
           Refresh artifacts
@@ -870,15 +996,19 @@ function ArtifactsSection({
         {sortedArtifacts.map((artifact) => {
           // Use artifact title directly, or fall back to agent type display name
           const displayName = artifact.title || getAgentTypeDisplayName(artifact.agent_type)
+          const isBlank = isArtifactBlank(artifact.body_md, artifact.title)
           return (
             <li key={artifact.artifact_id} className="artifacts-item">
               <button
                 type="button"
-                className="artifacts-item-button"
+                className={`artifacts-item-button ${isBlank ? 'artifacts-item-blank' : ''}`}
                 onClick={() => onOpenArtifact(artifact)}
                 aria-label={`Open ${displayName}`}
               >
-                <span className="artifacts-item-title">{displayName}</span>
+                <span className="artifacts-item-title">
+                  {displayName}
+                  {isBlank && <span className="artifacts-item-warning" title="This artifact appears to be blank or contain placeholder content"> ⚠️</span>}
+                </span>
                 <span className="artifacts-item-meta">
                   {new Date(artifact.created_at).toLocaleString()}
                 </span>

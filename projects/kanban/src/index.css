@@ -842,6 +842,52 @@ h1 {
   font-size: 0.8rem;
 }
 
+.artifacts-errors {
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  background: rgba(255, 193, 7, 0.1);
+  border: 1px solid rgba(255, 193, 7, 0.3);
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+.artifacts-error-item {
+  margin: 0.5rem 0;
+  color: var(--kanban-text);
+}
+
+.artifacts-error-item:first-child {
+  margin-top: 0;
+}
+
+.artifacts-error-item:last-child {
+  margin-bottom: 0;
+}
+
+.artifacts-error-item strong {
+  color: #f57c00;
+  font-weight: 600;
+}
+
+[data-theme="dark"] .artifacts-errors {
+  background: rgba(255, 193, 7, 0.15);
+  border-color: rgba(255, 193, 7, 0.4);
+}
+
+[data-theme="dark"] .artifacts-error-item strong {
+  color: #ffb74d;
+}
+
+.artifacts-contradiction {
+  border-left: 3px solid #f57c00;
+  padding-left: 0.5rem;
+  margin-left: -0.5rem;
+}
+
+[data-theme="dark"] .artifacts-contradiction {
+  border-left-color: #ffb74d;
+}
+
 .artifacts-refresh-btn {
   margin-top: 0.5rem;
   padding: 0.35rem 0.6rem;
@@ -906,6 +952,16 @@ h1 {
   font-size: 0.85rem;
   color: var(--kanban-text-muted);
   font-family: ui-monospace, monospace;
+}
+
+.artifacts-item-blank {
+  opacity: 0.7;
+  border-color: rgba(255, 193, 7, 0.5) !important;
+}
+
+.artifacts-item-warning {
+  margin-left: 0.25rem;
+  font-size: 0.9em;
 }
 
 /* Dark theme adjustments for artifacts */

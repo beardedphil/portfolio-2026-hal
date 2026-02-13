@@ -199,7 +199,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             if ('files' in filesResult) prFiles = filesResult.files
             else if ('error' in filesResult) console.warn('[agent-runs] fetch PR files failed:', filesResult.error)
           }
-          const artifacts = generateImplementationArtifacts(
+          const { artifacts, errors } = generateImplementationArtifacts(
             displayId,
             summary ?? '',
             prUrl ?? '',
@@ -208,6 +208,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           for (const a of artifacts) {
             const res = await upsertArtifact(supabase, ticketPk, repoFullName, 'implementation', a.title, a.body_md)
             if (!res.ok) console.warn('[agent-runs] artifact upsert failed:', a.title, (res as { ok: false; error: string }).error)
+          }
+          // Log errors for artifacts that couldn't be generated (UI will show these as error states)
+          if (errors.length > 0) {
+            console.warn('[agent-runs] Some artifacts could not be generated:', errors.map((e) => `${e.artifactType}: ${e.reason}`).join('; '))
           }
         } catch (e) {
           console.warn('[agent-runs] finished artifact upsert error:', e instanceof Error ? e.message : e)
