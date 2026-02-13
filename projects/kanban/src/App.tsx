@@ -589,7 +589,7 @@ function ProcessReviewSection({
   const [reviewError, setReviewError] = useState<string | null>(null)
   const [createdTicketId, setCreatedTicketId] = useState<string | null>(null)
   const [createError, setCreateError] = useState<string | null>(null)
-  const [lastRunStatus, setLastRunStatus] = useState<{ status: 'success' | 'failed'; createdAt: string; errorMessage?: string } | null>(null)
+  const [lastRunStatus, setLastRunStatus] = useState<{ status: 'success' | 'failed'; timestamp: string; errorMessage?: string } | null>(null)
   const [isLoadingReview, setIsLoadingReview] = useState(true)
 
   const handleRunReview = async () => {
@@ -633,21 +633,22 @@ function ProcessReviewSection({
         createdAt: result.createdAt || new Date().toISOString(),
       })
 
-      // Use suggestionsWithJustifications if available, otherwise fall back to suggestions array
-      const suggestionsWithJustifications = result.suggestionsWithJustifications || []
-      const suggestionsList = suggestionsWithJustifications.length > 0
-        ? suggestionsWithJustifications.map((s: { suggestion: string; justification: string }, i: number) => ({
-            id: `suggestion-${i}`,
-            text: s.suggestion,
-            justification: s.justification,
-            selected: false,
-          }))
-        : (result.suggestions || []).map((s: string, i: number) => ({
+      const suggestionsList = (result.suggestions || []).map((s: { text: string; justification: string } | string, i: number) => {
+        if (typeof s === 'string') {
+          return {
             id: `suggestion-${i}`,
             text: s,
-            justification: 'Generated from artifact analysis',
+            justification: '',
             selected: false,
-          }))
+          }
+        }
+        return {
+          id: `suggestion-${i}`,
+          text: s.text,
+          justification: s.justification || '',
+          selected: false,
+        }
+      })
       setSuggestions(suggestionsList)
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to run review'
@@ -689,15 +690,15 @@ function ProcessReviewSection({
         if (data) {
           setLastRunStatus({
             status: data.status as 'success' | 'failed',
-            createdAt: data.created_at,
+            timestamp: data.created_at,
             errorMessage: data.error_message || undefined,
           })
 
-          if (data.status === 'success' && Array.isArray(data.suggestions_json)) {
-            const loadedSuggestions = (data.suggestions_json as Array<{ suggestion: string; justification: string }>).map((s, i) => ({
+          if (data.status === 'success' && Array.isArray(data.suggestions)) {
+            const loadedSuggestions = (data.suggestions as Array<{ text: string; justification: string }>).map((s, i) => ({
               id: `suggestion-${i}`,
-              text: s.suggestion,
-              justification: s.justification,
+              text: s.text,
+              justification: s.justification || '',
               selected: false,
             }))
             setSuggestions(loadedSuggestions)
@@ -788,7 +789,7 @@ function ProcessReviewSection({
       
       {lastRunStatus && (
         <div className="process-review-last-run" style={{ marginBottom: '1rem', padding: '0.75rem', backgroundColor: lastRunStatus.status === 'success' ? '#e8f5e9' : '#ffebee', borderRadius: '4px', fontSize: '0.875rem' }}>
-          <strong>Last run:</strong> {new Date(lastRunStatus.createdAt).toLocaleString()} —{' '}
+          <strong>Last run:</strong> {new Date(lastRunStatus.timestamp).toLocaleString()} —{' '}
           <span style={{ color: lastRunStatus.status === 'success' ? '#2e7d32' : '#c62828', fontWeight: 'bold' }}>
             {lastRunStatus.status === 'success' ? 'Success' : 'Failed'}
           </span>
@@ -844,7 +845,7 @@ function ProcessReviewSection({
 
       {lastRunStatus && (
         <div className="process-review-last-run" style={{ marginBottom: '1rem', padding: '0.75rem', backgroundColor: lastRunStatus.status === 'success' ? '#e8f5e9' : '#ffebee', borderRadius: '4px', fontSize: '0.875rem' }}>
-          <strong>Last run:</strong> {new Date(lastRunStatus.createdAt).toLocaleString()} —{' '}
+          <strong>Last run:</strong> {new Date(lastRunStatus.timestamp).toLocaleString()} —{' '}
           <span style={{ color: lastRunStatus.status === 'success' ? '#2e7d32' : '#c62828', fontWeight: 'bold' }}>
             {lastRunStatus.status === 'success' ? 'Success' : 'Failed'}
           </span>
