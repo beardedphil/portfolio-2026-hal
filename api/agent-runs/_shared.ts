@@ -152,10 +152,9 @@ export async function upsertArtifact(
   }
 
   // Validate the new body_md before storing (prevent blank artifacts)
-  const { hasSubstantiveContent } = await import('../artifacts/_validation.js')
-  const contentValidation = hasSubstantiveContent(bodyMd, title)
-  if (!contentValidation.valid) {
-    const msg = `Cannot store blank/placeholder artifact: ${contentValidation.reason || 'Artifact body is empty or placeholder-only'}`
+  const contentValidation2 = hasSubstantiveContent(bodyMd, title)
+  if (!contentValidation2.valid) {
+    const msg = `Cannot store blank/placeholder artifact: ${contentValidation2.reason || 'Artifact body is empty or placeholder-only'}`
     console.warn('[agent-runs]', msg)
     return { ok: false, error: msg }
   }
@@ -197,9 +196,9 @@ export async function upsertArtifact(
 
   if (targetArtifactId) {
     // Validate content before updating (0137: prevent blank/placeholder artifacts)
-    const contentValidation = hasSubstantiveContent(bodyMd, title)
-    if (!contentValidation.valid) {
-      const msg = `Artifact content validation failed: ${contentValidation.reason || 'Content is empty or placeholder-only'}`
+    const contentValidation3 = hasSubstantiveContent(bodyMd, title)
+    if (!contentValidation3.valid) {
+      const msg = `Artifact content validation failed: ${contentValidation3.reason || 'Content is empty or placeholder-only'}`
       console.warn('[agent-runs]', msg, 'Title:', title, 'Body length:', bodyMd.length)
       return { ok: false, error: msg }
     }
@@ -218,9 +217,9 @@ export async function upsertArtifact(
   }
 
   // Validate content before inserting (0137: prevent blank/placeholder artifacts)
-  const contentValidation = hasSubstantiveContent(bodyMd, title)
-  if (!contentValidation.valid) {
-    const msg = `Artifact content validation failed: ${contentValidation.reason || 'Content is empty or placeholder-only'}`
+  const contentValidation4 = hasSubstantiveContent(bodyMd, title)
+  if (!contentValidation4.valid) {
+    const msg = `Artifact content validation failed: ${contentValidation4.reason || 'Content is empty or placeholder-only'}`
     console.warn('[agent-runs]', msg, 'Title:', title, 'Body length:', bodyMd.length)
     return { ok: false, error: msg }
   }
