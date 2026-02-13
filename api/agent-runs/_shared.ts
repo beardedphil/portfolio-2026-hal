@@ -204,10 +204,19 @@ export async function upsertArtifact(
       }
     }
 
-    // Update the target artifact with canonical title and new body (0121, 0137)
+    // Append to existing artifact instead of replacing (0137: preserve history when tickets are reworked)
+    const existingArtifact = artifacts.find((a) => a.artifact_id === targetArtifactId)
+    const existingBody = existingArtifact?.body_md || ''
+    const timestamp = new Date().toISOString()
+    const separator = '\n\n---\n\n'
+    const appendedBody = existingBody.trim()
+      ? `${existingBody.trim()}${separator}**Update (${timestamp}):**\n\n${bodyMd}`
+      : bodyMd // If existing body is empty, just use new body
+    
+    console.log(`[agent-runs] Appending to artifact ${targetArtifactId} (existing length=${existingBody.length}, new length=${bodyMd.length})`)
     const { error: updateErr } = await supabase
       .from('agent_artifacts')
-      .update({ title, body_md: bodyMd } as Record<string, unknown>)
+      .update({ title, body_md: appendedBody } as Record<string, unknown>)
       .eq('artifact_id', targetArtifactId)
     if (updateErr) {
       const msg = `agent_artifacts update: ${updateErr.message}`
