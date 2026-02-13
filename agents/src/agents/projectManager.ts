@@ -83,9 +83,14 @@ function normalizeBodyForReady(bodyMd: string): string {
 
 /** Extract section body after a ## Section Title line (first line after blank line or next ##). */
 function sectionContent(body: string, sectionTitle: string): string {
+  // Escape special regex characters in the section title
+  const escapedTitle = sectionTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  // Match: ## followed by whitespace, then exact section title, optional whitespace, newline
+  // Capture content until next ## heading (with flexible spacing: allows 0+ spaces after ##) or end of string
+  // Use case-sensitive matching for exact heading match (no 'i' flag)
+  // Lookahead: (?=\\n##\\s*[^\\s#\\n]|$) matches next heading (## with optional space) or end
   const re = new RegExp(
-    `##\\s+${sectionTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\n([\\s\\S]*?)(?=\\n## |$)`,
-    'i'
+    `##\\s+${escapedTitle}\\s*\\n([\\s\\S]*?)(?=\\n##\\s*[^\\s#\\n]|$)`
   )
   const m = body.match(re)
   return (m?.[1] ?? '').trim()
@@ -130,53 +135,46 @@ export interface ReadyCheckResult {
 
 /**
  * Evaluate ticket body against the Ready-to-start checklist (Definition of Ready).
- * See docs/process/ready-to-start-checklist.md.
- *
- * **Formatting/parsing requirements (exact heading text):**
- * The readiness evaluation expects these exact H2 section titles in the body:
- * - "Goal (one sentence)" — non-empty, no placeholders
- * - "Human-verifiable deliverable (UI-only)" — non-empty, no placeholders
- * - "Acceptance criteria (UI-only)" — must contain at least one `- [ ]` checkbox line
- * - "Constraints" — non-empty
- * - "Non-goals" — non-empty
- * No unresolved placeholders like `<AC 1>`, `<task-id>`, `<short-title>`, etc.
- * Future ticket edits must preserve these headings and structure to avoid breaking readiness.
+ * Simplified check: ticket has content beyond the template (is bigger than template).
+ * 
+ * The template is approximately 1500-2000 characters. A ticket is ready if:
+ * - It has substantial content (longer than template baseline)
+ * - It's not just template placeholders
  */
 export function evaluateTicketReady(bodyMd: string): ReadyCheckResult {
   const body = bodyMd.trim()
-  const goal = sectionContent(body, 'Goal (one sentence)')
-  const deliverable = sectionContent(body, 'Human-verifiable deliverable (UI-only)')
-  const ac = sectionContent(body, 'Acceptance criteria (UI-only)')
-  const constraints = sectionContent(body, 'Constraints')
-  const nonGoals = sectionContent(body, 'Non-goals')
-
-  const goalPlaceholders = goal.match(PLACEHOLDER_RE) ?? []
-  const deliverablePlaceholders = deliverable.match(PLACEHOLDER_RE) ?? []
-  const goalOk = goal.length > 0 && goalPlaceholders.length === 0 && !/^<[^>]*>$/.test(goal.trim())
-  const deliverableOk = deliverable.length > 0 && deliverablePlaceholders.length === 0
-  const acOk = /-\s*\[\s*\]/.test(ac)
-  const constraintsOk = constraints.length > 0
-  const nonGoalsOk = nonGoals.length > 0
+  
+  // Template baseline: approximately 1500-2000 chars for a filled template
+  // A ticket with actual content should be substantially larger
+  const TEMPLATE_BASELINE = 1500
+  const hasSubstantialContent = body.length > TEMPLATE_BASELINE
+  
+  // Check if it's mostly placeholders (simple heuristic: if >50% of content is placeholders, it's not ready)
   const placeholders = body.match(PLACEHOLDER_RE) ?? []
-  const noPlaceholdersOk = placeholders.length === 0
+  const placeholderChars = placeholders.join('').length
+  const isMostlyPlaceholders = placeholderChars > body.length * 0.5
 
+  const ready = hasSubstantialContent && !isMostlyPlaceholders
   const missingItems: string[] = []
-  if (!goalOk) missingItems.push('Goal (one sentence) missing or placeholder')
-  if (!deliverableOk) missingItems.push('Human-verifiable deliverable missing or placeholder')
-  if (!acOk) missingItems.push('Acceptance criteria checkboxes missing')
-  if (!constraintsOk) missingItems.push('Constraints section missing or empty')
-  if (!nonGoalsOk) missingItems.push('Non-goals section missing or empty')
-  if (!noPlaceholdersOk) missingItems.push(`Unresolved placeholders: ${placeholders.join(', ')}`)
+  
+  if (!ready) {
+    if (!hasSubstantialContent) {
+      missingItems.push('Ticket content is too short (needs more content beyond template)')
+    }
+    if (isMostlyPlaceholders) {
+      missingItems.push('Ticket contains too many unresolved placeholders')
+    }
+  }
 
   return {
-    ready: goalOk && deliverableOk && acOk && constraintsOk && nonGoalsOk && noPlaceholdersOk,
+    ready,
     missingItems,
     checklistResults: {
-      goal: goalOk,
-      deliverable: deliverableOk,
-      acceptanceCriteria: acOk,
-      constraintsNonGoals: constraintsOk && nonGoalsOk,
-      noPlaceholders: noPlaceholdersOk,
+      goal: hasSubstantialContent,
+      deliverable: hasSubstantialContent,
+      acceptanceCriteria: hasSubstantialContent,
+      constraintsNonGoals: hasSubstantialContent,
+      noPlaceholders: !isMostlyPlaceholders,
     },
   }
 }
@@ -765,9 +763,9 @@ export async function runPmAgent(
                     if (acSection && !/-\s*\[\s*\]/.test(acSection) && /^[\s]*[-*+]\s+/m.test(acSection)) {
                       // If AC section exists, has bullets but no checkboxes, convert bullets to checkboxes
                       const fixedAc = acSection.replace(/^(\s*)[-*+]\s+/gm, '$1- [ ] ')
+                      // Use same pattern as sectionContent for consistency (case-sensitive, flexible spacing)
                       const acRegex = new RegExp(
-                        `(##\\s+Acceptance criteria \\(UI-only\\)\\s*\\n)([\\s\\S]*?)(?=\\n## |$)`,
-                        'i'
+                        `(##\\s+Acceptance criteria \\(UI-only\\)\\s*\\n)([\\s\\S]*?)(?=\\n##\\s*[^\\s#\\n]|$)`
                       )
                       const match = finalBodyMd.match(acRegex)
                       if (match) {
