@@ -732,6 +732,29 @@ body {
   border-color: var(--hal-border-muted);
 }
 
+/* Project Manager close button: red with white X */
+.chat-window-close-pm {
+  background: #dc2626; /* red-600 */
+  color: white;
+  border: 1px solid #dc2626;
+}
+
+.chat-window-close-pm:hover {
+  background: #b91c1c; /* red-700, darker red on hover */
+  color: white;
+  border-color: #b91c1c;
+}
+
+.chat-window-close-pm:focus {
+  outline: 2px solid #dc2626;
+  outline-offset: 2px;
+}
+
+.chat-window-close-pm:focus-visible {
+  outline: 2px solid #dc2626;
+  outline-offset: 2px;
+}
+
 .chat-window-content {
   flex: 1;
   display: flex;

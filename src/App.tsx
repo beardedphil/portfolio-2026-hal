@@ -2683,7 +2683,7 @@ function App() {
                     </button>
                     <button
                       type="button"
-                      className="chat-window-close"
+                      className={`chat-window-close ${openChatTarget === 'project-manager' ? 'chat-window-close-pm' : ''}`}
                       onClick={() => {
                         setOpenChatTarget(null)
                       }}
