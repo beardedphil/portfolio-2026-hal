@@ -1501,18 +1501,20 @@ function App() {
 
           if (payload.eventType === 'INSERT' && payload.new) {
             const newRun = payload.new as KanbanAgentRunRow
-            if (newRun.ticket_pk) {
+            const ticketPk = newRun.ticket_pk
+            if (ticketPk) {
               setKanbanAgentRunsByTicketPk((prev) => ({
                 ...prev,
-                [newRun.ticket_pk]: newRun,
+                [ticketPk]: newRun,
               }))
             }
           } else if (payload.eventType === 'UPDATE' && payload.new) {
             const updatedRun = payload.new as KanbanAgentRunRow
-            if (updatedRun.ticket_pk) {
+            const ticketPk = updatedRun.ticket_pk
+            if (ticketPk) {
               setKanbanAgentRunsByTicketPk((prev) => ({
                 ...prev,
-                [updatedRun.ticket_pk]: updatedRun,
+                [ticketPk]: updatedRun,
               }))
             }
           } else if (payload.eventType === 'DELETE' && payload.old) {
