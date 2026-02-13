@@ -803,7 +803,20 @@ function ProcessReviewSection({
   )
 }
 
-/** Artifacts section component (0082) */
+/** Extract artifact type from title (0137) */
+function extractArtifactTypeFromTitle(title: string): string | null {
+  const normalized = title.toLowerCase().trim()
+  if (normalized.startsWith('plan for ticket')) return 'plan'
+  if (normalized.startsWith('worklog for ticket')) return 'worklog'
+  if (normalized.startsWith('changed files for ticket')) return 'changed-files'
+  if (normalized.startsWith('decisions for ticket')) return 'decisions'
+  if (normalized.startsWith('verification for ticket')) return 'verification'
+  if (normalized.startsWith('pm review for ticket')) return 'pm-review'
+  if (normalized.startsWith('qa report for ticket')) return 'qa-report'
+  return null
+}
+
+/** Artifacts section component (0082, 0137) */
 function ArtifactsSection({
   artifacts,
   loading,
@@ -837,20 +850,15 @@ function ArtifactsSection({
     )
   }
 
-  if (artifacts.length === 0) {
-    return (
-      <div className="artifacts-section">
-        <h3 className="artifacts-section-title">Artifacts</h3>
-        <p className="artifacts-empty">No artifacts available for this ticket.</p>
-        {statusMessage && <p className="artifacts-status" role="status">{statusMessage}</p>}
-        {showRefresh && (
-          <button type="button" className="artifacts-refresh-btn" onClick={onRefresh}>
-            Refresh artifacts
-          </button>
-        )}
-      </div>
-    )
-  }
+  // Check for required implementation artifacts (0137)
+  const requiredImplementationArtifacts = ['plan', 'worklog', 'changed-files', 'decisions', 'verification', 'pm-review']
+  const presentArtifactTypes = new Set(
+    artifacts
+      .filter((a) => a.agent_type === 'implementation')
+      .map((a) => extractArtifactTypeFromTitle(a.title || ''))
+      .filter((t): t is string => t !== null)
+  )
+  const missingArtifacts = requiredImplementationArtifacts.filter((t) => !presentArtifactTypes.has(t))
 
   // Sort all artifacts by created_at descending (most recent first)
   const sortedArtifacts = [...artifacts].sort(
@@ -866,27 +874,53 @@ function ArtifactsSection({
           Refresh artifacts
         </button>
       )}
-      <ul className="artifacts-list">
-        {sortedArtifacts.map((artifact) => {
-          // Use artifact title directly, or fall back to agent type display name
-          const displayName = artifact.title || getAgentTypeDisplayName(artifact.agent_type)
-          return (
-            <li key={artifact.artifact_id} className="artifacts-item">
-              <button
-                type="button"
-                className="artifacts-item-button"
-                onClick={() => onOpenArtifact(artifact)}
-                aria-label={`Open ${displayName}`}
-              >
-                <span className="artifacts-item-title">{displayName}</span>
-                <span className="artifacts-item-meta">
-                  {new Date(artifact.created_at).toLocaleString()}
-                </span>
-              </button>
-            </li>
-          )
-        })}
-      </ul>
+      {missingArtifacts.length > 0 && artifacts.length > 0 && (
+        <div className="artifacts-missing-warning" style={{ marginTop: '8px', padding: '8px', backgroundColor: '#fff3cd', border: '1px solid #ffc107', borderRadius: '4px', fontSize: '0.9em' }}>
+          <strong>Missing artifacts:</strong> {missingArtifacts.map((t) => {
+            const displayNames: Record<string, string> = {
+              'changed-files': 'Changed Files',
+              'pm-review': 'PM Review',
+              'qa-report': 'QA Report',
+            }
+            return displayNames[t] || t.charAt(0).toUpperCase() + t.slice(1)
+          }).join(', ')}
+          {missingArtifacts.includes('changed-files') && (
+            <div style={{ marginTop: '4px', fontSize: '0.85em', color: '#666' }}>
+              Changed Files: Data unavailable (e.g., missing PR/branch info, GitHub API failure). Artifact not published to avoid blank placeholder.
+            </div>
+          )}
+          {missingArtifacts.includes('verification') && (
+            <div style={{ marginTop: '4px', fontSize: '0.85em', color: '#666' }}>
+              Verification: Content could not be generated. Artifact not published to avoid blank placeholder.
+            </div>
+          )}
+        </div>
+      )}
+      {artifacts.length === 0 ? (
+        <p className="artifacts-empty">No artifacts available for this ticket.</p>
+      ) : (
+        <ul className="artifacts-list">
+          {sortedArtifacts.map((artifact) => {
+            // Use artifact title directly, or fall back to agent type display name
+            const displayName = artifact.title || getAgentTypeDisplayName(artifact.agent_type)
+            return (
+              <li key={artifact.artifact_id} className="artifacts-item">
+                <button
+                  type="button"
+                  className="artifacts-item-button"
+                  onClick={() => onOpenArtifact(artifact)}
+                  aria-label={`Open ${displayName}`}
+                >
+                  <span className="artifacts-item-title">{displayName}</span>
+                  <span className="artifacts-item-meta">
+                    {new Date(artifact.created_at).toLocaleString()}
+                  </span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
     </div>
   )
 }

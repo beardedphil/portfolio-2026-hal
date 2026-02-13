@@ -4,6 +4,7 @@ import {
   createCanonicalTitle,
   findArtifactsByCanonicalId,
 } from '../artifacts/_shared.js'
+import { hasSubstantiveContent } from '../artifacts/_validation.js'
 
 export type AgentType = 'implementation' | 'qa'
 
@@ -70,6 +71,7 @@ export type UpsertArtifactResult = { ok: true } | { ok: false; error: string }
 
 /** Upsert one artifact: update body_md if row exists, otherwise insert. Returns error message if failed.
  * Handles duplicates and empty artifacts (0121).
+ * Skips storing artifacts that are placeholders or don't contain substantive content (0137).
  */
 export async function upsertArtifact(
   supabase: SupabaseClient<any, 'public', any>,
@@ -79,6 +81,13 @@ export async function upsertArtifact(
   title: string,
   bodyMd: string
 ): Promise<UpsertArtifactResult> {
+  // Validate that body_md contains substantive content before storing (0137)
+  const validation = hasSubstantiveContent(bodyMd, title)
+  if (!validation.valid) {
+    // Skip storing placeholder artifacts - return success but log the skip
+    console.log(`[agent-runs] Skipping placeholder artifact: ${title} (${validation.reason})`)
+    return { ok: true } // Return success to avoid breaking callers, but don't store the artifact
+  }
   // Extract artifact type from title and get ticket's display_id for canonical matching (0121)
   const artifactType = extractArtifactTypeFromTitle(title)
   let artifacts: Array<{ artifact_id: string; body_md?: string; created_at: string }> = []
@@ -142,12 +151,12 @@ export async function upsertArtifact(
     title = canonicalTitle
   }
 
-  // Identify empty/placeholder artifacts (body is empty or very short)
+  // Identify empty/placeholder artifacts using validation (0137)
   const emptyArtifactIds: string[] = []
   for (const artifact of artifacts) {
-    const currentBody = (artifact.body_md || '').trim()
-    // Consider empty or very short (< 30 chars) as placeholder
-    if (currentBody.length === 0 || currentBody.length < 30) {
+    const currentBody = artifact.body_md || ''
+    const currentValidation = hasSubstantiveContent(currentBody, title)
+    if (!currentValidation.valid) {
       emptyArtifactIds.push(artifact.artifact_id)
     }
   }
@@ -178,7 +187,24 @@ export async function upsertArtifact(
   }
 
   if (targetArtifactId) {
-    // Update the target artifact with canonical title and new body (0121)
+    // Delete ALL other artifacts with the same canonical type to prevent duplicates (0137)
+    const duplicateIds = artifacts
+      .map((a) => a.artifact_id)
+      .filter((id) => id !== targetArtifactId && !emptyArtifactIds.includes(id))
+    
+    if (duplicateIds.length > 0) {
+      const { error: deleteDuplicateErr } = await supabase
+        .from('agent_artifacts')
+        .delete()
+        .in('artifact_id', duplicateIds)
+      
+      if (deleteDuplicateErr) {
+        // Log but don't fail - we can still proceed with update
+        console.warn('[agent-runs] Failed to delete duplicate artifacts:', deleteDuplicateErr.message)
+      }
+    }
+
+    // Update the target artifact with canonical title and new body (0121, 0137)
     const { error: updateErr } = await supabase
       .from('agent_artifacts')
       .update({ title, body_md: bodyMd } as Record<string, unknown>)

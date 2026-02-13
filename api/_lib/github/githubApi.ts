@@ -249,8 +249,10 @@ export function generateImplementationArtifacts(
   summary: string,
   prUrl: string,
   prFiles: PrFile[]
-): Array<{ title: string; body_md: string }> {
+): Array<{ title: string; body_md: string; skipIfPlaceholder?: boolean }> {
   const modified = prFiles.filter((f) => f.status === 'modified' || f.status === 'added')
+  
+  // Changed Files: only generate if we have actual file changes
   const changedFilesBody =
     modified.length > 0
       ? [
@@ -261,7 +263,7 @@ export function generateImplementationArtifacts(
               `- \`${f.filename}\`\n  - ${f.status === 'added' ? 'Added' : 'Modified'} (+${f.additions} −${f.deletions})`
           ),
         ].join('\n')
-      : '## Modified\n\n(No files changed in this PR)'
+      : null // Don't generate placeholder - skip this artifact if no files
 
   const planBody = [
     `# Plan: ${displayId}`,
@@ -292,16 +294,29 @@ export function generateImplementationArtifacts(
     'Implementation delivered by Cursor Cloud Agent. Key decisions reflected in code changes.',
   ].join('\n')
 
-  const verificationBody = [
-    `# Verification: ${displayId}`,
-    '',
-    '## Code Review',
-    '- [ ] Review changed files',
-    '- [ ] Verify acceptance criteria met',
-    '',
-    '## Changed Files',
-    modified.length > 0 ? modified.map((f) => `- \`${f.filename}\` (+${f.additions} −${f.deletions})`).join('\n') : '(none)',
-  ].join('\n')
+  // Verification: only generate substantive content (not "(none)")
+  const verificationBody =
+    modified.length > 0
+      ? [
+          `# Verification: ${displayId}`,
+          '',
+          '## Code Review',
+          '- [ ] Review changed files',
+          '- [ ] Verify acceptance criteria met',
+          '',
+          '## Changed Files',
+          modified.map((f) => `- \`${f.filename}\` (+${f.additions} −${f.deletions})`).join('\n'),
+        ].join('\n')
+      : [
+          `# Verification: ${displayId}`,
+          '',
+          '## Code Review',
+          '- [ ] Review changed files',
+          '- [ ] Verify acceptance criteria met',
+          '',
+          '## Note',
+          'Changed files information unavailable. Verification should be performed manually.',
+        ].join('\n')
 
   const pmReviewBody = [
     `# PM Review: ${displayId}`,
@@ -312,14 +327,20 @@ export function generateImplementationArtifacts(
     prUrl ? `**Pull request:** ${prUrl}` : '',
   ].join('\n')
 
-  return [
+  const artifacts: Array<{ title: string; body_md: string; skipIfPlaceholder?: boolean }> = [
     { title: `Plan for ticket ${displayId}`, body_md: planBody },
     { title: `Worklog for ticket ${displayId}`, body_md: worklogBody },
-    { title: `Changed Files for ticket ${displayId}`, body_md: changedFilesBody },
     { title: `Decisions for ticket ${displayId}`, body_md: decisionsBody },
     { title: `Verification for ticket ${displayId}`, body_md: verificationBody },
     { title: `PM Review for ticket ${displayId}`, body_md: pmReviewBody },
   ]
+
+  // Only include Changed Files artifact if we have actual file changes
+  if (changedFilesBody !== null) {
+    artifacts.splice(2, 0, { title: `Changed Files for ticket ${displayId}`, body_md: changedFilesBody })
+  }
+
+  return artifacts
 }
 
 export type CodeSearchMatch = { path: string; line: number; text: string }
