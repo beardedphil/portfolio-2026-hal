@@ -169,7 +169,8 @@ Use HAL API endpoints (tool calls) to store artifacts:
   - the **feature branch name** (so QA can review and merge), and
   - the exact `git status -sb` output.
 - The implementation agent **must add the branch name to the ticket** when claiming "ready for QA" (see ticket template: QA → Branch).
-- The implementation agent **must store all 6 required artifacts in Supabase** when marking ready for QA (see "Required Artifacts" above). 
+- The implementation agent **must store all 6 required artifacts in Supabase** when marking ready for QA (see "Required Artifacts" above).
+- The implementation agent **must move the ticket to QA column** (`col-qa`) via HAL API (`POST /api/tickets/move` with `{ ticketId: "<id>", columnId: "col-qa" }`) when marking ready for QA. **FORBIDDEN:** Claiming "ready" without moving the ticket to QA column. 
   - **Storage method:** Call HAL API directly (`POST ${baseUrl}/api/artifacts/insert-implementation`) or write to `.hal-tool-call-queue.json`.
   - **Verification:** After storing, call `/api/artifacts/get` to verify all 6 artifacts are present. If any are missing, store them again.
   - **FORBIDDEN:** Claiming "ready" without verifying all artifacts are stored. QA will fail tickets with missing artifacts.
