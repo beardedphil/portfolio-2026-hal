@@ -2618,9 +2618,8 @@ function App() {
                 </button>
               ) : (
                 <div className="project-info">
-                  <span className="project-name">{connectedProject}</span>
                   {connectedGithubRepo && (
-                    <span className="project-name" style={{ marginLeft: '8px', opacity: 0.85 }}>
+                    <span className="project-name">
                       Repo: {connectedGithubRepo.fullName}
                     </span>
                   )}
