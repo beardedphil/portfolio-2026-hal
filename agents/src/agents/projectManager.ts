@@ -438,6 +438,8 @@ You have access to read-only tools to explore the repository. Use them to answer
 
 **Listing tickets by column:** When the user asks to see tickets in a specific Kanban column (e.g. "list tickets in QA column", "what tickets are in QA", "show me tickets in the QA column"), use list_tickets_by_column with the appropriate column_id (e.g. "col-qa" for QA, "col-todo" for To Do, "col-unassigned" for Unassigned, "col-human-in-the-loop" for Human in the Loop). Format the results clearly in your reply, showing ticket ID and title for each ticket. This helps you see which tickets are currently in a given column so you can update other tickets without asking the user for IDs.
 
+**Moving tickets to named columns:** When the user asks to move a ticket to a column by name (e.g. "move HAL-0121 to Ready to Do", "put ticket 0121 in QA", "move this to Human in the Loop"), use move_ticket_to_column with the ticket_id and column_name. You can also specify position: "top" (move to top of column), "bottom" (move to bottom, default), or a number (0-based index, e.g. 0 for first position, 1 for second). The tool automatically resolves column names to column IDs. After moving, confirm the ticket appears in the specified column and position in the Kanban UI.
+
 **Moving tickets to other repositories:** When the user asks to move a ticket to another repository's To Do column (e.g. "Move ticket HAL-0012 to owner/other-repo To Do"), use kanban_move_ticket_to_other_repo_todo with the ticket_id and target_repo_full_name. This tool works from any Kanban column (not only Unassigned). The ticket will be moved to the target repository and placed in its To Do column, and the ticket's display_id will be updated to match the target repo's prefix. If the target repo does not exist or the user lacks access, the tool will return a clear error message. If the ticket ID is invalid or not found, the tool will return a clear error message. After a successful move, confirm in chat the target repository and that the ticket is now in To Do.
 
 **Listing available repositories:** When the user asks "what repos can I move tickets to?" or similar questions about available target repositories, use list_available_repos to get a list of all repositories (repo_full_name) that have tickets in the database. Format the results clearly in your reply, showing the repository names.
@@ -910,7 +912,7 @@ export async function runPmAgent(
       )
       return tool({
         description:
-          'Fetch the full ticket content (body_md, title, id/display_id, kanban_column_id) and attached artifacts for a ticket from Supabase. Supabase-only mode (0065). In repo-scoped mode (0079), tickets are resolved by (repo_full_name, ticket_number). Returns full ticket record with artifacts in a forward-compatible way.',
+          'Fetch the full ticket content (body_md, title, id/display_id, kanban_column_id) and attached artifacts for a ticket from Supabase. Supabase-only mode (0065). In repo-scoped mode (0079), tickets are resolved by (repo_full_name, ticket_number). Returns full ticket record with artifacts in a forward-compatible way. The response includes artifact_summary with name/type, snippet/length, timestamps, and blank detection for each artifact, making it easy to diagnose duplicates or blank artifacts.',
         parameters: z.object({
           ticket_id: z
             .string()
@@ -1524,6 +1526,88 @@ export async function runPmAgent(
       })
     })()
 
+  const moveTicketToColumnTool =
+    hasSupabase &&
+    (() => {
+      return tool({
+        description:
+          'Move a ticket to a specified Kanban column by name (e.g. "Ready to Do", "QA", "Human in the Loop") or column ID. Optionally specify position: "top", "bottom", or a numeric index (0-based). The Kanban UI will reflect the change within ~10 seconds. Use when the user asks to move a ticket to a named column or reorder within a column.',
+        parameters: z.object({
+          ticket_id: z.string().describe('Ticket ID (e.g. "HAL-0121", "0121", or "121").'),
+          column_name: z
+            .string()
+            .optional()
+            .describe(
+              'Column name (e.g. "Ready to Do", "To Do", "QA", "Human in the Loop"). If not provided, column_id must be specified.'
+            ),
+          column_id: z
+            .string()
+            .optional()
+            .describe(
+              'Column ID (e.g. "col-todo", "col-qa", "col-human-in-the-loop"). If not provided, column_name must be specified.'
+            ),
+          position: z
+            .union([z.string(), z.number()])
+            .optional()
+            .describe(
+              'Position in column: "top" (move to top), "bottom" (move to bottom, default), or a number (0-based index, e.g. 0 for first, 1 for second).'
+            ),
+        }),
+        execute: async (input: { ticket_id: string; column_name?: string; column_id?: string; position?: string | number }) => {
+          type MoveResult =
+            | {
+                success: true
+                ticket_id: string
+                column_id: string
+                column_name?: string
+                position: number
+                moved_at: string
+              }
+            | { success: false; error: string }
+          let out: MoveResult
+          try {
+            const baseUrl = process.env.HAL_API_BASE_URL || 'https://portfolio-2026-hal.vercel.app'
+            const supabaseUrl = config.supabaseUrl?.trim() || ''
+            const supabaseAnonKey = config.supabaseAnonKey?.trim() || ''
+
+            const response = await fetch(`${baseUrl}/api/tickets/move`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                ticketId: input.ticket_id,
+                columnId: input.column_id,
+                columnName: input.column_name,
+                position: input.position,
+                supabaseUrl,
+                supabaseAnonKey,
+              }),
+            })
+
+            const result = await response.json()
+            if (result.success) {
+              out = {
+                success: true,
+                ticket_id: input.ticket_id,
+                column_id: result.columnId,
+                ...(result.columnName && { column_name: result.columnName }),
+                position: result.position,
+                moved_at: result.movedAt,
+              }
+            } else {
+              out = { success: false, error: result.error || 'Failed to move ticket' }
+            }
+          } catch (err) {
+            out = {
+              success: false,
+              error: err instanceof Error ? err.message : String(err),
+            }
+          }
+          toolCalls.push({ name: 'move_ticket_to_column', input, output: out })
+          return out
+        },
+      })
+    })()
+
   const listAvailableReposTool =
     hasSupabase &&
     (() => {
@@ -1960,6 +2044,7 @@ export async function runPmAgent(
     ...(syncTicketsTool ? { sync_tickets: syncTicketsTool } : {}),
     ...(kanbanMoveTicketToTodoTool ? { kanban_move_ticket_to_todo: kanbanMoveTicketToTodoTool } : {}),
     ...(listTicketsByColumnTool ? { list_tickets_by_column: listTicketsByColumnTool } : {}),
+    ...(moveTicketToColumnTool ? { move_ticket_to_column: moveTicketToColumnTool } : {}),
     ...(listAvailableReposTool ? { list_available_repos: listAvailableReposTool } : {}),
     ...(kanbanMoveTicketToOtherRepoTodoTool
       ? { kanban_move_ticket_to_other_repo_todo: kanbanMoveTicketToOtherRepoTodoTool }
