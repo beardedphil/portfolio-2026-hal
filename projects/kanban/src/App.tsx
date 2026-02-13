@@ -581,13 +581,13 @@ function ProcessReviewSection({
   supabaseAnonKey?: string
 }) {
   const halCtx = useContext(HalKanbanContext)
-  const [suggestions, setSuggestions] = useState<Array<{ id: string; text: string; selected: boolean }>>([])
+  const [suggestions, setSuggestions] = useState<Array<{ id: string; text: string; justification: string; selected: boolean }>>([])
   const [isRunningReview, setIsRunningReview] = useState(false)
+  const [lastRunStatus, setLastRunStatus] = useState<{ timestamp: string; success: boolean; error?: string } | null>(null)
   const [isCreatingTicket, setIsCreatingTicket] = useState(false)
   const [reviewError, setReviewError] = useState<string | null>(null)
   const [createdTicketId, setCreatedTicketId] = useState<string | null>(null)
   const [createError, setCreateError] = useState<string | null>(null)
-  const [hasAutoRun, setHasAutoRun] = useState(false)
 
   const handleRunReview = async () => {
     if (!supabaseUrl || !supabaseAnonKey) {
@@ -615,33 +615,108 @@ function ProcessReviewSection({
 
       if (!result.success) {
         setReviewError(result.error || 'Failed to run review')
+        setLastRunStatus({
+          timestamp: new Date().toISOString(),
+          success: false,
+          error: result.error || 'Failed to run review',
+        })
         return
       }
 
-      const suggestionsList = (result.suggestions || []).map((s: string, i: number) => ({
-        id: `suggestion-${i}`,
-        text: s,
-        selected: false,
-      }))
+      // Handle both old format (string[]) and new format (Array<{text, justification}>)
+      const suggestionsList = (result.suggestions || []).map((s: string | { text: string; justification?: string }, i: number) => {
+        if (typeof s === 'string') {
+          // Legacy format: just a string
+          return {
+            id: `suggestion-${i}`,
+            text: s,
+            justification: 'No justification provided.',
+            selected: false,
+          }
+        } else {
+          // New format: object with text and justification
+          return {
+            id: `suggestion-${i}`,
+            text: s.text || '',
+            justification: s.justification || 'No justification provided.',
+            selected: false,
+          }
+        }
+      })
       setSuggestions(suggestionsList)
+      setLastRunStatus({
+        timestamp: new Date().toISOString(),
+        success: true,
+      })
     } catch (err) {
       setReviewError(err instanceof Error ? err.message : 'Failed to run review')
+      setLastRunStatus({
+        timestamp: new Date().toISOString(),
+        success: false,
+        error: err instanceof Error ? err.message : 'Failed to run review',
+      })
     } finally {
       setIsRunningReview(false)
     }
   }
 
-  // Automatically run review when component mounts (0108)
+  // Load last run status from database on mount
   useEffect(() => {
-    if (!hasAutoRun && supabaseUrl && supabaseAnonKey && artifacts.length > 0 && !isRunningReview && suggestions.length === 0) {
-      setHasAutoRun(true)
-      // Run review automatically when Process Review section is shown
-      handleRunReview().catch((err) => {
-        console.error('Auto-run process review failed:', err)
-      })
+    if (!supabaseUrl || !supabaseAnonKey || !ticketPk) return
+
+    const loadLastRunStatus = async () => {
+      try {
+        const supabase = createClient(supabaseUrl, supabaseAnonKey)
+        const { data, error } = await supabase
+          .from('process_reviews')
+          .select('created_at, status, error_message, suggestions')
+          .eq('ticket_pk', ticketPk)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+        if (error) {
+          console.error('Failed to load process review status:', error)
+          return
+        }
+
+        if (data) {
+          setLastRunStatus({
+            timestamp: data.created_at,
+            success: data.status === 'success',
+            error: data.error_message || undefined,
+          })
+
+          // If we have stored suggestions and no current suggestions, load them
+          if (data.suggestions && Array.isArray(data.suggestions) && data.suggestions.length > 0 && suggestions.length === 0) {
+            const loadedSuggestions = data.suggestions.map((s: string | { text: string; justification?: string }, i: number) => {
+              if (typeof s === 'string') {
+                return {
+                  id: `suggestion-${i}`,
+                  text: s,
+                  justification: 'No justification provided.',
+                  selected: false,
+                }
+              } else {
+                return {
+                  id: `suggestion-${i}`,
+                  text: s.text || '',
+                  justification: s.justification || 'No justification provided.',
+                  selected: false,
+                }
+              }
+            })
+            setSuggestions(loadedSuggestions)
+          }
+        }
+      } catch (err) {
+        console.error('Error loading process review status:', err)
+      }
     }
+
+    loadLastRunStatus()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasAutoRun, supabaseUrl, supabaseAnonKey, artifacts.length])
+  }, [supabaseUrl, supabaseAnonKey, ticketPk])
 
   const handleToggleSuggestion = (id: string) => {
     setSuggestions((prev) =>
@@ -738,6 +813,23 @@ function ProcessReviewSection({
         )}
       </div>
 
+      {lastRunStatus && (
+        <div className="process-review-last-run" role="status">
+          <p>
+            <strong>Last run:</strong>{' '}
+            {new Date(lastRunStatus.timestamp).toLocaleString()}{' '}
+            {lastRunStatus.success ? (
+              <span className="process-review-status-success">✓ Success</span>
+            ) : (
+              <span className="process-review-status-failed">✗ Failed</span>
+            )}
+            {lastRunStatus.error && (
+              <span className="process-review-error-detail"> — {lastRunStatus.error}</span>
+            )}
+          </p>
+        </div>
+      )}
+
       <div className="process-review-actions">
         <button
           type="button"
@@ -768,7 +860,12 @@ function ProcessReviewSection({
                     onChange={() => handleToggleSuggestion(suggestion.id)}
                     disabled={isCreatingTicket}
                   />
-                  <span className="process-review-suggestion-text">{suggestion.text}</span>
+                  <div className="process-review-suggestion-content">
+                    <span className="process-review-suggestion-text">{suggestion.text}</span>
+                    {suggestion.justification && (
+                      <span className="process-review-suggestion-justification">{suggestion.justification}</span>
+                    )}
+                  </div>
                 </label>
               </li>
             ))}
@@ -3386,19 +3483,6 @@ function App() {
             // Move ticket to Process Review using HAL's callback
             await halCtx.onMoveTicket(ticketPk, 'col-process-review')
             addLog(`Human validation: Ticket ${ticketPk} passed, moved to Process Review`)
-            
-            // Automatically trigger Process Review agent (0108)
-            if (halCtx.onProcessReview && detailModal?.ticketId) {
-              try {
-                await halCtx.onProcessReview({
-                  ticketPk,
-                  ticketId: detailModal.ticketId,
-                })
-              } catch (err) {
-                console.error('Failed to trigger process review agent:', err)
-                addLog(`Warning: Process Review agent trigger failed: ${err instanceof Error ? err.message : String(err)}`)
-              }
-            }
             
             // HAL will update the data and pass it back, so we don't need to update local state
             // Close ticket detail modal after a short delay to show success message

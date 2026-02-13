@@ -715,6 +715,29 @@ h1 {
   font-style: italic;
   margin: 0.5rem 0;
 }
+.process-review-last-run {
+  margin: 1rem 0;
+  padding: 0.75rem;
+  background: #e7f3ff;
+  border: 1px solid #b3d9ff;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+.process-review-last-run p {
+  margin: 0;
+}
+.process-review-status-success {
+  color: #2e7d32;
+  font-weight: 500;
+}
+.process-review-status-failed {
+  color: #c62828;
+  font-weight: 500;
+}
+.process-review-error-detail {
+  color: #c62828;
+  font-size: 0.85rem;
+}
 .process-review-actions {
   display: flex;
   gap: 0.75rem;
@@ -780,10 +803,23 @@ h1 {
   margin-top: 0.25rem;
   cursor: pointer;
 }
-.process-review-suggestion-text {
+.process-review-suggestion-content {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.process-review-suggestion-text {
   color: #333;
   line-height: 1.5;
+  font-weight: 500;
+}
+.process-review-suggestion-justification {
+  font-size: 0.85rem;
+  color: #666;
+  font-style: italic;
+  margin-left: 0.5rem;
+  line-height: 1.4;
 }
 .process-review-create-actions {
   margin-top: 1rem;
