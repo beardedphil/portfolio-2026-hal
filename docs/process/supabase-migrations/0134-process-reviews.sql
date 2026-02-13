@@ -1,10 +1,10 @@
--- Ticket 0134: Process Review storage
+-- Ticket 0134: Process Review results storage
 --
 -- Goal:
--- - Store Process Review results (suggestions, justifications, last-run status)
+-- - Store Process Review results (suggestions, justifications, status, timestamp)
 -- - Link reviews to tickets via ticket_pk
--- - Enable UI to display review results in ticket detail view
--- - Track last-run timestamp and status (success/failure)
+-- - Support one review per ticket (latest review is the current one)
+-- - Enable UI to display last-run status and suggestions with justifications
 
 create extension if not exists pgcrypto;
 
@@ -15,14 +15,14 @@ create table if not exists public.process_reviews (
   ticket_pk uuid not null,
   repo_full_name text not null,
   
-  -- Review results: suggestions with justifications
-  -- Stored as JSON array: [{ suggestion: string, justification: string }]
-  suggestions_json jsonb not null default '[]'::jsonb,
+  -- Review results: structured suggestions with justifications
+  suggestions jsonb not null default '[]'::jsonb,
+  -- Format: [{"text": "suggestion text", "justification": "why this helps"}]
   
   -- Status: success | failed
   status text not null default 'success',
   
-  -- Error message if status is 'failed'
+  -- Error message (if status is 'failed')
   error_message text,
   
   -- Metadata
