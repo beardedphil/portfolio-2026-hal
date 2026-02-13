@@ -1,14 +1,11 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { getSupabaseClient } from './lib/supabase'
-import {
-  KanbanBoard,
-  KANBAN_BUILD,
-  type KanbanTicketRow,
-  type KanbanColumnRow,
-  type KanbanAgentRunRow,
-  type KanbanBoardProps,
-} from 'portfolio-2026-kanban'
+import * as Kanban from 'portfolio-2026-kanban'
+import type { KanbanTicketRow, KanbanColumnRow, KanbanAgentRunRow, KanbanBoardProps } from 'portfolio-2026-kanban'
 import 'portfolio-2026-kanban/style.css'
+
+const KanbanBoard = Kanban.default
+const KANBAN_BUILD = typeof (Kanban as { KANBAN_BUILD?: string }).KANBAN_BUILD === 'string' ? (Kanban as { KANBAN_BUILD: string }).KANBAN_BUILD : 'unknown'
 
 /** Artifact row shape (matches Kanban package KanbanAgentArtifactRow). HAL owns DB so we type locally. */
 type ArtifactRow = {

@@ -301,7 +301,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           `**Current status:** ${cursorStatus}`,
         ]
         const res = await upsertArtifact(supabase, ticketPk, repoFullName, 'implementation', worklogTitle, worklogLines.join('\n'))
-        if (!res.ok) console.warn('[agent-runs] launch worklog upsert failed:', res.error)
+        if (!res.ok) console.warn('[agent-runs] launch worklog upsert failed:', (res as { ok: false; error: string }).error)
       } catch (e) {
         console.warn('[agent-runs] launch worklog upsert error:', e instanceof Error ? e.message : e)
       }

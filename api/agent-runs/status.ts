@@ -165,7 +165,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           prUrl
         )
         const result = await upsertArtifact(supabase, ticketPk, repoFullName, 'implementation', worklogTitle, worklogBody)
-        if (!result.ok) console.warn('[agent-runs] worklog upsert failed:', result.error)
+        if (!result.ok) console.warn('[agent-runs] worklog upsert failed:', (result as { ok: false; error: string }).error)
       } catch (e) {
         console.warn('[agent-runs] worklog upsert error:', e instanceof Error ? e.message : e)
       }
@@ -207,7 +207,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           )
           for (const a of artifacts) {
             const res = await upsertArtifact(supabase, ticketPk, repoFullName, 'implementation', a.title, a.body_md)
-            if (!res.ok) console.warn('[agent-runs] artifact upsert failed:', a.title, res.error)
+            if (!res.ok) console.warn('[agent-runs] artifact upsert failed:', a.title, (res as { ok: false; error: string }).error)
           }
         } catch (e) {
           console.warn('[agent-runs] finished artifact upsert error:', e instanceof Error ? e.message : e)
