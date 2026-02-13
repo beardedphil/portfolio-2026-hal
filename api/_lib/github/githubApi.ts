@@ -250,6 +250,11 @@ export type ArtifactGenerationResult = {
   error?: string // Error reason when body_md is null
 }
 
+export type ArtifactGenerationResponse = {
+  artifacts: ArtifactGenerationResult[]
+  errors: Array<{ artifactType: string; reason: string }>
+}
+
 /** Generate the 6 implementation artifacts from PR data and Cursor summary. Stored in Supabase only.
  * Returns artifacts with body_md set to null when data is unavailable (e.g., no PR files, missing PR URL).
  * Callers should NOT store artifacts where body_md is null - instead show error state in UI.
@@ -260,7 +265,7 @@ export function generateImplementationArtifacts(
   prUrl: string | null,
   prFiles: PrFile[] | null,
   prFilesError?: string | null
-): Array<ArtifactGenerationResult> {
+): ArtifactGenerationResponse {
   const modified = (prFiles || []).filter((f) => f.status === 'modified' || f.status === 'added')
   
   // Changed Files artifact: only generate if we have file data
