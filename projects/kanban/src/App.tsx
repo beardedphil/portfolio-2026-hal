@@ -1139,6 +1139,11 @@ function TicketDetailModal({
                       />
                     </>
                   )}
+                  {!supabaseUrl?.trim() || !supabaseKey?.trim() ? (
+                    <div className="ticket-detail-error" role="alert" style={{ marginBottom: '1rem' }}>
+                      <p>Supabase not configured. Please connect to Supabase first to use the Pass action.</p>
+                    </div>
+                  ) : null}
                   <HumanValidationSection
                     ticketId={ticketId}
                     ticketPk={ticketId}
