@@ -1000,10 +1000,10 @@ function TicketDetailModal({
       setValidationNotes('')
       
       // Refresh ticket body to show the updated feedback
-      if (onTicketUpdate) {
+      if (_onTicketUpdate) {
         // Small delay to allow Supabase update to complete
         setTimeout(() => {
-          onTicketUpdate()
+          _onTicketUpdate()
         }, 500)
       }
     } catch (err) {
@@ -1013,7 +1013,7 @@ function TicketDetailModal({
     } finally {
       setIsProcessing(false)
     }
-  }, [ticketId, validationSteps, validationNotes, isProcessing, onValidationFail, onTicketUpdate])
+  }, [ticketId, validationSteps, validationNotes, isProcessing, onValidationFail, _onTicketUpdate])
 
   // Reset validation fields when modal closes
   useEffect(() => {
