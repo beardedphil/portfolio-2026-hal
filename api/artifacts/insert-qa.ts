@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { createClient } from '@supabase/supabase-js'
-import { hasSubstantiveContent } from './_validation.js'
+import { hasSubstantiveQAContent } from './_validation.js'
 import {
   extractArtifactTypeFromTitle,
   createCanonicalTitle,
@@ -74,12 +74,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
-    // Validate that body_md contains substantive content
-    const contentValidation = hasSubstantiveContent(body_md, title)
+    // Validate that body_md contains substantive QA report content
+    // Use QA-specific validation that accepts structured reports with sections/tables/lists
+    const contentValidation = hasSubstantiveQAContent(body_md, title)
     if (!contentValidation.valid) {
       json(res, 400, {
         success: false,
-        error: contentValidation.reason || 'Artifact body must contain substantive content, not just a title or placeholder text.',
+        error: contentValidation.reason || 'Artifact body must contain substantive QA report content, not just a title or placeholder text.',
         validation_failed: true,
       })
       return
@@ -153,7 +154,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     for (const artifact of artifacts) {
       const currentBody = artifact.body_md || ''
-      const currentValidation = hasSubstantiveContent(currentBody, canonicalTitle)
+      // Use QA-specific validation for consistency
+      const currentValidation = hasSubstantiveQAContent(currentBody, canonicalTitle)
       if (currentValidation.valid) {
         artifactsWithContent.push({
           artifact_id: artifact.artifact_id,
