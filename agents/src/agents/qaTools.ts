@@ -216,7 +216,7 @@ export function createQaTools(config: QaToolsConfig): Record<string, any> {
 
   // Get ticket content
   tools.fetch_ticket_content = tool({
-    description: 'Fetch the full ticket content (body_md, title, id) from Supabase for a ticket.',
+    description: 'Fetch the full ticket content (body_md, title, id) and attached artifacts from Supabase for a ticket. Returns full ticket record with artifacts in a forward-compatible way.',
     parameters: z.object({
       ticket_id: z.string().describe('Ticket ID (e.g. "0076")'),
     }),
@@ -240,9 +240,13 @@ export function createQaTools(config: QaToolsConfig): Record<string, any> {
           return { success: false, error: result.error || 'Failed to fetch ticket' }
         }
 
+        // Return full ticket record with artifacts (forward-compatible)
         return {
           success: true,
           body_md: result.body_md || '',
+          ticket: result.ticket, // Full ticket record (all fields)
+          artifacts: result.artifacts || [], // Array of artifacts
+          ...(result.artifacts_error ? { artifacts_error: result.artifacts_error } : {}), // Include error if artifacts fetch failed
         }
       } catch (err) {
         return {

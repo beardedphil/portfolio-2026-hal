@@ -910,7 +910,7 @@ export async function runPmAgent(
       )
       return tool({
         description:
-          'Fetch the full ticket content (body_md, title, id/display_id, kanban_column_id) for a ticket from Supabase. Supabase-only mode (0065). In repo-scoped mode (0079), tickets are resolved by (repo_full_name, ticket_number).',
+          'Fetch the full ticket content (body_md, title, id/display_id, kanban_column_id) and attached artifacts for a ticket from Supabase. Supabase-only mode (0065). In repo-scoped mode (0079), tickets are resolved by (repo_full_name, ticket_number). Returns full ticket record with artifacts in a forward-compatible way.',
         parameters: z.object({
           ticket_id: z
             .string()
@@ -929,6 +929,19 @@ export async function runPmAgent(
                 title: string
                 body_md: string
                 kanban_column_id: string | null
+                artifacts: Array<{
+                  artifact_id: string
+                  ticket_pk: string
+                  repo_full_name?: string | null
+                  agent_type: string
+                  title: string
+                  body_md: string | null
+                  created_at: string
+                  updated_at?: string | null
+                }>
+                artifacts_error?: string
+                // Forward-compatible: include full ticket record
+                ticket?: Record<string, any>
               }
             | { success: false; error: string }
           let out: FetchResult
@@ -942,13 +955,36 @@ export async function runPmAgent(
             const repoFullName =
               typeof config.projectId === 'string' && config.projectId.trim() ? config.projectId.trim() : ''
             if (repoFullName) {
+              // Select all fields for forward compatibility
               const { data: row, error } = await supabase
                 .from('tickets')
-                .select('id, display_id, ticket_number, repo_full_name, title, body_md, kanban_column_id')
+                .select('*')
                 .eq('repo_full_name', repoFullName)
                 .eq('ticket_number', ticketNumber)
                 .maybeSingle()
               if (!error && row) {
+                // Fetch artifacts for this ticket
+                let artifacts: any[] = []
+                let artifactsError: string | null = null
+                const ticketPk = (row as any).pk
+                if (ticketPk) {
+                  try {
+                    const { data: artifactsData, error: artifactsErr } = await supabase
+                      .from('agent_artifacts')
+                      .select('artifact_id, ticket_pk, repo_full_name, agent_type, title, body_md, created_at, updated_at')
+                      .eq('ticket_pk', ticketPk)
+                      .order('created_at', { ascending: false })
+
+                    if (artifactsErr) {
+                      artifactsError = `Failed to fetch artifacts: ${artifactsErr.message}`
+                    } else {
+                      artifacts = artifactsData || []
+                    }
+                  } catch (err) {
+                    artifactsError = err instanceof Error ? err.message : String(err)
+                  }
+                }
+
                 out = {
                   success: true,
                   id: (row as any).id,
@@ -958,6 +994,9 @@ export async function runPmAgent(
                   title: (row as any).title ?? '',
                   body_md: (row as any).body_md ?? '',
                   kanban_column_id: (row as any).kanban_column_id ?? null,
+                  artifacts: artifacts,
+                  ...(artifactsError ? { artifacts_error: artifactsError } : {}),
+                  ticket: row, // Full ticket record for forward compatibility
                 }
                 toolCalls.push({ name: 'fetch_ticket_content', input, output: out })
                 return out
@@ -966,16 +1005,41 @@ export async function runPmAgent(
                 // Legacy schema fallback: global id
                 const { data: legacyRow, error: legacyErr } = await supabase
                   .from('tickets')
-                  .select('id, title, body_md, kanban_column_id')
+                  .select('*')
                   .eq('id', normalizedId)
                   .maybeSingle()
                 if (!legacyErr && legacyRow) {
+                  // Fetch artifacts for legacy ticket
+                  let artifacts: any[] = []
+                  let artifactsError: string | null = null
+                  const ticketPk = (legacyRow as any).pk
+                  if (ticketPk) {
+                    try {
+                      const { data: artifactsData, error: artifactsErr } = await supabase
+                        .from('agent_artifacts')
+                        .select('artifact_id, ticket_pk, repo_full_name, agent_type, title, body_md, created_at, updated_at')
+                        .eq('ticket_pk', ticketPk)
+                        .order('created_at', { ascending: false })
+
+                      if (artifactsErr) {
+                        artifactsError = `Failed to fetch artifacts: ${artifactsErr.message}`
+                      } else {
+                        artifacts = artifactsData || []
+                      }
+                    } catch (err) {
+                      artifactsError = err instanceof Error ? err.message : String(err)
+                    }
+                  }
+
                   out = {
                     success: true,
                     id: (legacyRow as any).id,
                     title: (legacyRow as any).title ?? '',
                     body_md: (legacyRow as any).body_md ?? '',
                     kanban_column_id: (legacyRow as any).kanban_column_id ?? null,
+                    artifacts: artifacts,
+                    ...(artifactsError ? { artifacts_error: artifactsError } : {}),
+                    ticket: legacyRow, // Full ticket record for forward compatibility
                   }
                   toolCalls.push({ name: 'fetch_ticket_content', input, output: out })
                   return out
@@ -985,16 +1049,41 @@ export async function runPmAgent(
               // If no repo is connected, keep legacy behavior (global id) so "legacy/unknown" tickets remain reachable.
               const { data: legacyRow, error: legacyErr } = await supabase
                 .from('tickets')
-                .select('id, title, body_md, kanban_column_id')
+                .select('*')
                 .eq('id', normalizedId)
                 .maybeSingle()
               if (!legacyErr && legacyRow) {
+                // Fetch artifacts for legacy ticket
+                let artifacts: any[] = []
+                let artifactsError: string | null = null
+                const ticketPk = (legacyRow as any).pk
+                if (ticketPk) {
+                  try {
+                    const { data: artifactsData, error: artifactsErr } = await supabase
+                      .from('agent_artifacts')
+                      .select('artifact_id, ticket_pk, repo_full_name, agent_type, title, body_md, created_at, updated_at')
+                      .eq('ticket_pk', ticketPk)
+                      .order('created_at', { ascending: false })
+
+                    if (artifactsErr) {
+                      artifactsError = `Failed to fetch artifacts: ${artifactsErr.message}`
+                    } else {
+                      artifacts = artifactsData || []
+                    }
+                  } catch (err) {
+                    artifactsError = err instanceof Error ? err.message : String(err)
+                  }
+                }
+
                 out = {
                   success: true,
                   id: (legacyRow as any).id,
                   title: (legacyRow as any).title ?? '',
                   body_md: (legacyRow as any).body_md ?? '',
                   kanban_column_id: (legacyRow as any).kanban_column_id ?? null,
+                  artifacts: artifacts,
+                  ...(artifactsError ? { artifacts_error: artifactsError } : {}),
+                  ticket: legacyRow, // Full ticket record for forward compatibility
                 }
                 toolCalls.push({ name: 'fetch_ticket_content', input, output: out })
                 return out

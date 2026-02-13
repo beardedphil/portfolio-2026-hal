@@ -75,9 +75,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
+    // Fetch full ticket record (select all fields for forward compatibility)
     const fetch = ticketPk
-      ? await supabase.from('tickets').select('id, body_md').eq('pk', ticketPk).maybeSingle()
-      : await supabase.from('tickets').select('id, body_md').eq('id', ticketId!).maybeSingle()
+      ? await supabase.from('tickets').select('*').eq('pk', ticketPk).maybeSingle()
+      : await supabase.from('tickets').select('*').eq('id', ticketId!).maybeSingle()
 
     if (fetch.error) {
       json(res, 200, { success: false, error: `Supabase fetch failed: ${fetch.error.message}` })
@@ -89,9 +90,39 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
+    const ticket = fetch.data
+    const ticketPkValue = ticket.pk || (ticketPk ? ticketPk : undefined)
+
+    // If we have a ticket PK, fetch artifacts
+    let artifacts: any[] = []
+    let artifactsError: string | null = null
+    if (ticketPkValue) {
+      try {
+        const { data: artifactsData, error: artifactsErr } = await supabase
+          .from('agent_artifacts')
+          .select('artifact_id, ticket_pk, repo_full_name, agent_type, title, body_md, created_at, updated_at')
+          .eq('ticket_pk', ticketPkValue)
+          .order('created_at', { ascending: false })
+
+        if (artifactsErr) {
+          artifactsError = `Failed to fetch artifacts: ${artifactsErr.message}`
+        } else {
+          artifacts = artifactsData || []
+        }
+      } catch (err) {
+        artifactsError = err instanceof Error ? err.message : String(err)
+      }
+    }
+
+    // Return full ticket record with artifacts
+    // Forward-compatible: return all ticket fields, not just specific ones
     json(res, 200, {
       success: true,
-      body_md: fetch.data.body_md || '',
+      ticket: ticket, // Full ticket record (all fields)
+      artifacts: artifacts, // Array of artifacts
+      ...(artifactsError ? { artifacts_error: artifactsError } : {}), // Include error if artifacts fetch failed
+      // Backward compatibility: also include body_md at top level
+      body_md: ticket.body_md || '',
     })
   } catch (err) {
     json(res, 500, { success: false, error: err instanceof Error ? err.message : String(err) })
