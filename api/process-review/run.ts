@@ -72,8 +72,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     // Fetch ticket and artifacts
     const ticketQuery = ticketPk
-      ? await supabase.from('tickets').select('pk, id, display_id, title, body_md').eq('pk', ticketPk).maybeSingle()
-      : await supabase.from('tickets').select('pk, id, display_id, title, body_md').eq('id', ticketId!).maybeSingle()
+      ? await supabase.from('tickets').select('pk, id, display_id, title, body_md, repo_full_name').eq('pk', ticketPk).maybeSingle()
+      : await supabase.from('tickets').select('pk, id, display_id, title, body_md, repo_full_name').eq('id', ticketId!).maybeSingle()
 
     if (ticketQuery.error || !ticketQuery.data) {
       json(res, 200, {
