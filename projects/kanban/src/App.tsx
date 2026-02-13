@@ -3276,8 +3276,8 @@ function App() {
             }, REFETCH_AFTER_MOVE_MS + 100)
           }}
           onValidationFail={async (ticketPk: string, steps: string, notes: string) => {
-            // Get current ticket
-            const ticket = supabaseTickets.find((t) => t.pk === ticketPk)
+            // Get current ticket (use sourceTickets which works in both library and Supabase modes)
+            const ticket = sourceTickets.find((t) => t.pk === ticketPk)
             if (!ticket) {
               throw new Error('Ticket not found')
             }
