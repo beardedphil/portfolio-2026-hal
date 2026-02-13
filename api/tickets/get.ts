@@ -114,12 +114,48 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       }
     }
 
+    // Build artifact summary for assistant
+    const artifactSummary = artifacts.map((artifact: any) => {
+      const body_md = artifact.body_md || ''
+      const contentLength = body_md.length
+      const isBlank = !body_md || body_md.trim().length === 0 || body_md.trim().length < 30
+      
+      // Extract snippet (first 200 chars, word-boundary aware)
+      let snippet = ''
+      if (body_md) {
+        const withoutHeadings = body_md.replace(/^#{1,6}\s+.*$/gm, '').trim()
+        if (withoutHeadings) {
+          const rawSnippet = withoutHeadings.substring(0, 200)
+          const lastSpace = rawSnippet.lastIndexOf(' ')
+          snippet = lastSpace > 150 && lastSpace < 200
+            ? rawSnippet.substring(0, lastSpace) + '...'
+            : rawSnippet.length < withoutHeadings.length
+            ? rawSnippet + '...'
+            : rawSnippet
+        }
+      }
+
+      return {
+        artifact_id: artifact.artifact_id,
+        agent_type: artifact.agent_type,
+        title: artifact.title,
+        is_blank: isBlank,
+        content_length: contentLength,
+        snippet: snippet,
+        created_at: artifact.created_at,
+        updated_at: artifact.updated_at || artifact.created_at,
+        // Full body_md still included for detailed inspection
+        body_md: artifact.body_md,
+      }
+    })
+
     // Return full ticket record with artifacts
     // Forward-compatible: return all ticket fields, not just specific ones
     json(res, 200, {
       success: true,
       ticket: ticket, // Full ticket record (all fields)
-      artifacts: artifacts, // Array of artifacts
+      artifacts: artifacts, // Array of artifacts (full)
+      artifact_summary: artifactSummary, // Summarized artifacts for assistant
       ...(artifactsError ? { artifacts_error: artifactsError } : {}), // Include error if artifacts fetch failed
       // Backward compatibility: also include body_md at top level
       body_md: ticket.body_md || '',
