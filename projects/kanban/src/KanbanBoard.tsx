@@ -39,6 +39,8 @@ export interface KanbanBoardProps {
   /** Optional: for API fallback when callback returns empty. */
   supabaseUrl?: string | null
   supabaseAnonKey?: string | null
+  /** Called when a ticket is created (e.g. via Process Review). HAL should refresh its Kanban data. */
+  onTicketCreated?: () => void | Promise<void>
 }
 
 export function KanbanBoard({
@@ -58,6 +60,7 @@ export function KanbanBoard({
   fetchArtifactsForTicket,
   supabaseUrl = null,
   supabaseAnonKey = null,
+  onTicketCreated,
 }: KanbanBoardProps) {
   const value: HalKanbanContextValue = React.useMemo(
     () => ({
@@ -77,6 +80,7 @@ export function KanbanBoard({
       fetchArtifactsForTicket,
       supabaseUrl,
       supabaseAnonKey,
+      onTicketCreated,
     }),
     [
       tickets,
@@ -95,6 +99,7 @@ export function KanbanBoard({
       fetchArtifactsForTicket,
       supabaseUrl,
       supabaseAnonKey,
+      onTicketCreated,
     ]
   )
 

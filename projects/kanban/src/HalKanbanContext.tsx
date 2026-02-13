@@ -42,6 +42,8 @@ export interface HalKanbanContextValue {
   /** Optional: Supabase URL/key for API fallback when callback returns empty (e.g. same-origin POST /api/artifacts/get). */
   supabaseUrl?: string | null
   supabaseAnonKey?: string | null
+  /** Called when a ticket is created (e.g. via Process Review). HAL should refresh its Kanban data. */
+  onTicketCreated?: () => void | Promise<void>
 }
 
 export const HalKanbanContext = createContext<HalKanbanContextValue | null>(null)

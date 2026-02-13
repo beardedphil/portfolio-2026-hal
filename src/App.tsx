@@ -1677,6 +1677,15 @@ function App() {
             } else {
               addMessage(convId, 'project-manager', reply)
             }
+            
+            // If a ticket was just created, immediately refresh Kanban data (0133)
+            // Error is non-blocking: if refresh fails, normal polling will pick up the new ticket within 10s
+            if (data.ticketCreationResult) {
+              fetchKanbanData().catch((err) => {
+                console.warn('[HAL] Failed to refresh Kanban after ticket creation (non-blocking):', err)
+                // Continue normal polling; ticket will appear on next poll cycle
+              })
+            }
           } catch (err) {
             setAgentTypingTarget(null)
             const msg = err instanceof Error ? err.message : String(err)
@@ -2822,6 +2831,7 @@ function App() {
                 fetchArtifactsForTicket,
                 supabaseUrl: supabaseUrl ?? (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? null,
                 supabaseAnonKey: supabaseAnonKey ?? (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? null,
+                onTicketCreated: fetchKanbanData,
               } as KanbanBoardProps)}
             />
           </div>
