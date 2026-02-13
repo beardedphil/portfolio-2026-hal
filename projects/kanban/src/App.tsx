@@ -915,6 +915,8 @@ function TicketDetailModal({
   const [validationSteps, setValidationSteps] = useState('')
   const [validationNotes, setValidationNotes] = useState('')
   const [isProcessing, setIsProcessing] = useState(false)
+  const [validationError, setValidationError] = useState<string | null>(null)
+  const [validationSuccess, setValidationSuccess] = useState<string | null>(null)
   const modalRef = useRef<HTMLDivElement>(null)
   const closeBtnRef = useRef<HTMLButtonElement>(null)
 
@@ -979,17 +981,39 @@ function TicketDetailModal({
 
   const handleFail = useCallback(async () => {
     if (!ticketId || isProcessing) return
+    
+    // Clear previous messages
+    setValidationError(null)
+    setValidationSuccess(null)
+    
+    // Validate that explanation is provided
+    if (!validationSteps.trim() && !validationNotes.trim()) {
+      setValidationError('Please provide an explanation (steps to validate or notes) before failing the ticket.')
+      return
+    }
+    
     setIsProcessing(true)
     try {
       await onValidationFail(ticketId, validationSteps, validationNotes)
+      setValidationSuccess('Ticket failed successfully. Moving to To Do...')
       setValidationSteps('')
       setValidationNotes('')
+      
+      // Refresh ticket body to show the updated feedback
+      if (onTicketUpdate) {
+        // Small delay to allow Supabase update to complete
+        setTimeout(() => {
+          onTicketUpdate()
+        }, 500)
+      }
     } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err)
+      setValidationError(`Failed to fail ticket: ${errorMessage}`)
       console.error('Failed to fail validation:', err)
     } finally {
       setIsProcessing(false)
     }
-  }, [ticketId, validationSteps, validationNotes, isProcessing, onValidationFail])
+  }, [ticketId, validationSteps, validationNotes, isProcessing, onValidationFail, onTicketUpdate])
 
   // Reset validation fields when modal closes
   useEffect(() => {
@@ -997,6 +1021,8 @@ function TicketDetailModal({
       setValidationSteps('')
       setValidationNotes('')
       setIsProcessing(false)
+      setValidationError(null)
+      setValidationSuccess(null)
     }
   }, [open])
 
@@ -1074,17 +1100,43 @@ function TicketDetailModal({
                 refreshing={false}
               />
               {showValidationSection && (
-                <HumanValidationSection
-                  ticketId={ticketId}
-                  ticketPk={ticketId}
-                  stepsToValidate={validationSteps}
-                  notes={validationNotes}
-                  onStepsChange={setValidationSteps}
-                  onNotesChange={setValidationNotes}
-                  onPass={handlePass}
-                  onFail={handleFail}
-                  isProcessing={isProcessing}
-                />
+                <>
+                  {validationError && (
+                    <div className="ticket-detail-error" role="alert" style={{ marginBottom: '1rem' }}>
+                      <p>{validationError}</p>
+                    </div>
+                  )}
+                  {validationSuccess && (
+                    <>
+                      <div className="success-message" role="status" style={{ marginBottom: '1rem' }}>
+                        <p>{validationSuccess}</p>
+                      </div>
+                      <AutoDismissMessage
+                        onDismiss={() => setValidationSuccess(null)}
+                        delay={3000}
+                      />
+                    </>
+                  )}
+                  <HumanValidationSection
+                    ticketId={ticketId}
+                    ticketPk={ticketId}
+                    stepsToValidate={validationSteps}
+                    notes={validationNotes}
+                    onStepsChange={(value) => {
+                      setValidationSteps(value)
+                      // Clear error when user starts typing
+                      if (validationError) setValidationError(null)
+                    }}
+                    onNotesChange={(value) => {
+                      setValidationNotes(value)
+                      // Clear error when user starts typing
+                      if (validationError) setValidationError(null)
+                    }}
+                    onPass={handlePass}
+                    onFail={handleFail}
+                    isProcessing={isProcessing}
+                  />
+                </>
               )}
               {showProcessReviewSection && (
                 <ProcessReviewSection
@@ -3273,13 +3325,33 @@ ${notes || '(none provided)'}
             }
             
             addLog(`Human validation: Ticket ${ticketPk} failed, moved to To Do with feedback`)
-            setTimeout(() => {
-              refetchSupabaseTickets(false)
+            
+            // Refresh tickets and modal body to show updated feedback (0127)
+            // Update local state immediately so modal body shows feedback right away
+            setSupabaseTickets((prev) =>
+              prev.map((t) =>
+                t.pk === ticketPk
+                  ? {
+                      ...t,
+                      kanban_column_id: 'col-todo',
+                      kanban_position: targetPosition,
+                      kanban_moved_at: movedAt,
+                      body_md: updatedBody,
+                    }
+                  : t
+              )
+            )
+            
+            // Also refetch from server to ensure consistency
+            setTimeout(async () => {
+              await refetchSupabaseTickets(false)
             }, REFETCH_AFTER_MOVE_MS)
-            // Close ticket detail modal after move completes (0089)
+            
+            // Close ticket detail modal after showing success message and updated body (0127)
+            // Give enough time for user to see the success feedback (2 seconds after refetch delay)
             setTimeout(() => {
               handleCloseTicketDetail()
-            }, REFETCH_AFTER_MOVE_MS + 100)
+            }, REFETCH_AFTER_MOVE_MS + 2000)
           }}
           onTicketUpdate={refetchSupabaseTickets}
         />
