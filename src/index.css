@@ -597,7 +597,7 @@ body {
 
 .agent-status-box-ticket {
   font-size: 0.8rem;
-  color: var(--hal-text-secondary);
+  color: var(--hal-text-muted);
   margin-top: 0.25rem;
 }
 
