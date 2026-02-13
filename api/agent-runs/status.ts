@@ -193,26 +193,36 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           const ghToken =
             process.env.GITHUB_TOKEN?.trim() ||
             (await getSession(req, res).catch(() => null))?.github?.accessToken
-          let prFiles: Array<{ filename: string; status: string; additions: number; deletions: number }> = []
+          let prFiles: Array<{ filename: string; status: string; additions: number; deletions: number }> | null = null
+          let prFilesError: string | null = null
           if (ghToken && prUrl && /\/pull\/\d+/i.test(prUrl)) {
             const filesResult = await fetchPullRequestFiles(ghToken, prUrl)
-            if ('files' in filesResult) prFiles = filesResult.files
-            else if ('error' in filesResult) console.warn('[agent-runs] fetch PR files failed:', filesResult.error)
+            if ('files' in filesResult) {
+              prFiles = filesResult.files
+            } else if ('error' in filesResult) {
+              prFilesError = filesResult.error
+              console.warn('[agent-runs] fetch PR files failed:', prFilesError)
+            }
           }
-          const artifacts = generateImplementationArtifacts(
+          const { artifacts, errors } = generateImplementationArtifacts(
             displayId,
             summary ?? '',
-            prUrl ?? '',
-            prFiles
+            prUrl ?? null,
+            prFiles,
+            prFilesError
           )
           for (const a of artifacts) {
-            // Skip artifacts with error states - they won't be inserted (0137)
-            if (a.error) {
-              console.log(`[agent-runs] status skipping artifact "${a.title}" - ${a.error}`)
+            // Only store artifacts with non-null body_md (skip error states)
+            if (a.body_md === null) {
+              console.warn(`[agent-runs] Skipping artifact "${a.title}" - ${a.error || 'data unavailable'}`)
               continue
             }
-            const res = await upsertArtifact(supabase, ticketPk, repoFullName, 'implementation', a.title, a.body_md, a.error)
+            const res = await upsertArtifact(supabase, ticketPk, repoFullName, 'implementation', a.title, a.body_md)
             if (!res.ok) console.warn('[agent-runs] artifact upsert failed:', a.title, (res as { ok: false; error: string }).error)
+          }
+          // Log errors for artifacts that couldn't be generated (UI will show these as error states)
+          if (errors.length > 0) {
+            console.warn('[agent-runs] Some artifacts could not be generated:', errors.map((e) => `${e.artifactType}: ${e.reason}`).join('; '))
           }
         } catch (e) {
           console.warn('[agent-runs] finished artifact upsert error:', e instanceof Error ? e.message : e)

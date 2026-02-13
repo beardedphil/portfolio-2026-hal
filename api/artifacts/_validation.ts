@@ -6,7 +6,7 @@
 /**
  * Validates that body_md contains substantive content beyond just a title/heading.
  * Returns true if the content is valid, false if it's essentially empty/placeholder-only.
- * Detects placeholder patterns like "(No files changed in this PR)" and "(none)".
+ * Checks for empty content, minimum length, and placeholder patterns.
  */
 export function hasSubstantiveContent(body_md: string, title: string): { valid: boolean; reason?: string } {
   if (!body_md || body_md.trim().length === 0) {
@@ -21,18 +21,18 @@ export function hasSubstantiveContent(body_md: string, title: string): { valid: 
     }
   }
 
-  // Check for placeholder patterns anywhere in the content (not just at start)
+  // Check for placeholder patterns (including common placeholders like "(No files changed in this PR)", "(none)", etc.)
+  const trimmed = body_md.trim()
   const placeholderPatterns = [
-    /^\(No files changed in this PR\)$/i,
-    /^\(none\)$/i,
-    /^\(No files changed in this PR\)$/m,
-    /^\(none\)$/m,
-    /^## Modified\s*\n\s*\(No files changed in this PR\)$/i,
-    /^## Changed Files\s*\n\s*\(none\)$/i,
     /^(TODO|TBD|placeholder|coming soon)$/i,
+    /\(No files changed in this PR\)/i,
+    /\(none\)/i,
+    /^##\s+Modified\s*$/m, // Just "## Modified" with no content
+    /^##\s+Changed Files\s*$/m, // Just "## Changed Files" with no content
+    /^##\s+[^\n]+\n+\n*\(No files changed/i,
+    /^##\s+[^\n]+\n+\n*\(none\)/i,
   ]
 
-  const trimmed = body_md.trim()
   for (const pattern of placeholderPatterns) {
     if (pattern.test(trimmed)) {
       return {
@@ -42,11 +42,25 @@ export function hasSubstantiveContent(body_md: string, title: string): { valid: 
     }
   }
 
-  // Check if content is just a heading with placeholder text
-  if (/^#{1,6}\s+[^\n]+\s*\n\s*\(No files changed|\(none\)/i.test(trimmed)) {
-    return {
-      valid: false,
-      reason: 'Artifact body appears to contain only placeholder text. Artifacts must include actual content.',
+  // For "Changed Files" artifacts, check that there's actual file content (not just headings)
+  if (title.toLowerCase().includes('changed files')) {
+    const withoutHeadings = trimmed.replace(/^#{1,6}\s+.*$/gm, '').trim()
+    if (withoutHeadings.length < 30 || /^(\(none\)|\(No files changed)/i.test(withoutHeadings)) {
+      return {
+        valid: false,
+        reason: 'Changed Files artifact must list actual file changes, not placeholder text.',
+      }
+    }
+  }
+
+  // For "Verification" artifacts, check that there's actual verification content (not just checkboxes)
+  if (title.toLowerCase().includes('verification')) {
+    const withoutCheckboxes = trimmed.replace(/^[-*+]\s+\[[ x]\]\s+.*$/gm, '').replace(/^#{1,6}\s+.*$/gm, '').trim()
+    if (withoutCheckboxes.length < 30 || /^(\(none\)|Changed Files \(none\))/i.test(withoutCheckboxes)) {
+      return {
+        valid: false,
+        reason: 'Verification artifact must contain actual verification steps and notes, not placeholder text.',
+      }
     }
   }
 

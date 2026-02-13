@@ -149,13 +149,21 @@ async function insertImplementationArtifact(
       }
     }
 
-    // Update the target artifact with canonical title and new body (0121)
-    console.log(`[agent-tools] Updating implementation artifact ${targetArtifactId} with body_md length=${params.body_md.length}`)
+    // Append to existing artifact instead of replacing (0137: preserve history when tickets are reworked)
+    const existingArtifact = artifacts.find((a) => a.artifact_id === targetArtifactId)
+    const existingBody = existingArtifact?.body_md || ''
+    const timestamp = new Date().toISOString()
+    const separator = '\n\n---\n\n'
+    const appendedBody = existingBody.trim()
+      ? `${existingBody.trim()}${separator}**Update (${timestamp}):**\n\n${params.body_md}`
+      : params.body_md // If existing body is empty, just use new body
+    
+    console.log(`[agent-tools] Appending to implementation artifact ${targetArtifactId} (existing length=${existingBody.length}, new length=${params.body_md.length})`)
     const { error: updateError } = await supabase
       .from('agent_artifacts')
       .update({
         title: canonicalTitle, // Use canonical title for consistency
-        body_md: params.body_md,
+        body_md: appendedBody,
       })
       .eq('artifact_id', targetArtifactId)
 
@@ -387,13 +395,21 @@ async function insertQaArtifact(
       }
     }
 
-    // Update the target artifact with canonical title and new body (0121)
-    console.log(`[agent-tools] Updating QA artifact ${targetArtifactId} with body_md length=${params.body_md.length}`)
+    // Append to existing artifact instead of replacing (0137: preserve history when tickets are reworked)
+    const existingArtifact = artifacts.find((a) => a.artifact_id === targetArtifactId)
+    const existingBody = existingArtifact?.body_md || ''
+    const timestamp = new Date().toISOString()
+    const separator = '\n\n---\n\n'
+    const appendedBody = existingBody.trim()
+      ? `${existingBody.trim()}${separator}**Update (${timestamp}):**\n\n${params.body_md}`
+      : params.body_md // If existing body is empty, just use new body
+    
+    console.log(`[agent-tools] Appending to QA artifact ${targetArtifactId} (existing length=${existingBody.length}, new length=${params.body_md.length})`)
     const { error: updateError } = await supabase
       .from('agent_artifacts')
       .update({
         title: canonicalTitle, // Use canonical title for consistency
-        body_md: params.body_md,
+        body_md: appendedBody,
       })
       .eq('artifact_id', targetArtifactId)
 

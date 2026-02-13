@@ -71,7 +71,7 @@ export type UpsertArtifactResult = { ok: true } | { ok: false; error: string }
 
 /** Upsert one artifact: update body_md if row exists, otherwise insert. Returns error message if failed.
  * Handles duplicates and empty artifacts (0121).
- * Skips artifacts with error states or invalid content (0137).
+ * Validates content before storing to prevent blank/placeholder artifacts (0137).
  */
 export async function upsertArtifact(
   supabase: SupabaseClient<any, 'public', any>,
@@ -79,20 +79,14 @@ export async function upsertArtifact(
   repoFullName: string,
   agentType: string,
   title: string,
-  bodyMd: string,
-  error?: string
+  bodyMd: string
 ): Promise<UpsertArtifactResult> {
-  // Skip artifacts with error states - don't create blank artifacts (0137)
-  if (error || !bodyMd || bodyMd.trim().length === 0) {
-    console.log(`[agent-runs] Skipping artifact "${title}" - ${error || 'empty body'}`)
-    return { ok: true } // Return success but don't insert
-  }
-
-  // Validate content before inserting (0137)
-  const validation = hasSubstantiveContent(bodyMd, title)
-  if (!validation.valid) {
-    console.log(`[agent-runs] Skipping artifact "${title}" - validation failed: ${validation.reason}`)
-    return { ok: true } // Return success but don't insert
+  // Validate that body_md contains substantive content before storing (0137)
+  const contentValidation = hasSubstantiveContent(bodyMd, title)
+  if (!contentValidation.valid) {
+    const msg = `Artifact "${title}" validation failed: ${contentValidation.reason || 'insufficient content'}. Skipping storage to prevent blank/placeholder artifacts.`
+    console.warn('[agent-runs]', msg)
+    return { ok: false, error: msg }
   }
   // Extract artifact type from title and get ticket's display_id for canonical matching (0121)
   const artifactType = extractArtifactTypeFromTitle(title)
@@ -157,12 +151,21 @@ export async function upsertArtifact(
     title = canonicalTitle
   }
 
-  // Identify empty/placeholder artifacts using proper validation (0137)
+  // Validate the new body_md before storing (prevent blank artifacts)
+  const { hasSubstantiveContent } = await import('../artifacts/_validation.js')
+  const contentValidation = hasSubstantiveContent(bodyMd, title)
+  if (!contentValidation.valid) {
+    const msg = `Cannot store blank/placeholder artifact: ${contentValidation.reason || 'Artifact body is empty or placeholder-only'}`
+    console.warn('[agent-runs]', msg)
+    return { ok: false, error: msg }
+  }
+
+  // Identify empty/placeholder artifacts using proper validation
   const emptyArtifactIds: string[] = []
   for (const artifact of artifacts) {
-    const currentBody = (artifact.body_md || '').trim()
-    const validation = hasSubstantiveContent(currentBody, title)
-    if (!validation.valid) {
+    const currentBody = artifact.body_md || ''
+    const currentValidation = hasSubstantiveContent(currentBody, title)
+    if (!currentValidation.valid) {
       emptyArtifactIds.push(artifact.artifact_id)
     }
   }
@@ -193,6 +196,14 @@ export async function upsertArtifact(
   }
 
   if (targetArtifactId) {
+    // Validate content before updating (0137: prevent blank/placeholder artifacts)
+    const contentValidation = hasSubstantiveContent(bodyMd, title)
+    if (!contentValidation.valid) {
+      const msg = `Artifact content validation failed: ${contentValidation.reason || 'Content is empty or placeholder-only'}`
+      console.warn('[agent-runs]', msg, 'Title:', title, 'Body length:', bodyMd.length)
+      return { ok: false, error: msg }
+    }
+
     // Update the target artifact with canonical title and new body (0121)
     const { error: updateErr } = await supabase
       .from('agent_artifacts')
@@ -204,6 +215,14 @@ export async function upsertArtifact(
       return { ok: false, error: msg }
     }
     return { ok: true }
+  }
+
+  // Validate content before inserting (0137: prevent blank/placeholder artifacts)
+  const contentValidation = hasSubstantiveContent(bodyMd, title)
+  if (!contentValidation.valid) {
+    const msg = `Artifact content validation failed: ${contentValidation.reason || 'Content is empty or placeholder-only'}`
+    console.warn('[agent-runs]', msg, 'Title:', title, 'Body length:', bodyMd.length)
+    return { ok: false, error: msg }
   }
 
   // No existing artifact found (or all were deleted), insert new one with canonical title (0121)
