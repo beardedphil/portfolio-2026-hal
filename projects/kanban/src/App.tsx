@@ -969,17 +969,34 @@ function TicketDetailModal({
 
   const handlePass = useCallback(async () => {
     if (!ticketId || isProcessing) return
+    
+    // Clear previous messages
+    setValidationError(null)
+    setValidationSuccess(null)
+    
     setIsProcessing(true)
     try {
       await onValidationPass(ticketId)
+      // Success message
+      setValidationSuccess('Ticket passed successfully. Moving to Process Review...')
       setValidationSteps('')
       setValidationNotes('')
+      
+      // Refresh ticket body to show the updated state
+      if (_onTicketUpdate) {
+        // Small delay to allow Supabase update to complete
+        setTimeout(() => {
+          _onTicketUpdate()
+        }, 500)
+      }
     } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err)
+      setValidationError(`Failed to pass ticket: ${errorMessage}`)
       console.error('Failed to pass validation:', err)
     } finally {
       setIsProcessing(false)
     }
-  }, [ticketId, isProcessing, onValidationPass])
+  }, [ticketId, isProcessing, onValidationPass, _onTicketUpdate])
 
   const handleFail = useCallback(async () => {
     if (!ticketId || isProcessing) return
