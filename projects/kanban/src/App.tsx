@@ -621,17 +621,14 @@ function ProcessReviewSection({
         setReviewError(result.error || 'Failed to run review')
         setLastRunStatus({
           status: 'failed',
-          createdAt: result.createdAt || new Date().toISOString(),
+          timestamp: new Date().toISOString(),
           errorMessage: result.error || 'Failed to run review',
         })
         return
       }
 
-      // Update last run status
-      setLastRunStatus({
-        status: result.status || 'success',
-        createdAt: result.createdAt || new Date().toISOString(),
-      })
+      // Update last run status (will be loaded from DB after review completes)
+      // For now, just mark as success - the useEffect will reload from DB
 
       const suggestionsList = (result.suggestions || []).map((s: { text: string; justification: string } | string, i: number) => {
         if (typeof s === 'string') {
@@ -650,12 +647,34 @@ function ProcessReviewSection({
         }
       })
       setSuggestions(suggestionsList)
+      
+      // Reload review status from database
+      try {
+        const supabase = (await import('@supabase/supabase-js')).createClient(supabaseUrl, supabaseAnonKey)
+        const { data } = await supabase
+          .from('process_reviews')
+          .select('suggestions, status, error_message, created_at')
+          .eq('ticket_pk', ticketPk)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        
+        if (data) {
+          setLastRunStatus({
+            status: data.status as 'success' | 'failed',
+            timestamp: data.created_at,
+            errorMessage: data.error_message || undefined,
+          })
+        }
+      } catch (reloadErr) {
+        console.error('Error reloading review status:', reloadErr)
+      }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to run review'
       setReviewError(errorMsg)
       setLastRunStatus({
         status: 'failed',
-        createdAt: new Date().toISOString(),
+        timestamp: new Date().toISOString(),
         errorMessage: errorMsg,
       })
     } finally {
@@ -675,7 +694,7 @@ function ProcessReviewSection({
         const supabase = (await import('@supabase/supabase-js')).createClient(supabaseUrl, supabaseAnonKey)
         const { data, error } = await supabase
           .from('process_reviews')
-          .select('suggestions_json, status, error_message, created_at')
+          .select('suggestions, status, error_message, created_at')
           .eq('ticket_pk', ticketPk)
           .order('created_at', { ascending: false })
           .limit(1)
