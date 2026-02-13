@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react'
-import { createClient } from '@supabase/supabase-js'
+import { getSupabaseClient } from './lib/supabase'
 import {
   KanbanBoard,
   KANBAN_BUILD,
@@ -628,7 +628,7 @@ function App() {
     if (url && key) {
       ;(async () => {
         try {
-          const supabase = createClient(url, key)
+          const supabase = getSupabaseClient(url, key)
           const { data: rows, error } = await supabase
             .from('hal_conversation_messages')
             .select('role, content, sequence, created_at')
@@ -1070,7 +1070,7 @@ function App() {
       }
 
       try {
-        const supabase = createClient(supabaseUrl, supabaseAnonKey)
+        const supabase = getSupabaseClient(supabaseUrl, supabaseAnonKey)
 
         // Get max position in target column
         const { data: inColumn, error: fetchErr } = await supabase
@@ -1252,7 +1252,7 @@ function App() {
         const result = (await res.json()) as CheckUnassignedResult
         const msg = formatUnassignedCheckMessage(result)
         if (projectId) {
-          const supabase = createClient(url, key)
+          const supabase = getSupabaseClient(url, key)
           const nextSeq = pmMaxSequenceRef.current + 1
           await supabase.from('hal_conversation_messages').insert({
             project_id: projectId,
@@ -1276,7 +1276,7 @@ function App() {
             const result = (await res.json()) as CheckUnassignedResult
             const msg = formatUnassignedCheckMessage(result)
             if (projectId) {
-              const supabase = createClient(url, key)
+              const supabase = getSupabaseClient(url, key)
               const nextSeq = pmMaxSequenceRef.current + 1
               await supabase.from('hal_conversation_messages').insert({
                 project_id: projectId,
@@ -1315,7 +1315,7 @@ function App() {
       return
     }
     try {
-      const supabase = createClient(url, key)
+      const supabase = getSupabaseClient(url, key)
       const { data: ticketRows } = await supabase
         .from('tickets')
         .select('pk, id, repo_full_name, ticket_number, display_id, filename, title, body_md, kanban_column_id, kanban_position, kanban_moved_at, updated_at')
@@ -1389,7 +1389,7 @@ function App() {
       const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
       const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
       if (!url || !key) return
-      const supabase = createClient(url, key)
+      const supabase = getSupabaseClient(url, key)
       await supabase
         .from('tickets')
         .update({
@@ -1408,7 +1408,7 @@ function App() {
       const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
       const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
       if (!url || !key) return
-      const supabase = createClient(url, key)
+      const supabase = getSupabaseClient(url, key)
       for (let i = 0; i < orderedTicketPks.length; i++) {
         await supabase.from('tickets').update({ kanban_position: i }).eq('pk', orderedTicketPks[i])
       }
@@ -1422,7 +1422,7 @@ function App() {
       const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
       const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
       if (!url || !key) return
-      const supabase = createClient(url, key)
+      const supabase = getSupabaseClient(url, key)
       await supabase.from('tickets').update({ body_md: bodyMd }).eq('pk', ticketPk)
       await fetchKanbanData()
     },
@@ -1451,7 +1451,7 @@ function App() {
         return []
       }
       try {
-        const supabase = createClient(url, key)
+        const supabase = getSupabaseClient(url, key)
         const { data, error } = await supabase
           .from('agent_artifacts')
           .select('artifact_id, ticket_pk, repo_full_name, agent_type, title, body_md, created_at, updated_at')
@@ -1527,7 +1527,7 @@ function App() {
 
             if (useDb && url && key && connectedProject) {
               const nextSeq = pmMaxSequenceRef.current + 1
-              const supabase = createClient(url, key)
+              const supabase = getSupabaseClient(url, key)
               const { error: insertErr } = await supabase.from('hal_conversation_messages').insert({
                 project_id: connectedProject,
                 agent: PM_AGENT_ID,
@@ -1663,7 +1663,7 @@ function App() {
             setAgentTypingTarget(null)
             if (useDb && supabaseUrl && supabaseAnonKey && connectedProject) {
               const nextSeq = pmMaxSequenceRef.current + 1
-              const supabase = createClient(supabaseUrl, supabaseAnonKey)
+              const supabase = getSupabaseClient(supabaseUrl, supabaseAnonKey)
               await supabase.from('hal_conversation_messages').insert({
                 project_id: connectedProject,
                 agent: PM_AGENT_ID,

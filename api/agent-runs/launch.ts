@@ -171,8 +171,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const defaultBranch = (typeof body.defaultBranch === 'string' ? body.defaultBranch.trim() : '') || 'main'
 
     // If repo has no branches (new empty repo), create initial commit so Cursor API can run
-    const session = await getSession(req, res)
-    const ghToken = session.github?.accessToken
+    let ghToken: string | undefined
+    try {
+      const session = await getSession(req, res)
+      ghToken = session.github?.accessToken
+    } catch (sessionErr) {
+      // AUTH_SESSION_SECRET may be missing in deployment; proceed without GitHub token (bootstrap will be skipped)
+      console.warn('[agent-runs/launch] Session unavailable (missing AUTH_SESSION_SECRET?):', sessionErr instanceof Error ? sessionErr.message : sessionErr)
+    }
     if (ghToken) {
       const branchesResult = await listBranches(ghToken, repoFullName)
       if ('branches' in branchesResult && branchesResult.branches.length === 0) {
@@ -303,7 +309,17 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     json(res, 200, { runId, status: 'polling', cursorAgentId })
   } catch (err) {
-    json(res, 500, { error: err instanceof Error ? err.message : String(err) })
+    const message = err instanceof Error ? err.message : String(err)
+    const stack = err instanceof Error ? err.stack : undefined
+    console.error('[agent-runs/launch] Error:', message, stack ?? '')
+    // Return 503 for config errors so the UI can show a clear message
+    const isConfigError =
+      /Supabase server env is missing|Cursor API is not configured|Missing .* in environment/i.test(message)
+    const statusCode = isConfigError ? 503 : 500
+    const safeMessage = isConfigError
+      ? message
+      : 'Launch failed. Check server logs for details.'
+    json(res, statusCode, { error: safeMessage })
   }
 }
 
