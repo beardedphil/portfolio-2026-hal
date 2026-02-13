@@ -328,6 +328,12 @@ function App() {
   const [kanbanTickets, setKanbanTickets] = useState<KanbanTicketRow[]>([])
   const [kanbanColumns, setKanbanColumns] = useState<KanbanColumnRow[]>([])
   const [kanbanAgentRunsByTicketPk, setKanbanAgentRunsByTicketPk] = useState<Record<string, KanbanAgentRunRow>>({})
+  /** Realtime connection status for Kanban board (0140). */
+  const [kanbanRealtimeStatus, setKanbanRealtimeStatus] = useState<'connected' | 'disconnected' | 'polling'>('disconnected')
+  /** Timestamp of last realtime update to prevent polling from overwriting recent updates (0140). */
+  const lastRealtimeUpdateRef = useRef<number>(0)
+  /** Track subscription status for realtime channels (0140). */
+  const realtimeSubscriptionsRef = useRef<{ tickets: boolean; agentRuns: boolean }>({ tickets: false, agentRuns: false })
   const [outboundRequestExpanded, setOutboundRequestExpanded] = useState(false)
   const [toolCallsExpanded, setToolCallsExpanded] = useState(false)
   const messageIdRef = useRef(0)
@@ -1306,7 +1312,7 @@ function App() {
   )
 
   /** Fetch tickets and columns from Supabase (HAL owns data; passes to KanbanBoard). */
-  const fetchKanbanData = useCallback(async () => {
+  const fetchKanbanData = useCallback(async (skipIfRecentRealtime = false) => {
     const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
     const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
     if (!url || !key || !connectedProject) {
@@ -1314,6 +1320,14 @@ function App() {
       setKanbanColumns([])
       setKanbanAgentRunsByTicketPk({})
       return
+    }
+    // Skip polling if realtime is connected and there was a recent update (within 5 seconds)
+    // This prevents polling from overwriting realtime updates (0140)
+    if (skipIfRecentRealtime && kanbanRealtimeStatus === 'connected') {
+      const timeSinceLastRealtimeUpdate = Date.now() - lastRealtimeUpdateRef.current
+      if (timeSinceLastRealtimeUpdate < 5000) {
+        return
+      }
     }
     try {
       const supabase = getSupabaseClient(url, key)
@@ -1372,27 +1386,47 @@ function App() {
       setKanbanColumns([])
       setKanbanAgentRunsByTicketPk({})
     }
-  }, [supabaseUrl, supabaseAnonKey, connectedProject, runUnassignedCheck])
+  }, [supabaseUrl, supabaseAnonKey, connectedProject, runUnassignedCheck, kanbanRealtimeStatus])
 
   useEffect(() => {
     fetchKanbanData()
   }, [fetchKanbanData])
 
+  // Polling fallback: only run when realtime is disconnected (0140)
   const KANBAN_POLL_MS = 10_000
   useEffect(() => {
     if (!connectedProject || !supabaseUrl || !supabaseAnonKey) return
-    const id = setInterval(fetchKanbanData, KANBAN_POLL_MS)
+    // Only poll when realtime is not connected (fallback mode)
+    if (kanbanRealtimeStatus !== 'disconnected') return
+    const id = setInterval(() => fetchKanbanData(true), KANBAN_POLL_MS)
     return () => clearInterval(id)
-  }, [connectedProject, supabaseUrl, supabaseAnonKey, fetchKanbanData])
+  }, [connectedProject, supabaseUrl, supabaseAnonKey, fetchKanbanData, kanbanRealtimeStatus])
 
   // Supabase Realtime subscriptions for live updates (0140)
   useEffect(() => {
     const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
     const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
-    if (!url || !key || !connectedProject) return
+    if (!url || !key || !connectedProject) {
+      setKanbanRealtimeStatus('disconnected')
+      return
+    }
 
     const supabase = getSupabaseClient(url, key)
     const subscriptions: Array<{ unsubscribe: () => void }> = []
+    realtimeSubscriptionsRef.current = { tickets: false, agentRuns: false }
+
+    // Helper to update connection status based on subscription state
+    const updateConnectionStatus = () => {
+      const { tickets, agentRuns } = realtimeSubscriptionsRef.current
+      if (tickets && agentRuns) {
+        setKanbanRealtimeStatus('connected')
+      } else if (!tickets && !agentRuns) {
+        setKanbanRealtimeStatus('disconnected')
+      } else {
+        // One subscription failed, fall back to polling
+        setKanbanRealtimeStatus('polling')
+      }
+    }
 
     // Subscribe to tickets table changes
     const ticketsChannel = supabase
@@ -1408,6 +1442,9 @@ function App() {
           // Filter by repo_full_name in callback since postgres_changes filter may not support column filters
           const ticket = (payload.new || payload.old) as KanbanTicketRow | { pk: string; repo_full_name?: string }
           if (ticket.repo_full_name !== connectedProject) return
+
+          // Track realtime update timestamp to prevent polling from overwriting (0140)
+          lastRealtimeUpdateRef.current = Date.now()
 
           if (payload.eventType === 'INSERT' && payload.new) {
             const newTicket = payload.new as KanbanTicketRow
@@ -1432,8 +1469,12 @@ function App() {
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           console.log('[HAL] Realtime: Subscribed to tickets changes')
+          realtimeSubscriptionsRef.current.tickets = true
+          updateConnectionStatus()
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
           console.warn('[HAL] Realtime: Tickets subscription error, falling back to polling')
+          realtimeSubscriptionsRef.current.tickets = false
+          updateConnectionStatus()
         }
       })
 
@@ -1453,6 +1494,9 @@ function App() {
           // Filter by repo_full_name in callback
           const run = (payload.new || payload.old) as KanbanAgentRunRow | { repo_full_name?: string; ticket_pk?: string }
           if (run.repo_full_name !== connectedProject) return
+
+          // Track realtime update timestamp (0140)
+          lastRealtimeUpdateRef.current = Date.now()
 
           if (payload.eventType === 'INSERT' && payload.new) {
             const newRun = payload.new as KanbanAgentRunRow
@@ -1485,8 +1529,12 @@ function App() {
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           console.log('[HAL] Realtime: Subscribed to agent runs changes')
+          realtimeSubscriptionsRef.current.agentRuns = true
+          updateConnectionStatus()
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
           console.warn('[HAL] Realtime: Agent runs subscription error, falling back to polling')
+          realtimeSubscriptionsRef.current.agentRuns = false
+          updateConnectionStatus()
         }
       })
 
@@ -1494,6 +1542,7 @@ function App() {
 
     return () => {
       subscriptions.forEach((sub) => sub.unsubscribe())
+      setKanbanRealtimeStatus('disconnected')
     }
   }, [connectedProject, supabaseUrl, supabaseAnonKey])
 
@@ -2935,6 +2984,62 @@ function App() {
           </div>
           {/* Kanban board (HAL owns data; passes tickets/columns and callbacks). Cast props so fetchArtifactsForTicket is accepted when package types are older (e.g. Vercel cache). */}
           <div className={`kanban-frame-container ${openChatTarget ? 'kanban-frame-hidden' : 'kanban-frame-visible'}`}>
+            {/* Realtime connection status indicator (0140) */}
+            {connectedProject && (
+              <div
+                className="kanban-realtime-status"
+                style={{
+                  position: 'absolute',
+                  top: '8px',
+                  right: '8px',
+                  padding: '4px 8px',
+                  borderRadius: '4px',
+                  fontSize: '12px',
+                  fontWeight: '500',
+                  zIndex: 1000,
+                  backgroundColor:
+                    kanbanRealtimeStatus === 'connected'
+                      ? '#10b981'
+                      : kanbanRealtimeStatus === 'polling'
+                        ? '#f59e0b'
+                        : '#6b7280',
+                  color: 'white',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+                title={
+                  kanbanRealtimeStatus === 'connected'
+                    ? 'Live updates enabled - changes appear instantly'
+                    : kanbanRealtimeStatus === 'polling'
+                      ? 'Realtime unavailable - using polling fallback (updates every 10 seconds)'
+                      : 'Connecting to realtime...'
+                }
+              >
+                <span
+                  style={{
+                    width: '8px',
+                    height: '8px',
+                    borderRadius: '50%',
+                    backgroundColor: 'white',
+                    display: 'inline-block',
+                    animation:
+                      kanbanRealtimeStatus === 'connected'
+                        ? 'none'
+                        : kanbanRealtimeStatus === 'polling'
+                          ? 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
+                          : 'pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                  }}
+                />
+                <span>
+                  {kanbanRealtimeStatus === 'connected'
+                    ? 'Live'
+                    : kanbanRealtimeStatus === 'polling'
+                      ? 'Polling'
+                      : 'Connecting'}
+                </span>
+              </div>
+            )}
             <KanbanBoard
               {...({
                 tickets: kanbanTickets,
