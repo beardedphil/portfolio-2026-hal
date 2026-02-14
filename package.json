@@ -16,7 +16,8 @@
     "sync-tickets": "node scripts/sync-tickets.js",
     "update-ticket-body": "node scripts/update-ticket-body-in-supabase.js",
     "supabase-list-tickets": "node scripts/supabase-list-tickets.js",
-    "supabase-get-ticket": "node scripts/supabase-get-ticket.js"
+    "supabase-get-ticket": "node scripts/supabase-get-ticket.js",
+    "migrate-instructions": "node scripts/run-instructions-migration.js"
   },
   "dependencies": {
     "@ai-sdk/openai": "^1.2.0",
@@ -33,6 +34,7 @@
     "zod": "^3.24.0"
   },
   "devDependencies": {
+    "supabase": "^2.76.8",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
