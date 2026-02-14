@@ -1837,6 +1837,15 @@ function App() {
                 role: 'user',
                 content,
                 sequence: nextSeq,
+                ...(imageAttachments && imageAttachments.length > 0
+                  ? {
+                      images: imageAttachments.map((img) => ({
+                        dataUrl: img.dataUrl,
+                        filename: img.filename,
+                        mimeType: img.file.type,
+                      })),
+                    }
+                  : {}),
               })
               if (insertErr) {
                 setPersistenceError(`DB: ${insertErr.message}`)

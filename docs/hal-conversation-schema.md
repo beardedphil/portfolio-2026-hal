@@ -20,7 +20,8 @@ create table if not exists public.hal_conversation_messages (
   role text not null check (role in ('user', 'assistant', 'system')),
   content text not null,
   created_at timestamptz not null default now(),
-  sequence int not null
+  sequence int not null,
+  images jsonb -- Array of image attachments: [{"dataUrl": "data:image/...", "filename": "image.png", "mimeType": "image/png"}, ...]
 );
 
 create index if not exists hal_conv_msg_project_agent_seq

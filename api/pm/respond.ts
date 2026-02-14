@@ -174,13 +174,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     // When project DB (Supabase) is provided, fetch full history and build bounded context pack (summary + recent by content size)
     const RECENT_MAX_CHARS = 12_000
     let conversationContextPack: string | undefined
+    let recentImagesFromDb: Array<{ dataUrl: string; filename: string; mimeType: string }> = []
     if (projectId && supabaseUrl && supabaseAnonKey && runnerModule) {
       try {
         const { createClient } = await import('@supabase/supabase-js')
         const supabase = createClient(supabaseUrl, supabaseAnonKey)
         const { data: rows } = await supabase
           .from('hal_conversation_messages')
-          .select('role, content, sequence')
+          .select('role, content, sequence, images')
           .eq('project_id', projectId)
           .eq('agent', 'project-manager')
           .order('sequence', { ascending: true })
@@ -188,6 +189,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         const messages = (rows ?? []).map((r: any) => ({
           role: r.role as 'user' | 'assistant',
           content: r.content ?? '',
+          images: r.images || null,
         }))
 
         const recentFromEnd: typeof messages = []
@@ -198,6 +200,21 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           if (recentLen + lineLen > RECENT_MAX_CHARS && recentFromEnd.length > 0) break
           recentFromEnd.unshift(t)
           recentLen += lineLen
+          // Collect images from recent messages (0157: persist images to DB)
+          if (t.images && Array.isArray(t.images)) {
+            for (const img of t.images) {
+              if (img && typeof img === 'object' && img.dataUrl && img.filename && img.mimeType) {
+                // Avoid duplicates by dataUrl
+                if (!recentImagesFromDb.some(existing => existing.dataUrl === img.dataUrl)) {
+                  recentImagesFromDb.push({
+                    dataUrl: img.dataUrl,
+                    filename: img.filename,
+                    mimeType: img.mimeType,
+                  })
+                }
+              }
+            }
+          }
         }
 
         const olderCount = messages.length - recentFromEnd.length
@@ -270,7 +287,27 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     const createTicketAvailable = !!(supabaseUrl && supabaseAnonKey)
-    const images = Array.isArray(body.images) ? body.images : undefined
+    const currentRequestImages = Array.isArray(body.images) ? body.images : undefined
+    
+    // Merge current request images with images from recent messages (0157: persist images to DB)
+    // Current request images take precedence (most recent), but we include images from recent messages too
+    const allImages: Array<{ dataUrl: string; filename: string; mimeType: string }> = []
+    
+    // First add images from recent DB messages (older)
+    if (recentImagesFromDb.length > 0) {
+      allImages.push(...recentImagesFromDb)
+    }
+    
+    // Then add current request images (newer), avoiding duplicates by dataUrl
+    if (currentRequestImages && currentRequestImages.length > 0) {
+      for (const img of currentRequestImages) {
+        if (!allImages.some(existing => existing.dataUrl === img.dataUrl)) {
+          allImages.push(img)
+        }
+      }
+    }
+    
+    const images = allImages.length > 0 ? allImages : undefined
 
     const config = {
       repoRoot,
