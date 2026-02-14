@@ -38,7 +38,8 @@ export function AgentInstructionsViewer({
   supabaseAnonKey,
   repoFullName = 'beardedphil/portfolio-2026-hal'
 }: AgentInstructionsViewerProps) {
-  const [instructions, setInstructions] = useState<InstructionFile[]>([])
+  const [instructions, setInstructions] = useState<InstructionFile[]>([]) // Full list of all instructions
+  const [agentSpecificInstructions, setAgentSpecificInstructions] = useState<InstructionFile[]>([]) // Agent-filtered list
   const [basicInstructions, setBasicInstructions] = useState<InstructionFile[]>([])
   const [situationalInstructions, setSituationalInstructions] = useState<InstructionFile[]>([])
   const [instructionIndex, setInstructionIndex] = useState<{
@@ -92,6 +93,7 @@ export function AgentInstructionsViewer({
         }
 
         // Use HAL API endpoint to load instructions (supports agent type scoping)
+        // Load all instructions first (for "all" agent view), then load agent-specific when agent is selected
         const baseUrl = window.location.origin
         const instructionsResponse = await fetch(`${baseUrl}/api/instructions/get`, {
           method: 'POST',
@@ -100,7 +102,7 @@ export function AgentInstructionsViewer({
             repoFullName,
             includeBasic: true,
             includeSituational: true,
-            // Don't filter by agent type here - load all, then filter by selected agent
+            // Load all instructions for "all" view, agent-specific filtering happens when agent is selected
           }),
         })
 
@@ -188,6 +190,12 @@ export function AgentInstructionsViewer({
 
 
   function getInstructionsForAgent(agent: AgentType): InstructionFile[] {
+    // If we have agent-specific instructions loaded from API, use those
+    if (agent !== 'all' && agentSpecificInstructions.length > 0) {
+      return agentSpecificInstructions
+    }
+    
+    // Otherwise, filter from full list
     if (agent === 'all') {
       return instructions.filter(inst => inst.alwaysApply || inst.agentTypes.includes('all'))
     }
@@ -198,10 +206,58 @@ export function AgentInstructionsViewer({
     )
   }
 
-  function handleAgentClick(agent: AgentType) {
+  async function handleAgentClick(agent: AgentType) {
     setSelectedAgent(agent)
     setViewState('agent-instructions')
     setBreadcrumbs(['All Agents', getAgentLabel(agent)])
+    
+    // Load agent-specific instructions from API to demonstrate scoping
+    if (agent !== 'all') {
+      try {
+        const baseUrl = window.location.origin
+        const repoFullName = 'beardedphil/portfolio-2026-hal'
+        const response = await fetch(`${baseUrl}/api/instructions/get`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            repoFullName,
+            agentType: agent,
+            includeBasic: true,
+            includeSituational: true,
+          }),
+        })
+        
+        if (response.ok) {
+          const result = await response.json()
+          if (result.success && result.instructions) {
+            // Store agent-specific instructions (keep full list for "all" view)
+            const agentInstructions: InstructionFile[] = result.instructions.map((row: any) => ({
+              path: row.filename,
+              name: row.title || row.filename.replace('.mdc', '').replace(/-/g, ' '),
+              description: row.description || 'No description',
+              alwaysApply: row.alwaysApply || false,
+              content: row.contentBody || row.contentMd,
+              agentTypes: row.agentTypes || [],
+              topicId: row.topicId,
+              isBasic: row.isBasic || false,
+              isSituational: row.isSituational || false,
+              topicMetadata: row.topicMetadata,
+            }))
+            
+            setAgentSpecificInstructions(agentInstructions)
+            setBasicInstructions(agentInstructions.filter(inst => inst.isBasic))
+            setSituationalInstructions(agentInstructions.filter(inst => inst.isSituational))
+          }
+        }
+      } catch (err) {
+        console.warn('Could not reload agent-specific instructions:', err)
+        // Fall back to client-side filtering using getInstructionsForAgent
+        setAgentSpecificInstructions([])
+      }
+    } else {
+      // For "all" view, use full instructions list
+      setAgentSpecificInstructions([])
+    }
   }
 
   function handleInstructionClick(instruction: InstructionFile) {

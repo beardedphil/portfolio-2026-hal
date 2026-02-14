@@ -90,6 +90,24 @@ function determineAgentTypes(filename, content) {
     // Applies to Implementation and QA (they run staging tests)
     agentTypes.push('implementation-agent')
     agentTypes.push('qa-agent')
+  } else if (filename === 'status-message-template.mdc') {
+    // Applies to all agents (template for all agent types)
+    agentTypes.push('all')
+  } else if (filename === 'cloud-artifacts-without-merge-brainstorm.md') {
+    // Applies to all agents (process discussion)
+    agentTypes.push('all')
+  } else if (filename === 'single-source-agents.md') {
+    // Applies to all agents (process guidance)
+    agentTypes.push('all')
+  } else if (filename === 'split-repos-and-deployment.md') {
+    // Applies to all agents (deployment guidance)
+    agentTypes.push('all')
+  } else if (filename === 'vercel-preview-smoke-test.md') {
+    // Applies to all agents (testing guidance)
+    agentTypes.push('all')
+  } else if (filename === 'MIGRATION_SUMMARY.md') {
+    // Migration summary - applies to all agents for reference
+    agentTypes.push('all')
   } else {
     // Content-based detection
     if (hasAllAgents) {
