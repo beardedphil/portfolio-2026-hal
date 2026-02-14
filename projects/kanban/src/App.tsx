@@ -2697,9 +2697,29 @@ function App() {
     if (!url || !key || !connectedRepoFullName) return
     try {
       const client = createClient(url, key)
-      // Get all tickets in Doing column
+      // Get all tickets in Doing column - use functional state update to get latest tickets (0135)
+      setAgentRunsByTicketPk((prevRuns) => {
+        // Get current tickets in Doing column from latest state
+        const doingTickets = supabaseTickets.filter((t) => t.kanban_column_id === 'col-doing')
+        const ticketPkSet = new Set(doingTickets.map((t) => t.pk))
+        
+        // Immediately clear runs for tickets that are no longer in Doing (0135)
+        // This prevents stale badges from showing while the fetch is in progress
+        const cleanedRuns: Record<string, SupabaseAgentRunRow> = {}
+        for (const [ticketPk, run] of Object.entries(prevRuns)) {
+          if (ticketPkSet.has(ticketPk)) {
+            cleanedRuns[ticketPk] = run
+          }
+        }
+        
+        // Return cleaned state immediately to clear stale runs
+        return cleanedRuns
+      })
+      
+      // Then fetch fresh runs for tickets currently in Doing
       const doingTickets = supabaseTickets.filter((t) => t.kanban_column_id === 'col-doing')
       if (doingTickets.length === 0) {
+        // Already cleared above, just ensure state is empty
         setAgentRunsByTicketPk({})
         return
       }
@@ -2723,7 +2743,18 @@ function App() {
           runsByTicket[run.ticket_pk] = run
         }
       }
-      setAgentRunsByTicketPk(runsByTicket)
+      // Update state with fresh runs, ensuring we only include tickets currently in Doing (0135)
+      // Double-check that we only include runs for tickets currently in Doing
+      // This handles race conditions where tickets might have moved during the fetch
+      const currentDoingTickets = supabaseTickets.filter((t) => t.kanban_column_id === 'col-doing')
+      const currentTicketPkSet = new Set(currentDoingTickets.map((t) => t.pk))
+      const finalRuns: Record<string, SupabaseAgentRunRow> = {}
+      for (const ticketPk of Object.keys(runsByTicket)) {
+        if (currentTicketPkSet.has(ticketPk)) {
+          finalRuns[ticketPk] = runsByTicket[ticketPk]
+        }
+      }
+      setAgentRunsByTicketPk(finalRuns)
     } catch (e) {
       console.warn('Failed to fetch agent runs:', e)
     }
