@@ -2870,12 +2870,15 @@ function App() {
         const reviewId = result.reviewId || null
         
         // Helper function to hash suggestion text for idempotency
+        // Uses first 16 characters to match backend hash format (0172)
         const hashSuggestion = async (text: string): Promise<string> => {
           const encoder = new TextEncoder()
           const data = encoder.encode(text)
           const hashBuffer = await crypto.subtle.digest('SHA-256', data)
           const hashArray = Array.from(new Uint8Array(hashBuffer))
-          return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+          const fullHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+          // Use first 16 characters to match backend format (0172)
+          return fullHash.slice(0, 16)
         }
         
         addProgress('Process Review completed. Creating suggestion tickets...')

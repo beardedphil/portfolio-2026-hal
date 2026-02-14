@@ -197,12 +197,16 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const suggestionText = isSingleSuggestion ? actualSuggestion : suggestions.map((s, i) => `- ${s}`).join('\n')
     
     // Generate suggestion hash for idempotency tracking (0167)
+    // Always generate hash for single suggestions to enable duplicate detection
     const suggestionHash = isSingleSuggestion && actualSuggestion
       ? crypto.createHash('sha256').update(actualSuggestion).digest('hex').slice(0, 16)
       : null
-    const idempotencySection = reviewId && suggestionHash
-      ? `- **Process Review ID**: ${reviewId}
+    // Always include hash in body when available (for idempotency), reviewId is optional
+    const idempotencySection = suggestionHash
+      ? (reviewId 
+          ? `- **Process Review ID**: ${reviewId}
 - **Suggestion Hash**: ${suggestionHash}`
+          : `- **Suggestion Hash**: ${suggestionHash}`)
       : ''
     
     let title: string
