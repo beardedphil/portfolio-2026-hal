@@ -1,0 +1,194 @@
+---
+description: Require agents to include a "Key decisions" summary in completion write-ups so reviewers can understand tradeoffs without re-reading entire worklogs
+alwaysApply: true
+---
+
+# Key Decisions Summary Requirement
+
+**MANDATORY:** All agent completion write-ups must include a short, explicit **"Key decisions"** summary (2–6 bullets) so reviewers can quickly understand tradeoffs and design choices without re-reading the entire worklog or diff.
+
+## When This Requirement Applies
+
+This requirement applies to **all agents** when completing work:
+
+- **Implementation agents** — Must include "Key decisions" in both the **PM Review artifact** and the **final chat completion summary**
+- **QA agents** — Must verify that the "Key decisions" section exists and is complete during review
+- **Project Manager agents** — Must check for "Key decisions" section when reviewing implementation artifacts
+
+## Required Content: Key Decisions Section
+
+**MANDATORY:** Implementation agents **must** include a "Key decisions" section in:
+
+1. **PM Review artifact** (stored in Supabase with `artifactType: "pm-review"`)
+2. **Final chat completion summary** (the "done" message sent to the user)
+
+### Format
+
+The "Key decisions" section should be a bulleted list (2–6 bullets) that explains:
+
+- **Why approach A was chosen over approach B** (e.g., "Used Supabase API endpoint instead of direct database access for better error handling and validation")
+- **Any tradeoffs or risks** (e.g., "Chose synchronous validation over async to simplify error handling, but this may block UI for large datasets")
+- **Design choices that affect maintainability** (e.g., "Stored instructions in Supabase rather than file system to enable runtime updates without deployments")
+- **Performance or scalability considerations** (e.g., "Implemented client-side caching to reduce API calls, with 5-minute TTL to balance freshness and performance")
+- **Integration decisions** (e.g., "Updated existing instruction update endpoint rather than creating new one to maintain API consistency")
+
+### Example: Good Key Decisions Section
+
+```markdown
+## Key Decisions
+
+- **Stored instructions in Supabase instead of file system** — Enables runtime updates via HAL UI without requiring deployments or code changes. Tradeoff: Requires Supabase connection, but this is already a dependency for the project.
+
+- **Updated existing `/api/instructions/update` endpoint** — Rather than creating a new endpoint, extended the existing one to maintain API consistency. This keeps the instruction update workflow unified.
+
+- **Added "Key decisions" requirement to all agent types** — Not just implementation agents, but also QA and PM agents need to check for this section. This ensures comprehensive review coverage.
+
+- **Included example in instruction file** — Provides concrete guidance on what constitutes a good "Key decisions" bullet, helping agents understand the expected level of detail and tradeoff explanation.
+
+- **Required in both PM Review artifact and chat summary** — Ensures visibility in both the structured artifact (for audit trail) and the conversational summary (for immediate review).
+```
+
+### Example: Poor Key Decisions Section (Too Vague)
+
+```markdown
+## Key Decisions
+
+- Used Supabase for storage
+- Updated the API
+- Added requirements
+```
+
+**Why this is poor:** Doesn't explain tradeoffs, alternatives considered, or reasoning. Reviewers can't understand the "why" without reading the entire worklog.
+
+## Implementation Agent Requirements
+
+**MANDATORY:** When completing a ticket, implementation agents **must**:
+
+1. **Include "Key decisions" in PM Review artifact:**
+   - Store the PM Review artifact via HAL API: `POST /api/artifacts/insert-implementation`
+   - Artifact type: `pm-review`
+   - Title format: `PM Review for ticket <ticket-id>`
+   - The artifact body must include a "Key decisions" section with 2–6 bullets
+
+2. **Include "Key decisions" in final chat completion summary:**
+   - When sending the completion message (the "done" summary), include a "Key decisions" section
+   - This can be a brief summary (2–4 bullets) that highlights the most important decisions
+   - The full detailed version should be in the PM Review artifact
+
+### PM Review Artifact Template
+
+```markdown
+# PM Review for ticket <ticket-id>
+
+[Other PM Review content...]
+
+## Key Decisions
+
+- [Bullet 1: Why approach A over B, tradeoffs, risks]
+- [Bullet 2: Design choice affecting maintainability]
+- [Bullet 3: Performance/scalability consideration]
+- [Bullet 4: Integration decision]
+- [Bullet 5-6: Additional important decisions]
+
+[Other PM Review content...]
+```
+
+### Final Chat Summary Template
+
+```markdown
+## Summary
+
+[Brief summary of what was implemented...]
+
+## Key Decisions
+
+- [Most important decision 1]
+- [Most important decision 2]
+- [Most important decision 3]
+
+Ticket <ticket-id> implementation completed and moved to QA.
+```
+
+## QA Agent Requirements
+
+**MANDATORY:** When QA agents review a ticket, they **must**:
+
+1. **Verify "Key decisions" section exists** — Check both:
+   - PM Review artifact (via HAL API: `POST /api/artifacts/get`)
+   - Final chat completion summary (if available in conversation history)
+
+2. **Verify "Key decisions" content quality** — The section should:
+   - Contain 2–6 bullets (not too few, not too many)
+   - Explain tradeoffs or alternatives considered
+   - Provide reasoning, not just descriptions
+   - Be specific enough that reviewers understand the "why" without reading the entire worklog
+
+3. **Include "Key decisions" review in QA report** — QA reports should include a section confirming:
+   - "Key decisions" section exists in PM Review artifact: [Yes / No]
+   - "Key decisions" section exists in completion summary: [Yes / No / N/A]
+   - Content quality: [Pass / Fail / Needs improvement]
+   - If missing or incomplete, QA **MUST FAIL** the ticket
+
+### QA Report Template Addition
+
+QA reports should include:
+
+```markdown
+## Key Decisions Review
+
+**Key decisions section in PM Review artifact:** [Yes / No]
+
+**Key decisions section in completion summary:** [Yes / No / N/A]
+
+**Content quality:**
+- [ ] Contains 2–6 bullets: [Yes / No]
+- [ ] Explains tradeoffs or alternatives: [Yes / No]
+- [ ] Provides reasoning (not just descriptions): [Yes / No]
+- [ ] Specific enough to understand "why" without reading full worklog: [Yes / No]
+
+**Overall assessment:** [Pass / Fail / Needs improvement]
+
+**If missing or incomplete:** QA **MUST FAIL** the ticket and request the implementation agent to add the "Key decisions" section.
+```
+
+## Project Manager Agent Requirements
+
+**MANDATORY:** When Project Manager agents review implementation artifacts, they **must**:
+
+1. **Check for "Key decisions" section** — Verify it exists in the PM Review artifact
+
+2. **Verify completeness** — Ensure the section:
+   - Contains 2–6 bullets
+   - Explains tradeoffs and reasoning
+   - Helps reviewers understand design choices quickly
+
+3. **Flag missing sections** — If "Key decisions" is missing or incomplete, PM agents should:
+   - Note this in their review
+   - Request the implementation agent to add it
+   - Consider this a blocker for ticket completion
+
+## Integration with Existing Workflows
+
+### PM Review Artifact
+
+The "Key decisions" section must be included in the **PM Review artifact** stored in Supabase:
+- **Artifact type:** `pm-review`
+- **Title format:** `PM Review for ticket <ticket-id>`
+- **Storage:** Via HAL API endpoint `/api/artifacts/insert-implementation` with `artifactType: "pm-review"`
+
+### Final Chat Completion Summary
+
+The "Key decisions" section must also be included in the **final chat completion summary** (the "done" message):
+- This is the message sent when the implementation agent completes work
+- Can be a brief version (2–4 bullets) highlighting the most important decisions
+- The full detailed version should be in the PM Review artifact
+
+### QA Audit Report
+
+QA agents must verify "Key decisions" documentation as part of their standard QA workflow.
+
+## Scope
+
+- Applies to **all agents** (implementation, QA, PM) when completing or reviewing work
+- The "Key decisions" section must be **human-verifiable** — a reviewer can open the PM Review artifact and immediately see the key decisions and tradeoffs
+- When in doubt, **include more detail** — it's better to over-explain tradeoffs than to leave reviewers guessing why certain approaches were chosen
