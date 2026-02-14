@@ -1,0 +1,196 @@
+---
+description: Standard template for agent status updates to ensure consistent, scan-friendly progress communication
+alwaysApply: true
+---
+
+# Status Message Template
+
+**MANDATORY:** All agents **MUST** post status updates using this template to ensure consistent, scan-friendly progress communication.
+
+## When to Post Status Messages
+
+Post status messages in the **ticket thread/chat running log** at these times:
+
+- **On start** — When beginning work on a ticket
+- **After each meaningful milestone** — After completing significant steps (e.g., "Implemented feature X", "Fixed bug Y", "Completed code review")
+- **When blocked** — Immediately when encountering blockers or dependencies
+- **On completion** — When work is finished (before moving ticket to next column)
+
+**Frequency:** Post updates at least once per meaningful milestone. For long-running work, post updates every 30-60 minutes or after each major step.
+
+## Where to Post
+
+- **Ticket thread/chat running log** — Post status messages in the active conversation/chat where the ticket work is being discussed
+- **Do NOT** post status messages in artifact bodies (artifacts are for structured documentation, not real-time updates)
+
+## Status Message Template (Copy-Paste)
+
+```markdown
+## Status Update
+
+**Context:** [Brief context: what ticket/feature you're working on]
+
+**State:** [Current state: Starting / In progress / Blocked / Done]
+
+**What I did:**
+- [Bullet point of completed work]
+- [Another bullet point if applicable]
+
+**Next:**
+- [What you're doing next]
+- [Next steps]
+
+**Risks:** [Any blockers, dependencies, or concerns. Use "None" if no risks]
+
+**ETA:** [Estimated time to completion or next milestone. Use "Unknown" if uncertain]
+
+**Links:** [Relevant links: PRs, artifacts, docs. Use "None" if no links]
+```
+
+## Examples
+
+### Example 1: Starting Work
+
+```markdown
+## Status Update
+
+**Context:** HAL-0189 — Adding status message template to agent process docs
+
+**State:** Starting
+
+**What I did:**
+- Reviewed existing process documentation structure
+- Identified where to add the template (`.cursor/rules/` directory)
+
+**Next:**
+- Create status message template file with copy-paste format
+- Add 3+ examples (Starting, In progress, Blocked, Done)
+- Include guidance on where and how often to post
+
+**Risks:** None
+
+**ETA:** 30 minutes
+
+**Links:** None
+```
+
+### Example 2: In Progress
+
+```markdown
+## Status Update
+
+**Context:** HAL-0189 — Adding status message template to agent process docs
+
+**State:** In progress
+
+**What I did:**
+- Created `.cursor/rules/status-message-template.mdc` with template structure
+- Added copy-paste template with all required fields
+- Added 3 examples (Starting, In progress, Blocked)
+
+**Next:**
+- Add "Done" example
+- Verify template is scan-friendly (short lines, bullets, consistent labels)
+- Test that file is accessible in HAL app
+
+**Risks:** None
+
+**ETA:** 15 minutes
+
+**Links:** `.cursor/rules/status-message-template.mdc`
+```
+
+### Example 3: Blocked
+
+```markdown
+## Status Update
+
+**Context:** HAL-0189 — Adding status message template to agent process docs
+
+**State:** Blocked
+
+**What I did:**
+- Created template file with all required sections
+- Added examples for Starting, In progress, and Done states
+
+**Next:**
+- Waiting for clarification on where status messages should be posted (ticket thread vs. chat log)
+- Need to confirm if template should also be added to Supabase instructions
+
+**Risks:** Blocked on clarification — unclear if status messages go in ticket thread or chat running log
+
+**ETA:** Unknown (depends on clarification)
+
+**Links:** `.cursor/rules/status-message-template.mdc`
+```
+
+### Example 4: Done
+
+```markdown
+## Status Update
+
+**Context:** HAL-0189 — Adding status message template to agent process docs
+
+**State:** Done
+
+**What I did:**
+- Created `.cursor/rules/status-message-template.mdc` with copy-paste template
+- Added 4 examples (Starting, In progress, Blocked, Done)
+- Included guidance on where to post (ticket thread/chat running log) and how often (on start, after milestones, when blocked, on completion)
+- Verified template is scan-friendly (short lines, bullets, consistent labels)
+
+**Next:**
+- Moving ticket to Ready for QA
+- Creating verification artifact
+
+**Risks:** None
+
+**ETA:** Complete
+
+**Links:** `.cursor/rules/status-message-template.mdc`
+```
+
+## Formatting Guidelines
+
+**Scan-friendly requirements:**
+
+- **Short lines** — Keep lines under 80 characters when possible
+- **Bullets** — Use bullet points (`-`) for lists, not paragraphs
+- **Consistent labels** — Always use the same field names (Context, State, What I did, Next, Risks, ETA, Links)
+- **Clear state values** — Use one of: Starting / In progress / Blocked / Done
+- **Avoid ambiguity** — Be specific about what you did and what's next
+
+**Bad example (not scan-friendly):**
+```markdown
+Status: Working on the ticket. I've done some things and will do more things next. No risks. Should be done soon.
+```
+
+**Good example (scan-friendly):**
+```markdown
+## Status Update
+
+**Context:** HAL-0189 — Adding status message template
+
+**State:** In progress
+
+**What I did:**
+- Created template file
+- Added examples
+
+**Next:**
+- Add guidance section
+- Verify in HAL app
+
+**Risks:** None
+
+**ETA:** 20 minutes
+
+**Links:** `.cursor/rules/status-message-template.mdc`
+```
+
+## Scope
+
+- Applies to **all agents** (implementation, QA, PM, Process Review) when posting progress updates
+- Status messages are for **real-time communication** in ticket threads/chat logs
+- Use this template for **all status updates** to ensure consistency and scan-friendliness
+- **Do NOT** use this template in artifact bodies (artifacts have their own structure)
