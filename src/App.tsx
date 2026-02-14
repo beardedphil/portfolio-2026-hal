@@ -296,6 +296,7 @@ function App() {
   // Collapsible group states (0087)
   const [qaGroupExpanded, setQaGroupExpanded] = useState(false)
   const [implGroupExpanded, setImplGroupExpanded] = useState(false)
+  const [processReviewGroupExpanded, setProcessReviewGroupExpanded] = useState(false)
   const [conversations, setConversations] = useState<Map<string, Conversation>>(getEmptyConversations)
   const [inputValue, setInputValue] = useState('')
   const [imageAttachment, setImageAttachment] = useState<ImageAttachment | null>(null)
@@ -725,8 +726,7 @@ function App() {
       setImplGroupExpanded(true)
     }
     if (hasProcessReviewConversations) {
-      // Process Review uses the same expanded state as QA for now (can be separated later if needed)
-      setQaGroupExpanded(true)
+      setProcessReviewGroupExpanded(true)
     }
   }, [connectedProject, conversations])
 
@@ -3554,6 +3554,63 @@ function App() {
                   </div>
                 )}
               </div>
+
+              {/* Process Review Group */}
+              <div className="chat-preview-group">
+                <div
+                  className="chat-preview-group-header"
+                  onClick={() => setProcessReviewGroupExpanded(!processReviewGroupExpanded)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      setProcessReviewGroupExpanded(!processReviewGroupExpanded)
+                    }
+                  }}
+                >
+                  <span className="chat-preview-group-icon">{processReviewGroupExpanded ? '▼' : '▶'}</span>
+                  <span className="chat-preview-name">Process Review</span>
+                  {unreadByTarget['process-review-agent'] > 0 && (
+                    <span className="chat-preview-unread">{unreadByTarget['process-review-agent']}</span>
+                  )}
+                </div>
+                {processReviewGroupExpanded && (
+                  <div className="chat-preview-group-items">
+                    {getConversationsForAgent('process-review-agent').length === 0 ? (
+                      <div className="chat-preview-empty">No Process Review agents running</div>
+                    ) : (
+                      getConversationsForAgent('process-review-agent').map((conv) => (
+                        <div
+                          key={conv.id}
+                          className={`chat-preview-pane chat-preview-nested ${openChatTarget === conv.id ? 'chat-preview-active' : ''}`}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setOpenChatTarget(conv.id)
+                            setSelectedChatTarget('process-review-agent')
+                            setSelectedConversationId(conv.id)
+                          }}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              setOpenChatTarget(conv.id)
+                              setSelectedChatTarget('process-review-agent')
+                              setSelectedConversationId(conv.id)
+                            }
+                          }}
+                        >
+                          <div className="chat-preview-header">
+                            <span className="chat-preview-name">{getConversationLabel(conv)}</span>
+                          </div>
+                          <div className="chat-preview-text">{getConversationPreview(conv)}</div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           ) : null}
 
@@ -3603,6 +3660,27 @@ function App() {
                   {qaAgentError && (
                     <div className="agent-status-box-error" role="alert">
                       {qaAgentError}
+                    </div>
+                  )}
+                </div>
+              )}
+              {/* Process Review Agent status box - only show when working (not idle, not completed) */}
+              {processReviewAgentRunStatus !== 'idle' && processReviewAgentRunStatus !== 'completed' && (
+                <div className="agent-status-box">
+                  <div className="agent-status-box-header">
+                    <span className="agent-status-box-name">Process Review Agent</span>
+                    <span className={`agent-status-box-status agent-status-${processReviewAgentRunStatus}`}>
+                      {processReviewAgentRunStatus === 'preparing' ? 'Preparing' :
+                       processReviewAgentRunStatus === 'running' ? 'Running' :
+                       processReviewAgentRunStatus === 'failed' ? 'Failed' : 'Idle'}
+                    </span>
+                  </div>
+                  <div className="agent-status-box-ticket">
+                    {_processReviewAgentTicketId ? formatTicketId(_processReviewAgentTicketId) : '—'}
+                  </div>
+                  {processReviewAgentError && (
+                    <div className="agent-status-box-error" role="alert">
+                      {processReviewAgentError}
                     </div>
                   )}
                 </div>
