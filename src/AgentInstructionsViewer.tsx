@@ -452,6 +452,17 @@ ${alwaysApply ? 'alwaysApply: true' : ''}
               {viewState === 'agents' && (
                 <div className="agent-instructions-agents">
                   <h4>Select an agent to view instructions:</h4>
+                  <div className="agent-scoping-info" style={{ 
+                    padding: '8px 12px', 
+                    marginBottom: '16px', 
+                    backgroundColor: '#f5f5f5', 
+                    border: '1px solid #ddd', 
+                    borderRadius: '4px',
+                    fontSize: '14px'
+                  }}>
+                    <strong>Agent Type Scoping:</strong> Each agent type receives only the instructions relevant to them. 
+                    Instructions marked as "shared/global" (applies to all) are included for every agent type.
+                  </div>
                   <div className="agent-list">
                     {(['all', 'project-manager', 'implementation-agent', 'qa-agent', 'process-review-agent'] as AgentType[]).map((agent) => {
                       const agentInstructions = getInstructionsForAgent(agent)
@@ -496,6 +507,17 @@ ${alwaysApply ? 'alwaysApply: true' : ''}
                 return (
                   <div className="agent-instructions-list">
                     <h4>{getAgentLabel(selectedAgent)} Instructions</h4>
+                    <div className="agent-scoping-notice" style={{ 
+                      padding: '8px 12px', 
+                      marginBottom: '16px', 
+                      backgroundColor: '#e3f2fd', 
+                      border: '1px solid #90caf9', 
+                      borderRadius: '4px',
+                      fontSize: '14px'
+                    }}>
+                      <strong>Agent Type Scoping Active:</strong> Showing only instructions applicable to <strong>{getAgentLabel(selectedAgent)}</strong>. 
+                      {selectedAgent !== 'all' && ' Instructions marked as "shared/global" are included for all agent types.'}
+                    </div>
                     
                     {/* Show empty state if no instructions found */}
                     {basic.length === 0 && situational.length === 0 ? (
