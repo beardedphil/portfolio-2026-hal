@@ -1,0 +1,62 @@
+---
+description: Conditional rendering review checklist for UI components
+alwaysApply: true
+---
+
+# Conditional Rendering Review
+
+Before implementing or changing any conditional rendering in UI components, agents **must** follow this checklist to ensure UI conditional-rendering decisions are consistently justified against the ticket's Goal and the app's product intent (avoid accidental feature removal/hiding and prevent UX regressions).
+
+## Checklist
+
+When adding, modifying, or removing conditional rendering logic in UI components:
+
+- [ ] **Document the condition rationale** — In your Plan or Decisions artifact, explicitly document:
+  - **Why the condition exists** — What business logic, user state, or product requirement drives this conditional rendering?
+  - **What user segment/state it affects** — Which users or application states trigger this condition? (e.g., "logged-in users", "users with feature flag X enabled", "when data is loading", "when user has no permissions")
+  - **What the expected visible behavior is** — What should users see when the condition is true vs. false? (e.g., "Show button X when user is admin; hide it otherwise")
+
+- [ ] **Verify against ticket Goal** — Confirm that the conditional rendering aligns with the ticket's Goal and does not accidentally hide or remove features that should remain visible.
+
+- [ ] **Guardrail: Silent removal check** — If a condition **hides** a feature or UI element:
+  - **Confirm intent**: Should this feature be **removed** (permanently deleted) or **temporarily hidden** (still accessible under different conditions)?
+  - **Document the decision**: Note in your Decisions artifact whether this is a removal or a conditional hide, and why.
+  - **Verify product intent**: Ensure this decision aligns with the app's product intent and does not create an unintended UX regression.
+
+- [ ] **UI-only verification step** — Perform at least one **UI-only verification** in the running app:
+  - Example: "In the running app, visit X screen and confirm: state A shows element Y; state B hides it; state C shows fallback Z"
+  - Document this verification in your Verification artifact
+  - Use in-app UI only (no console/devtools required for verification)
+
+- [ ] **Document in artifacts** — Ensure the conditional rendering rationale and verification are captured in:
+  - Plan artifact (if planned upfront), OR
+  - Decisions artifact (if discovered during implementation), AND
+  - Verification artifact (UI verification steps)
+
+## Example: Acceptable Conditional Rendering Documentation
+
+**In Plan or Decisions artifact:**
+
+```markdown
+## Conditional Rendering: Admin Actions Button
+
+**Why the condition exists:** Only administrators should see the "Delete Project" button to prevent unauthorized deletions.
+
+**What user segment/state it affects:** Users with `role === 'admin'` in their session.
+
+**Expected visible behavior:**
+- When `user.role === 'admin'`: Button is visible and functional
+- When `user.role !== 'admin'`: Button is not rendered (not just hidden with CSS)
+
+**Removal vs. Hide decision:** This is a **conditional hide** (not a removal). The feature remains in the codebase but is conditionally rendered based on user role. This aligns with the product intent of role-based access control.
+
+**UI verification:** 
+- Log in as admin user → Navigate to Project Settings → Confirm "Delete Project" button is visible
+- Log in as regular user → Navigate to Project Settings → Confirm "Delete Project" button is not present (not just hidden)
+```
+
+## Scope
+
+- Applies to **all conditional rendering** in UI components (React, Vue, or other framework conditionals like `{condition && <Component />}`, `v-if`, `*ngIf`, etc.)
+- Applies when **adding**, **modifying**, or **removing** conditional rendering logic
+- Must be completed **before** claiming implementation is complete
