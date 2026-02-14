@@ -434,7 +434,7 @@ You have access to read-only tools to explore the repository. Use them to answer
 
 **Creating tickets:** When the user **explicitly** asks to create a ticket (e.g. "create a ticket", "create ticket for that", "create a new ticket for X"), you MUST call the create_ticket tool if it is available. Do NOT call create_ticket for short, non-actionable messages such as: "test", "ok", "hi", "hello", "thanks", "cool", "checking", "asdf", or similar—these are usually the user testing the UI, acknowledging, or typing casually. Do not infer a ticket-creation request from context alone (e.g. if the user sends "Test" while testing the chat UI, that does NOT mean create the chat UI ticket). Calling the tool is what actually creates the ticket—do not only write the ticket content in your message. Use create_ticket with a short title (without the ID prefix—the tool assigns the next repo-scoped ID and normalizes the Title line to "PREFIX-NNNN — ..."). Provide a full markdown body following the repo ticket template. Do not invent an ID—the tool assigns it. Do not write secrets or API keys into the ticket body. If create_ticket is not in your tool list, tell the user: "I don't have the create-ticket tool for this request. In the HAL app, connect the project folder (with VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in its .env), then try again. Check Diagnostics to confirm 'Create ticket (this request): Available'." After creating a ticket via the tool, report the exact ticket display ID (e.g. HAL-0079) and the returned filePath (Supabase-only).
 
-**Moving a ticket to To Do:** When the user asks to move a ticket to To Do (e.g. "move this to To Do", "move ticket 0012 to To Do"), you MUST (1) fetch the ticket content with fetch_ticket_content (by ticket id), (2) evaluate readiness with evaluate_ticket_ready (pass the body_md from the fetch result). If the ticket is NOT ready, do NOT call kanban_move_ticket_to_todo; instead reply with a clear list of what is missing (use the missingItems from the evaluate_ticket_ready result). If the ticket IS ready, call kanban_move_ticket_to_todo with the ticket id. Then confirm in chat that the ticket was moved. The readiness checklist is in docs/process/ready-to-start-checklist.md (Goal, Human-verifiable deliverable, Acceptance criteria checkboxes, Constraints, Non-goals, no unresolved placeholders).
+**Moving a ticket to To Do:** When the user asks to move a ticket to To Do (e.g. "move this to To Do", "move ticket 0012 to To Do"), you MUST (1) fetch the ticket content with fetch_ticket_content (by ticket id), (2) evaluate readiness with evaluate_ticket_ready (pass the body_md from the fetch result). If the ticket is NOT ready, do NOT call kanban_move_ticket_to_todo; instead reply with a clear list of what is missing (use the missingItems from the evaluate_ticket_ready result). If the ticket IS ready, call kanban_move_ticket_to_todo with the ticket id. Then confirm in chat that the ticket was moved. The readiness checklist is in your instructions (topic: ready-to-start-checklist): Goal, Human-verifiable deliverable, Acceptance criteria checkboxes, Constraints, Non-goals, no unresolved placeholders.
 
 **Preparing a ticket (Definition of Ready):** When the user asks to "prepare ticket X" or "get ticket X ready" (e.g. from "Prepare top ticket" button), you MUST (1) fetch the ticket content with fetch_ticket_content, (2) evaluate readiness with evaluate_ticket_ready. If the ticket is NOT ready, use update_ticket_body to fix formatting issues (normalize headings, convert bullets to checkboxes in Acceptance criteria if needed, ensure all required sections exist). After updating, re-evaluate with evaluate_ticket_ready. If the ticket IS ready (after fixes if needed), automatically call kanban_move_ticket_to_todo to move it to To Do. Then confirm in chat that the ticket is Ready-to-start and has been moved to To Do. If the ticket cannot be made ready (e.g. missing required content that cannot be auto-generated), clearly explain what is missing and that the ticket remains in Unassigned.
 
@@ -530,6 +530,8 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
   }
 
   sections.push('## Repo rules (from Supabase)')
+  let ticketTemplateContent: string | null = null
+  let checklistContent: string | null = null
   try {
     type TopicMeta = {
       title?: string
@@ -791,6 +793,10 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
           basicInstructions,
           situationalInstructions
         )
+        const templateInst = basicInstructions.find((i) => i.topicId === 'ticket-template')
+        const checklistInst = basicInstructions.find((i) => i.topicId === 'ready-to-start-checklist')
+        if (templateInst?.contentMd) ticketTemplateContent = templateInst.contentMd
+        if (checklistInst?.contentMd) checklistContent = checklistInst.contentMd
       } catch (apiErr) {
         console.warn('[PM Agent] HAL API instruction bootstrap failed:', apiErr)
       }
@@ -830,6 +836,10 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
         basicInstructions,
         situationalInstructions
       )
+      const templateInst = basicInstructions.find((i) => i.topicId === 'ticket-template')
+      const checklistInst = basicInstructions.find((i) => i.topicId === 'ready-to-start-checklist')
+      if (templateInst?.contentMd) ticketTemplateContent = templateInst.contentMd
+      if (checklistInst?.contentMd) checklistContent = checklistInst.contentMd
     }
 
     // Last resort: local entry point only (no topic content from filesystem).
@@ -858,24 +868,24 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
   }
 
   sections.push('## Ticket template (required structure for create_ticket)')
-  try {
-    const templatePath = path.resolve(config.repoRoot, 'docs/templates/ticket.template.md')
-    const templateContent = await fs.readFile(templatePath, 'utf8')
+  if (ticketTemplateContent) {
     sections.push(
-      templateContent +
+      ticketTemplateContent +
         '\n\nWhen creating a ticket, use this exact section structure. Replace every placeholder in angle brackets (e.g. `<what we want to achieve>`, `<AC 1>`) with concrete content—the resulting ticket must pass the Ready-to-start checklist (no unresolved placeholders, all required sections filled).'
     )
-  } catch {
-    sections.push('(docs/templates/ticket.template.md not found)')
+  } else {
+    sections.push(
+      '(Ticket template not found in instructions. Ensure migrate-docs has been run and instructions are loaded from Supabase.)'
+    )
   }
 
   sections.push('## Ready-to-start checklist (Definition of Ready)')
-  try {
-    const checklistPath = path.resolve(config.repoRoot, 'docs/process/ready-to-start-checklist.md')
-    const content = await fs.readFile(checklistPath, 'utf8')
-    sections.push(content)
-  } catch {
-    sections.push('(docs/process/ready-to-start-checklist.md not found)')
+  if (checklistContent) {
+    sections.push(checklistContent)
+  } else {
+    sections.push(
+      '(Ready-to-start checklist not found in instructions. Ensure migrate-docs has been run and instructions are loaded from Supabase.)'
+    )
   }
 
   sections.push('## Git status (git status -sb)')
