@@ -693,30 +693,41 @@ function ArtifactReportViewer({
     const artifactTitle = artifact?.title
     const imageClickHandler = handleImageClick
     
-    return {
-      img: (props: any) => {
-        // ReactMarkdown v10 passes props directly as HTML attributes
-        const src = props.src
-        const alt = props.alt
-        
-        // Debug logging
-        if (!src) {
-          console.warn('[ImageComponent] No src in props:', Object.keys(props))
-        } else {
-          console.log('[ImageComponent] Rendering with src:', src.substring(0, 50) + '...')
-        }
-        
-        return (
-          <MarkdownImage
-            src={src}
-            alt={alt}
-            artifactTitle={artifactTitle}
-            onImageClick={imageClickHandler}
-          />
-        )
-      },
+    const ImageComponent = (props: any) => {
+      // ReactMarkdown v10 passes props directly as HTML attributes
+      // Log ALL props to see what we're getting
+      console.log('[ImageComponent] CALLED with props:', {
+        src: props.src?.substring?.(0, 100),
+        alt: props.alt,
+        allKeys: Object.keys(props),
+        node: props.node ? 'present' : 'missing',
+        children: props.children,
+      })
+      
+      const src = props.src
+      const alt = props.alt
+      
+      if (!src) {
+        console.warn('[ImageComponent] No src in props. Full props:', props)
+      }
+      
+      return (
+        <MarkdownImage
+          src={src}
+          alt={alt}
+          artifactTitle={artifactTitle}
+          onImageClick={imageClickHandler}
+        />
+      )
     }
-  }, [artifact?.title, handleImageClick])
+    
+    // Log when components are created
+    console.log('[markdownComponents] Creating components object for artifact:', artifact?.title)
+    
+    return {
+      img: ImageComponent,
+    }
+  }, [artifact?.title, handleImageClick, artifact])
 
   if (!open || !artifact) return null
 
@@ -756,14 +767,18 @@ function ArtifactReportViewer({
             {artifact.body_md && artifact.body_md.trim().length > 0 ? (
               <>
                 {/* Debug: show raw markdown */}
-                {process.env.NODE_ENV === 'development' && (
-                  <details style={{ marginBottom: '1rem', fontSize: '0.8rem' }}>
-                    <summary>Debug: Raw markdown (first 200 chars)</summary>
-                    <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                      {artifact.body_md.substring(0, 200)}...
-                    </pre>
-                  </details>
-                )}
+                <details style={{ marginBottom: '1rem', fontSize: '0.8rem', border: '1px solid var(--kanban-border)', padding: '0.5rem' }}>
+                  <summary>Debug: Raw markdown (first 500 chars)</summary>
+                  <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: '0.75rem' }}>
+                    {artifact.body_md.substring(0, 500)}...
+                  </pre>
+                </details>
+                <div style={{ border: '2px solid red', padding: '1rem', marginBottom: '1rem' }}>
+                  <p style={{ margin: 0, fontWeight: 'bold' }}>Debug: About to render ReactMarkdown</p>
+                  <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.9rem' }}>
+                    Components registered: {markdownComponents ? 'YES' : 'NO'}, Has img: {markdownComponents?.img ? 'YES' : 'NO'}
+                  </p>
+                </div>
                 <ReactMarkdown components={markdownComponents}>{artifact.body_md}</ReactMarkdown>
               </>
             ) : (
