@@ -1244,15 +1244,6 @@ function App() {
 
   // Add welcome message to empty Process Review conversations (0111)
   useEffect(() => {
-<<<<<<< HEAD
-    for (const [convId, conv] of conversations.entries()) {
-      if (conv.agentRole === 'process-review-agent' && conv.messages.length === 0) {
-        const isAvailable = supabaseUrl != null && supabaseAnonKey != null
-        const welcomeMsg = isAvailable
-          ? '[Process Review] Process Review is available. Click "Review top ticket" in the Process Review column to analyze a ticket and generate improvement suggestions.'
-          : '[Process Review] Process Review is unavailable. Supabase credentials are required to access ticket artifacts. Connect a project folder with Supabase configuration to enable Process Review.'
-        addMessage(convId, 'process-review-agent', welcomeMsg)
-=======
     if (selectedChatTarget === 'tools-agent' || openChatTarget === 'tools-agent') {
       // Initialize Tools Agent conversation if it doesn't exist
       getDefaultConversationId('tools-agent')
@@ -1294,7 +1285,6 @@ function App() {
         }
       } catch (err) {
         console.error('Failed to initialize execution timestamp:', err)
->>>>>>> origin/ticket/0111-implementation
       }
     }
   }, [conversations, supabaseUrl, supabaseAnonKey, addMessage])
