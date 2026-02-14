@@ -1,5 +1,6 @@
 {
   "basic": [
+    "agent-instructions",
     "conversation-protocol",
     "agent-supabase-api-paradigm",
     "agent-runs-terminal-commands",
@@ -29,6 +30,12 @@
     ]
   },
   "topics": {
+    "agent-instructions": {
+      "title": "Agent Instructions",
+      "description": "How to access agent instructions via HAL API endpoints",
+      "agentTypes": ["all"],
+      "keywords": ["instructions", "api", "endpoints", "supabase"]
+    },
     "auditability-and-traceability": {
       "title": "Auditability and Traceability",
       "description": "Requirements for fully auditable agent work, including mandatory artifact checking",
