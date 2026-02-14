@@ -395,29 +395,116 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         const summary = statusData.summary ?? 'Implementation completed.'
         const prUrl = statusData.target?.prUrl
 
-        // Move ticket to QA
-        try {
-          const { data: inColumn } = await supabase
-            .from('tickets')
-            .select('kanban_position')
-            .eq('repo_full_name', repoFullName)
-            .eq('kanban_column_id', 'col-qa')
-            .order('kanban_position', { ascending: false })
-            .limit(1)
-          const nextPosition = inColumn?.length ? ((inColumn[0] as any)?.kanban_position ?? -1) + 1 : 0
-          const movedAt = new Date().toISOString()
-          await supabase
-            .from('tickets')
-            .update({ kanban_column_id: 'col-qa', kanban_position: nextPosition, kanban_moved_at: movedAt })
-            .eq('pk', ticketPk)
-        } catch {
-          // non-fatal: still return completion summary
+        // Move ticket to QA with retry logic and error reporting
+        let moveToQaSuccess = false
+        let moveToQaError: string | null = null
+        
+        const moveToQa = async (retries = 3): Promise<{ success: boolean; error?: string }> => {
+          for (let attempt = 1; attempt <= retries; attempt++) {
+            try {
+              // Fetch current QA column position
+              const { data: inColumn, error: fetchError } = await supabase
+                .from('tickets')
+                .select('kanban_position')
+                .eq('repo_full_name', repoFullName)
+                .eq('kanban_column_id', 'col-qa')
+                .order('kanban_position', { ascending: false })
+                .limit(1)
+              
+              if (fetchError) {
+                const errorMsg = `Failed to fetch QA column position: ${fetchError.message}`
+                if (attempt === retries) {
+                  return { success: false, error: errorMsg }
+                }
+                await sleep(1000 * attempt) // Exponential backoff
+                continue
+              }
+              
+              const nextPosition = inColumn?.length ? ((inColumn[0] as any)?.kanban_position ?? -1) + 1 : 0
+              const movedAt = new Date().toISOString()
+              
+              // Update ticket to QA column
+              const { error: updateError } = await supabase
+                .from('tickets')
+                .update({ kanban_column_id: 'col-qa', kanban_position: nextPosition, kanban_moved_at: movedAt })
+                .eq('pk', ticketPk)
+              
+              if (updateError) {
+                const errorMsg = `Failed to update ticket to QA: ${updateError.message}`
+                console.error(`[Implementation Agent] Move to QA attempt ${attempt}/${retries} failed:`, updateError)
+                if (attempt === retries) {
+                  return { success: false, error: errorMsg }
+                }
+                await sleep(1000 * attempt) // Exponential backoff
+                continue
+              }
+              
+              // Verify the move succeeded by checking the ticket's current column
+              const { data: verifyTicket, error: verifyError } = await supabase
+                .from('tickets')
+                .select('kanban_column_id')
+                .eq('pk', ticketPk)
+                .maybeSingle()
+              
+              if (verifyError) {
+                const errorMsg = `Failed to verify ticket move: ${verifyError.message}`
+                console.error(`[Implementation Agent] Verification failed:`, verifyError)
+                if (attempt === retries) {
+                  return { success: false, error: errorMsg }
+                }
+                await sleep(1000 * attempt)
+                continue
+              }
+              
+              if (verifyTicket?.kanban_column_id === 'col-qa') {
+                return { success: true }
+              } else {
+                const errorMsg = `Ticket move verification failed: ticket is in column ${verifyTicket?.kanban_column_id || 'unknown'} instead of col-qa`
+                console.error(`[Implementation Agent] ${errorMsg}`)
+                if (attempt === retries) {
+                  return { success: false, error: errorMsg }
+                }
+                await sleep(1000 * attempt)
+                continue
+              }
+            } catch (err) {
+              const errorMsg = err instanceof Error ? err.message : String(err)
+              console.error(`[Implementation Agent] Move to QA attempt ${attempt}/${retries} threw error:`, err)
+              if (attempt === retries) {
+                return { success: false, error: `Unexpected error: ${errorMsg}` }
+              }
+              await sleep(1000 * attempt) // Exponential backoff
+            }
+          }
+          return { success: false, error: 'Move to QA failed after all retries' }
         }
+        
+        const moveResult = await moveToQa()
+        moveToQaSuccess = moveResult.success
+        moveToQaError = moveResult.error || null
 
         const parts = [summary]
         if (prUrl) parts.push(`\n\nPull request: ${prUrl}`)
-        parts.push(`\n\nTicket ${displayId} moved to QA.`)
-        writeStage({ stage: 'completed', success: true, content: parts.join(''), prUrl, summary, status: 'completed' })
+        
+        if (moveToQaSuccess) {
+          parts.push(`\n\n✅ Ticket ${displayId} moved to QA.`)
+        } else {
+          parts.push(`\n\n⚠️ **Warning**: Ticket ${displayId} could not be moved to QA automatically.`)
+          parts.push(`\n**Error**: ${moveToQaError || 'Unknown error'}`)
+          parts.push(`\n**Action required**: Please move the ticket to QA manually in the Kanban board.`)
+          console.error(`[Implementation Agent] Failed to move ticket ${displayId} to QA:`, moveToQaError)
+        }
+        
+        writeStage({ 
+          stage: 'completed', 
+          success: true, 
+          content: parts.join(''), 
+          prUrl, 
+          summary, 
+          status: 'completed',
+          moveToQaSuccess,
+          moveToQaError: moveToQaError || undefined,
+        })
         res.end()
         return
       }
