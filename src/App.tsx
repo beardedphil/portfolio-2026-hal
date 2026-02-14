@@ -830,6 +830,18 @@ function App() {
             mergedConversations.set(convId, supabaseConv)
           }
 
+          // Ensure PM conversation exists even if no messages were loaded (0124: fix PM chat clearing on refresh)
+          const pmConvId = getConversationId('project-manager', 1)
+          if (!mergedConversations.has(pmConvId)) {
+            mergedConversations.set(pmConvId, {
+              id: pmConvId,
+              agentRole: 'project-manager',
+              instanceNumber: 1,
+              messages: [],
+              createdAt: new Date(),
+            })
+          }
+
           messageIdRef.current = maxMessageId
           setConversations(mergedConversations)
           setPersistenceError(null)
@@ -1493,8 +1505,44 @@ function App() {
     if (id != null) messageIdRef.current = Math.max(messageIdRef.current, nextId)
     setConversations((prev) => {
       const next = new Map(prev)
-      const conv = next.get(conversationId)
-      if (!conv) return next
+      let conv = next.get(conversationId)
+      // Create conversation if it doesn't exist (0124: fix PM chat clearing on refresh)
+      if (!conv) {
+        const parsed = parseConversationId(conversationId)
+        if (parsed) {
+          conv = {
+            id: conversationId,
+            agentRole: parsed.agentRole,
+            instanceNumber: parsed.instanceNumber,
+            messages: [],
+            createdAt: new Date(),
+          }
+          next.set(conversationId, conv)
+        } else {
+          // Legacy format: try to parse as agent role only
+          const agentRole = conversationId.split('-')[0] as Agent
+          if (agentRole === 'project-manager' || agentRole === 'implementation-agent' || agentRole === 'qa-agent' || agentRole === 'process-review-agent') {
+            // Convert legacy format to new format (instance 1)
+            const newConvId = `${agentRole}-1`
+            conv = next.get(newConvId)
+            if (!conv) {
+              conv = {
+                id: newConvId,
+                agentRole,
+                instanceNumber: 1,
+                messages: [],
+                createdAt: new Date(),
+              }
+              next.set(newConvId, conv)
+            }
+            // Use the new conversation ID for the message
+            conversationId = newConvId
+          } else {
+            // Unknown format, can't create conversation
+            return next
+          }
+        }
+      }
       next.set(conversationId, {
         ...conv,
         messages: [...conv.messages, { id: nextId, agent, content, timestamp: new Date(), imageAttachments }],
@@ -1663,7 +1711,8 @@ function App() {
         const friendlyMsg = isFetchError
           ? '[PM] Unassigned check couldn’t run (server may be busy or building). Try connecting again in a moment.'
           : `[PM] Unassigned check failed: ${errMsg}`
-        addMessage('project-manager', 'project-manager', friendlyMsg)
+        const pmConvId = getConversationId('project-manager', 1)
+        addMessage(pmConvId, 'project-manager', friendlyMsg)
       }
     },
     [formatUnassignedCheckMessage, addMessage]
