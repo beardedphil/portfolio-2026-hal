@@ -47,6 +47,35 @@ Create a new file at `docs/tickets/<task-id>-<short-title>.md` using this templa
 
 - <hints, suspected cause, suggested approach>
 
+## Verification checklist
+
+### Chat persistence after disconnect/reconnect
+
+**Purpose**: Verify that chat conversations persist correctly across disconnect/reconnect operations (regression test for HAL-0097).
+
+**Steps**:
+1. **Start a chat**: Connect to a repository and start a conversation with any agent (e.g., Project Manager, Implementation Agent, or QA Agent). Send at least 2-3 messages to establish a conversation history.
+2. **Disconnect/reconnect**: Click the "Disconnect" button, then reconnect to the same repository (or refresh the page if testing page refresh behavior).
+3. **Verify thread and messages remain visible**: 
+   - The chat preview should still be visible in the chat preview stack
+   - Opening the chat should show the same conversation history (all previous messages visible)
+   - The thread ID should remain the same (verify by checking that the conversation continues seamlessly)
+4. **Send a new message after reconnect**: Type and send a new message in the reconnected chat.
+5. **Verify no duplicates/blank messages appear**:
+   - Message count should match the expected count (previous messages + new message)
+   - No duplicate messages should appear
+   - No empty message shells or blank message bubbles should be visible
+   - The new message should appear at the end of the conversation
+
+**Expected UI results**:
+- ✅ Same thread ID (conversation continues without creating a new thread)
+- ✅ Message count unchanged (all previous messages remain visible)
+- ✅ No empty shells (no blank message bubbles or placeholders)
+- ✅ New messages append correctly after reconnect
+- ✅ No duplicate messages or threads created
+
+**When to use**: Apply this checklist when working on any chat-related features, UI changes to the chat component, or state management that could affect conversation persistence.
+
 ## Audit artifacts required (implementation agent)
 
 Create `docs/audit/<task-id>-<short-title>/` containing:
