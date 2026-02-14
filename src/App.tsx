@@ -1242,6 +1242,18 @@ function App() {
     }
   }, [qaAgentTicketId, extractTicketId, moveTicketToColumn, addAutoMoveDiagnostic])
 
+  // Add welcome message to empty Process Review conversations (0111)
+  useEffect(() => {
+    for (const [convId, conv] of conversations.entries()) {
+      if (conv.agentRole === 'process-review-agent' && conv.messages.length === 0) {
+        const isAvailable = supabaseUrl != null && supabaseAnonKey != null
+        const welcomeMsg = isAvailable
+          ? '[Process Review] Process Review is available. Click "Review top ticket" in the Process Review column to analyze a ticket and generate improvement suggestions.'
+          : '[Process Review] Process Review is unavailable. Supabase credentials are required to access ticket artifacts. Connect a project folder with Supabase configuration to enable Process Review.'
+        addMessage(convId, 'process-review-agent', welcomeMsg)
+      }
+    }
+  }, [conversations, supabaseUrl, supabaseAnonKey, addMessage])
 
   type CheckUnassignedResult = {
     moved: string[]
