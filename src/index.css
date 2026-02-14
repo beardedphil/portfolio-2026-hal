@@ -74,11 +74,18 @@
   box-sizing: border-box;
 }
 
-html,
-body {
-  height: 100vh;
+html {
+  height: 100%;
   overflow: hidden;
   margin: 0;
+  padding: 0;
+}
+
+body {
+  height: 100%;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
 }
 
 body {
@@ -90,16 +97,18 @@ body {
 }
 
 #root {
-  height: 100vh;
+  height: 100%;
   overflow: hidden;
+  position: relative;
 }
 
 /* HAL App Layout */
 .hal-app {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100%;
   overflow: hidden;
+  position: relative;
 }
 
 .hal-header {
@@ -309,8 +318,11 @@ body {
 .kanban-frame-container {
   flex: 1;
   position: relative;
-  min-height: 400px;
+  min-height: 0;
   min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Kanban visibility states (0096: keep mounted, hide/show with CSS) */
@@ -328,6 +340,47 @@ body {
   width: 100%;
   height: 100%;
   border: none;
+}
+
+/* Override Kanban root styles when embedded in HAL to prevent viewport overflow */
+.kanban-frame-container #root {
+  min-height: 0 !important;
+  height: 100% !important;
+  padding: 0 !important;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Ensure Kanban app container fills its parent and allows internal scrolling */
+.kanban-frame-container [data-kanban-build] {
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Ensure Kanban columns container can scroll horizontally */
+.kanban-frame-container .columns-row {
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Ensure Kanban column content can scroll vertically */
+.kanban-frame-container .column-card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.kanban-frame-container .column-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .kanban-loading-overlay {
