@@ -84,9 +84,13 @@ See `.cursor/rules/agent-supabase-api-paradigm.mdc` for full API endpoint docume
 
 ## Moving Tickets After Implementation
 
-**MANDATORY:** After completing implementation work, implementation agents **MUST** move the ticket to **Ready for QA** using the HAL API. This is **not optional** - failing to move the ticket to Ready for QA means the implementation workflow is incomplete.
+**⚠️ CRITICAL MANDATORY STEP - DO NOT SKIP THIS ⚠️**
 
-**Move ticket to Ready for QA:**
+**MANDATORY:** After completing implementation work, implementation agents **MUST** move the ticket to **Ready for QA** using the HAL API. This is **not optional** - failing to move the ticket to Ready for QA means the implementation workflow is incomplete and the ticket will remain in the wrong column.
+
+**YOU MUST MOVE THE TICKET BEFORE SENDING YOUR COMPLETION SUMMARY. DO NOT SAY "DONE" OR "COMPLETE" WITHOUT MOVING THE TICKET FIRST.**
+
+**Move ticket to Ready for QA (REQUIRED BEFORE COMPLETION):**
 ```javascript
 const baseUrl = (await readFile('.hal/api-base-url', 'utf8')).trim()
 const res = await fetch(`${baseUrl}/api/tickets/move`, {
@@ -100,6 +104,10 @@ const res = await fetch(`${baseUrl}/api/tickets/move`, {
 const result = await res.json()
 if (result.success) {
   // Ticket moved successfully to position result.position
+  // NOW you can send your completion summary
+} else {
+  // If move fails, DO NOT send completion summary - fix the issue first
+  throw new Error(`Failed to move ticket: ${result.error}`)
 }
 ```
 
@@ -111,12 +119,17 @@ The `/api/tickets/move` endpoint accepts multiple ticket ID formats for flexibil
 
 The API automatically handles these formats by trying multiple lookup strategies, so you can use whichever format is most convenient. The API will find the ticket regardless of format and use the ticket's primary key (pk) for the update to ensure reliability.
 
-**When to move:**
-- After all code changes are committed and pushed
-- After all required artifacts are stored (if applicable)
-- Before sending the final "implementation complete" summary message
+**When to move (MANDATORY WORKFLOW):**
+1. ✅ After all code changes are committed and pushed
+2. ✅ After all required artifacts are stored (if applicable)
+3. ✅ **MOVE THE TICKET TO READY FOR QA** (use the API call above)
+4. ✅ **THEN** send your final "implementation complete" summary message
 
-**CRITICAL:** Do not send a completion summary or "done" message without first moving the ticket to Ready for QA. The ticket move is part of the completion workflow, not an optional step.
+**CRITICAL WORKFLOW RULE:** 
+- **DO NOT** send a completion summary or "done" message without first moving the ticket to Ready for QA
+- **DO NOT** mark the ticket as complete in your message if you haven't moved it
+- The ticket move is **part of the completion workflow**, not an optional step
+- If the move fails, **DO NOT** proceed with completion - fix the issue and retry the move
 
 **Available column IDs:**
 - `col-unassigned` - Unassigned
