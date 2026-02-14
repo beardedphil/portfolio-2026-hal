@@ -4309,68 +4309,72 @@ ${notes || '(none provided)'}
       />
 
       {/* Active work row: shows tickets in Doing column (0145) - positioned above DndContext */}
-      {supabaseBoardActive && doingTickets.length > 0 && (
+      {supabaseBoardActive && (
         <section className="active-work-row" aria-label="Active work">
           <h2 className="active-work-title">Active work</h2>
           <div className="active-work-items">
-            {doingTickets.map((ticket) => {
-              const agentRun = displayAgentRunsByTicketPk[ticket.pk]
-              const agentName = agentRun?.agent_type === 'implementation' ? 'Implementation' : agentRun?.agent_type === 'qa' ? 'QA' : null
-              const agentStatus = agentRun?.status || null
-              // Determine status dot color: green for active (launching, polling), red for failed, gray for finished/created/no run
-              const statusDotColor = agentStatus === 'launching' || agentStatus === 'polling' 
-                ? 'green' 
-                : agentStatus === 'failed' 
-                ? 'red' 
-                : 'gray'
-              // Status label for tooltip
-              const statusLabel = agentStatus 
-                ? agentStatus.charAt(0).toUpperCase() + agentStatus.slice(1)
-                : agentName 
-                ? 'Doing' 
-                : 'Unassigned'
-              const timestamp = ticket.kanban_moved_at
-                ? new Date(ticket.kanban_moved_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                : ticket.updated_at
-                ? new Date(ticket.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                : null
-              const displayId = ticket.display_id || (ticket.ticket_number ? `HAL-${String(ticket.ticket_number).padStart(4, '0')}` : null)
-              const ticketIdentifier = displayId ? `${displayId}: ${ticket.title}` : ticket.title
-              
-              return (
-                <div
-                  key={ticket.pk}
-                  className="active-work-item"
-                  onClick={() => handleOpenTicketDetail(ticket.pk)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      handleOpenTicketDetail(ticket.pk)
-                    }
-                  }}
-                  aria-label={`Open ticket ${ticketIdentifier}`}
-                >
-                  <div className="active-work-item-title">{ticketIdentifier}</div>
-                  <div className="active-work-item-meta">
-                    <span className="active-work-item-agent">{agentName || 'Unassigned'}</span>
-                    <div className="active-work-item-status-row">
-                      <span 
-                        className={`active-work-item-status-dot status-dot-${statusDotColor}`}
-                        title={statusLabel}
-                        aria-label={`Status: ${statusLabel}`}
-                      />
-                      {timestamp && (
-                        <span className="active-work-item-timestamp" title={`Updated ${timestamp}`}>
-                          {timestamp}
-                        </span>
-                      )}
+            {doingTickets.length > 0 ? (
+              doingTickets.map((ticket) => {
+                const agentRun = displayAgentRunsByTicketPk[ticket.pk]
+                const agentName = agentRun?.agent_type === 'implementation' ? 'Implementation' : agentRun?.agent_type === 'qa' ? 'QA' : null
+                const agentStatus = agentRun?.status || null
+                // Determine status dot color: green for active (launching, polling), red for failed, gray for finished/created/no run
+                const statusDotColor = agentStatus === 'launching' || agentStatus === 'polling' 
+                  ? 'green' 
+                  : agentStatus === 'failed' 
+                  ? 'red' 
+                  : 'gray'
+                // Status label for tooltip
+                const statusLabel = agentStatus 
+                  ? agentStatus.charAt(0).toUpperCase() + agentStatus.slice(1)
+                  : agentName 
+                  ? 'Doing' 
+                  : 'Unassigned'
+                const timestamp = ticket.kanban_moved_at
+                  ? new Date(ticket.kanban_moved_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                  : ticket.updated_at
+                  ? new Date(ticket.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                  : null
+                const displayId = ticket.display_id || (ticket.ticket_number ? `HAL-${String(ticket.ticket_number).padStart(4, '0')}` : null)
+                const ticketIdentifier = displayId ? `${displayId}: ${ticket.title}` : ticket.title
+                
+                return (
+                  <div
+                    key={ticket.pk}
+                    className="active-work-item"
+                    onClick={() => handleOpenTicketDetail(ticket.pk)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        handleOpenTicketDetail(ticket.pk)
+                      }
+                    }}
+                    aria-label={`Open ticket ${ticketIdentifier}`}
+                  >
+                    <div className="active-work-item-title">{ticketIdentifier}</div>
+                    <div className="active-work-item-meta">
+                      <span className="active-work-item-agent">{agentName || 'Unassigned'}</span>
+                      <div className="active-work-item-status-row">
+                        <span 
+                          className={`active-work-item-status-dot status-dot-${statusDotColor}`}
+                          title={statusLabel}
+                          aria-label={`Status: ${statusLabel}`}
+                        />
+                        {timestamp && (
+                          <span className="active-work-item-timestamp" title={`Updated ${timestamp}`}>
+                            {timestamp}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              )
-            })}
+                )
+              })
+            ) : (
+              <div className="active-work-empty">No active work</div>
+            )}
           </div>
         </section>
       )}

@@ -300,6 +300,13 @@ h1 {
   color: var(--kanban-text-muted);
   font-size: 0.8rem;
 }
+.active-work-empty {
+  padding: 1rem;
+  color: var(--kanban-text-muted);
+  font-style: italic;
+  text-align: center;
+  font-size: 0.9rem;
+}
 
 /* Columns section */
 .columns-section {
