@@ -1,0 +1,115 @@
+# QA Report Template Instruction Update
+
+This document describes the required update to QA agent instructions in Supabase to reference the canonical QA report template.
+
+## Template Location
+
+The canonical QA report template is located at:
+- **`.cursor/rules/qa-report-template.mdc`**
+
+## Required Instruction Update
+
+The QA agent instructions (stored in Supabase, topic ID: `qa-audit-report`) should be updated to include a section that explicitly instructs QA agents to use the canonical template.
+
+### Section to Add
+
+Add the following section to the QA agent instructions (after the "Required artifact (QA report)" section):
+
+```markdown
+## QA Report Template (MANDATORY)
+
+**MANDATORY:** QA agents **must** use the canonical QA report template when publishing QA artifacts via `/api/artifacts/insert-qa`.
+
+### Template Location
+
+The canonical QA report template is located at:
+- **`.cursor/rules/qa-report-template.mdc`**
+
+### How to Use the Template
+
+1. **Read the template:** Open `.cursor/rules/qa-report-template.mdc` and copy the template structure (the markdown between the triple backticks)
+2. **Fill out all sections** with actual ticket information and test results
+3. **Replace all placeholders** — Do not leave placeholder text or empty sections
+4. **For PASS reports:** Include explicit AC1/AC2/... statements with evidence for each acceptance criterion
+5. **For FAIL reports:** Include clear repro steps, expected vs actual behavior, and suspected area
+6. **Ensure minimum 100 characters** of substantive content (validation requirement)
+7. **Publish via HAL API:** `POST /api/artifacts/insert-qa` with the filled template as `body_md`
+
+### Template Examples
+
+Filled examples demonstrating correct usage:
+- **PASS example:** `.cursor/rules/qa-report-example-pass.mdc`
+- **FAIL example:** `.cursor/rules/qa-report-example-fail.mdc`
+
+### Required Template Sections
+
+The template includes the following required sections:
+1. **Verdict** — Must clearly state PASS or FAIL at the top
+2. **Ticket & Deliverable** — Goal, deliverable, and acceptance criteria from ticket
+3. **Acceptance Criteria Verification** — Explicit AC1/AC2/... statements with evidence for each criterion
+4. **Test Matrix / Scenarios Executed** — Table of all test scenarios with status
+5. **Evidence** — Code review, build verification, UI verification findings
+6. **Repro Steps** (FAIL only) — Expected vs actual, suspected area, repro steps
+7. **Environment** — App version/branch, browser/platform, verification date
+8. **Notes / Risks** — Blocking issues, quality observations, recommendations
+9. **Artifact Verification** — Checklist of required implementation artifacts
+
+### Template Requirements
+
+- ✅ **Verdict** must be clearly stated (PASS or FAIL) at the top
+- ✅ **Acceptance Criteria verification** must explicitly check each AC with evidence
+- ✅ **Test matrix** must list all scenarios executed
+- ✅ **Evidence** section must document what was observed (code review, build, UI)
+- ✅ **Repro steps** required for FAIL reports (expected vs actual, suspected area)
+- ✅ **Environment** must specify branch/version and browser/platform
+- ✅ **Notes/Risks** must address blocking issues, quality, and recommendations
+- ✅ **No placeholder-only sections** — all sections must contain substantive content
+
+### Validation Compatibility
+
+This template is designed to pass artifact validation:
+- Minimum 100 characters of substantive content (easily met with filled sections)
+- No placeholder patterns (all placeholders must be replaced with actual content)
+- Structured format with headings, tables, and lists (validation accepts structured content)
+```
+
+### Update Existing "QA report structure" Section
+
+The existing "QA report structure" section in the QA agent instructions should be updated to reference the template:
+
+```markdown
+## QA report structure
+
+**MANDATORY:** Use the canonical QA report template located at `.cursor/rules/qa-report-template.mdc`. The template ensures consistent, auditable QA reports with explicit Acceptance Criteria verification and test outcomes.
+
+The template includes all required sections:
+1. **Verdict** — PASS or FAIL with summary
+2. **Ticket & Deliverable** — Goal, deliverable, and acceptance criteria
+3. **Acceptance Criteria Verification** — Explicit AC1/AC2/... statements with evidence
+4. **Test Matrix / Scenarios Executed** — Table of all test scenarios
+5. **Evidence** — Code review, build verification, UI verification
+6. **Repro Steps** (FAIL only) — Expected vs actual, suspected area
+7. **Environment** — App version/branch, browser/platform
+8. **Notes / Risks** — Blocking issues, quality, recommendations
+9. **Artifact Verification** — Checklist of required artifacts
+
+See `.cursor/rules/qa-report-template.mdc` for the full template and `.cursor/rules/qa-report-example-*.mdc` for filled examples.
+```
+
+## How to Update Supabase Instructions
+
+1. Open HAL app
+2. Click "Agent Instructions" button in the header
+3. Navigate to: All Agents → QA Agent → QA Audit Report
+4. Click "Edit"
+5. Add the new "QA Report Template (MANDATORY)" section
+6. Update the existing "QA report structure" section to reference the template
+7. Save changes (saves directly to Supabase)
+
+## Verification
+
+After updating the instructions, verify:
+1. QA agents can access the template at `.cursor/rules/qa-report-template.mdc`
+2. QA agents can see the filled examples at `.cursor/rules/qa-report-example-*.mdc`
+3. Instructions explicitly state that the template is MANDATORY
+4. Instructions explain how to use the template (copy, fill, replace placeholders, publish)

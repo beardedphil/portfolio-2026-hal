@@ -1,0 +1,252 @@
+---
+description: Example QA report (FAIL) demonstrating correct template usage
+alwaysApply: false
+---
+
+# QA Report Example: FAIL
+
+This is a filled example of a FAIL QA report using the canonical template. QA agents should use this as a reference when creating their own reports.
+
+```markdown
+# QA Report for ticket 0123
+
+## Verdict
+
+**FAIL**
+
+Implementation incomplete. Missing required implementation artifacts prevent QA from proceeding with code review and verification. Implementation agent must store all required artifacts before QA can proceed.
+
+---
+
+## Ticket & Deliverable
+
+**Goal:** Add user authentication to the application with login and logout functionality.
+
+**Human-verifiable deliverable:** Users can log in via a login form, see their authenticated state in the UI, and log out via a logout button. Authentication state persists across page refreshes.
+
+**Acceptance Criteria:**
+- [ ] AC1: Login form accepts email and password, validates input, and authenticates user
+- [ ] AC2: Authenticated users see their username/email displayed in the UI header
+- [ ] AC3: Logout button is visible when user is authenticated and logs user out on click
+- [ ] AC4: Authentication state persists across page refreshes (stored in localStorage or sessionStorage)
+- [ ] AC5: Unauthenticated users are redirected to login page when accessing protected routes
+
+---
+
+## Acceptance Criteria Verification
+
+**Status:** ❌ CANNOT VERIFY — Missing required implementation artifacts
+
+**Note:** QA cannot verify acceptance criteria because required implementation artifacts are missing. See "Artifact Verification" section below.
+
+---
+
+## Test Matrix / Scenarios Executed
+
+| Scenario | Test Type | Status | Notes |
+|----------|-----------|--------|-------|
+| Artifact verification | Artifact Check | ❌ FAIL | Missing Plan, Worklog, PM Review artifacts |
+| Code review | Code Review | ❌ SKIPPED | Cannot proceed without artifacts |
+| Build verification | Build | ❌ SKIPPED | Cannot proceed without artifacts |
+| UI verification | UI | ❌ SKIPPED | Cannot proceed without artifacts |
+
+**Test Coverage:**
+- [x] Artifact verification attempted
+- [ ] Code review completed — SKIPPED (artifacts missing)
+- [ ] Build verification — SKIPPED (artifacts missing)
+- [ ] UI verification — SKIPPED (artifacts missing)
+
+---
+
+## Evidence
+
+### Artifact Verification
+
+**Status:** ❌ FAIL
+
+**Findings:**
+- Attempted to fetch artifacts via HAL API: `POST /api/artifacts/get` with `{ ticketId: "0123" }`
+- API call succeeded (200 OK)
+- Filtered artifacts for `agent_type === "implementation"`
+- Missing required artifacts:
+  - Plan artifact (`Plan for ticket 0123`) — NOT FOUND
+  - Worklog artifact (`Worklog for ticket 0123`) — NOT FOUND
+  - PM Review artifact (`PM Review for ticket 0123`) — NOT FOUND
+- Present artifacts:
+  - Changed Files artifact — FOUND
+  - Decisions artifact — FOUND
+  - Verification artifact — FOUND
+  - Git diff artifact — FOUND
+  - Instructions Used artifact — FOUND
+
+**Conclusion:** QA cannot proceed without complete implementation artifacts. Missing artifacts indicate implementation workflow is incomplete.
+
+### Code Review
+
+**Status:** ❌ SKIPPED
+
+**Reason:** Cannot perform code review without Plan and Worklog artifacts that document implementation approach and changes made.
+
+### Build Verification
+
+**Status:** ❌ SKIPPED
+
+**Reason:** Cannot verify build without understanding what was implemented (requires Plan and Worklog artifacts).
+
+### UI Verification
+
+**Status:** ❌ SKIPPED
+
+**Reason:** Cannot verify UI without understanding expected behavior and implementation details (requires Plan and PM Review artifacts).
+
+---
+
+## Repro Steps (FAIL only)
+
+### Issue Description
+
+Required implementation artifacts are missing from Supabase. QA cannot proceed with verification because Plan, Worklog, and PM Review artifacts are not present.
+
+### Expected Behavior
+
+All 8 required implementation artifacts should be present in Supabase before QA begins:
+1. Plan artifact
+2. Worklog artifact
+3. Changed Files artifact
+4. Decisions artifact
+5. Verification artifact
+6. PM Review artifact
+7. Git diff artifact
+8. Instructions Used artifact
+
+### Actual Behavior
+
+Only 5 of 8 required artifacts are present:
+- ✅ Changed Files artifact
+- ✅ Decisions artifact
+- ✅ Verification artifact
+- ✅ Git diff artifact
+- ✅ Instructions Used artifact
+- ❌ Plan artifact — MISSING
+- ❌ Worklog artifact — MISSING
+- ❌ PM Review artifact — MISSING
+
+### Repro Steps
+
+1. Open HAL app and navigate to ticket 0123
+2. Check Artifacts list in ticket detail view
+3. Verify that Plan, Worklog, and PM Review artifacts are not present
+4. Attempt to fetch artifacts via HAL API: `POST /api/artifacts/get` with `{ ticketId: "0123" }`
+5. Filter results for `agent_type === "implementation"`
+6. Confirm that Plan, Worklog, and PM Review artifacts are missing
+
+### Suspected Area
+
+Implementation agent workflow — implementation agent did not store all required artifacts before moving ticket to Ready for QA.
+
+**Code location:** N/A (workflow issue, not code issue)
+
+### Screenshots/Logs
+
+**API Response (artifacts/get):**
+```json
+{
+  "success": true,
+  "artifacts": [
+    {
+      "artifact_id": "abc123",
+      "title": "Changed Files for ticket 0123",
+      "agent_type": "implementation",
+      "artifact_type": "changed-files"
+    },
+    {
+      "artifact_id": "def456",
+      "title": "Decisions for ticket 0123",
+      "agent_type": "implementation",
+      "artifact_type": "decisions"
+    },
+    // ... other artifacts present ...
+    // Plan, Worklog, PM Review artifacts NOT in response
+  ]
+}
+```
+
+---
+
+## Environment
+
+**App Version/Branch:** `main` branch (latest)
+
+**Browser/Platform:** HAL API (artifact verification only)
+
+**Verification Date:** 2026-02-14
+
+**Additional Context:**
+- Artifact verification performed via HAL API endpoint `/api/artifacts/get`
+- Supabase connection: Active
+- Ticket status: Ready for QA (but artifacts incomplete)
+
+---
+
+## Notes / Risks
+
+### Implementation Quality
+
+**Cannot assess** — Code review not performed due to missing artifacts.
+
+### Blocking Issues
+
+1. **Missing Plan artifact** — QA cannot understand implementation approach without Plan artifact
+2. **Missing Worklog artifact** — QA cannot review what was implemented without Worklog artifact
+3. **Missing PM Review artifact** — QA cannot verify PM review was completed without PM Review artifact
+
+**All three missing artifacts are blocking** — QA cannot proceed with verification until all required artifacts are present.
+
+### Non-Blocking Issues
+
+None identified (QA workflow blocked by missing artifacts).
+
+### Migration Considerations
+
+N/A — Cannot assess without implementation artifacts.
+
+### Recommendations
+
+1. **Implementation agent must store all required artifacts** before moving ticket to Ready for QA:
+   - Plan artifact via `/api/artifacts/insert-implementation` with `artifactType: "plan"`
+   - Worklog artifact via `/api/artifacts/insert-implementation` with `artifactType: "worklog"`
+   - PM Review artifact via `/api/artifacts/insert-implementation` with `artifactType: "pm-review"`
+
+2. **Verify artifact storage** — Implementation agent should verify all artifacts are present in Supabase before moving ticket to Ready for QA
+
+3. **Re-run QA** — Once all artifacts are present, QA should be re-run to complete verification
+
+---
+
+## Artifact Verification
+
+**Required Implementation Artifacts Present:**
+- [ ] Plan artifact — **MISSING**
+- [ ] Worklog artifact — **MISSING**
+- [x] Changed Files artifact — Present
+- [x] Decisions artifact — Present
+- [x] Verification artifact — Present
+- [ ] PM Review artifact — **MISSING**
+- [x] Git diff artifact — Present
+- [x] Instructions Used artifact — Present
+
+**Missing Artifacts:**
+- Plan artifact (`Plan for ticket 0123`)
+- Worklog artifact (`Worklog for ticket 0123`)
+- PM Review artifact (`PM Review for ticket 0123`)
+
+**QA FAILED:** Required implementation artifacts are missing. QA cannot proceed without complete implementation artifacts. Implementation agent must store all required artifacts before QA can proceed.
+
+---
+
+## Completion
+
+**QA RESULT: FAIL — 0123**
+
+QA failed due to missing required implementation artifacts. Implementation agent must store Plan, Worklog, and PM Review artifacts before QA can proceed with code review and verification. Ticket moved to To-do for implementation agent to complete artifact storage.
+```

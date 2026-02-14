@@ -1,0 +1,63 @@
+# QA Report Template Usage
+
+**MANDATORY:** QA agents **must** use the canonical QA report template when publishing QA artifacts via `/api/artifacts/insert-qa`.
+
+## Template Location
+
+The canonical QA report template is located at:
+- **`.cursor/rules/qa-report-template.mdc`**
+
+## Quick Start
+
+1. **Open the template:** Read `.cursor/rules/qa-report-template.mdc`
+2. **Copy the template structure** (the markdown between the triple backticks)
+3. **Fill out all sections** with actual ticket information and test results
+4. **Replace all placeholders** — Do not leave placeholder text
+5. **Publish via HAL API:** `POST /api/artifacts/insert-qa` with the filled template as `body_md`
+
+## Required Sections
+
+The template includes the following required sections:
+
+1. **Verdict** — Must clearly state PASS or FAIL at the top
+2. **Ticket & Deliverable** — Goal, deliverable, and acceptance criteria from ticket
+3. **Acceptance Criteria Verification** — Explicit AC1/AC2/... statements with evidence for each criterion
+4. **Test Matrix / Scenarios Executed** — Table of all test scenarios with status
+5. **Evidence** — Code review, build verification, UI verification findings
+6. **Repro Steps** (FAIL only) — Expected vs actual, suspected area, repro steps
+7. **Environment** — App version/branch, browser/platform, verification date
+8. **Notes / Risks** — Blocking issues, quality observations, recommendations
+9. **Artifact Verification** — Checklist of required implementation artifacts
+
+## Template Examples
+
+Filled examples demonstrating correct usage:
+
+- **PASS example:** `.cursor/rules/qa-report-example-pass.mdc`
+- **FAIL example:** `.cursor/rules/qa-report-example-fail.mdc`
+
+## Validation Requirements
+
+The template is designed to pass artifact validation:
+
+- ✅ **Minimum 100 characters** — Easily met with filled sections
+- ✅ **No placeholder patterns** — All placeholders must be replaced with actual content
+- ✅ **Structured format** — Headings, tables, and lists are accepted by validation
+
+## Integration with QA Workflow
+
+This template is part of the standard QA workflow documented in:
+- **QA Audit Report instructions** (stored in Supabase, accessed via HAL API)
+- **QA agent workflow** (see `.cursor/rules/qa-audit-report.mdc` reference)
+
+QA agents should:
+1. Load QA instructions from Supabase via HAL API
+2. Use this template when creating QA reports
+3. Publish QA reports via `/api/artifacts/insert-qa` endpoint
+
+## Template Updates
+
+If the template needs to be updated:
+1. Edit `.cursor/rules/qa-report-template.mdc`
+2. Update examples in `.cursor/rules/qa-report-example-*.mdc` if needed
+3. Update QA agent instructions in Supabase to reference the updated template

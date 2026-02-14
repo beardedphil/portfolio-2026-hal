@@ -106,16 +106,46 @@ QA RESULT: FAIL — 0076
 - **Agent type:** `qa`
 - **Title format:** `QA report for ticket <ticket-id>`
 
+## QA report template (MANDATORY)
+
+**MANDATORY:** QA agents **must** use the canonical QA report template when publishing QA artifacts via `/api/artifacts/insert-qa`.
+
+**Template location:** `.cursor/rules/qa-report-template.mdc`
+
+**Template includes required headings:**
+- **Verdict (PASS/FAIL)** — Must be clearly stated
+- **Acceptance Criteria verification** — All ACs enumerated with "Met" or "Not met" status and evidence
+- **Test matrix / scenarios executed** — Document all test scenarios that were run
+- **Evidence** — Document what was observed (screenshots, logs, test outputs)
+- **Repro steps (for failures)** — Clear repro steps + expected vs actual + suspected area (only for FAIL verdicts)
+- **Environment** — App version/branch + browser information
+- **Notes / Risks** — Any notes, concerns, or risks identified
+
+**Usage:**
+1. Copy the template from `.cursor/rules/qa-report-template.mdc`
+2. Replace all placeholders with actual values
+3. Fill in each section with substantive content (no placeholder-only sections)
+4. Delete optional sections that don't apply
+5. Publish via HAL API: `POST /api/artifacts/insert-qa` with the completed markdown as `body_md`
+
+**See `.cursor/rules/qa-report-template.mdc` for the full template and usage instructions.**
+
 ## QA report structure
+
+The template includes the following sections (see template for full details):
 
 1. **Ticket & deliverable** — One-line goal, deliverable, and acceptance criteria from the ticket.
 2. **Missing Required Implementation Artifacts** (if applicable) — List of missing artifacts. If artifacts are missing, this section must be present and QA must fail.
 3. **Audit artifacts** — Confirm all required implementation artifacts are present in Supabase (plan, worklog, changed-files, decisions, verification, pm-review). Only include this section if all artifacts are present.
 4. **Code review** — PASS/FAIL with brief evidence (e.g. table of requirement vs implementation; file and line refs if helpful). Only include if artifacts are present.
 5. **Build verification** — **MANDATORY:** Run `npm run build:hal` (or `tsc -b`) and verify it completes with zero TypeScript errors. If TypeScript errors exist, QA **MUST FAIL** immediately. Document the build result (PASS/FAIL) and any TypeScript errors found. Only include if artifacts are present.
-6. **UI verification** — What was run: automated and/or manual steps. If automated UI was not run (e.g. native dialogs, login, or pickers), state that and list the manual steps the user should run. Only include if artifacts are present.
-7. **AC Confirmation Checklist** — **MANDATORY:** Enumerate every Acceptance Criteria from the ticket. For each AC, state "Met" or "Not met" with evidence (artifact links, file paths, screenshots, or reproduction steps). If any AC is not met, QA **MUST FAIL**. See `.cursor/rules/ac-confirmation-checklist.mdc` for full requirements. Only include if artifacts are present.
-8. **Verdict** — Implementation complete? OK to merge? Any blocking manual verification? Must clearly state PASS or FAIL.
+6. **Test matrix / scenarios executed** — Document all test scenarios that were run (automated and/or manual). Only include if artifacts are present.
+7. **Acceptance Criteria Verification** — **MANDATORY:** Enumerate every Acceptance Criteria from the ticket. For each AC, state "Met" or "Not met" with evidence (artifact links, file paths, screenshots, or reproduction steps). If any AC is not met, QA **MUST FAIL**. See `.cursor/rules/ac-confirmation-checklist.mdc` for full requirements. Only include if artifacts are present.
+8. **Evidence** — Document what was observed during verification (screenshots, logs, test outputs). Only include if artifacts are present.
+9. **Repro steps (for failures)** — Clear repro steps + expected vs actual + suspected area. Only include if verdict is FAIL.
+10. **Environment** — App version/branch + browser information.
+11. **Notes / Risks** — Any notes, concerns, or risks identified.
+12. **Verdict** — Implementation complete? OK to merge? Any blocking manual verification? Must clearly state PASS or FAIL.
 
 ## Storing QA report
 

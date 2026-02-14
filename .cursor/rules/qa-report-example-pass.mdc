@@ -1,0 +1,260 @@
+---
+description: Example filled QA report (PASS) demonstrating correct usage of the QA report template
+alwaysApply: false
+---
+
+# QA Report Example (PASS)
+
+This is a filled example QA report demonstrating correct usage of the canonical QA report template. This example shows a **PASS** verdict.
+
+---
+
+# QA Report for ticket 0165
+
+## Ticket & Deliverable
+
+**Ticket ID:** 0165  
+**Repo:** beardedphil/portfolio-2026-hal
+
+**Goal:** Make the **Active Work** + **Kanban** area scroll as a single page region so scrolling down hides the Active Work section and the Kanban board scrolls as one continuous board, without changing Chat behavior or bottom-page padding.
+
+**Human-verifiable deliverable:** In the HAL UI, when the user scrolls within the main content area, the **Active Work** section scrolls off-screen (hidden above) and the **Kanban** board continues scrolling as a whole (not per-column), while the **Chat** section scroll behavior remains unchanged and the bottom padding/spacing on the page looks identical to before.
+
+**Acceptance criteria:**
+- [ ] Scrolling down in the main content area causes the **Active Work** section to move off-screen (i.e., it is not pinned/sticky and does not remain visible once the user scrolls past it).
+- [ ] The **Kanban board** scrolls as a single unit (one vertical scroll container for the entire board area), rather than each Kanban column having its own vertical scrollbar.
+- [ ] Horizontal movement/overflow for the Kanban columns (if present) is preserved (e.g., the board can still be wider than the viewport if it was before).
+- [ ] The **Chat** section scroll behavior is unchanged from current behavior (still "exactly as I want").
+- [ ] The **bottom padding/spacing** at the end of the page remains unchanged (no extra blank space added and no padding removed).
+- [ ] No new nested/competing scrollbars are introduced beyond what is necessary for the single board/page scroll behavior.
+
+**Verification commit/branch:** `073f4e5` (feat(0165): implement unified scrolling for Active Work + Kanban board)
+
+---
+
+## Audit Artifacts
+
+All required implementation artifacts are present in Supabase:
+
+- ✅ Plan artifact (`Plan for ticket 0165`)
+- ✅ Worklog artifact (`Worklog for ticket 0165`)
+- ✅ Changed Files artifact (`Changed Files for ticket 0165`)
+- ✅ Decisions artifact (`Decisions for ticket 0165`)
+- ✅ Verification artifact (`Verification for ticket 0165`)
+- ✅ PM Review artifact (`PM Review for ticket 0165`)
+- ✅ Git diff artifact (`Git diff for ticket 0165`)
+- ✅ Instructions Used artifact (`Instructions Used for ticket 0165`)
+
+---
+
+## Code Review
+
+**Status:** PASS
+
+### Implementation Summary
+
+The implementation changes scrolling behavior by modifying CSS overflow properties in two files:
+1. `projects/kanban/src/index.css` - Changes to Kanban board internal scrolling
+2. `src/index.css` - Changes to HAL app container scrolling
+
+The approach removes per-column vertical scrolling and enables unified vertical scrolling for the entire Active Work + Kanban area.
+
+### Detailed Analysis
+
+| Requirement | Implementation | Status | Notes |
+|-------------|----------------|--------|-------|
+| Active Work scrolls off-screen | `.active-work-row` has no `position: sticky/fixed` in `projects/kanban/src/index.css:233-239` | ✅ PASS | Section is in normal flow, will scroll with parent |
+| Kanban scrolls as single unit | `.column-cards` changed to `overflow-y: visible` in `projects/kanban/src/index.css:443-451` | ✅ PASS | Per-column scrolling removed |
+| Horizontal overflow preserved | `.columns-row` maintains `overflow-x: auto` in `projects/kanban/src/index.css:400-409` | ✅ PASS | Horizontal scrolling preserved |
+| Chat behavior unchanged | `.hal-chat-region` unchanged in commit, `src/index.css:482-490` | ✅ PASS | No modifications to Chat CSS |
+| Bottom padding unchanged | No padding/margin changes in commit | ✅ PASS | Only overflow properties modified |
+| No unwanted scrollbars | Per-column scrollbars removed, only unified scroll remains | ✅ PASS | Clean scrollbar hierarchy |
+
+### Code Quality
+
+- ✅ No linter errors
+- ✅ Follows existing patterns
+- ✅ Proper CSS specificity (uses `!important` appropriately for HAL overrides)
+- ✅ No breaking changes (changes are additive)
+- ✅ Minimal changes (only 6 CSS property changes across 2 files)
+
+### Issues Found
+
+No issues found.
+
+---
+
+## Build Verification
+
+**Status:** PASS
+
+**Command executed:** `npm run build:hal`
+
+**Result:**
+- ✅ Build completed successfully with zero TypeScript errors
+
+**TypeScript errors (if any):**
+None
+
+**Build output:**
+```
+> portfolio-2026-hal@0.0.0 build:hal
+> tsc -b
+
+Build completed successfully.
+```
+
+---
+
+## Test Matrix / Scenarios Executed
+
+### Automated Tests
+- [x] TypeScript compilation (`npm run build:hal`)
+- [x] CSS linting (no errors)
+
+### Manual Tests
+- [x] Scroll down in main content area — Active Work scrolls off-screen
+- [x] Scroll Kanban board — Board scrolls as single unit (no per-column scrollbars)
+- [x] Horizontal overflow — Columns can scroll horizontally when board is wider than viewport
+- [x] Chat behavior — Chat section scrolling unchanged
+- [x] Bottom padding — No extra blank space or removed padding
+- [x] Scrollbar appearance — Only one vertical scrollbar for Kanban area, no nested scrollbars
+
+### Test Results
+
+| Scenario | Expected | Actual | Status |
+|----------|----------|--------|--------|
+| Active Work scrolls off-screen | Active Work section disappears when scrolling down | Active Work section scrolls off-screen as expected | ✅ PASS |
+| Kanban scrolls as single unit | One vertical scrollbar for entire board | Single vertical scrollbar present, per-column scrollbars removed | ✅ PASS |
+| Horizontal overflow preserved | Columns can scroll horizontally when needed | Horizontal scrolling works correctly | ✅ PASS |
+| Chat behavior unchanged | Chat scrolling behavior identical to before | Chat section scrolling unchanged | ✅ PASS |
+| Bottom padding unchanged | Bottom spacing matches previous behavior | Bottom padding/spacing unchanged | ✅ PASS |
+| No unwanted scrollbars | Only necessary scrollbars present | Clean scrollbar hierarchy, no competing scrollbars | ✅ PASS |
+
+---
+
+## Acceptance Criteria Verification
+
+**MANDATORY:** Enumerate every Acceptance Criteria from the ticket. For each AC, state "Met" or "Not met" with evidence.
+
+### AC1: Scrolling down in the main content area causes the **Active Work** section to move off-screen (i.e., it is not pinned/sticky and does not remain visible once the user scrolls past it).
+- **Status:** Met
+- **Evidence:**
+  - File: `projects/kanban/src/index.css:233-239` — `.active-work-row` has no `position: sticky` or `position: fixed`
+  - CSS analysis confirms section is in normal document flow
+  - Manual test: Scrolling down causes Active Work section to scroll off-screen
+  - Code review: No sticky/fixed positioning that would keep section visible
+
+### AC2: The **Kanban board** scrolls as a single unit (one vertical scroll container for the entire board area), rather than each Kanban column having its own vertical scrollbar.
+- **Status:** Met
+- **Evidence:**
+  - File: `projects/kanban/src/index.css:443-451` — `.column-cards` changed from `overflow-y: auto` to `overflow-y: visible`
+  - File: `src/index.css:398-403` — `.column-content` changed from `overflow-y: auto` to `overflow-y: visible`
+  - Manual test: Only one vertical scrollbar for entire board, no per-column scrollbars
+  - Code review: Per-column scrolling removed, unified scrolling enabled
+
+### AC3: Horizontal movement/overflow for the Kanban columns (if present) is preserved (e.g., the board can still be wider than the viewport if it was before).
+- **Status:** Met
+- **Evidence:**
+  - File: `projects/kanban/src/index.css:400-409` — `.columns-row` maintains `overflow-x: auto`
+  - Manual test: Horizontal scrolling works when board is wider than viewport
+  - Code review: Horizontal overflow behavior preserved
+
+### AC4: The **Chat** section scroll behavior is unchanged from current behavior (still "exactly as I want").
+- **Status:** Met
+- **Evidence:**
+  - File: `src/index.css:482-490` — `.hal-chat-region` unchanged in commit
+  - Manual test: Chat section scrolling behavior identical to before
+  - Code review: No modifications to Chat CSS
+
+### AC5: The **bottom padding/spacing** at the end of the page remains unchanged (no extra blank space added and no padding removed).
+- **Status:** Met
+- **Evidence:**
+  - Code review: No padding or margin properties were modified in this commit
+  - Manual test: Bottom spacing matches previous behavior
+  - Only overflow properties changed, not layout spacing
+
+### AC6: No new nested/competing scrollbars are introduced beyond what is necessary for the single board/page scroll behavior.
+- **Status:** Met
+- **Evidence:**
+  - Code review: Per-column scrollbars removed (`.column-cards` and `.column-content` changed to `overflow-y: visible`)
+  - Only necessary scrollbars remain (unified vertical scroll, horizontal column overflow)
+  - Manual test: Clean scrollbar hierarchy, no competing scrollbars
+
+---
+
+## Evidence
+
+### Screenshots
+- Active Work scrolling off-screen: See manual test results above
+- Unified Kanban scrolling: See manual test results above
+- Horizontal overflow preserved: See manual test results above
+
+### Logs / Output
+```
+Build output:
+> portfolio-2026-hal@0.0.0 build:hal
+> tsc -b
+
+Build completed successfully.
+```
+
+### Artifact References
+- Implementation details: See artifact "Plan for ticket 0165" section "Implementation Approach"
+- Code changes: See artifact "Changed Files for ticket 0165"
+- Verification steps: See artifact "Verification for ticket 0165"
+
+---
+
+## Environment
+
+**App version/branch:** `073f4e5` (feat(0165): implement unified scrolling for Active Work + Kanban board)  
+**Browser:** Chrome 120.0.6099.129  
+**OS:** macOS 14.2.1  
+**Node version:** v20.10.0  
+**Build command:** `npm run build:hal`
+
+**Additional context:**
+- Verified in embedded Kanban iframe context
+- Tested with boards containing 20+ tickets across multiple columns
+
+---
+
+## Notes / Risks
+
+### Notes
+- Implementation uses CSS-only changes (no JavaScript modifications)
+- Proper cascade hierarchy maintained with `!important` for HAL overrides
+- Changes are minimal and focused (only 6 CSS property changes)
+
+### Risks
+- **Browser compatibility:** `overflow-y: auto` and `overflow-x: hidden` are well-supported — **Low** risk
+- **Scroll performance:** Unified scrolling may have different performance characteristics than per-column scrolling — **Low** risk (tested with 20+ tickets, no performance issues observed)
+- **Embedded context:** HAL app uses `!important` overrides to ensure scrolling works in embedded iframe context — **Low** risk (proper cascade hierarchy maintained)
+
+### Recommendations
+- Test with boards containing 50+ tickets across multiple columns to verify performance
+- Test in target browsers (Chrome, Firefox, Safari, Edge) to verify browser compatibility
+- Monitor scroll performance in production
+
+---
+
+## Verdict
+
+**Status:** PASS
+
+**Implementation complete:** Yes
+
+**Acceptance criteria met:** All 6 criteria are satisfied
+
+**OK to merge:** Yes
+
+**Blocking manual verification:** No. Code review confirms correct implementation. Manual UI verification should be performed in Human in the Loop phase to confirm end-to-end behavior, but this is not blocking for merge.
+
+**Summary:**
+All acceptance criteria are met. The implementation correctly modifies CSS overflow properties to enable unified scrolling for the Active Work + Kanban area while preserving horizontal overflow and Chat behavior. Code is clean, follows existing patterns, and correctly implements all requirements. Build passes with zero TypeScript errors. Ready to merge.
+
+---
+
+**QA Completed:** 2026-02-14  
+**QA Agent:** Cursor Cloud Agent
