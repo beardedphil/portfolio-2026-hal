@@ -12,6 +12,7 @@
  *   "Verification for ticket 0121" -> "verification"
  *   "PM Review for ticket 0121" -> "pm-review"
  *   "QA report for ticket 0121" -> "qa-report"
+ *   "Image for ticket 0121" -> "image"
  */
 export function extractArtifactTypeFromTitle(title: string): string | null {
   const normalized = title.toLowerCase().trim()
@@ -23,6 +24,7 @@ export function extractArtifactTypeFromTitle(title: string): string | null {
   if (normalized.startsWith('decisions for ticket')) return 'decisions'
   if (normalized.startsWith('verification for ticket')) return 'verification'
   if (normalized.startsWith('pm review for ticket')) return 'pm-review'
+  if (normalized.startsWith('image for ticket')) return 'image'
   
   // QA artifact type
   if (normalized.startsWith('qa report for ticket')) return 'qa-report'
@@ -74,6 +76,7 @@ export function createCanonicalTitle(
     'verification': `Verification for ticket ${normalizedDisplayId}`,
     'pm-review': `PM Review for ticket ${normalizedDisplayId}`,
     'qa-report': `QA report for ticket ${normalizedDisplayId}`,
+    'image': `Image for ticket ${normalizedDisplayId}`,
   }
   
   return titleMap[artifactType] || `Artifact for ticket ${normalizedDisplayId}`

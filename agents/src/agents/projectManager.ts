@@ -448,6 +448,8 @@ You have access to read-only tools to explore the repository. Use them to answer
 
 **Editing ticket body in Supabase:** When a ticket in Unassigned fails the Definition of Ready (missing sections, placeholders, etc.) and the user asks to fix it or make it ready, use update_ticket_body to write the corrected body_md directly to Supabase. Provide the full markdown body with all required sections: Goal (one sentence), Human-verifiable deliverable (UI-only), Acceptance criteria (UI-only) with - [ ] checkboxes, Constraints, Non-goals. Replace every placeholder with concrete content. The Kanban UI reflects updates within ~10 seconds. Optionally call sync_tickets afterward so docs/tickets/*.md match the database.
 
+**Attaching images to tickets:** When a user uploads an image in chat and asks to attach it to a ticket (e.g. "Add this image to ticket HAL-0143"), use attach_image_to_ticket with the ticket ID. The tool automatically accesses images from the current conversation turn. If multiple images were uploaded, you can specify image_index (0-based) to select which image to attach. The image will appear in the ticket's Artifacts section. The tool prevents duplicate attachments of the same image.
+
 Always cite file paths when referencing specific content.`
 
 const MAX_TOOL_ITERATIONS = 10
@@ -1133,6 +1135,192 @@ export async function runPmAgent(
             }
           }
           toolCalls.push({ name: 'fetch_ticket_content', input, output: out })
+          return out
+        },
+      })
+    })()
+
+  const attachImageToTicketTool =
+    hasSupabase &&
+    (() => {
+      const supabase: SupabaseClient = createClient(
+        config.supabaseUrl!.trim(),
+        config.supabaseAnonKey!.trim()
+      )
+      return tool({
+        description:
+          'Attach an uploaded image to a ticket as an artifact. The image must have been uploaded in the current conversation turn. Use when the user asks to attach an image to a ticket (e.g. "Add this image to ticket HAL-0143"). The image will appear in the ticket\'s Artifacts section.',
+        parameters: z.object({
+          ticket_id: z.string().describe('Ticket ID (e.g. "HAL-0143", "0143", or "143").'),
+          image_index: z
+            .number()
+            .int()
+            .min(0)
+            .optional()
+            .describe('Zero-based index of the image to attach (default: 0, the first image). Use when multiple images were uploaded.'),
+        }),
+        execute: async (input: { ticket_id: string; image_index?: number }) => {
+          type AttachResult =
+            | { success: true; artifact_id: string; ticket_id: string; image_filename: string }
+            | { success: false; error: string }
+          let out: AttachResult
+          try {
+            // Check if images are available
+            if (!config.images || config.images.length === 0) {
+              out = {
+                success: false,
+                error: 'No images found in the current conversation. Please upload an image first.',
+              }
+              toolCalls.push({ name: 'attach_image_to_ticket', input, output: out })
+              return out
+            }
+
+            const imageIndex = input.image_index ?? 0
+            if (imageIndex < 0 || imageIndex >= config.images.length) {
+              out = {
+                success: false,
+                error: `Image index ${imageIndex} is out of range. ${config.images.length} image(s) available (indices 0-${config.images.length - 1}).`,
+              }
+              toolCalls.push({ name: 'attach_image_to_ticket', input, output: out })
+              return out
+            }
+
+            const image = config.images[imageIndex]
+
+            // Parse ticket ID
+            const ticketNumber = parseTicketNumber(input.ticket_id)
+            const normalizedId = String(ticketNumber ?? 0).padStart(4, '0')
+
+            if (!ticketNumber) {
+              out = { success: false, error: `Could not parse ticket number from "${input.ticket_id}".` }
+              toolCalls.push({ name: 'attach_image_to_ticket', input, output: out })
+              return out
+            }
+
+            // Get ticket from Supabase
+            const repoFullName =
+              typeof config.projectId === 'string' && config.projectId.trim() ? config.projectId.trim() : ''
+            let ticket: any = null
+            let ticketError: string | null = null
+
+            if (repoFullName) {
+              const { data: row, error } = await supabase
+                .from('tickets')
+                .select('pk, repo_full_name, display_id')
+                .eq('repo_full_name', repoFullName)
+                .eq('ticket_number', ticketNumber)
+                .maybeSingle()
+              if (error) {
+                ticketError = error.message
+              } else if (row) {
+                ticket = row
+              }
+            }
+
+            // Fallback to legacy lookup by id
+            if (!ticket && !ticketError) {
+              const { data: legacyRow, error: legacyError } = await supabase
+                .from('tickets')
+                .select('pk, repo_full_name, display_id')
+                .eq('id', normalizedId)
+                .maybeSingle()
+              if (legacyError) {
+                ticketError = legacyError.message
+              } else if (legacyRow) {
+                ticket = legacyRow
+              }
+            }
+
+            if (ticketError || !ticket) {
+              out = {
+                success: false,
+                error: ticketError || `Ticket ${normalizedId} not found in Supabase.`,
+              }
+              toolCalls.push({ name: 'attach_image_to_ticket', input, output: out })
+              return out
+            }
+
+            const ticketPk = ticket.pk
+            const displayId = ticket.display_id || normalizedId
+
+            // Create artifact body with image
+            const timestamp = new Date().toISOString()
+            const artifactBody = `![${image.filename}](${image.dataUrl})
+
+**Filename:** ${image.filename}
+**MIME Type:** ${image.mimeType}
+**Uploaded:** ${timestamp}`
+
+            // Create canonical title: "Image for ticket <display_id>"
+            const canonicalTitle = `Image for ticket ${displayId}`
+
+            // Check for existing image artifacts (to prevent exact duplicates)
+            const { data: existingArtifacts, error: findError } = await supabase
+              .from('agent_artifacts')
+              .select('artifact_id, body_md')
+              .eq('ticket_pk', ticketPk)
+              .eq('agent_type', 'implementation')
+              .eq('title', canonicalTitle)
+              .order('created_at', { ascending: false })
+
+            if (findError) {
+              out = {
+                success: false,
+                error: `Failed to check for existing artifacts: ${findError.message}`,
+              }
+              toolCalls.push({ name: 'attach_image_to_ticket', input, output: out })
+              return out
+            }
+
+            // Check if this exact image (same data URL) was already attached
+            const existingWithSameImage = (existingArtifacts || []).find((art) =>
+              art.body_md?.includes(image.dataUrl)
+            )
+
+            if (existingWithSameImage) {
+              out = {
+                success: false,
+                error: `This image has already been attached to ticket ${displayId}. Artifact ID: ${existingWithSameImage.artifact_id}`,
+              }
+              toolCalls.push({ name: 'attach_image_to_ticket', input, output: out })
+              return out
+            }
+
+            // Insert new artifact
+            const { data: inserted, error: insertError } = await supabase
+              .from('agent_artifacts')
+              .insert({
+                ticket_pk: ticketPk,
+                repo_full_name: ticket.repo_full_name || repoFullName || '',
+                agent_type: 'implementation',
+                title: canonicalTitle,
+                body_md: artifactBody,
+              })
+              .select('artifact_id')
+              .single()
+
+            if (insertError) {
+              out = {
+                success: false,
+                error: `Failed to insert artifact: ${insertError.message}`,
+              }
+              toolCalls.push({ name: 'attach_image_to_ticket', input, output: out })
+              return out
+            }
+
+            out = {
+              success: true,
+              artifact_id: inserted.artifact_id,
+              ticket_id: displayId,
+              image_filename: image.filename,
+            }
+          } catch (err) {
+            out = {
+              success: false,
+              error: err instanceof Error ? err.message : String(err),
+            }
+          }
+          toolCalls.push({ name: 'attach_image_to_ticket', input, output: out })
           return out
         },
       })
@@ -2093,6 +2281,7 @@ export async function runPmAgent(
     search_files: searchFilesTool,
     ...(createTicketTool ? { create_ticket: createTicketTool } : {}),
     ...(fetchTicketContentTool ? { fetch_ticket_content: fetchTicketContentTool } : {}),
+    ...(attachImageToTicketTool ? { attach_image_to_ticket: attachImageToTicketTool } : {}),
     evaluate_ticket_ready: evaluateTicketReadyTool,
     ...(updateTicketBodyTool ? { update_ticket_body: updateTicketBodyTool } : {}),
     ...(syncTicketsTool ? { sync_tickets: syncTicketsTool } : {}),
