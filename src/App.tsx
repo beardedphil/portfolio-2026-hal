@@ -1286,8 +1286,11 @@ function App() {
       } catch (err) {
         console.error('Failed to initialize execution timestamp:', err)
       }
+    })()
+    return () => {
+      mounted = false
     }
-  }, [conversations, supabaseUrl, supabaseAnonKey, addMessage])
+  }, [])
 
   type CheckUnassignedResult = {
     moved: string[]
