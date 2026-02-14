@@ -1923,6 +1923,7 @@ function SortableColumn({
   agentRunsByTicketPk = {},
   pendingMoves = new Set(),
   fetchActiveAgentRuns,
+  setActiveWorkAgentTypes,
 }: {
   col: Column
   cards: Record<string, Card>
@@ -1937,6 +1938,7 @@ function SortableColumn({
   agentRunsByTicketPk?: Record<string, SupabaseAgentRunRow>
   pendingMoves?: Set<string>
   fetchActiveAgentRuns?: (freshTickets?: SupabaseTicketRow[]) => Promise<void>
+  setActiveWorkAgentTypes?: React.Dispatch<React.SetStateAction<Record<string, 'Implementation' | 'QA'>>>
 }) {
   const halCtx = useContext(HalKanbanContext)
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
@@ -2029,6 +2031,10 @@ function SortableColumn({
         if (targetColumn) {
           const targetPosition = targetColumn.cardIds.length
           const movedAt = new Date().toISOString()
+          // Set agent type label immediately when button is clicked (0135)
+          if (setActiveWorkAgentTypes) {
+            setActiveWorkAgentTypes((prev) => ({ ...prev, [firstCardId]: 'Implementation' }))
+          }
           const result = await updateSupabaseTicketKanban(firstCardId, {
             kanban_column_id: 'col-doing',
             kanban_position: targetPosition,
@@ -2051,6 +2057,14 @@ function SortableColumn({
             // Show explicit error message (0159)
             console.error('[QA Top Ticket] Failed to move ticket:', result.error)
             // Error will be visible via updateSupabaseTicketKanban error handling
+            // Clear agent type on failure
+            if (setActiveWorkAgentTypes) {
+              setActiveWorkAgentTypes((prev) => {
+                const next = { ...prev }
+                delete next[firstCardId]
+                return next
+              })
+            }
           }
         }
       }
@@ -2063,6 +2077,10 @@ function SortableColumn({
         if (targetColumn) {
           const targetPosition = targetColumn.cardIds.length
           const movedAt = new Date().toISOString()
+          // Set agent type label immediately when button is clicked (0135)
+          if (setActiveWorkAgentTypes) {
+            setActiveWorkAgentTypes((prev) => ({ ...prev, [firstCardId]: 'QA' }))
+          }
           const result = await updateSupabaseTicketKanban(firstCardId, {
             kanban_column_id: 'col-doing',
             kanban_position: targetPosition,
@@ -2085,6 +2103,14 @@ function SortableColumn({
             // Show explicit error message (0159)
             console.error('[QA Top Ticket] Failed to move ticket:', result.error)
             // Error will be visible via updateSupabaseTicketKanban error handling
+            // Clear agent type on failure
+            if (setActiveWorkAgentTypes) {
+              setActiveWorkAgentTypes((prev) => {
+                const next = { ...prev }
+                delete next[firstCardId]
+                return next
+              })
+            }
           }
         }
       }
@@ -2316,6 +2342,8 @@ function App() {
   const [_selectedSupabaseTicketContent, setSelectedSupabaseTicketContent] = useState<string | null>(null)
   // Agent runs for Doing column tickets (0114)
   const [agentRunsByTicketPk, setAgentRunsByTicketPk] = useState<Record<string, SupabaseAgentRunRow>>({})
+  // Agent type labels for Active work section (0135) - simple string storage, no DB
+  const [activeWorkAgentTypes, setActiveWorkAgentTypes] = useState<Record<string, 'Implementation' | 'QA'>>({})
   // Sync with Docs removed (Supabase-only) (0065)
   // Ticket persistence tracking (0047)
   const [lastMovePersisted, setLastMovePersisted] = useState<{ success: boolean; timestamp: Date; ticketId: string; error?: string } | null>(null)
@@ -3807,8 +3835,14 @@ function App() {
         const wasInDoing = ticket?.kanban_column_id === 'col-doing'
         const isMovingToDoing = overColumn.id === 'col-doing'
         if (wasInDoing && !isMovingToDoing) {
-          // Ticket moving out of Doing - immediately clear its agent run
+          // Ticket moving out of Doing - immediately clear its agent run and label
           setAgentRunsByTicketPk((prev) => {
+            const next = { ...prev }
+            delete next[ticketPk]
+            return next
+          })
+          // Clear agent type label when ticket moves out of Doing (0135)
+          setActiveWorkAgentTypes((prev) => {
             const next = { ...prev }
             delete next[ticketPk]
             return next
@@ -4068,8 +4102,14 @@ function App() {
           const wasInDoing = sourceTicket?.kanban_column_id === 'col-doing'
           const isMovingToDoing = overColumn.id === 'col-doing'
           if (wasInDoing && !isMovingToDoing) {
-            // Ticket moving out of Doing - immediately clear its agent run
+            // Ticket moving out of Doing - immediately clear its agent run and label
             setAgentRunsByTicketPk((prev) => {
+              const next = { ...prev }
+              delete next[ticketPk]
+              return next
+            })
+            // Clear agent type label when ticket moves out of Doing (0135)
+            setActiveWorkAgentTypes((prev) => {
               const next = { ...prev }
               delete next[ticketPk]
               return next
@@ -4667,21 +4707,12 @@ ${notes || '(none provided)'}
           <div className="active-work-items">
             {doingTickets.length > 0 ? (
               doingTickets.map((ticket) => {
-                const agentRun = displayAgentRunsByTicketPk[ticket.pk]
-                const agentName = agentRun?.agent_type === 'implementation' ? 'Implementation' : agentRun?.agent_type === 'qa' ? 'QA' : null
-                const agentStatus = agentRun?.status || null
-                // Determine status dot color: green for active (launching, polling), red for failed, gray for finished/created/no run
-                const statusDotColor = agentStatus === 'launching' || agentStatus === 'polling' 
-                  ? 'green' 
-                  : agentStatus === 'failed' 
-                  ? 'red' 
-                  : 'gray'
-                // Status label for tooltip
-                const statusLabel = agentStatus 
-                  ? agentStatus.charAt(0).toUpperCase() + agentStatus.slice(1)
-                  : agentName 
-                  ? 'Doing' 
-                  : 'Unassigned'
+                // Use simple string storage from button click (0135) - no DB lookup
+                const agentName = activeWorkAgentTypes[ticket.pk] || null
+                // Status label for tooltip (no status tracking needed, just show agent name or Unassigned)
+                const statusLabel = agentName || 'Unassigned'
+                // Status dot is always gray since we're not tracking status
+                const statusDotColor = 'gray'
                 const timestamp = ticket.kanban_moved_at
                   ? new Date(ticket.kanban_moved_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                   : ticket.updated_at
@@ -4805,6 +4836,7 @@ ${notes || '(none provided)'}
                   agentRunsByTicketPk={displayAgentRunsByTicketPk}
                   pendingMoves={pendingMoves}
                   fetchActiveAgentRuns={fetchActiveAgentRuns}
+                  setActiveWorkAgentTypes={setActiveWorkAgentTypes}
                 />
               ))}
             </div>
