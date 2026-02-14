@@ -523,22 +523,8 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
       const supabase = createClient(config.supabaseUrl.trim(), config.supabaseAnonKey.trim())
       const repoFullName = config.repoFullName || config.projectId || 'beardedphil/portfolio-2026-hal'
 
-      // Load instruction index
-      const { data: indexData, error: indexError } = await supabase
-        .from('agent_instruction_index')
-        .select('index_data')
-        .eq('repo_full_name', repoFullName)
-        .single()
-
-      let instructionIndex: {
-        basic?: string[]
-        situational?: Record<string, string[]>
-        topics?: Record<string, { title: string; description: string; agentTypes: string[]; keywords?: string[] }>
-      } = {}
-
-      if (indexData && !indexError) {
-        instructionIndex = indexData.index_data
-      }
+      // Load instruction index (for topic metadata, though we can also get it from instructions)
+      // Note: We use topic_metadata from instructions directly, so we don't need to load the index separately
 
       // Load basic instructions
       const { data: basicInstructions, error: basicError } = await supabase

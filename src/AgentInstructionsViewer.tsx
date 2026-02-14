@@ -172,69 +172,6 @@ export function AgentInstructionsViewer({
     }
   }, [selectedInstruction])
 
-  function parseInstructionFile(path: string, content: string): InstructionFile | null {
-    // Parse frontmatter
-    const frontmatterRegex = /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/
-    const match = content.match(frontmatterRegex)
-    
-    let frontmatter: Record<string, string> = {}
-    let body = content
-
-    if (match) {
-      const frontmatterText = match[1]
-      body = match[2]
-      
-      // Simple frontmatter parser
-      for (const line of frontmatterText.split('\n')) {
-        const colonIndex = line.indexOf(':')
-        if (colonIndex > 0) {
-          const key = line.slice(0, colonIndex).trim()
-          let value = line.slice(colonIndex + 1).trim()
-          // Remove quotes if present
-          if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-            value = value.slice(1, -1)
-          }
-          frontmatter[key] = value
-        }
-      }
-    }
-
-    // Determine agent types from content
-    const agentTypes: string[] = []
-    const contentLower = content.toLowerCase()
-    
-    if (frontmatter.alwaysApply === 'true') {
-      agentTypes.push('all')
-    }
-    
-    // Heuristic: check content for agent mentions
-    if (contentLower.includes('qa agent') || contentLower.includes('qa-agent') || path.includes('qa')) {
-      agentTypes.push('qa-agent')
-    }
-    if (contentLower.includes('implementation agent') || contentLower.includes('implementation-agent')) {
-      agentTypes.push('implementation-agent')
-    }
-    if (contentLower.includes('project manager') || contentLower.includes('project-manager') || contentLower.includes('pm agent')) {
-      agentTypes.push('project-manager')
-    }
-    if (contentLower.includes('process review') || contentLower.includes('process-review')) {
-      agentTypes.push('process-review-agent')
-    }
-
-    // If no specific agent types found but alwaysApply is true, it applies to all
-    if (agentTypes.length === 0 && frontmatter.alwaysApply === 'true') {
-      agentTypes.push('all')
-    }
-
-    return {
-      path,
-      name: path.replace('.mdc', '').replace(/-/g, ' '),
-      description: frontmatter.description || 'No description',
-      alwaysApply: frontmatter.alwaysApply === 'true',
-      content: body,
-      agentTypes: agentTypes.length > 0 ? agentTypes : ['all'],
-    }
-  }
 
   function getInstructionsForAgent(agent: AgentType): InstructionFile[] {
     if (agent === 'all') {
@@ -259,19 +196,6 @@ export function AgentInstructionsViewer({
     setBreadcrumbs(['All Agents', getAgentLabel(selectedAgent!), instruction.name])
   }
 
-  function handleBack() {
-    if (viewState === 'instruction-detail') {
-      setViewState('agent-instructions')
-      setSelectedInstruction(null)
-      setIsEditing(false)
-      setEditedContent('')
-      setBreadcrumbs(['All Agents', getAgentLabel(selectedAgent!)])
-    } else if (viewState === 'agent-instructions') {
-      setViewState('agents')
-      setSelectedAgent(null)
-      setBreadcrumbs([])
-    }
-  }
 
   async function handleEditClick() {
     if (!selectedInstruction) return
@@ -682,7 +606,7 @@ ${alwaysApply ? 'alwaysApply: true' : ''}
                         )}
                         {!selectedInstruction.alwaysApply && selectedInstruction.agentTypes.length > 0 && (
                           <span className="instruction-meta-item">
-                            <strong>Applies to:</strong> {selectedInstruction.agentTypes.map(getAgentLabel).join(', ')}
+                            <strong>Applies to:</strong> {selectedInstruction.agentTypes.map((agentType) => getAgentLabel(agentType as AgentType)).join(', ')}
                           </span>
                         )}
                       </div>
