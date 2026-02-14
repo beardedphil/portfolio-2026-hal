@@ -52,6 +52,10 @@ Create `docs/audit/<task-id>-<short-title>/` containing:
 - `plan.md` (3–10 bullets: approach and file touchpoints)
 - `worklog.md` (ordered, timestamped-ish notes)
 - `changed-files.md` (created/modified/deleted + purpose)
+  - **MANDATORY:** Must be created on every ticket, even if no files changed.
+  - **When files changed:** List all file paths with a brief one-line description of what changed in each.
+  - **When no files changed:** Explicitly state "No files changed." with a brief reason (e.g., "Docs-only ticket handled via Supabase updates").
+  - **Process failure:** Leaving this blank or omitting it is a process failure.
 - `decisions.md` (assumptions/trade-offs + why)
 - `verification.md` (UI-only verification steps; include screenshot filenames if used)
 
