@@ -663,7 +663,19 @@ function App() {
       // ignore localStorage errors
     }
 
-    // Load conversations from Supabase when connected, otherwise fallback to localStorage (0124: persist all conversations in Supabase)
+    // Load conversations from localStorage first (synchronously) to show them immediately after reconnect (0097: fix empty PM chat)
+    // Then load from Supabase asynchronously and merge/overwrite with Supabase data (Supabase takes precedence)
+    const loadResult = loadConversationsFromStorage(repo.full_name)
+    const restoredConversations = loadResult.conversations || new Map<string, Conversation>()
+    // Set conversations immediately from localStorage so they're visible right away
+    setConversations(restoredConversations)
+    if (loadResult.error) {
+      setPersistenceError(loadResult.error)
+    } else {
+      setPersistenceError(null)
+    }
+
+    // If Supabase is available, load from Supabase asynchronously and merge/overwrite localStorage data
     if (url && key) {
       ;(async () => {
         try {
@@ -701,15 +713,7 @@ function App() {
           
           if (error) {
             console.error('[HAL] Failed to load conversations from Supabase:', error)
-            // Fallback to localStorage on error
-            const loadResult = loadConversationsFromStorage(repo.full_name)
-            const restoredConversations = loadResult.conversations || new Map<string, Conversation>()
-            setConversations(restoredConversations)
-            if (loadResult.error) {
-              setPersistenceError(loadResult.error)
-            } else {
-              setPersistenceError(null)
-            }
+            // Keep localStorage conversations (already set above)
             return
           }
 
@@ -819,32 +823,21 @@ function App() {
             }
           }
 
+          // Merge Supabase conversations with localStorage conversations (Supabase takes precedence)
+          // This ensures we have all conversations (from localStorage) but with latest data from Supabase
+          const mergedConversations = new Map<string, Conversation>(restoredConversations)
+          for (const [convId, supabaseConv] of loadedConversations.entries()) {
+            mergedConversations.set(convId, supabaseConv)
+          }
+
           messageIdRef.current = maxMessageId
-          setConversations(loadedConversations)
+          setConversations(mergedConversations)
           setPersistenceError(null)
         } catch (err) {
           console.error('[HAL] Error loading conversations from Supabase:', err)
-          // Fallback to localStorage on error
-          const loadResult = loadConversationsFromStorage(repo.full_name)
-          const restoredConversations = loadResult.conversations || new Map<string, Conversation>()
-          setConversations(restoredConversations)
-          if (loadResult.error) {
-            setPersistenceError(loadResult.error)
-          } else {
-            setPersistenceError(null)
-          }
+          // Keep localStorage conversations (already set above)
         }
       })()
-    } else {
-      // No Supabase: load from localStorage
-      const loadResult = loadConversationsFromStorage(repo.full_name)
-      const restoredConversations = loadResult.conversations || new Map<string, Conversation>()
-      setConversations(restoredConversations)
-      if (loadResult.error) {
-        setPersistenceError(loadResult.error)
-      } else {
-        setPersistenceError(null)
-      }
     }
 
     setGithubRepoPickerOpen(false)
