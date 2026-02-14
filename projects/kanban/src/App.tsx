@@ -530,18 +530,41 @@ function MarkdownImage({
   
   // Handle image load error
   const handleError = useCallback(() => {
-    console.warn('[MarkdownImage] Image failed to load:', imageSrc)
+    console.warn('[MarkdownImage] Image failed to load:', imageSrc?.substring(0, 100))
     setImageError(true)
   }, [imageSrc])
 
   // Debug: log what we received
   useEffect(() => {
     if (imageSrc) {
-      console.log('[MarkdownImage] Rendering image:', { src: imageSrc?.substring(0, 50) + '...', alt, hasSrc: !!imageSrc })
+      console.log('[MarkdownImage] Component mounted with src:', imageSrc.substring(0, 100) + '...', 'alt:', alt)
     } else {
-      console.warn('[MarkdownImage] No src provided:', { src, alt, props: Object.keys(props) })
+      console.warn('[MarkdownImage] Component mounted WITHOUT src. Props:', { src, alt, hasSrc: !!src })
     }
-  }, [imageSrc, alt, src])
+  }, []) // Only log on mount
+
+  // If no src at all, show fallback immediately
+  if (!imageSrc) {
+    return (
+      <div
+        style={{
+          padding: '1rem',
+          border: '1px solid var(--kanban-border)',
+          borderRadius: '4px',
+          backgroundColor: 'var(--kanban-surface-alt)',
+          color: 'var(--kanban-text-muted)',
+          textAlign: 'center',
+        }}
+      >
+        <p style={{ margin: 0 }}>
+          No image source provided: {alt || artifactTitle || 'Unknown image'}
+        </p>
+        <p style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: 'var(--kanban-text-subtle)' }}>
+          Debug: src={String(src)}, alt={String(alt)}
+        </p>
+      </div>
+    )
+  }
 
   // If image failed to load, show fallback
   if (imageError) {
@@ -558,26 +581,6 @@ function MarkdownImage({
       >
         <p style={{ margin: 0 }}>
           Unable to display image: {alt || artifactTitle || 'Unknown image'}
-        </p>
-      </div>
-    )
-  }
-
-  // If no src, show fallback
-  if (!imageSrc) {
-    return (
-      <div
-        style={{
-          padding: '1rem',
-          border: '1px solid var(--kanban-border)',
-          borderRadius: '4px',
-          backgroundColor: 'var(--kanban-surface-alt)',
-          color: 'var(--kanban-text-muted)',
-          textAlign: 'center',
-        }}
-      >
-        <p style={{ margin: 0 }}>
-          No image source provided: {alt || artifactTitle || 'Unknown image'}
         </p>
       </div>
     )
@@ -686,28 +689,32 @@ function ArtifactReportViewer({
 
   // Custom image component for ReactMarkdown (0158)
   const markdownComponents: Components = useMemo(() => {
-    const ImageComponent = (props: any) => {
-      // ReactMarkdown v10 passes props directly
-      // Log to debug what we're receiving
-      console.log('[ImageComponent] Received props:', { 
-        hasSrc: !!props.src, 
-        src: props.src?.substring?.(0, 50) + '...',
-        alt: props.alt,
-        keys: Object.keys(props)
-      })
-      
-      return (
-        <MarkdownImage
-          src={props.src}
-          alt={props.alt}
-          artifactTitle={artifact?.title}
-          onImageClick={handleImageClick}
-        />
-      )
-    }
+    // Create a wrapper that captures the current artifact and handler
+    const artifactTitle = artifact?.title
+    const imageClickHandler = handleImageClick
     
     return {
-      img: ImageComponent,
+      img: (props: any) => {
+        // ReactMarkdown v10 passes props directly as HTML attributes
+        const src = props.src
+        const alt = props.alt
+        
+        // Debug logging
+        if (!src) {
+          console.warn('[ImageComponent] No src in props:', Object.keys(props))
+        } else {
+          console.log('[ImageComponent] Rendering with src:', src.substring(0, 50) + '...')
+        }
+        
+        return (
+          <MarkdownImage
+            src={src}
+            alt={alt}
+            artifactTitle={artifactTitle}
+            onImageClick={imageClickHandler}
+          />
+        )
+      },
     }
   }, [artifact?.title, handleImageClick])
 
