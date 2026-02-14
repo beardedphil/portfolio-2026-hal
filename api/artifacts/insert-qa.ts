@@ -6,6 +6,7 @@ import {
   createCanonicalTitle,
   findArtifactsByCanonicalId,
 } from './_shared.js'
+import { logStorageAttempt } from './_log-attempt.js'
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []
@@ -77,19 +78,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
-    // Validate that body_md contains substantive QA report content
-    // Use QA-specific validation that accepts structured reports with sections/tables/lists
-    const contentValidation = hasSubstantiveQAContent(body_md, title)
-    console.log(`[insert-qa] Content validation: valid=${contentValidation.valid}, reason=${contentValidation.reason || 'none'}, body_md length=${body_md?.length ?? 'undefined'}`)
-    if (!contentValidation.valid) {
-      json(res, 400, {
-        success: false,
-        error: contentValidation.reason || 'Artifact body must contain substantive QA report content, not just a title or placeholder text.',
-        validation_failed: true,
-      })
-      return
-    }
-
     if (!supabaseUrl || !supabaseAnonKey) {
       json(res, 400, {
         success: false,
@@ -118,9 +106,45 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       .maybeSingle()
 
     if (ticketError || !ticket) {
+      // Log request failure attempt (0175)
+      await logStorageAttempt(
+        supabase,
+        '', // No ticket PK available
+        '',
+        'qa-report',
+        'qa',
+        '/api/artifacts/insert-qa',
+        'request failed',
+        `Ticket ${ticketId} not found in Supabase.`
+      )
       json(res, 200, {
         success: false,
         error: `Ticket ${ticketId} not found in Supabase.`,
+      })
+      return
+    }
+
+    // Validate that body_md contains substantive QA report content (after we have ticket for logging)
+    // Use QA-specific validation that accepts structured reports with sections/tables/lists
+    const contentValidation = hasSubstantiveQAContent(body_md, title)
+    console.log(`[insert-qa] Content validation: valid=${contentValidation.valid}, reason=${contentValidation.reason || 'none'}, body_md length=${body_md?.length ?? 'undefined'}`)
+    if (!contentValidation.valid) {
+      // Log validation failure attempt (0175)
+      await logStorageAttempt(
+        supabase,
+        ticket.pk,
+        ticket.repo_full_name || '',
+        'qa-report',
+        'qa',
+        '/api/artifacts/insert-qa',
+        'rejected by validation',
+        contentValidation.reason || 'Artifact body must contain substantive QA report content',
+        contentValidation.reason || undefined
+      )
+      json(res, 400, {
+        success: false,
+        error: contentValidation.reason || 'Artifact body must contain substantive QA report content, not just a title or placeholder text.',
+        validation_failed: true,
       })
       return
     }
@@ -139,6 +163,17 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     )
 
     if (findError) {
+      // Log request failure attempt (0175)
+      await logStorageAttempt(
+        supabase,
+        ticket.pk,
+        ticket.repo_full_name || '',
+        'qa-report',
+        'qa',
+        '/api/artifacts/insert-qa',
+        'request failed',
+        findError
+      )
       json(res, 200, {
         success: false,
         error: findError,
@@ -235,6 +270,17 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
       if (updateError) {
         console.error(`[insert-qa] Update failed: ${updateError.message}`)
+        // Log request failure attempt (0175)
+        await logStorageAttempt(
+          supabase,
+          ticket.pk,
+          ticket.repo_full_name || '',
+          'qa-report',
+          'qa',
+          '/api/artifacts/insert-qa',
+          'request failed',
+          `Failed to update artifact: ${updateError.message}`
+        )
         json(res, 200, {
           success: false,
           error: `Failed to update artifact: ${updateError.message}`,
@@ -256,6 +302,16 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         console.log(`[insert-qa] Artifact updated successfully. Persisted body_md length=${persistedLength}`)
       }
 
+      // Log successful storage attempt (0175)
+      await logStorageAttempt(
+        supabase,
+        ticket.pk,
+        ticket.repo_full_name || '',
+        'qa-report',
+        'qa',
+        '/api/artifacts/insert-qa',
+        'stored'
+      )
       json(res, 200, {
         success: true,
         artifact_id: targetArtifactId,
@@ -312,6 +368,17 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       }
 
       console.error(`[insert-qa] Insert failed: ${insertError.message}`)
+      // Log request failure attempt (0175)
+      await logStorageAttempt(
+        supabase,
+        ticket.pk,
+        ticket.repo_full_name || '',
+        'qa-report',
+        'qa',
+        '/api/artifacts/insert-qa',
+        'request failed',
+        `Failed to insert artifact: ${insertError.message}`
+      )
       json(res, 200, {
         success: false,
         error: `Failed to insert artifact: ${insertError.message}`,
@@ -334,6 +401,16 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       console.log(`[insert-qa] Artifact inserted successfully. Persisted body_md length=${persistedLength}`)
     }
 
+    // Log successful storage attempt (0175)
+    await logStorageAttempt(
+      supabase,
+      ticket.pk,
+      ticket.repo_full_name || '',
+      'qa-report',
+      'qa',
+      '/api/artifacts/insert-qa',
+      'stored'
+    )
     json(res, 200, {
       success: true,
       artifact_id: inserted.artifact_id,

@@ -1300,6 +1300,269 @@ function ProcessReviewSection({
   )
 }
 
+/** Artifact Diagnostics component (0175): shows required artifacts checklist with storage attempt info */
+function ArtifactDiagnostics({
+  ticketPk,
+  ticketId,
+  artifacts,
+  supabaseUrl,
+  supabaseAnonKey,
+}: {
+  ticketPk: string
+  ticketId: string
+  artifacts: SupabaseAgentArtifactRow[]
+  supabaseUrl?: string | null
+  supabaseAnonKey?: string | null
+}) {
+  const [diagnostics, setDiagnostics] = useState<{
+    artifactType: string
+    title: string
+    isPresent: boolean
+    rowCount: number
+    lastAttempt: {
+      timestamp: string
+      endpoint: string
+      outcome: string
+      errorMessage?: string
+      validationReason?: string
+    } | null
+  }[] | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [retrievalError, setRetrievalError] = useState<{ message: string; httpStatus: number } | null>(null)
+
+  useEffect(() => {
+    const fetchDiagnostics = async () => {
+      if (!supabaseUrl || !supabaseAnonKey) {
+        // Try API fallback
+        try {
+          setLoading(true)
+          setError(null)
+          const apiBaseUrl = window.location.origin
+          const res = await fetch(`${apiBaseUrl}/api/artifacts/get-diagnostics`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ticketId, ticketPk }),
+          })
+          const data = await res.json()
+          if (data.success && data.diagnostics) {
+            setDiagnostics(data.diagnostics)
+            setRetrievalError(data.retrievalError || null)
+          } else {
+            setError(data.error || 'Failed to fetch diagnostics')
+            setRetrievalError(data.retrievalError || null)
+          }
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e))
+          setRetrievalError({ message: e instanceof Error ? e.message : String(e), httpStatus: 0 })
+        } finally {
+          setLoading(false)
+        }
+        return
+      }
+
+      try {
+        setLoading(true)
+        setError(null)
+        const supabase = createClient(supabaseUrl, supabaseAnonKey)
+        
+        // Try direct Supabase query first
+        const { data: attemptsData, error: attemptsErr } = await supabase
+          .from('artifact_storage_attempts')
+          .select('attempt_id, ticket_pk, artifact_type, agent_type, endpoint, outcome, error_message, validation_reason, attempted_at')
+          .eq('ticket_pk', ticketPk)
+          .order('attempted_at', { ascending: false })
+
+        if (attemptsErr) {
+          // Fallback to API
+          const apiBaseUrl = window.location.origin
+          const res = await fetch(`${apiBaseUrl}/api/artifacts/get-diagnostics`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ticketId, ticketPk, supabaseUrl, supabaseAnonKey }),
+          })
+          const data = await res.json()
+          if (data.success && data.diagnostics) {
+            setDiagnostics(data.diagnostics)
+            setRetrievalError(data.retrievalError || null)
+          } else {
+            setError(data.error || 'Failed to fetch diagnostics')
+            setRetrievalError(data.retrievalError || null)
+          }
+        } else {
+          // Build diagnostics from artifacts and attempts
+          const requiredArtifactTypes = [
+            { key: 'plan', title: 'Plan' },
+            { key: 'worklog', title: 'Worklog' },
+            { key: 'changed-files', title: 'Changed Files' },
+            { key: 'decisions', title: 'Decisions' },
+            { key: 'verification', title: 'Verification' },
+            { key: 'pm-review', title: 'PM Review' },
+            { key: 'git-diff', title: 'Git diff' },
+            { key: 'instructions-used', title: 'Instructions Used' },
+          ]
+
+          const attemptsList = (attemptsData || []) as Array<{
+            attempt_id: string
+            ticket_pk: string
+            artifact_type: string
+            agent_type: string
+            endpoint: string
+            outcome: string
+            error_message?: string
+            validation_reason?: string
+            attempted_at: string
+          }>
+
+          const diagnosticsData = requiredArtifactTypes.map(({ key, title }) => {
+            // Find all artifacts of this type (implementation agent only)
+            const matchingArtifacts = artifacts.filter((a) => {
+              if (a.agent_type !== 'implementation') return false
+              const titleLower = a.title?.toLowerCase() || ''
+              return (
+                (key === 'plan' && titleLower.includes('plan for ticket')) ||
+                (key === 'worklog' && titleLower.includes('worklog for ticket')) ||
+                (key === 'changed-files' && titleLower.includes('changed files for ticket')) ||
+                (key === 'decisions' && titleLower.includes('decisions for ticket')) ||
+                (key === 'verification' && titleLower.includes('verification for ticket')) ||
+                (key === 'pm-review' && titleLower.includes('pm review for ticket')) ||
+                (key === 'git-diff' && (titleLower.includes('git diff for ticket') || titleLower.includes('git-diff for ticket'))) ||
+                (key === 'instructions-used' && titleLower.includes('instructions used for ticket'))
+              )
+            })
+
+            // Count artifacts with substantive content
+            const artifactsWithContent = matchingArtifacts.filter((a) => {
+              const body = a.body_md || ''
+              return body.trim().length > 50 && !body.includes('(none)') && !body.includes('(No files changed')
+            })
+
+            const isPresent = artifactsWithContent.length > 0
+            const rowCount = matchingArtifacts.length
+
+            // Find last attempt for this artifact type (implementation agent only)
+            const lastAttempt = attemptsList
+              .filter((a) => a.artifact_type === key && a.agent_type === 'implementation')
+              .sort((a, b) => new Date(b.attempted_at).getTime() - new Date(a.attempted_at).getTime())[0]
+
+            return {
+              artifactType: key,
+              title,
+              isPresent,
+              rowCount,
+              lastAttempt: lastAttempt
+                ? {
+                    timestamp: lastAttempt.attempted_at,
+                    endpoint: lastAttempt.endpoint,
+                    outcome: lastAttempt.outcome,
+                    errorMessage: lastAttempt.error_message || undefined,
+                    validationReason: lastAttempt.validation_reason || undefined,
+                  }
+                : null,
+            }
+          })
+
+          setDiagnostics(diagnosticsData)
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e))
+        setRetrievalError({ message: e instanceof Error ? e.message : String(e), httpStatus: 0 })
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchDiagnostics()
+  }, [ticketPk, ticketId, artifacts, supabaseUrl, supabaseAnonKey])
+
+  if (loading) {
+    return (
+      <div className="artifact-diagnostics-section">
+        <h3 className="artifact-diagnostics-title">Artifact Diagnostics</h3>
+        <p className="artifact-diagnostics-loading">Loading diagnostics…</p>
+      </div>
+    )
+  }
+
+  if (error && !diagnostics) {
+    return (
+      <div className="artifact-diagnostics-section">
+        <h3 className="artifact-diagnostics-title">Artifact Diagnostics</h3>
+        <div className="artifact-diagnostics-error" role="alert">
+          <p><strong>Error loading diagnostics:</strong> {error}</p>
+          {retrievalError && (
+            <details style={{ marginTop: '0.5em' }}>
+              <summary style={{ cursor: 'pointer' }}>Technical details</summary>
+              <pre style={{ marginTop: '0.5em', fontSize: '0.9em', whiteSpace: 'pre-wrap' }}>
+                HTTP {retrievalError.httpStatus}: {retrievalError.message}
+              </pre>
+            </details>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  if (!diagnostics) {
+    return null
+  }
+
+  return (
+    <div className="artifact-diagnostics-section">
+      <h3 className="artifact-diagnostics-title">Artifact Diagnostics</h3>
+      {retrievalError && (
+        <div className="artifact-diagnostics-error" role="alert" style={{ marginBottom: '1em' }}>
+          <p><strong>Retrieval error:</strong> {retrievalError.message}</p>
+          <details style={{ marginTop: '0.5em' }}>
+            <summary style={{ cursor: 'pointer' }}>Technical details</summary>
+            <pre style={{ marginTop: '0.5em', fontSize: '0.9em', whiteSpace: 'pre-wrap' }}>
+              HTTP {retrievalError.httpStatus}: {retrievalError.message}
+            </pre>
+          </details>
+        </div>
+      )}
+      <div className="artifact-diagnostics-checklist">
+        <h4 style={{ marginTop: '0', marginBottom: '0.75em', fontSize: '1em', fontWeight: '600' }}>
+          Required implementation artifacts
+        </h4>
+        <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+          {diagnostics.map((item) => (
+            <li key={item.artifactType} style={{ marginBottom: '1em', padding: '0.75em', border: '1px solid #ddd', borderRadius: '4px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5em', marginBottom: '0.5em' }}>
+                <span style={{ fontSize: '1.2em' }}>{item.isPresent ? '✅' : '❌'}</span>
+                <strong>{item.title}</strong>
+                <span style={{ marginLeft: 'auto', fontSize: '0.9em', color: '#666' }}>
+                  {item.rowCount} row{item.rowCount !== 1 ? 's' : ''}
+                </span>
+              </div>
+              <div style={{ fontSize: '0.9em', color: item.isPresent ? '#28a745' : '#dc3545' }}>
+                {item.isPresent ? 'Present' : 'Missing'}
+              </div>
+              {!item.isPresent && item.lastAttempt && (
+                <div style={{ marginTop: '0.5em', padding: '0.5em', backgroundColor: '#f8f9fa', borderRadius: '4px', fontSize: '0.85em' }}>
+                  <div><strong>Last attempt:</strong> {new Date(item.lastAttempt.timestamp).toLocaleString()}</div>
+                  <div><strong>Endpoint:</strong> {item.lastAttempt.endpoint}</div>
+                  <div><strong>Outcome:</strong> {item.lastAttempt.outcome}</div>
+                  {item.lastAttempt.validationReason && (
+                    <div style={{ marginTop: '0.5em', color: '#dc3545' }}>
+                      <strong>Validation reason:</strong> {item.lastAttempt.validationReason}
+                    </div>
+                  )}
+                  {item.lastAttempt.errorMessage && !item.lastAttempt.validationReason && (
+                    <div style={{ marginTop: '0.5em', color: '#dc3545' }}>
+                      <strong>Error:</strong> {item.lastAttempt.errorMessage}
+                    </div>
+                  )}
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  )
+}
+
 /** Artifacts section component (0082) with error state detection (0137) */
 function ArtifactsSection({
   artifacts,
@@ -1847,6 +2110,13 @@ function TicketDetailModal({
                   <p className="ticket-detail-empty">No content.</p>
                 )}
               </div>
+              <ArtifactDiagnostics
+                ticketPk={ticketId}
+                ticketId={ticketId}
+                artifacts={artifacts}
+                supabaseUrl={supabaseUrl}
+                supabaseAnonKey={supabaseKey}
+              />
               <ArtifactsSection
                 artifacts={artifacts}
                 loading={artifactsLoading}
