@@ -146,29 +146,43 @@ if (!updateResult.success) {
 
 ### 2. Artifact Storage (Secondary - Durable Audit Trail)
 
-**MANDATORY:** Store the log entry as an artifact in Supabase using the HAL API endpoint `/api/artifacts/insert` (or similar artifact insertion endpoint).
+**MANDATORY:** Store the log entry as an artifact in Supabase using the HAL API endpoint appropriate for your agent type.
+
+**Agent-specific endpoints:**
+- **Implementation agents:** Use `/api/artifacts/insert-implementation`
+- **QA agents:** Use `/api/artifacts/insert-qa`
+- **Other agent types:** Use the artifact endpoint appropriate for your agent type (e.g., `/api/artifacts/insert-implementation` for project-manager agents)
 
 **Artifact details:**
-- **Agent type:** The type of agent performing the move (e.g., `implementation`, `qa`, `project-manager`)
-- **Artifact type:** `kanban-change-log`
 - **Title format:** `Kanban change log for ticket <ticket-id> — <timestamp>`
 - **Body:** The full log entry in markdown format
 
-**Example:**
+**Example (Implementation agent):**
 ```bash
 baseUrl=$(cat .hal/api-base-url | tr -d '\n')
-curl -X POST ${baseUrl}/api/artifacts/insert \
+curl -X POST ${baseUrl}/api/artifacts/insert-implementation \
   -H "Content-Type: application/json" \
   -d '{
     "ticketId": "0192",
-    "agentType": "implementation",
-    "artifactType": "kanban-change-log",
+    "artifactType": "decisions",
     "title": "Kanban change log for ticket 0192 — 2026-02-14T10:30:45Z",
     "body_md": "## Kanban Change Log\n\n### 2026-02-14T10:30:45Z — implementation moved ticket 0192\n\n- **From column:** `col-doing` (position `3`)\n- **To column:** `col-qa` (position `1`)\n- **Reason:** Implementation complete, all code changes committed and pushed, ready for QA"
   }'
 ```
 
-**Note:** If the artifact insertion endpoint structure differs, adapt the request format accordingly. The key requirement is that the log entry is stored as a durable artifact associated with the ticket.
+**Example (QA agent):**
+```bash
+baseUrl=$(cat .hal/api-base-url | tr -d '\n')
+curl -X POST ${baseUrl}/api/artifacts/insert-qa \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ticketId": "0192",
+    "title": "Kanban change log for ticket 0192 — 2026-02-14T10:30:45Z",
+    "body_md": "## Kanban Change Log\n\n### 2026-02-14T10:30:45Z — qa moved ticket 0192\n\n- **From column:** `col-qa` (position `1`)\n- **To column:** `col-human-in-the-loop` (position `N/A`)\n- **Reason:** QA passed, ready for human verification"
+  }'
+```
+
+**Note:** For implementation agents, use one of the standard `artifactType` values (e.g., `"decisions"`) since `"kanban-change-log"` is not a recognized artifact type. The title clearly identifies it as a Kanban change log. The key requirement is that the log entry is stored as a durable artifact associated with the ticket.
 
 ## Workflow: Logging After a Move
 
@@ -196,7 +210,7 @@ curl -X POST ${baseUrl}/api/artifacts/insert \
 
 4. **Store in ticket body** using `/api/tickets/update` (append to existing body)
 
-5. **Store as artifact** using `/api/artifacts/insert` (or appropriate artifact endpoint)
+5. **Store as artifact** using the appropriate endpoint for your agent type (`/api/artifacts/insert-implementation` for implementation agents, `/api/artifacts/insert-qa` for QA agents, etc.)
 
 6. **Verify both storage operations succeeded** before proceeding
 
@@ -295,12 +309,11 @@ curl -X POST ${baseUrl}/api/tickets/update \
 
 **Step 4: Store as artifact**
 ```bash
-curl -X POST ${baseUrl}/api/artifacts/insert \
+curl -X POST ${baseUrl}/api/artifacts/insert-implementation \
   -H "Content-Type: application/json" \
   -d '{
     "ticketId": "0192",
-    "agentType": "implementation",
-    "artifactType": "kanban-change-log",
+    "artifactType": "decisions",
     "title": "Kanban change log for ticket 0192 — 2026-02-14T10:30:45Z",
     "body_md": "## Kanban Change Log\n\n### 2026-02-14T10:30:45Z — implementation moved ticket 0192\n\n- **From column:** `col-doing` (position `3`)\n- **To column:** `col-qa` (position `1`)\n- **Reason:** Implementation complete, all code changes committed and pushed, ready for QA"
   }'
