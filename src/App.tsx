@@ -663,6 +663,10 @@ function App() {
       setPersistenceError(loadResult.error)
     }
 
+    // Set conversations synchronously first (0097: ensures non-PM conversations are available immediately for auto-expand)
+    // This makes chat previews visible right away, even if Supabase PM loading is still in progress
+    setConversations(restoredConversations)
+
     // Load PM conversations from Supabase and merge (Supabase takes precedence for PM) (HAL_SYNC_COMPLETED will trigger unassigned check when Kanban syncs)
     if (url && key) {
       ;(async () => {
@@ -693,19 +697,19 @@ function App() {
               createdAt: msgs.length > 0 ? msgs[0].timestamp : new Date(),
             }
             // Merge: Supabase PM conversation takes precedence, but keep other agent conversations from localStorage
-            restoredConversations.set(pmConvId, pmConversation)
+            // Update conversations with merged PM conversation (0097: merge Supabase PM into existing conversations)
+            setConversations((prev) => {
+              const merged = new Map(prev)
+              merged.set(pmConvId, pmConversation)
+              return merged
+            })
           }
-          // Set merged conversations (PM from Supabase if available, others from localStorage)
-          setConversations(restoredConversations)
           setPersistenceError(null)
         } catch {
-          // If Supabase load fails, still use localStorage conversations
-          setConversations(restoredConversations)
+          // If Supabase load fails, conversations are already set from localStorage above
+          setPersistenceError(null)
         }
       })()
-    } else {
-      // No Supabase, just use localStorage conversations
-      setConversations(restoredConversations)
     }
 
     setGithubRepoPickerOpen(false)
