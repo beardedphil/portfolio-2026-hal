@@ -104,7 +104,19 @@ function bundleInstructions() {
     }
 
     // Read all .mdc files from .cursor/rules/ (excluding index file)
-    const files = fs.readdirSync(RULES_DIR).filter(f => f.endsWith('.mdc') && !f.startsWith('.'))
+    // Note: Most instructions have been migrated to Supabase, so this directory may be empty or contain only the entry point
+    let files = []
+    try {
+      files = fs.readdirSync(RULES_DIR).filter(f => f.endsWith('.mdc') && !f.startsWith('.'))
+    } catch (err) {
+      if (err.code === 'ENOENT') {
+        // Directory doesn't exist - this is expected if all instructions are in Supabase
+        console.warn(`Warning: Rules directory ${RULES_DIR} does not exist. Instructions are likely in Supabase.`)
+        files = []
+      } else {
+        throw err
+      }
+    }
     
     const allInstructions = []
     const basicInstructions = []
