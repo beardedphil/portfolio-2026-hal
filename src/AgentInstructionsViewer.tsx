@@ -225,19 +225,61 @@ export function AgentInstructionsViewer({ isOpen, onClose }: AgentInstructionsVi
   async function handleEditClick() {
     if (!selectedInstruction) return
 
-    // Initialize edited content with current content (including frontmatter)
-    // We need to reconstruct the full file content with frontmatter
-    const topicId = selectedInstruction.topicId || selectedInstruction.path.replace('.mdc', '')
-    const topicMeta = instructionIndex?.topics?.[topicId]
+    setSaveStatus('idle')
+    setSaveError(null)
+
+    // Try to read the original file to get exact content with frontmatter
+    let fullContent = ''
     
-    // Try to get the original file content with frontmatter
-    // For now, we'll reconstruct it from the instruction data
-    let fullContent = selectedInstruction.content
-    
-    // If we have metadata, try to reconstruct frontmatter
-    if (topicMeta || selectedInstruction.description !== 'No description') {
+    try {
+      // Request directory access if we don't have it
+      let handle = rulesDirectoryHandle
+      if (!handle && typeof window.showDirectoryPicker === 'function') {
+        const selectedHandle = await window.showDirectoryPicker({ mode: 'readwrite' })
+        
+        // Check if this is .cursor/rules by trying to find a .mdc file
+        let isRulesDir = false
+        try {
+          for await (const entry of selectedHandle.values()) {
+            if (entry.kind === 'file' && entry.name.endsWith('.mdc')) {
+              isRulesDir = true
+              break
+            }
+          }
+        } catch {
+          // Can't check, assume it's not
+        }
+        
+        if (isRulesDir) {
+          handle = selectedHandle
+        } else {
+          try {
+            const cursorHandle = await selectedHandle.getDirectoryHandle('.cursor', { create: false })
+            handle = await cursorHandle.getDirectoryHandle('rules', { create: false })
+          } catch (err) {
+            throw new Error('Could not find .cursor/rules directory. Please select the .cursor/rules directory or the workspace root directory.')
+          }
+        }
+        
+        setRulesDirectoryHandle(handle)
+      }
+
+      if (handle) {
+        // Read the original file
+        const filename = selectedInstruction.path
+        const fileHandle = await handle.getFileHandle(filename, { create: false })
+        const file = await fileHandle.getFile()
+        fullContent = await file.text()
+      } else {
+        throw new Error('File System Access API not available')
+      }
+    } catch (err) {
+      // Fallback: reconstruct from instruction data
+      const topicId = selectedInstruction.topicId || selectedInstruction.path.replace('.mdc', '')
+      const topicMeta = instructionIndex?.topics?.[topicId]
       const description = topicMeta?.description || selectedInstruction.description
       const alwaysApply = selectedInstruction.alwaysApply
+      
       const frontmatter = `---
 description: ${description}
 ${alwaysApply ? 'alwaysApply: true' : ''}
@@ -245,12 +287,15 @@ ${alwaysApply ? 'alwaysApply: true' : ''}
 
 `
       fullContent = frontmatter + selectedInstruction.content
+      
+      // Show a warning that we're using reconstructed content
+      if (err instanceof Error && !err.message.includes('not available')) {
+        setSaveError(`Could not read original file. Using reconstructed content. Original error: ${err.message}`)
+      }
     }
     
     setEditedContent(fullContent)
     setIsEditing(true)
-    setSaveStatus('idle')
-    setSaveError(null)
   }
 
   function handleCancelEdit() {
