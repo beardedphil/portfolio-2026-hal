@@ -2544,9 +2544,9 @@ export async function runPmAgent(
       .object({
         topicId: z
           .string()
-          .optional()
+          .nullable()
           .describe(
-            'Specific instruction topic ID (e.g., "auditability-and-traceability", "qa-audit-report", "done-means-pushed").'
+            'Specific instruction topic ID (e.g., "auditability-and-traceability", "qa-audit-report", "done-means-pushed"). Set to null when loading by agentType.'
           ),
         agentType: z
           .enum([
@@ -2555,9 +2555,9 @@ export async function runPmAgent(
             'qa-agent',
             'process-review-agent',
           ])
-          .optional()
+          .nullable()
           .describe(
-            'Agent type for full instruction-set loading (loads all basic instructions for that agent plus additional topics).'
+            'Agent type for full instruction-set loading (loads all basic instructions for that agent plus additional topics). Set to null when loading a specific topic by topicId.'
           ),
       })
       .refine((value) => Boolean((value.topicId ?? '').trim() || value.agentType), {
