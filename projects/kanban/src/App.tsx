@@ -33,6 +33,7 @@ import {
 import { createClient } from '@supabase/supabase-js'
 import ReactMarkdown from 'react-markdown'
 import type { Components } from 'react-markdown'
+import { GitDiffViewer } from './GitDiffViewer'
 
 type LogEntry = { id: number; message: string; at: string }
 type Card = { id: string; title: string; /** Display id for work button (e.g. HAL-0081); when card id is Supabase pk, used for message. */ displayId?: string }
@@ -755,6 +756,13 @@ function ArtifactReportViewer({
     }
   }, [artifact?.title, artifact?.body_md, handleImageClick, artifact])
 
+  // Check if this is a git-diff artifact
+  const isGitDiff = useMemo(() => {
+    if (!artifact) return false
+    const normalizedTitle = artifact.title.toLowerCase().trim()
+    return normalizedTitle.startsWith('git diff for ticket') || normalizedTitle.startsWith('git-diff for ticket')
+  }, [artifact])
+
   if (!open || !artifact) return null
 
   const createdAt = new Date(artifact.created_at)
@@ -791,36 +799,16 @@ function ArtifactReportViewer({
         <div className="ticket-detail-body-wrap">
           <div className="ticket-detail-body">
             {artifact.body_md && artifact.body_md.trim().length > 0 ? (
-              <>
-                {/* Debug: show raw markdown */}
-                <details style={{ marginBottom: '1rem', fontSize: '0.8rem', border: '1px solid var(--kanban-border)', padding: '0.5rem' }}>
-                  <summary>Debug: Raw markdown (first 500 chars)</summary>
-                  <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: '0.75rem' }}>
-                    {artifact.body_md.substring(0, 500)}...
-                  </pre>
-                </details>
-                <div style={{ border: '2px solid red', padding: '1rem', marginBottom: '1rem' }}>
-                  <p style={{ margin: 0, fontWeight: 'bold' }}>Debug: About to render ReactMarkdown</p>
-                  <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.9rem' }}>
-                    Components registered: {markdownComponents ? 'YES' : 'NO'}, Has img: {markdownComponents?.img ? 'YES' : 'NO'}
-                  </p>
-                  <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.9rem' }}>
-                    Body MD length: {artifact.body_md.length}, Contains ![ : {artifact.body_md.includes('![') ? 'YES' : 'NO'}
-                  </p>
-                </div>
-                {/* Test: render without custom component first */}
-                <div style={{ border: '1px solid blue', padding: '1rem', marginBottom: '1rem' }}>
-                  <p style={{ margin: 0, fontWeight: 'bold' }}>Test: ReactMarkdown WITHOUT custom components</p>
-                  <ReactMarkdown>{artifact.body_md}</ReactMarkdown>
-                </div>
-                <div style={{ border: '1px solid green', padding: '1rem', marginBottom: '1rem' }}>
-                  <p style={{ margin: 0, fontWeight: 'bold' }}>Test: ReactMarkdown WITH custom components</p>
-                  <ReactMarkdown components={markdownComponents}>{artifact.body_md}</ReactMarkdown>
-                </div>
-              </>
+              isGitDiff ? (
+                <GitDiffViewer diff={artifact.body_md} />
+              ) : (
+                <ReactMarkdown components={markdownComponents}>{artifact.body_md}</ReactMarkdown>
+              )
             ) : (
               <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
-                No output produced. This artifact was created but contains no content.
+                {isGitDiff 
+                  ? 'No diff available. This artifact was created but contains no diff content.'
+                  : 'No output produced. This artifact was created but contains no content.'}
               </p>
             )}
           </div>
