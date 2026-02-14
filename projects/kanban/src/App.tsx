@@ -1989,6 +1989,7 @@ function TicketDetailModal({
   onTicketUpdate: _onTicketUpdate,
   attachments,
   attachmentsLoading,
+  failureCounts,
 }: {
   open: boolean
   onClose: () => void
@@ -2011,6 +2012,7 @@ function TicketDetailModal({
   onTicketUpdate: () => void
   attachments: TicketAttachment[]
   attachmentsLoading: boolean
+  failureCounts?: { qa: number; hitl: number } | null
 }) {
   const [validationSteps, setValidationSteps] = useState('')
   const [validationNotes, setValidationNotes] = useState('')
@@ -2181,16 +2183,16 @@ function TicketDetailModal({
         <div className="ticket-detail-meta">
           <span className="ticket-detail-id">ID: {ticketId}</span>
           {priority != null && <span className="ticket-detail-priority">Priority: {priority}</span>}
-          {detailModalFailureCounts && (
+          {failureCounts && (
             <>
-              {detailModalFailureCounts.qa > 0 && (
-                <span className="ticket-detail-failure-count" style={{ color: detailModalFailureCounts.qa >= 3 ? '#d32f2f' : '#f57c00' }}>
-                  QA fails: {detailModalFailureCounts.qa}
+              {failureCounts.qa > 0 && (
+                <span className="ticket-detail-failure-count" style={{ color: failureCounts.qa >= 3 ? '#d32f2f' : '#f57c00' }}>
+                  QA fails: {failureCounts.qa}
                 </span>
               )}
-              {detailModalFailureCounts.hitl > 0 && (
-                <span className="ticket-detail-failure-count" style={{ color: detailModalFailureCounts.hitl >= 3 ? '#d32f2f' : '#f57c00' }}>
-                  HITL fails: {detailModalFailureCounts.hitl}
+              {failureCounts.hitl > 0 && (
+                <span className="ticket-detail-failure-count" style={{ color: failureCounts.hitl >= 3 ? '#d32f2f' : '#f57c00' }}>
+                  HITL fails: {failureCounts.hitl}
                 </span>
               )}
             </>
@@ -5119,6 +5121,7 @@ function App() {
           supabaseKey={supabaseAnonKey || ''}
           attachments={detailModalAttachments}
           attachmentsLoading={detailModalAttachmentsLoading}
+          failureCounts={detailModalFailureCounts}
           onValidationPass={async (ticketPk: string) => {
             // Always use HAL's callbacks - HAL handles all database operations
             if (!halCtx) {
