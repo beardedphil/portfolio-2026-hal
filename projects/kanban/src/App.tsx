@@ -692,47 +692,50 @@ function ArtifactReportViewer({
     // Create a wrapper that captures the current artifact and handler
     const artifactTitle = artifact?.title
     const imageClickHandler = handleImageClick
+    const bodyMd = artifact?.body_md || ''
     
     const ImageComponent = (props: any) => {
       // ReactMarkdown v10 passes node-based props
-      // The image URL is in props.node.properties.src or props.node.url
+      // However, data URLs are being sanitized and node.properties.src is empty
+      // We need to extract the URL from the raw markdown using the node position
       const node = props.node
+      const alt = node?.properties?.alt || node?.alt || props.alt || null
       
-      // Log the FULL node structure to see what we have
-      console.log('[ImageComponent] Full node:', node)
-      console.log('[ImageComponent] node.properties:', node?.properties)
-      console.log('[ImageComponent] node.properties keys:', node?.properties ? Object.keys(node.properties) : 'none')
-      console.log('[ImageComponent] node.properties.src:', node?.properties?.src)
-      console.log('[ImageComponent] node.properties.href:', node?.properties?.href)
-      console.log('[ImageComponent] node.url:', node?.url)
+      // If src is empty, try to extract from raw markdown using position
+      let src = node?.properties?.src
       
-      // Try all possible locations for src
-      const src = node?.properties?.src || 
-                  node?.properties?.href || 
-                  node?.url || 
-                  node?.properties?.url ||
-                  props.src || 
-                  null
+      if (!src || src === '') {
+        // Extract from raw markdown using node position
+        const position = node?.position
+        if (position && bodyMd) {
+          const startOffset = position.start?.offset || 0
+          const endOffset = position.end?.offset || bodyMd.length
+          const markdownSnippet = bodyMd.substring(startOffset, endOffset)
+          
+          // Try to extract data URL from markdown: ![alt](data:image/...)
+          const dataUrlMatch = markdownSnippet.match(/!\[.*?\]\((data:image\/[^)]+)\)/)
+          if (dataUrlMatch && dataUrlMatch[1]) {
+            src = dataUrlMatch[1]
+            console.log('[ImageComponent] Extracted data URL from markdown using position')
+          } else {
+            // Try simpler pattern: (data:image/...)
+            const simpleMatch = markdownSnippet.match(/\((data:image\/[^)]+)\)/)
+            if (simpleMatch && simpleMatch[1]) {
+              src = simpleMatch[1]
+              console.log('[ImageComponent] Extracted data URL using simple pattern')
+            }
+          }
+        }
+      }
       
-      const alt = node?.properties?.alt || 
-                  node?.alt || 
-                  props.alt || 
-                  null
-      
-      console.log('[ImageComponent] Extracted src:', src?.substring?.(0, 100) || src)
-      console.log('[ImageComponent] Extracted alt:', alt)
-      
-      if (!src) {
-        console.error('[ImageComponent] No src found. Full node structure:', JSON.stringify(node, null, 2))
+      if (!src || src === '') {
+        console.warn('[ImageComponent] Still no src after extraction. Node:', node)
         return (
           <div style={{ border: '2px solid red', padding: '1rem', backgroundColor: '#ffebee' }}>
-            <p style={{ margin: 0, fontWeight: 'bold' }}>ERROR: ImageComponent called but no src found</p>
-            <details style={{ marginTop: '0.5rem' }}>
-              <summary>Node structure (click to expand)</summary>
-              <pre style={{ fontSize: '0.8rem', overflow: 'auto', maxHeight: '200px', whiteSpace: 'pre-wrap' }}>
-                {JSON.stringify(node, null, 2)}
-              </pre>
-            </details>
+            <p style={{ margin: 0, fontWeight: 'bold' }}>Unable to extract image source</p>
+            <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.9rem' }}>
+              Alt: {alt || 'Unknown'}
+            </p>
           </div>
         )
       }
@@ -747,13 +750,10 @@ function ArtifactReportViewer({
       )
     }
     
-    // Log when components are created
-    console.log('[markdownComponents] Creating components object for artifact:', artifact?.title)
-    
     return {
       img: ImageComponent,
     }
-  }, [artifact?.title, handleImageClick, artifact])
+  }, [artifact?.title, artifact?.body_md, handleImageClick, artifact])
 
   if (!open || !artifact) return null
 
