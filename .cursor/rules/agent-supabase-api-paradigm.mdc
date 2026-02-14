@@ -64,7 +64,7 @@ Store an implementation artifact in Supabase.
 
 **Params:**
 - `ticketId` (string): Ticket ID (e.g. "0076")
-- `artifactType` (string): One of "plan", "worklog", "changed-files", "decisions", "verification", "pm-review"
+- `artifactType` (string): One of "plan", "worklog", "changed-files", "decisions", "verification", "pm-review", "git-diff", "instructions-used"
 - `title` (string): Artifact title (e.g. "Plan for ticket 0076")
 - `body_md` (string): Full markdown content of the artifact
 
@@ -194,6 +194,8 @@ Implementation agents must store all required artifacts before marking ticket re
 4. Decisions artifact
 5. Verification artifact
 6. PM Review artifact
+7. Git diff artifact
+8. Instructions Used artifact
 
 Use `insert_implementation_artifact` for each one.
 
@@ -204,7 +206,7 @@ QA agents must:
 1. **First step (MANDATORY):** Check for required implementation artifacts using HAL API endpoint `/api/artifacts/get` with `{ ticketId: "<ticket-id>" }`.
    - If `.hal/api-base-url` exists, read it and call: `POST ${baseUrl}/api/artifacts/get`
    - **If API call fails (404, 500, network error, timeout):** QA **MUST FAIL** immediately. You cannot verify artifacts exist, so treat as missing. Do NOT proceed with code review.
-   - **If API call succeeds:** Filter artifacts to find implementation artifacts (`agent_type === "implementation"`) and verify all 6 required artifact types are present.
+   - **If API call succeeds:** Filter artifacts to find implementation artifacts (`agent_type === "implementation"`) and verify all 8 required artifact types are present.
 2. **Auto-fail if artifacts are missing or unverifiable** — store QA report enumerating missing artifacts (or API failure), move ticket to To-do, do NOT proceed with code review
 3. **If all artifacts present:** Store QA report using `insert_qa_artifact` after completing code review and verification
 4. Move ticket to Human in the Loop using `move_ticket_column` (only if QA passes)
