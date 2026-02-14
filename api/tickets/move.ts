@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import {
   getMissingRequiredImplementationArtifacts,
   type ArtifactRowForCheck,
-} from '../artifacts/_shared'
+} from '../artifacts/_shared.js'
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []
