@@ -129,13 +129,16 @@ QA RESULT: FAIL — 0076
   - [ ] User can complete the main intended task without errors
   - [ ] Success feedback is visible and clear (e.g., confirmation message, visual change)
   - [ ] Navigation flows work as expected (can reach the feature, can return)
+  - [ ] Data displays correctly (text, numbers, images, content render as expected)
 
 - [ ] **Edge cases — Boundary conditions handled**
   - [ ] Empty input fields are handled appropriately (validation, placeholder text, or clear error)
   - [ ] Maximum length inputs are handled (truncation, validation, or clear error)
   - [ ] Invalid input formats are rejected with clear error messages
-  - [ ] Special characters in text inputs are handled correctly
+  - [ ] Special characters in text inputs are handled correctly (emojis, unicode)
   - [ ] Zero/null/undefined data states display appropriately (if applicable)
+  - [ ] Rapid clicking/tapping doesn't cause duplicate actions or errors
+  - [ ] Multiple simultaneous actions don't conflict or cause errors
 
 - [ ] **Accessibility and keyboard navigation**
   - [ ] All interactive elements are keyboard accessible (Tab key navigates to them)
@@ -144,6 +147,7 @@ QA RESULT: FAIL — 0076
   - [ ] Escape key closes modals/dropdowns (if applicable)
   - [ ] Screen reader labels are present for form inputs and buttons (check with browser dev tools or screen reader)
   - [ ] Color contrast meets WCAG standards (text is readable against background)
+  - [ ] No keyboard traps (users can navigate away from all interactive areas using keyboard only)
 
 - [ ] **Responsive layout — Works across screen sizes**
   - [ ] Desktop viewport (≥1024px): Layout is appropriate, no horizontal scrolling, content is readable
@@ -151,12 +155,16 @@ QA RESULT: FAIL — 0076
   - [ ] Mobile viewport (320px-767px): Layout stacks/adapts, text is readable, buttons are tappable size
   - [ ] No horizontal scrolling on any viewport size
   - [ ] Text remains readable at all sizes (no tiny text on mobile)
+  - [ ] Layout changes smoothly when resizing browser window between breakpoints
+  - [ ] Touch targets are large enough for touch (minimum 44x44px on mobile)
+  - [ ] Text remains readable when browser zoom is set to 150% or 200%
 
 - [ ] **Loading states — User feedback during async operations**
   - [ ] Loading indicators appear during data fetches/async operations (if applicable)
   - [ ] Loading states are visually clear (spinner, skeleton, progress bar, etc.)
   - [ ] User cannot trigger duplicate actions during loading (buttons disabled or loading state prevents clicks)
   - [ ] Loading states disappear when operation completes
+  - [ ] Long-running operations show appropriate feedback or timeout messages
 
 - [ ] **Empty states — Appropriate messaging when no data**
   - [ ] Empty state message is clear and helpful (if applicable)
@@ -175,6 +183,8 @@ QA RESULT: FAIL — 0076
   - [ ] No broken links or navigation paths
   - [ ] Existing forms/inputs in the same area still work
   - [ ] No console errors introduced (check browser console)
+  - [ ] No unexpected layout shifts or content jumping during load
+  - [ ] UI works correctly in at least Chrome and one other browser (Firefox, Safari, or Edge)
 
 **Recording findings for Fail items:**
 
@@ -196,7 +206,6 @@ When marking an item as **Fail**, include in your QA report:
     - **Actual:** Button click has no effect, no visual feedback
     - **Screenshot:** Button appears normal but no click handler fires
 ```
-
 ## QA report structure
 
 1. **Ticket & deliverable** — One-line goal, deliverable, and acceptance criteria from the ticket.
