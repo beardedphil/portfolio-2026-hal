@@ -147,7 +147,8 @@ const CONVERSATION_STORAGE_PREFIX = 'hal-chat-conversations-'
 /** Cap on character count for recent conversation so long technical messages don't dominate (~3k tokens). */
 const CONVERSATION_RECENT_MAX_CHARS = 12_000
 
-const PM_AGENT_ID = 'project-manager'
+// PM_AGENT_ID kept for reference but conversation IDs are used now (0124)
+// const PM_AGENT_ID = 'project-manager'
 
 function getStorageKey(projectName: string): string {
   return `${CONVERSATION_STORAGE_PREFIX}${projectName}`
@@ -343,7 +344,9 @@ function App() {
   const [outboundRequestExpanded, setOutboundRequestExpanded] = useState(false)
   const [toolCallsExpanded, setToolCallsExpanded] = useState(false)
   const messageIdRef = useRef(0)
-  const pmMaxSequenceRef = useRef(0)
+  const pmMaxSequenceRef = useRef(0) // Keep for backward compatibility during migration
+  // Track max sequence per agent instance (e.g., "project-manager-1", "implementation-agent-2")
+  const agentSequenceRefs = useRef<Map<string, number>>(new Map())
   const transcriptRef = useRef<HTMLDivElement>(null)
   const selectedChatTargetRef = useRef<ChatTarget>(selectedChatTarget)
   
@@ -656,60 +659,156 @@ function App() {
       // ignore localStorage errors
     }
 
-    // Load conversations from localStorage first (0097: preserve chats across disconnect/reconnect)
-    const loadResult = loadConversationsFromStorage(repo.full_name)
-    let restoredConversations = loadResult.conversations || new Map<string, Conversation>()
-    if (loadResult.error) {
-      setPersistenceError(loadResult.error)
-    }
-
-    // Set conversations synchronously first (0097: ensures non-PM conversations are available immediately for auto-expand)
-    // This makes chat previews visible right away, even if Supabase PM loading is still in progress
-    setConversations(restoredConversations)
-
-    // Load PM conversations from Supabase and merge (Supabase takes precedence for PM) (HAL_SYNC_COMPLETED will trigger unassigned check when Kanban syncs)
+    // Load conversations from Supabase when connected, otherwise fallback to localStorage (0124: persist all conversations in Supabase)
     if (url && key) {
       ;(async () => {
         try {
           const supabase = getSupabaseClient(url, key)
+          // Load ALL conversations from Supabase (not just PM) (0124)
           const { data: rows, error } = await supabase
             .from('hal_conversation_messages')
-            .select('role, content, sequence, created_at')
+            .select('agent, role, content, sequence, created_at, images')
             .eq('project_id', repo.full_name)
-            .eq('agent', PM_AGENT_ID)
+            .order('agent', { ascending: true })
             .order('sequence', { ascending: true })
-          if (!error && rows && rows.length > 0) {
-            const msgs: Message[] = rows.map((r) => ({
-              id: r.sequence as number,
-              agent: r.role === 'user' ? 'user' : 'project-manager',
-              content: r.content ?? '',
-              timestamp: r.created_at ? new Date(r.created_at) : new Date(),
-            }))
-            const maxSeq = Math.max(...msgs.map((m) => m.id))
-            pmMaxSequenceRef.current = maxSeq
-            messageIdRef.current = maxSeq
-            const pmConvId = getConversationId('project-manager', 1)
-            const pmConversation: Conversation = {
-              id: pmConvId,
-              agentRole: 'project-manager',
-              instanceNumber: 1,
-              messages: msgs,
-              createdAt: msgs.length > 0 ? msgs[0].timestamp : new Date(),
+          
+          if (error) {
+            console.error('[HAL] Failed to load conversations from Supabase:', error)
+            // Fallback to localStorage on error
+            const loadResult = loadConversationsFromStorage(repo.full_name)
+            const restoredConversations = loadResult.conversations || new Map<string, Conversation>()
+            setConversations(restoredConversations)
+            if (loadResult.error) {
+              setPersistenceError(loadResult.error)
+            } else {
+              setPersistenceError(null)
             }
-            // Merge: Supabase PM conversation takes precedence, but keep other agent conversations from localStorage
-            // Update conversations with merged PM conversation (0097: merge Supabase PM into existing conversations)
-            setConversations((prev) => {
-              const merged = new Map(prev)
-              merged.set(pmConvId, pmConversation)
-              return merged
-            })
+            return
           }
+
+          // Group messages by agent (conversation ID format: "agent-role-instanceNumber")
+          const conversationsByAgent = new Map<string, { messages: Message[]; createdAt: Date }>()
+          let maxMessageId = 0
+
+          if (rows && rows.length > 0) {
+            for (const row of rows) {
+              const agentId = row.agent as string // e.g., "project-manager-1", "implementation-agent-2"
+              const parsed = parseConversationId(agentId)
+              
+              if (!parsed) {
+                // Legacy format: just agent role (e.g., "project-manager") - treat as instance 1
+                // Extract agent role from the agent field
+                const agentRole = (row.agent as string).split('-')[0] as Agent || 'project-manager'
+                const legacyAgentId = `${agentRole}-1`
+                if (!conversationsByAgent.has(legacyAgentId)) {
+                  conversationsByAgent.set(legacyAgentId, { messages: [], createdAt: new Date() })
+                }
+                const conv = conversationsByAgent.get(legacyAgentId)!
+                const msgId = row.sequence as number
+                maxMessageId = Math.max(maxMessageId, msgId)
+                conv.messages.push({
+                  id: msgId,
+                  agent: row.role === 'user' ? 'user' : agentRole,
+                  content: row.content ?? '',
+                  timestamp: row.created_at ? new Date(row.created_at) : new Date(),
+                  // Note: Image attachments from DB don't have File objects, so we omit them
+                  // File objects can't be serialized/restored from Supabase
+                  imageAttachments: undefined,
+                })
+                if (conv.messages.length === 1 || (row.created_at && new Date(row.created_at) < conv.createdAt)) {
+                  conv.createdAt = row.created_at ? new Date(row.created_at) : new Date()
+                }
+              } else {
+                // New format: agent-role-instanceNumber
+                if (!conversationsByAgent.has(agentId)) {
+                  conversationsByAgent.set(agentId, { messages: [], createdAt: new Date() })
+                }
+                const conv = conversationsByAgent.get(agentId)!
+                const msgId = row.sequence as number
+                maxMessageId = Math.max(maxMessageId, msgId)
+                conv.messages.push({
+                  id: msgId,
+                  agent: row.role === 'user' ? 'user' : parsed.agentRole,
+                  content: row.content ?? '',
+                  timestamp: row.created_at ? new Date(row.created_at) : new Date(),
+                  // Note: Image attachments from DB don't have File objects, so we omit them
+                  // File objects can't be serialized/restored from Supabase
+                  imageAttachments: undefined,
+                })
+                if (conv.messages.length === 1 || (row.created_at && new Date(row.created_at) < conv.createdAt)) {
+                  conv.createdAt = row.created_at ? new Date(row.created_at) : new Date()
+                }
+              }
+            }
+          }
+
+          // Build Conversation objects and track max sequences
+          const loadedConversations = new Map<string, Conversation>()
+          for (const [agentId, { messages, createdAt }] of conversationsByAgent.entries()) {
+            const parsed = parseConversationId(agentId)
+            if (parsed) {
+              const maxSeq = Math.max(...messages.map(m => m.id), 0)
+              agentSequenceRefs.current.set(agentId, maxSeq)
+              
+              // Backward compatibility: update pmMaxSequenceRef for PM conversations
+              if (parsed.agentRole === 'project-manager' && parsed.instanceNumber === 1) {
+                pmMaxSequenceRef.current = maxSeq
+              }
+              
+              loadedConversations.set(agentId, {
+                id: agentId,
+                agentRole: parsed.agentRole,
+                instanceNumber: parsed.instanceNumber,
+                messages,
+                createdAt,
+              })
+            } else {
+              // Legacy format: treat as instance 1
+              const agentRole = agentId.split('-')[0] as Agent
+              const legacyId = `${agentRole}-1`
+              const maxSeq = Math.max(...messages.map(m => m.id), 0)
+              agentSequenceRefs.current.set(legacyId, maxSeq)
+              
+              if (agentRole === 'project-manager') {
+                pmMaxSequenceRef.current = maxSeq
+              }
+              
+              loadedConversations.set(legacyId, {
+                id: legacyId,
+                agentRole,
+                instanceNumber: 1,
+                messages,
+                createdAt,
+              })
+            }
+          }
+
+          messageIdRef.current = maxMessageId
+          setConversations(loadedConversations)
           setPersistenceError(null)
-        } catch {
-          // If Supabase load fails, conversations are already set from localStorage above
-          setPersistenceError(null)
+        } catch (err) {
+          console.error('[HAL] Error loading conversations from Supabase:', err)
+          // Fallback to localStorage on error
+          const loadResult = loadConversationsFromStorage(repo.full_name)
+          const restoredConversations = loadResult.conversations || new Map<string, Conversation>()
+          setConversations(restoredConversations)
+          if (loadResult.error) {
+            setPersistenceError(loadResult.error)
+          } else {
+            setPersistenceError(null)
+          }
         }
       })()
+    } else {
+      // No Supabase: load from localStorage
+      const loadResult = loadConversationsFromStorage(repo.full_name)
+      const restoredConversations = loadResult.conversations || new Map<string, Conversation>()
+      setConversations(restoredConversations)
+      if (loadResult.error) {
+        setPersistenceError(loadResult.error)
+      } else {
+        setPersistenceError(null)
+      }
     }
 
     setGithubRepoPickerOpen(false)
@@ -1066,29 +1165,67 @@ function App() {
     }
   }, [activeMessages, agentTypingTarget, selectedConversationId, implAgentRunStatus, qaAgentRunStatus, processReviewAgentRunStatus, implAgentProgress, qaAgentProgress, processReviewAgentProgress])
 
-  // Persist conversations to localStorage (0097: save all conversations when not using Supabase, or non-PM conversations when Supabase is used)
+  // Persist conversations to Supabase (0124: save ALL conversations to Supabase when connected, fallback to localStorage)
   useEffect(() => {
     if (!connectedProject) return
-    // When Supabase is used, only PM conversations are saved to Supabase
-    // Non-PM conversations (Implementation, QA) must be saved to localStorage
-    // When Supabase is not used, all conversations are saved to localStorage
     const useSupabase = supabaseUrl != null && supabaseAnonKey != null
+    
     if (useSupabase) {
-      // Save only non-PM conversations to localStorage (PM is in Supabase)
-      const nonPmConversations = new Map<string, Conversation>()
-      for (const [id, conv] of conversations.entries()) {
-        if (conv.agentRole !== 'project-manager') {
-          nonPmConversations.set(id, conv)
+      // Save ALL conversations to Supabase (0124)
+      ;(async () => {
+        try {
+          const supabase = getSupabaseClient(supabaseUrl!, supabaseAnonKey!)
+          
+          // For each conversation, save new messages that aren't yet in Supabase
+          for (const [convId, conv] of conversations.entries()) {
+            const currentMaxSeq = agentSequenceRefs.current.get(convId) ?? 0
+            
+            // Find messages that need to be saved (sequence > currentMaxSeq)
+            const messagesToSave = conv.messages.filter(msg => msg.id > currentMaxSeq)
+            
+            if (messagesToSave.length > 0) {
+              // Insert new messages into Supabase
+              const inserts = messagesToSave.map(msg => ({
+                project_id: connectedProject,
+                agent: convId, // Use conversation ID as agent field (e.g., "project-manager-1", "implementation-agent-2")
+                role: msg.agent === 'user' ? 'user' : (msg.agent === 'system' ? 'system' : 'assistant'),
+                content: msg.content,
+                sequence: msg.id,
+                created_at: msg.timestamp.toISOString(),
+                images: msg.imageAttachments ? msg.imageAttachments.map(img => ({
+                  dataUrl: img.dataUrl,
+                  filename: img.filename,
+                  mimeType: img.file?.type || 'image/png',
+                })) : null,
+              }))
+              
+              const { error } = await supabase.from('hal_conversation_messages').insert(inserts)
+              
+              if (error) {
+                console.error(`[HAL] Failed to save messages for conversation ${convId}:`, error)
+                setPersistenceError(`DB: ${error.message}`)
+              } else {
+                // Update max sequence for this conversation
+                const newMaxSeq = Math.max(...messagesToSave.map(m => m.id), currentMaxSeq)
+                agentSequenceRefs.current.set(convId, newMaxSeq)
+                
+                // Backward compatibility: update pmMaxSequenceRef for PM conversations
+                if (conv.agentRole === 'project-manager' && conv.instanceNumber === 1) {
+                  pmMaxSequenceRef.current = newMaxSeq
+                }
+                
+                setPersistenceError(null)
+              }
+            }
+          }
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err)
+          console.error('[HAL] Error persisting conversations to Supabase:', err)
+          setPersistenceError(`DB: ${errMsg}`)
         }
-      }
-      const result = saveConversationsToStorage(connectedProject, nonPmConversations)
-      if (!result.success && result.error) {
-        setPersistenceError(result.error)
-      } else {
-        setPersistenceError(null)
-      }
+      })()
     } else {
-      // No Supabase: save all conversations to localStorage
+      // No Supabase: save all conversations to localStorage as fallback
       const result = saveConversationsToStorage(connectedProject, conversations)
       if (!result.success && result.error) {
         setPersistenceError(result.error)
@@ -1329,19 +1466,23 @@ function App() {
         const result = (await res.json()) as CheckUnassignedResult
         const msg = formatUnassignedCheckMessage(result)
         if (projectId) {
+          const pmConvId = getConversationId('project-manager', 1)
           const supabase = getSupabaseClient(url, key)
-          const nextSeq = pmMaxSequenceRef.current + 1
+          const currentMaxSeq = agentSequenceRefs.current.get(pmConvId) ?? 0
+          const nextSeq = currentMaxSeq + 1
           await supabase.from('hal_conversation_messages').insert({
             project_id: projectId,
-            agent: PM_AGENT_ID,
+            agent: pmConvId, // Use conversation ID (0124)
             role: 'assistant',
             content: msg,
             sequence: nextSeq,
           })
-          pmMaxSequenceRef.current = nextSeq
-          addMessage('project-manager', 'project-manager', msg, nextSeq)
+          agentSequenceRefs.current.set(pmConvId, nextSeq)
+          pmMaxSequenceRef.current = nextSeq // Backward compatibility
+          addMessage(pmConvId, 'project-manager', msg, nextSeq)
         } else {
-          addMessage('project-manager', 'project-manager', msg)
+          const pmConvId = getConversationId('project-manager', 1)
+          addMessage(pmConvId, 'project-manager', msg)
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
@@ -1353,19 +1494,23 @@ function App() {
             const result = (await res.json()) as CheckUnassignedResult
             const msg = formatUnassignedCheckMessage(result)
             if (projectId) {
+              const pmConvId = getConversationId('project-manager', 1)
               const supabase = getSupabaseClient(url, key)
-              const nextSeq = pmMaxSequenceRef.current + 1
+              const currentMaxSeq = agentSequenceRefs.current.get(pmConvId) ?? 0
+              const nextSeq = currentMaxSeq + 1
               await supabase.from('hal_conversation_messages').insert({
                 project_id: projectId,
-                agent: PM_AGENT_ID,
+                agent: pmConvId, // Use conversation ID (0124)
                 role: 'assistant',
                 content: msg,
                 sequence: nextSeq,
               })
-              pmMaxSequenceRef.current = nextSeq
-              addMessage('project-manager', 'project-manager', msg, nextSeq)
+              agentSequenceRefs.current.set(pmConvId, nextSeq)
+              pmMaxSequenceRef.current = nextSeq // Backward compatibility
+              addMessage(pmConvId, 'project-manager', msg, nextSeq)
             } else {
-              addMessage('project-manager', 'project-manager', msg)
+              const pmConvId = getConversationId('project-manager', 1)
+              addMessage(pmConvId, 'project-manager', msg)
             }
             return
           } catch {
@@ -1736,6 +1881,63 @@ function App() {
     [supabaseUrl, supabaseAnonKey, fetchKanbanData]
   )
 
+  /** Clear/delete a conversation from Supabase and local state (0124) */
+  const clearConversation = useCallback(
+    async (conversationId: string) => {
+      if (!connectedProject) return
+
+      const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
+      const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
+
+      // Delete from Supabase if connected
+      if (url && key) {
+        try {
+          const supabase = getSupabaseClient(url, key)
+          const { error } = await supabase
+            .from('hal_conversation_messages')
+            .delete()
+            .eq('project_id', connectedProject)
+            .eq('agent', conversationId)
+          
+          if (error) {
+            console.error('[HAL] Failed to delete conversation from Supabase:', error)
+            setPersistenceError(`Failed to clear conversation: ${error.message}`)
+            return
+          }
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err)
+          console.error('[HAL] Error clearing conversation:', err)
+          setPersistenceError(`Failed to clear conversation: ${errMsg}`)
+          return
+        }
+      }
+
+      // Clear from local state
+      setConversations((prev) => {
+        const next = new Map(prev)
+        next.delete(conversationId)
+        return next
+      })
+
+      // Reset sequence tracking for this conversation
+      agentSequenceRefs.current.delete(conversationId)
+
+      // If this was the currently open conversation, close it or switch to default
+      const parsed = parseConversationId(conversationId)
+      if (parsed) {
+        if (openChatTarget === conversationId) {
+          setOpenChatTarget(null)
+        }
+        if (selectedConversationId === conversationId) {
+          setSelectedConversationId(null)
+        }
+      }
+
+      setPersistenceError(null)
+    },
+    [connectedProject, supabaseUrl, supabaseAnonKey, openChatTarget, selectedConversationId]
+  )
+
   /** Fetch artifacts for a ticket (same Supabase as tickets). Used by Kanban when opening ticket detail. */
   const fetchArtifactsForTicket = useCallback(
     async (ticketPk: string): Promise<ArtifactRow[]> => {
@@ -1833,11 +2035,12 @@ function App() {
             }
 
             if (useDb && url && key && connectedProject) {
-              const nextSeq = pmMaxSequenceRef.current + 1
+              const currentMaxSeq = agentSequenceRefs.current.get(convId) ?? 0
+              const nextSeq = currentMaxSeq + 1
               const supabase = getSupabaseClient(url, key)
               const { error: insertErr } = await supabase.from('hal_conversation_messages').insert({
                 project_id: connectedProject,
-                agent: PM_AGENT_ID,
+                agent: convId, // Use conversation ID (e.g., "project-manager-1") (0124)
                 role: 'user',
                 content,
                 sequence: nextSeq,
@@ -1858,7 +2061,12 @@ function App() {
                   addMessage(convId, 'user', content, undefined, imageAttachments)
                 }
               } else {
-                pmMaxSequenceRef.current = nextSeq
+                agentSequenceRefs.current.set(convId, nextSeq)
+                // Backward compatibility: update pmMaxSequenceRef for PM conversations
+                const parsed = parseConversationId(convId)
+                if (parsed && parsed.agentRole === 'project-manager' && parsed.instanceNumber === 1) {
+                  pmMaxSequenceRef.current = nextSeq
+                }
                 // Message already added above if useDb was false, so only add if useDb was true
                 if (useDb) {
                   addMessage(convId, 'user', content, nextSeq, imageAttachments)
@@ -1978,16 +2186,22 @@ function App() {
             }
             setAgentTypingTarget(null)
             if (useDb && supabaseUrl && supabaseAnonKey && connectedProject) {
-              const nextSeq = pmMaxSequenceRef.current + 1
+              const currentMaxSeq = agentSequenceRefs.current.get(convId) ?? 0
+              const nextSeq = currentMaxSeq + 1
               const supabase = getSupabaseClient(supabaseUrl, supabaseAnonKey)
               await supabase.from('hal_conversation_messages').insert({
                 project_id: connectedProject,
-                agent: PM_AGENT_ID,
+                agent: convId, // Use conversation ID (e.g., "project-manager-1") (0124)
                 role: 'assistant',
                 content: reply,
                 sequence: nextSeq,
               })
-              pmMaxSequenceRef.current = nextSeq
+              agentSequenceRefs.current.set(convId, nextSeq)
+              // Backward compatibility: update pmMaxSequenceRef for PM conversations
+              const parsed = parseConversationId(convId)
+              if (parsed && parsed.agentRole === 'project-manager' && parsed.instanceNumber === 1) {
+                pmMaxSequenceRef.current = nextSeq
+              }
               addMessage(convId, 'project-manager', reply, nextSeq)
             } else {
               addMessage(convId, 'project-manager', reply)
@@ -2913,6 +3127,31 @@ function App() {
                       : 'Chat'}
                   </div>
                   <div className="chat-window-actions">
+                    {/* Clear conversation button (0124) */}
+                    {(() => {
+                      const currentConvId = typeof openChatTarget === 'string' && conversations.has(openChatTarget)
+                        ? openChatTarget
+                        : openChatTarget === 'project-manager'
+                        ? getConversationId('project-manager', 1)
+                        : null
+                      const currentConv = currentConvId ? conversations.get(currentConvId) : null
+                      const hasMessages = currentConv && currentConv.messages.length > 0
+                      return hasMessages ? (
+                        <button
+                          type="button"
+                          className="chat-window-clear"
+                          onClick={async () => {
+                            if (currentConvId && window.confirm('Are you sure you want to clear this conversation? This will delete all messages and cannot be undone.')) {
+                              await clearConversation(currentConvId)
+                            }
+                          }}
+                          aria-label="Clear conversation"
+                          title="Clear conversation"
+                        >
+                          Clear conversation
+                        </button>
+                      ) : null
+                    })()}
                     <button
                       type="button"
                       className="chat-window-return-link"
