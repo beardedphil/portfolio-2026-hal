@@ -47,12 +47,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const body = (await readJsonBody(req)) as {
       topicId?: string
       repoFullName?: string
+      agentType?: string
       supabaseUrl?: string
       supabaseAnonKey?: string
     }
 
     const topicId = typeof body.topicId === 'string' ? body.topicId.trim() : undefined
     const repoFullName = typeof body.repoFullName === 'string' ? body.repoFullName.trim() : 'beardedphil/portfolio-2026-hal'
+    const requestingAgentType = typeof body.agentType === 'string' ? body.agentType.trim() : undefined
 
     if (!topicId) {
       json(res, 400, {
@@ -117,6 +119,18 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     const topicMeta = data.topic_metadata || {}
+    
+    // Check if this topic is in-scope for the requesting agent (if agentType provided)
+    
+    let isOutOfScope = false
+    if (requestingAgentType) {
+      const agentTypes = data.agent_types || []
+      isOutOfScope = !(
+        data.always_apply ||
+        agentTypes.includes('all') ||
+        agentTypes.includes(requestingAgentType)
+      )
+    }
 
     json(res, 200, {
       success: true,
@@ -131,6 +145,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       isBasic: data.is_basic,
       isSituational: data.is_situational,
       topicMetadata: data.topic_metadata,
+      // Metadata about scope access
+      accessMetadata: {
+        requestedByAgentType: requestingAgentType || null,
+        isOutOfScope: isOutOfScope,
+        scopeNote: isOutOfScope 
+          ? `This topic is not in the default scope for agent type "${requestingAgentType}". It was accessed via explicit topicId request.`
+          : null,
+      },
     })
   } catch (err) {
     json(res, 500, {

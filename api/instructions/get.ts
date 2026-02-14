@@ -105,11 +105,15 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
-    // Filter by agent type if specified
+    // Filter by agent type if specified - enforce scoping
     let filteredInstructions = instructions || []
     if (agentType) {
       filteredInstructions = filteredInstructions.filter((inst: any) => {
         const agentTypes = inst.agent_types || []
+        // Include if:
+        // 1. always_apply is true (shared/global instructions)
+        // 2. agent_types includes 'all' (shared/global instructions)
+        // 3. agent_types includes the requested agentType
         return (
           inst.always_apply ||
           agentTypes.includes('all') ||
