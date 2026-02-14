@@ -1,0 +1,355 @@
+# Chat UI Staging Test Procedure
+
+## Overview
+
+This procedure defines the standard staging test workflow for chat UI changes. All chat UI modifications must be tested in a staging environment before production deployment to ensure functionality, user experience, and integration integrity.
+
+## When Staging Is Required
+
+**Staging testing is mandatory for any ticket or change that modifies:**
+
+1. **Chat UI components and layout:**
+   - Files in `src/App.tsx` that affect chat rendering (chat region, preview stack, chat window, transcript, composer)
+   - Chat-related CSS/styling changes
+   - Chat UI state management (conversation state, message state, agent selection)
+
+2. **Chat interaction flows:**
+   - Message sending/receiving
+   - Streaming/real-time updates
+   - Agent response handling
+   - Conversation persistence
+   - Chat preview stack behavior
+
+3. **Chat UI features:**
+   - Agent selector/dropdown
+   - Image attachments
+   - Chat collapse/expand
+   - Conversation grouping (QA, Implementation, Process Review)
+   - Unread indicators
+   - Chat window overlays/modals
+
+4. **File paths that trigger staging requirement:**
+   - `src/App.tsx` (chat UI sections: lines ~2200-4500)
+   - Any file matching `**/chat*.tsx`, `**/chat*.ts`, `**/Chat*.tsx`, `**/Chat*.ts`
+   - CSS files affecting `.chat-*`, `.hal-chat-*`, `.chat-preview-*` classes
+   - State management files that handle conversation/message state
+
+**Staging is NOT required for:**
+- Backend-only changes (API routes, serverless functions) that don't affect chat UI
+- Documentation-only changes
+- Changes to non-chat UI components (Kanban board, ticket management, etc.)
+
+## How to Run Staging Tests
+
+### Prerequisites
+
+1. **Staging environment accessible:**
+   - Vercel Preview deployment URL available
+   - Or local staging server running (`npm run dev` on staging branch)
+   - Environment variables configured (Supabase, OpenAI, etc.)
+
+2. **Project connected:**
+   - GitHub repo connected in staging environment
+   - Or local project folder connected (for local staging)
+
+3. **Test data available:**
+   - At least one conversation history exists
+   - Or ability to create new conversations
+
+### Running Tests
+
+1. **Deploy to staging:**
+   - For Vercel Preview: Push feature branch (Preview URL auto-generated)
+   - For local staging: Checkout staging branch, run `npm run dev`
+
+2. **Access staging environment:**
+   - Open Preview URL (Vercel) or `http://localhost:5173` (local)
+   - Connect project (GitHub repo or local folder)
+
+3. **Execute test checklist** (see "Minimum Test Checklist" below)
+
+4. **Record results** (see "Recording Results" below)
+
+## Minimum Test Checklist
+
+All chat UI changes must pass the following tests in staging:
+
+### 1. Message Send
+- [ ] User can type a message in the composer
+- [ ] "Send" button is clickable and triggers message send
+- [ ] Message appears in transcript immediately after send
+- [ ] Message is correctly formatted (user message styling/alignment)
+
+### 2. Streaming/Updates
+- [ ] Agent responses stream in real-time (if applicable)
+- [ ] Progress updates appear during agent execution
+- [ ] Status timeline updates correctly (Preparing → Sending → Waiting → Completed)
+- [ ] No duplicate messages or missing updates
+
+### 3. Scroll Behavior
+- [ ] Chat transcript auto-scrolls to bottom on new messages
+- [ ] Manual scroll position is maintained when not at bottom
+- [ ] Long conversations are scrollable
+- [ ] Scroll behavior works in both chat window and preview panes
+
+### 4. Overlays/Modals
+- [ ] Any chat-related modals/overlays open correctly
+- [ ] Modals can be closed (X button, ESC key, click outside)
+- [ ] Modal content is accessible and readable
+- [ ] Focus management works (focus trapped in modal, returns on close)
+
+### 5. Reconnect/Resume
+- [ ] After page refresh, conversation history persists
+- [ ] Chat state restores correctly (selected agent, open conversations)
+- [ ] Unread indicators persist after reconnect
+- [ ] No duplicate conversations after reconnect
+
+### 6. Chat Preview Stack (if applicable)
+- [ ] Preview panes display correctly
+- [ ] Preview text shows last message preview
+- [ ] Unread counts update correctly
+- [ ] Clicking preview opens full chat window
+- [ ] Group expand/collapse works (QA, Implementation, Process Review)
+
+### 7. Agent Selection
+- [ ] Agent dropdown/selector works
+- [ ] Selecting different agents switches conversation context
+- [ ] Agent-specific features work (e.g., image attachment for Implementation agent)
+
+### 8. Image Attachments (if applicable)
+- [ ] Image attachment button/control is visible
+- [ ] Image selection works (file picker)
+- [ ] Image preview displays before send
+- [ ] Image sends successfully with message
+- [ ] Image displays correctly in transcript
+
+### 9. Chat Collapse/Expand
+- [ ] Collapse button hides chat region
+- [ ] Expand button (if present) restores chat
+- [ ] Layout adjusts correctly when chat is collapsed
+- [ ] State persists across page interactions
+
+### 10. Error Handling
+- [ ] Error messages display clearly in chat UI (not console-only)
+- [ ] Error states are visually distinct
+- [ ] User can recover from errors (retry, clear, etc.)
+- [ ] No unhandled exceptions in browser console
+
+## Pass/Fail Criteria
+
+### PASS
+- All checklist items marked as passing
+- No blocking issues (crashes, broken functionality)
+- Minor visual issues are acceptable if documented
+- Results recorded in artifact (see "Recording Results" below)
+
+### FAIL
+- Any checklist item fails
+- Staging environment unavailable/unreachable (see "Guardrails" below)
+- Critical functionality broken (message send, agent responses, conversation persistence)
+- Unhandled errors in browser console
+- Layout breaks or UI becomes unusable
+
+## Recording Results
+
+### Where Results Are Recorded
+
+**Implementation agents** must record staging test results in the **Verification artifact**:
+- Artifact type: `verification`
+- Title: `Verification for ticket <ticket-id>`
+- Stored via HAL API: `POST /api/artifacts/insert-implementation`
+
+**QA agents** must record staging test results in the **QA report artifact**:
+- Artifact type: `qa` (QA report)
+- Title: `QA report for ticket <ticket-id>`
+- Stored via HAL API: `POST /api/artifacts/insert-qa`
+
+**Human-in-the-Loop** should document staging test results in ticket comments or update the ticket body if issues are found.
+
+### Required Heading Format
+
+All staging test reports must include this heading structure for consistency:
+
+```markdown
+## Staging Test Results
+
+### Environment
+- **Staging URL:** [Preview URL or localhost:5173]
+- **Test Date:** [YYYY-MM-DD]
+- **Tester:** [Agent type: Implementation/QA/Human-in-the-Loop]
+
+### Test Execution
+[Checklist results - see "Minimum Test Checklist" above]
+
+### Pass/Fail Verdict
+**PASS** / **FAIL**
+
+### Notes
+[Any additional observations, edge cases, or issues found]
+```
+
+### Example Staging Test Report Section
+
+```markdown
+## Staging Test Results
+
+### Environment
+- **Staging URL:** https://portfolio-2026-hal-git-feature-branch.vercel.app
+- **Test Date:** 2026-02-14
+- **Tester:** Implementation Agent
+
+### Test Execution
+- [x] Message Send: PASS - Messages send correctly, appear in transcript
+- [x] Streaming/Updates: PASS - Agent responses stream in real-time
+- [x] Scroll Behavior: PASS - Auto-scrolls to bottom, manual scroll maintained
+- [x] Overlays/Modals: PASS - No modals in this change
+- [x] Reconnect/Resume: PASS - Conversation history persists after refresh
+- [x] Chat Preview Stack: PASS - Preview panes display and open correctly
+- [x] Agent Selection: PASS - Agent dropdown works, context switches correctly
+- [x] Image Attachments: N/A - Not applicable to this change
+- [x] Chat Collapse/Expand: PASS - Collapse button works, layout adjusts
+- [x] Error Handling: PASS - No errors in console, error messages display in UI
+
+### Pass/Fail Verdict
+**PASS**
+
+### Notes
+All chat UI functionality verified in staging. Ready for production deployment.
+```
+
+## Guardrails
+
+### If Staging Cannot Be Run
+
+**If staging environment is unavailable** (down, unreachable, missing configuration):
+
+1. **Record failure immediately:**
+   - Create artifact with staging test results section
+   - Mark all checklist items as **FAIL** with reason: "Staging environment unavailable"
+   - Include specific error/details (e.g., "Preview deployment failed", "Missing SUPABASE_URL env var")
+
+2. **Document next-step guidance:**
+   - Identify what needs to be fixed (environment setup, configuration, deployment)
+   - Recommend blocking production deployment until staging is available
+   - Suggest manual verification steps if staging cannot be restored
+
+3. **Do NOT silently proceed:**
+   - Do not skip staging tests
+   - Do not mark as PASS if staging was not run
+   - Do not proceed to production deployment without staging verification
+
+### Example Failure Report
+
+```markdown
+## Staging Test Results
+
+### Environment
+- **Staging URL:** [Unable to access - Preview deployment failed]
+- **Test Date:** 2026-02-14
+- **Tester:** Implementation Agent
+
+### Test Execution
+- [ ] Message Send: FAIL - Staging environment unavailable
+- [ ] Streaming/Updates: FAIL - Staging environment unavailable
+- [ ] Scroll Behavior: FAIL - Staging environment unavailable
+[... all items marked FAIL with reason]
+
+### Pass/Fail Verdict
+**FAIL** - Staging environment unavailable
+
+### Notes
+**Blocking Issue:** Vercel Preview deployment failed with error: "Missing environment variable SUPABASE_URL"
+
+**Next Steps:**
+1. Configure SUPABASE_URL in Vercel project settings (Preview environment)
+2. Retry Preview deployment
+3. Re-run staging tests after deployment succeeds
+4. Do not proceed to production until staging tests pass
+
+**Workaround:** Manual verification required if Preview cannot be restored. Manual steps:
+1. Deploy to production staging branch
+2. Run test checklist manually
+3. Document results in verification artifact
+```
+
+## Owner/Trigger: Who Runs Staging Tests
+
+### Implementation Agents
+
+**Responsibility:** Run staging tests **before** declaring implementation complete.
+
+**When:**
+- After all code changes are committed and pushed
+- Before creating "Verification" artifact
+- Before moving ticket to "Ready for QA"
+
+**Process:**
+1. Deploy changes to staging (Vercel Preview or local staging)
+2. Execute minimum test checklist
+3. Record results in **Verification artifact** with "Staging Test Results" section
+4. If PASS: Proceed to create Verification artifact and move to Ready for QA
+5. If FAIL: Fix issues, re-test, or document blocking issues
+
+### QA Agents
+
+**Responsibility:** Verify staging test results and run additional staging tests if needed.
+
+**When:**
+- After reviewing implementation artifacts (including Verification artifact)
+- If Implementation agent's staging tests are incomplete or failed
+- Before moving ticket to "Human in the Loop"
+
+**Process:**
+1. Review Implementation agent's staging test results in Verification artifact
+2. If staging tests were not run or failed: Run staging tests independently
+3. Record results in **QA report artifact** with "Staging Test Results" section
+4. If PASS: Proceed with QA workflow (merge to main, move to Human in the Loop)
+5. If FAIL: Move ticket back to "To-do" with failure reason
+
+### Human-in-the-Loop
+
+**Responsibility:** Final verification in production-like environment (optional staging check).
+
+**When:**
+- After QA passes and ticket is merged to main
+- Before marking ticket as "Done"
+
+**Process:**
+1. Test in local dev environment (`npm run dev` on main branch)
+2. Or test in production staging environment if available
+3. Document any issues found in ticket comments
+4. If critical issues found: Move ticket back to "To-do" for fixes
+
+## Integration with Existing Workflows
+
+### Implementation Agent Workflow
+
+1. Implement changes
+2. Commit and push
+3. **Run staging tests** (this procedure)
+4. Record results in Verification artifact
+5. Create all required artifacts
+6. Move ticket to "Ready for QA"
+
+### QA Agent Workflow
+
+1. Review implementation artifacts
+2. Verify staging test results in Verification artifact
+3. **Run staging tests if needed** (if Implementation agent's tests incomplete/failed)
+4. Record results in QA report artifact
+5. If PASS: Merge to main, move to "Human in the Loop"
+6. If FAIL: Move to "To-do" with failure reason
+
+### Human-in-the-Loop Workflow
+
+1. Test merged changes in local dev or production staging
+2. Verify all acceptance criteria
+3. Mark ticket as "Done" if satisfied
+4. Report issues if found
+
+## Scope
+
+- **Applies to:** All tickets that modify chat UI components, interactions, or features
+- **File paths:** `src/App.tsx` (chat sections), `**/chat*.tsx`, `**/chat*.ts`, chat-related CSS
+- **Agent types:** Implementation agents (mandatory), QA agents (verification), Human-in-the-Loop (optional)
+- **Enforcement:** Staging test results must be recorded in artifacts before production deployment
