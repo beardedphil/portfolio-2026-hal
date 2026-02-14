@@ -3394,12 +3394,14 @@ function App() {
     INITIAL_CARDS,
     _SUPABASE_SETUP_SQL,
     _SUPABASE_KANBAN_COLUMNS_SETUP_SQL,
+    _SUPABASE_TICKET_ATTACHMENTS_SETUP_SQL,
     _DraggableSupabaseTicketItem,
     _supabaseNotInitialized,
     _selectedSupabaseTicketId,
     _selectedSupabaseTicketContent,
     _handleSupabaseConnect,
     _handleSelectSupabaseTicket,
+    QAInfoSection,
   ]
   void _retain
 
