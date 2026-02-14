@@ -84,7 +84,7 @@ See `.cursor/rules/agent-supabase-api-paradigm.mdc` for full API endpoint docume
 
 ## Moving Tickets After Implementation
 
-After completing implementation work, agents should move the ticket to **Ready for QA** using the HAL API:
+**MANDATORY:** After completing implementation work, implementation agents **MUST** move the ticket to **Ready for QA** using the HAL API. This is **not optional** - failing to move the ticket to Ready for QA means the implementation workflow is incomplete.
 
 **Move ticket to Ready for QA:**
 ```javascript
@@ -102,6 +102,13 @@ if (result.success) {
   // Ticket moved successfully to position result.position
 }
 ```
+
+**When to move:**
+- After all code changes are committed and pushed
+- After all required artifacts are stored (if applicable)
+- Before sending the final "implementation complete" summary message
+
+**CRITICAL:** Do not send a completion summary or "done" message without first moving the ticket to Ready for QA. The ticket move is part of the completion workflow, not an optional step.
 
 **Available column IDs:**
 - `col-unassigned` - Unassigned
