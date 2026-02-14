@@ -42,6 +42,31 @@ export function AgentInstructionsViewer({ isOpen, onClose }: AgentInstructionsVi
   const [selectedAgent, setSelectedAgent] = useState<AgentType | null>(null)
   const [selectedInstruction, setSelectedInstruction] = useState<InstructionFile | null>(null)
   const [breadcrumbs, setBreadcrumbs] = useState<string[]>([])
+  const [isEditing, setIsEditing] = useState(false)
+  const [editedContent, setEditedContent] = useState<string>('')
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle')
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [rulesDirectoryHandle, setRulesDirectoryHandle] = useState<FileSystemDirectoryHandle | null>(null)
+
+  // Request access to .cursor/rules directory for editing
+  useEffect(() => {
+    if (!isOpen) return
+
+    async function requestDirectoryAccess() {
+      try {
+        // Check if File System Access API is available
+        if (typeof window.showDirectoryPicker === 'function') {
+          // Try to get existing permission or request it
+          // For now, we'll request it when user clicks edit
+          // Store this in state so we can use it later
+        }
+      } catch (err) {
+        console.warn('File System Access API not available:', err)
+      }
+    }
+
+    requestDirectoryAccess()
+  }, [isOpen])
 
   // Load instruction files from bundled JSON
   useEffect(() => {
@@ -85,6 +110,16 @@ export function AgentInstructionsViewer({ isOpen, onClose }: AgentInstructionsVi
 
     loadInstructions()
   }, [isOpen])
+
+  // Reset edit state when instruction changes
+  useEffect(() => {
+    if (selectedInstruction) {
+      setIsEditing(false)
+      setEditedContent('')
+      setSaveStatus('idle')
+      setSaveError(null)
+    }
+  }, [selectedInstruction])
 
   function parseInstructionFile(path: string, content: string): InstructionFile | null {
     // Parse frontmatter
@@ -177,11 +212,142 @@ export function AgentInstructionsViewer({ isOpen, onClose }: AgentInstructionsVi
     if (viewState === 'instruction-detail') {
       setViewState('agent-instructions')
       setSelectedInstruction(null)
+      setIsEditing(false)
+      setEditedContent('')
       setBreadcrumbs(['All Agents', getAgentLabel(selectedAgent!)])
     } else if (viewState === 'agent-instructions') {
       setViewState('agents')
       setSelectedAgent(null)
       setBreadcrumbs([])
+    }
+  }
+
+  async function handleEditClick() {
+    if (!selectedInstruction) return
+
+    // Initialize edited content with current content (including frontmatter)
+    // We need to reconstruct the full file content with frontmatter
+    const topicId = selectedInstruction.topicId || selectedInstruction.path.replace('.mdc', '')
+    const topicMeta = instructionIndex?.topics?.[topicId]
+    
+    // Try to get the original file content with frontmatter
+    // For now, we'll reconstruct it from the instruction data
+    let fullContent = selectedInstruction.content
+    
+    // If we have metadata, try to reconstruct frontmatter
+    if (topicMeta || selectedInstruction.description !== 'No description') {
+      const description = topicMeta?.description || selectedInstruction.description
+      const alwaysApply = selectedInstruction.alwaysApply
+      const frontmatter = `---
+description: ${description}
+${alwaysApply ? 'alwaysApply: true' : ''}
+---
+
+`
+      fullContent = frontmatter + selectedInstruction.content
+    }
+    
+    setEditedContent(fullContent)
+    setIsEditing(true)
+    setSaveStatus('idle')
+    setSaveError(null)
+  }
+
+  function handleCancelEdit() {
+    setIsEditing(false)
+    setEditedContent('')
+    setSaveStatus('idle')
+    setSaveError(null)
+  }
+
+  async function handleSaveEdit() {
+    if (!selectedInstruction || !editedContent.trim()) {
+      setSaveError('Content cannot be empty')
+      setSaveStatus('error')
+      return
+    }
+
+    setSaveStatus('saving')
+    setSaveError(null)
+
+    try {
+      // Request directory access if we don't have it
+      let handle = rulesDirectoryHandle
+      if (!handle && typeof window.showDirectoryPicker === 'function') {
+        // Request access to the directory
+        // User should select either the workspace root or .cursor/rules directory
+        const selectedHandle = await window.showDirectoryPicker({ mode: 'readwrite' })
+        
+        // Check if this is .cursor/rules by trying to find a .mdc file
+        let isRulesDir = false
+        try {
+          for await (const entry of selectedHandle.values()) {
+            if (entry.kind === 'file' && entry.name.endsWith('.mdc')) {
+              isRulesDir = true
+              break
+            }
+          }
+        } catch {
+          // Can't check, assume it's not
+        }
+        
+        if (isRulesDir) {
+          // User selected .cursor/rules directly
+          handle = selectedHandle
+        } else {
+          // User selected workspace root, navigate to .cursor/rules
+          try {
+            const cursorHandle = await selectedHandle.getDirectoryHandle('.cursor', { create: false })
+            handle = await cursorHandle.getDirectoryHandle('rules', { create: false })
+          } catch (err) {
+            throw new Error('Could not find .cursor/rules directory. Please select the .cursor/rules directory or the workspace root directory that contains .cursor/rules.')
+          }
+        }
+        
+        setRulesDirectoryHandle(handle)
+      } else if (!handle) {
+        throw new Error('File System Access API is not available in this browser. Please use a modern browser that supports it (Chrome, Edge, or Opera).')
+      }
+
+      // Write the file
+      const filename = selectedInstruction.path
+      const fileHandle = await handle.getFileHandle(filename, { create: false })
+      const writable = await fileHandle.createWritable()
+      await writable.write(editedContent)
+      await writable.close()
+
+      setSaveStatus('success')
+      
+      // Reload instructions after a short delay
+      setTimeout(async () => {
+        // Reload the bundled instructions
+        try {
+          const response = await fetch('/agent-instructions.json?t=' + Date.now())
+          if (response.ok) {
+            const data = await response.json()
+            if (data.instructions && Array.isArray(data.instructions)) {
+              setInstructions(data.instructions)
+              if (data.index) setInstructionIndex(data.index)
+              if (data.basic) setBasicInstructions(data.basic)
+              if (data.situational) setSituationalInstructions(data.situational)
+              
+              // Update the selected instruction
+              const updated = data.instructions.find((inst: InstructionFile) => inst.path === selectedInstruction.path)
+              if (updated) {
+                setSelectedInstruction(updated)
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('Could not reload instructions:', err)
+        }
+        
+        setIsEditing(false)
+        setSaveStatus('idle')
+      }, 1500)
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to save file')
+      setSaveStatus('error')
     }
   }
 
@@ -364,25 +530,90 @@ export function AgentInstructionsViewer({ isOpen, onClose }: AgentInstructionsVi
 
               {viewState === 'instruction-detail' && selectedInstruction && (
                 <div className="agent-instruction-detail">
-                  <h4>{selectedInstruction.name}</h4>
-                  <div className="instruction-meta">
-                    <span className="instruction-meta-item">
-                      <strong>Path:</strong> {selectedInstruction.path}
-                    </span>
-                    {selectedInstruction.alwaysApply && (
-                      <span className="instruction-meta-item">
-                        <strong>Applies to:</strong> All agents
-                      </span>
-                    )}
-                    {!selectedInstruction.alwaysApply && selectedInstruction.agentTypes.length > 0 && (
-                      <span className="instruction-meta-item">
-                        <strong>Applies to:</strong> {selectedInstruction.agentTypes.map(getAgentLabel).join(', ')}
-                      </span>
+                  <div className="instruction-detail-header">
+                    <h4>{selectedInstruction.name}</h4>
+                    {!isEditing ? (
+                      <button
+                        type="button"
+                        className="instruction-edit-btn"
+                        onClick={handleEditClick}
+                        title="Edit this instruction"
+                      >
+                        Edit
+                      </button>
+                    ) : (
+                      <div className="instruction-edit-actions">
+                        <button
+                          type="button"
+                          className="instruction-save-btn"
+                          onClick={handleSaveEdit}
+                          disabled={saveStatus === 'saving'}
+                        >
+                          {saveStatus === 'saving' ? 'Saving...' : 'Save'}
+                        </button>
+                        <button
+                          type="button"
+                          className="instruction-cancel-btn"
+                          onClick={handleCancelEdit}
+                          disabled={saveStatus === 'saving'}
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     )}
                   </div>
-                  <div className="instruction-content">
-                    <pre className="instruction-markdown">{selectedInstruction.content}</pre>
-                  </div>
+                  
+                  {saveStatus === 'success' && (
+                    <div className="instruction-save-success" role="alert">
+                      ✓ Instruction saved successfully. Reloading...
+                    </div>
+                  )}
+                  
+                  {saveStatus === 'error' && saveError && (
+                    <div className="instruction-save-error" role="alert">
+                      ✗ Error saving: {saveError}
+                    </div>
+                  )}
+
+                  {!isEditing ? (
+                    <>
+                      <div className="instruction-meta">
+                        <span className="instruction-meta-item">
+                          <strong>Path:</strong> {selectedInstruction.path}
+                        </span>
+                        {selectedInstruction.alwaysApply && (
+                          <span className="instruction-meta-item">
+                            <strong>Applies to:</strong> All agents
+                          </span>
+                        )}
+                        {!selectedInstruction.alwaysApply && selectedInstruction.agentTypes.length > 0 && (
+                          <span className="instruction-meta-item">
+                            <strong>Applies to:</strong> {selectedInstruction.agentTypes.map(getAgentLabel).join(', ')}
+                          </span>
+                        )}
+                      </div>
+                      <div className="instruction-content">
+                        <pre className="instruction-markdown">{selectedInstruction.content}</pre>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="instruction-edit-content">
+                      <label htmlFor="instruction-editor" className="instruction-editor-label">
+                        Editing: {selectedInstruction.path}
+                      </label>
+                      <textarea
+                        id="instruction-editor"
+                        className="instruction-editor"
+                        value={editedContent}
+                        onChange={(e) => setEditedContent(e.target.value)}
+                        spellCheck={false}
+                        rows={30}
+                      />
+                      <div className="instruction-editor-hint">
+                        <strong>Note:</strong> After saving, you may need to run <code>npm run bundle-instructions</code> to update the bundled instructions file, or restart the dev server.
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </>

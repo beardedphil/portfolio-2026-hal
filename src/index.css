@@ -2004,3 +2004,139 @@ body {
   color: var(--hal-text-muted);
   font-style: italic;
 }
+
+.instruction-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  gap: 1rem;
+}
+
+.instruction-detail-header h4 {
+  margin: 0;
+  flex: 1;
+}
+
+.instruction-edit-btn,
+.instruction-save-btn,
+.instruction-cancel-btn {
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  border: 1px solid var(--hal-border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.2s, border-color 0.2s;
+  background: var(--hal-surface);
+  color: var(--hal-text);
+}
+
+.instruction-edit-btn:hover {
+  background: var(--hal-surface-alt);
+  border-color: var(--hal-primary);
+}
+
+.instruction-save-btn {
+  background: var(--hal-primary);
+  color: white;
+  border-color: var(--hal-primary);
+}
+
+.instruction-save-btn:hover:not(:disabled) {
+  background: var(--hal-primary-hover);
+  border-color: var(--hal-primary-hover);
+}
+
+.instruction-save-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.instruction-cancel-btn:hover:not(:disabled) {
+  background: var(--hal-surface-alt);
+  border-color: var(--hal-text-muted);
+}
+
+.instruction-cancel-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.instruction-edit-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.instruction-save-success,
+.instruction-save-error {
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.instruction-save-success {
+  background: rgba(46, 125, 50, 0.1);
+  border: 1px solid var(--hal-status-ok);
+  color: var(--hal-status-ok);
+}
+
+.instruction-save-error {
+  background: rgba(198, 40, 40, 0.1);
+  border: 1px solid var(--hal-status-error);
+  color: var(--hal-status-error);
+}
+
+.instruction-edit-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.instruction-editor-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--hal-text);
+}
+
+.instruction-editor {
+  width: 100%;
+  min-height: 400px;
+  padding: 1rem;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--hal-text);
+  background: var(--hal-surface);
+  border: 1px solid var(--hal-border);
+  border-radius: 6px;
+  resize: vertical;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+}
+
+.instruction-editor:focus {
+  outline: 2px solid var(--hal-primary);
+  outline-offset: 2px;
+  border-color: var(--hal-primary);
+}
+
+.instruction-editor-hint {
+  padding: 0.75rem;
+  background: var(--hal-surface-alt);
+  border: 1px solid var(--hal-border);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: var(--hal-text-muted);
+  line-height: 1.5;
+}
+
+.instruction-editor-hint code {
+  background: var(--hal-surface);
+  padding: 0.2rem 0.4rem;
+  border-radius: 3px;
+  font-size: 0.9em;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace;
+}
