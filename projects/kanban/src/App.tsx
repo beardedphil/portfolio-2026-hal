@@ -919,19 +919,34 @@ function ArtifactReportViewer({
         </div>
         <div className="ticket-detail-body-wrap">
           <div className="ticket-detail-body">
-            {artifactBodyMd && artifactBodyMd.trim().length > 0 ? (
-              isGitDiff ? (
-                <GitDiffViewer diff={artifactBodyMd} />
-              ) : (
-                <ReactMarkdown components={markdownComponents}>{artifactBodyMd}</ReactMarkdown>
-              )
-            ) : (
-              <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
-                {isGitDiff 
-                  ? 'No diff available. This artifact was created but contains no diff content.'
-                  : 'No output produced. This artifact was created but contains no content.'}
-              </p>
-            )}
+            {(() => {
+              // Ensure we have valid content to render
+              if (!artifactBodyMd || typeof artifactBodyMd !== 'string') {
+                return (
+                  <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
+                    No content available. This artifact may be missing body_md data.
+                  </p>
+                )
+              }
+              
+              const trimmedBody = artifactBodyMd.trim()
+              if (trimmedBody.length === 0) {
+                return (
+                  <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
+                    {isGitDiff 
+                      ? 'No diff available. This artifact was created but contains no diff content.'
+                      : 'No output produced. This artifact was created but contains no content.'}
+                  </p>
+                )
+              }
+              
+              // Render content
+              if (isGitDiff) {
+                return <GitDiffViewer diff={trimmedBody} />
+              } else {
+                return <ReactMarkdown components={markdownComponents}>{trimmedBody}</ReactMarkdown>
+              }
+            })()}
           </div>
         </div>
         {/* Previous/Next navigation buttons (0148) */}
@@ -1046,7 +1061,7 @@ function HumanValidationSection({
 function ProcessReviewSection({
   ticketId,
   ticketPk,
-  artifacts,
+  artifacts: _artifacts, // Unused: artifacts are only shown in artifacts panel (0148)
   supabaseUrl,
   supabaseAnonKey,
 }: {
@@ -1215,26 +1230,7 @@ function ProcessReviewSection({
     <div className="process-review-section">
       <h3 className="process-review-title">Process Review</h3>
       
-      <div className="process-review-artifacts">
-        <h4 className="process-review-subtitle">Artifacts</h4>
-        {artifacts.length === 0 ? (
-          <p className="process-review-empty">No artifacts available for this ticket.</p>
-        ) : (
-          <ul className="process-review-artifacts-list">
-            {artifacts.map((artifact) => {
-              const displayName = artifact.title || getAgentTypeDisplayName(artifact.agent_type)
-              return (
-                <li key={artifact.artifact_id} className="process-review-artifact-item">
-                  <span className="process-review-artifact-name">{displayName}</span>
-                  <span className="process-review-artifact-meta">
-                    {new Date(artifact.created_at).toLocaleString()}
-                  </span>
-                </li>
-              )
-            })}
-          </ul>
-        )}
-      </div>
+      {/* Artifacts removed from ProcessReviewSection (0148): artifacts are only shown in the artifacts panel */}
 
       {isRunningReview && (
         <div className="process-review-last-run" role="status">
@@ -2979,24 +2975,41 @@ function App() {
   const handleRetryTicketDetail = useCallback(() => setDetailModalRetryTrigger((n) => n + 1), [])
   const handleOpenArtifact = useCallback((artifact: SupabaseAgentArtifactRow) => {
     // Ensure artifact is valid and has required properties
-    if (!artifact || !artifact.artifact_id) {
-      console.error('Invalid artifact passed to handleOpenArtifact:', artifact)
+    if (!artifact) {
+      console.error('handleOpenArtifact: artifact is null or undefined')
       return
+    }
+    
+    if (!artifact.artifact_id) {
+      console.error('handleOpenArtifact: artifact missing artifact_id', artifact)
+      return
+    }
+    
+    // Validate artifact has required fields with fallbacks
+    const validatedArtifact: SupabaseAgentArtifactRow = {
+      artifact_id: artifact.artifact_id,
+      ticket_pk: artifact.ticket_pk || '',
+      repo_full_name: artifact.repo_full_name || '',
+      agent_type: artifact.agent_type || 'other',
+      title: artifact.title || 'Untitled Artifact',
+      body_md: artifact.body_md || '',
+      created_at: artifact.created_at || new Date().toISOString(),
+      updated_at: artifact.updated_at || new Date().toISOString(),
     }
     
     // Sort artifacts chronologically (oldest first) to find index (0148)
     // Use detailModalArtifacts if available, otherwise artifact might be from props
     const artifactsToSearch = detailModalArtifacts.length > 0 
       ? detailModalArtifacts 
-      : [artifact] // Fallback to the artifact itself if list is empty
+      : [validatedArtifact] // Fallback to the artifact itself if list is empty
     
     const sortedArtifacts = [...artifactsToSearch].sort(
       (a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
     )
-    const index = sortedArtifacts.findIndex(a => a.artifact_id === artifact.artifact_id)
+    const index = sortedArtifacts.findIndex(a => a.artifact_id === validatedArtifact.artifact_id)
     
-    // Always set the artifact (it's valid since it came from the list)
-    setArtifactViewer(artifact)
+    // Always set the validated artifact
+    setArtifactViewer(validatedArtifact)
     setArtifactViewerIndex(index >= 0 ? index : 0)
   }, [detailModalArtifacts])
   const handleCloseArtifact = useCallback(() => {
