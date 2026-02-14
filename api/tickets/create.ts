@@ -140,13 +140,17 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const repoFullName = sourceTicket.repo_full_name || 'legacy/unknown'
     const prefix = repoHintPrefix(repoFullName)
 
-    // Idempotency check: if single suggestion is provided, check if ticket with same suggestion already exists (0167)
+    // Idempotency check: if single suggestion is provided, check if ticket with same suggestion already exists (0167, 0172)
     // We check by suggestion hash + source ticket to prevent duplicates even if Process Review runs multiple times
     if (singleSuggestion) {
-      const suggestionHash = crypto.createHash('sha256').update(singleSuggestion).digest('hex').slice(0, 16)
-      const hashPattern = `**Suggestion Hash**: ${suggestionHash}`
+      // Normalize suggestion text (trim) to ensure consistent hashing with ticket creation (0172)
+      const normalizedSuggestion = singleSuggestion.trim()
+      const suggestionHash = crypto.createHash('sha256').update(normalizedSuggestion).digest('hex').slice(0, 16)
+      // Match both stored formats: "- **Suggestion Hash**: hash" and "**Suggestion Hash**: hash"
+      const hashPattern = `Suggestion Hash**: ${suggestionHash}`
       const sourceRef = sourceTicket.display_id || sourceTicket.id
-      const sourcePattern = `**Proposed from**: ${sourceRef} — Process Review`
+      // Match both stored formats: "- **Proposed from**: ..." and "**Proposed from**: ..."
+      const sourcePattern = `Proposed from**: ${sourceRef} — Process Review`
       
       // Check for existing ticket with same suggestion hash and source ticket
       const { data: existingTickets } = await supabase
@@ -192,15 +196,22 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const sourceRef = sourceTicket.display_id || sourceTicket.id
     const isSingleSuggestion = singleSuggestion !== undefined || suggestions.length === 1
     const actualSuggestion = singleSuggestion || (suggestions.length === 1 ? suggestions[0] : '')
-    const suggestionText = isSingleSuggestion ? actualSuggestion : suggestions.map((s, i) => `- ${s}`).join('\n')
+    // Normalize suggestion text (trim) to ensure consistent hashing with idempotency check (0172)
+    const normalizedSuggestion = actualSuggestion.trim()
+    const suggestionText = isSingleSuggestion ? normalizedSuggestion : suggestions.map((s, i) => `- ${s}`).join('\n')
     
-    // Generate suggestion hash for idempotency tracking (0167)
-    const suggestionHash = isSingleSuggestion && actualSuggestion
-      ? crypto.createHash('sha256').update(actualSuggestion).digest('hex').slice(0, 16)
+    // Generate suggestion hash for idempotency tracking (0167, 0172)
+    // Always generate hash for single suggestions to enable duplicate detection
+    // Use normalized (trimmed) suggestion to match idempotency check
+    const suggestionHash = isSingleSuggestion && normalizedSuggestion
+      ? crypto.createHash('sha256').update(normalizedSuggestion).digest('hex').slice(0, 16)
       : null
-    const idempotencySection = reviewId && suggestionHash
-      ? `- **Process Review ID**: ${reviewId}
+    // Always include hash in body when available (for idempotency), reviewId is optional
+    const idempotencySection = suggestionHash
+      ? (reviewId 
+          ? `- **Process Review ID**: ${reviewId}
 - **Suggestion Hash**: ${suggestionHash}`
+          : `- **Suggestion Hash**: ${suggestionHash}`)
       : ''
     
     let title: string
