@@ -1242,14 +1242,6 @@ function App() {
     }
   }, [qaAgentTicketId, extractTicketId, moveTicketToColumn, addAutoMoveDiagnostic])
 
-  // Add welcome message to empty Process Review conversations (0111)
-  useEffect(() => {
-    if (selectedChatTarget === 'tools-agent' || openChatTarget === 'tools-agent') {
-      // Initialize Tools Agent conversation if it doesn't exist
-      getDefaultConversationId('tools-agent')
-    }
-  }, [selectedChatTarget, openChatTarget, getDefaultConversationId])
-
   // Ensure Process Review Agent conversation exists when chat is opened (0111)
   useEffect(() => {
     if (selectedChatTarget === 'process-review-agent' || openChatTarget === 'process-review-agent') {
@@ -1271,26 +1263,6 @@ function App() {
     }
   }, [conversations, supabaseUrl, supabaseAnonKey, addMessage])
 
-  // Poll for recent executions every 5 seconds (0107)
-  useEffect(() => {
-    let mounted = true
-    // Initial check - fetch latest timestamp first to avoid loading all historical executions
-    ;(async () => {
-      try {
-        const response = await fetch('/api/tool-calls/recent-executions?since=0')
-        const result = await response.json()
-        if (mounted && result.success && result.latestTimestamp) {
-          // Set timestamp to latest, so we only get new executions going forward
-          setLastExecutionTimestamp(result.latestTimestamp)
-        }
-      } catch (err) {
-        console.error('Failed to initialize execution timestamp:', err)
-      }
-    })()
-    return () => {
-      mounted = false
-    }
-  }, [])
 
   type CheckUnassignedResult = {
     moved: string[]
