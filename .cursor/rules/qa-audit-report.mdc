@@ -238,8 +238,6 @@ All Supabase operations must be executed via HTTP POST requests to HAL API endpo
 
 **Important:** The instructions previously said to "include JSON blocks in your message" - this is incorrect. You must make actual HTTP API calls.
 
-See `.cursor/rules/agent-supabase-api-paradigm.mdc` for full documentation.
-
 ## Scope
 
 - Applies to any QA or verification of a **ticketed** task (ticket in Supabase).
