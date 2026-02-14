@@ -126,9 +126,41 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     // Fetch current ticket to get repo_full_name for scoped queries
-    const ticketFetch = ticketPk
-      ? await supabase.from('tickets').select('pk, repo_full_name, kanban_column_id, kanban_position').eq('pk', ticketPk).maybeSingle()
-      : await supabase.from('tickets').select('pk, repo_full_name, kanban_column_id, kanban_position').eq('id', ticketId!).maybeSingle()
+    // Try multiple lookup strategies to handle different ticket ID formats:
+    // - "172" (numeric id)
+    // - "0172" (numeric id with leading zeros)
+    // - "HAL-0172" (display_id format)
+    let ticketFetch: any = null
+    
+    if (ticketPk) {
+      ticketFetch = await supabase.from('tickets').select('pk, repo_full_name, kanban_column_id, kanban_position').eq('pk', ticketPk).maybeSingle()
+    } else if (ticketId) {
+      // Strategy 1: Try by id field as-is (e.g., "172")
+      ticketFetch = await supabase.from('tickets').select('pk, repo_full_name, kanban_column_id, kanban_position').eq('id', ticketId).maybeSingle()
+      
+      // Strategy 2: If not found, try by display_id (e.g., "HAL-0172")
+      if (ticketFetch.error || !ticketFetch.data) {
+        ticketFetch = await supabase.from('tickets').select('pk, repo_full_name, kanban_column_id, kanban_position').eq('display_id', ticketId).maybeSingle()
+      }
+      
+      // Strategy 3: If ticketId looks like display_id (e.g., "HAL-0172"), extract numeric part and try by id
+      if ((ticketFetch.error || !ticketFetch.data) && /^[A-Z]+-/.test(ticketId)) {
+        const numericPart = ticketId.replace(/^[A-Z]+-/, '')
+        // Remove leading zeros to get the actual id value (e.g., "0172" -> "172")
+        const idValue = numericPart.replace(/^0+/, '') || numericPart
+        if (idValue !== ticketId) {
+          ticketFetch = await supabase.from('tickets').select('pk, repo_full_name, kanban_column_id, kanban_position').eq('id', idValue).maybeSingle()
+        }
+      }
+      
+      // Strategy 4: If ticketId is numeric with leading zeros (e.g., "0172"), try without leading zeros
+      if ((ticketFetch.error || !ticketFetch.data) && /^\d+$/.test(ticketId) && ticketId.startsWith('0')) {
+        const withoutLeadingZeros = ticketId.replace(/^0+/, '') || ticketId
+        if (withoutLeadingZeros !== ticketId) {
+          ticketFetch = await supabase.from('tickets').select('pk, repo_full_name, kanban_column_id, kanban_position').eq('id', withoutLeadingZeros).maybeSingle()
+        }
+      }
+    }
 
     if (ticketFetch.error || !ticketFetch.data) {
       json(res, 200, {
