@@ -20,7 +20,7 @@ type ArtifactRow = {
   updated_at: string
 }
 
-type Agent = 'project-manager' | 'implementation-agent' | 'qa-agent'
+type Agent = 'project-manager' | 'implementation-agent' | 'qa-agent' | 'process-review-agent'
 type ChatTarget = Agent | 'standup'
 
 type ImageAttachment = {
@@ -170,7 +170,7 @@ function getConversationId(agentRole: Agent, instanceNumber: number): string {
 
 // Parse conversation ID to get agent role and instance number (0070)
 function parseConversationId(conversationId: string): { agentRole: Agent; instanceNumber: number } | null {
-  const match = conversationId.match(/^(project-manager|implementation-agent|qa-agent)-(\d+)$/)
+  const match = conversationId.match(/^(project-manager|implementation-agent|qa-agent|process-review-agent)-(\d+)$/)
   if (!match) return null
   return {
     agentRole: match[1] as Agent,
@@ -260,6 +260,7 @@ const CHAT_OPTIONS: { id: ChatTarget; label: string }[] = [
   { id: 'project-manager', label: 'Project Manager' },
   { id: 'implementation-agent', label: 'Implementation Agent' },
   { id: 'qa-agent', label: 'QA' },
+  { id: 'process-review-agent', label: 'Process Review' },
   { id: 'standup', label: 'Standup (all agents)' },
 ]
 // DEBUG: QA option should be visible
@@ -271,7 +272,7 @@ function formatTime(date: Date): string {
 
 function getMessageAuthorLabel(agent: Message['agent']): string {
   if (agent === 'user') return 'You'
-  if (agent === 'project-manager' || agent === 'implementation-agent' || agent === 'qa-agent') return 'HAL'
+  if (agent === 'project-manager' || agent === 'implementation-agent' || agent === 'qa-agent' || agent === 'process-review-agent') return 'HAL'
   return 'System'
 }
 
@@ -348,6 +349,7 @@ function App() {
     'project-manager': 0,
     'implementation-agent': 0,
     'qa-agent': 0,
+    'process-review-agent': 0,
     standup: 0,
   }))
   const [agentTypingTarget, setAgentTypingTarget] = useState<ChatTarget | null>(null)
@@ -409,6 +411,20 @@ function App() {
   const [qaAgentProgress, setQaAgentProgress] = useState<Array<{ timestamp: Date; message: string }>>([])
   /** Last error message for QA Agent (0062). */
   const [qaAgentError, setQaAgentError] = useState<string | null>(null)
+  /** Process Review Agent run status for chat UI (0111). */
+  const [processReviewAgentRunStatus, setProcessReviewAgentRunStatus] = useState<
+    | 'idle'
+    | 'preparing'
+    | 'running'
+    | 'completed'
+    | 'failed'
+  >('idle')
+  /** Current ticket ID for Process Review Agent (0111). Used for tracking which ticket is being reviewed. */
+  const [_processReviewAgentTicketId, setProcessReviewAgentTicketId] = useState<string | null>(null)
+  /** Progress messages for Process Review Agent (0111). */
+  const [processReviewAgentProgress, setProcessReviewAgentProgress] = useState<Array<{ timestamp: Date; message: string }>>([])
+  /** Last error message for Process Review Agent (0111). */
+  const [processReviewAgentError, setProcessReviewAgentError] = useState<string | null>(null)
   /** Auto-move diagnostics entries (0061). */
   const [autoMoveDiagnostics, setAutoMoveDiagnostics] = useState<Array<{ timestamp: Date; message: string; type: 'error' | 'info' }>>([])
   /** Agent type that initiated the current Cursor run (0067). Used to route completion summaries to the correct chat. */
@@ -682,18 +698,23 @@ function App() {
     setGithubRepoPickerOpen(false)
   }, [supabaseUrl, supabaseAnonKey])
 
-  // Auto-expand QA and Implementation groups when conversations are restored after reconnect (0097)
+  // Auto-expand QA, Implementation, and Process Review groups when conversations are restored after reconnect (0097, 0111)
   useEffect(() => {
     if (!connectedProject) return
-    // Check if there are any QA or Implementation conversations
+    // Check if there are any QA, Implementation, or Process Review conversations
     const hasQaConversations = Array.from(conversations.values()).some(conv => conv.agentRole === 'qa-agent')
     const hasImplConversations = Array.from(conversations.values()).some(conv => conv.agentRole === 'implementation-agent')
+    const hasProcessReviewConversations = Array.from(conversations.values()).some(conv => conv.agentRole === 'process-review-agent')
     // Auto-expand groups if they have conversations (makes restored chats visible immediately)
     if (hasQaConversations) {
       setQaGroupExpanded(true)
     }
     if (hasImplConversations) {
       setImplGroupExpanded(true)
+    }
+    if (hasProcessReviewConversations) {
+      // Process Review uses the same expanded state as QA for now (can be separated later if needed)
+      setQaGroupExpanded(true)
     }
   }, [connectedProject, conversations])
 
@@ -973,6 +994,7 @@ function App() {
       'project-manager': 'Project Manager',
       'implementation-agent': 'Implementation',
       'qa-agent': 'QA',
+      'process-review-agent': 'Process Review',
     }
     return `${roleLabels[conv.agentRole]} #${conv.instanceNumber}`
   }, [])
@@ -1026,7 +1048,7 @@ function App() {
     if (transcriptRef.current) {
       transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight
     }
-  }, [activeMessages, agentTypingTarget, selectedConversationId, implAgentRunStatus, qaAgentRunStatus, implAgentProgress, qaAgentProgress])
+  }, [activeMessages, agentTypingTarget, selectedConversationId, implAgentRunStatus, qaAgentRunStatus, processReviewAgentRunStatus, implAgentProgress, qaAgentProgress, processReviewAgentProgress])
 
   // Persist conversations to localStorage (0097: save all conversations when not using Supabase, or non-PM conversations when Supabase is used)
   useEffect(() => {
@@ -1137,7 +1159,7 @@ function App() {
     [supabaseUrl, supabaseAnonKey, addAutoMoveDiagnostic]
   )
 
-  // Get or create a conversation for an agent role (0070)
+  // Get or create a conversation for an agent role (0070, 0111)
   const getOrCreateConversation = useCallback((agentRole: Agent, conversationId?: string): string => {
     if (conversationId && conversations.has(conversationId)) {
       return conversationId
@@ -2249,7 +2271,7 @@ function App() {
       setLastWorkButtonClick({ eventId, timestamp: new Date(), chatTarget: data.chatTarget, message: data.message })
       setSelectedChatTarget(data.chatTarget)
       let conversationId: string | undefined
-      if (data.chatTarget === 'implementation-agent' || data.chatTarget === 'qa-agent') {
+      if (data.chatTarget === 'implementation-agent' || data.chatTarget === 'qa-agent' || data.chatTarget === 'process-review-agent') {
         conversationId = getOrCreateConversation(data.chatTarget)
         setSelectedConversationId(conversationId)
       } else {
@@ -2269,10 +2291,30 @@ function App() {
     async (data: { ticketPk: string; ticketId?: string }) => {
       if (!data.ticketPk) return
       
-      // Set status to running
+      // Get or create Process Review conversation
+      const convId = getOrCreateConversation('process-review-agent')
+      setSelectedChatTarget('process-review-agent')
+      setSelectedConversationId(convId)
+      
+      // Set status to running (for both Kanban banner and chat UI)
       setProcessReviewStatus('running')
       setProcessReviewTicketPk(data.ticketPk)
       setProcessReviewMessage(`Process Review started for ticket ${data.ticketId || data.ticketPk}`)
+      setProcessReviewAgentRunStatus('preparing')
+      setProcessReviewAgentTicketId(data.ticketId || null) // Track ticket ID for future use
+      setProcessReviewAgentProgress([])
+      setProcessReviewAgentError(null)
+
+      // Post start message to chat
+      const ticketDisplayId = data.ticketId ? formatTicketId(data.ticketId) : data.ticketPk
+      addMessage(convId, 'process-review-agent', `[Process Review] Starting review for ticket ${ticketDisplayId}...`)
+      const addProgress = (message: string) => {
+        const progressEntry = { timestamp: new Date(), message }
+        setProcessReviewAgentProgress((prev) => [...prev, progressEntry])
+        addMessage(convId, 'process-review-agent', `[Progress] ${message}`)
+      }
+      addProgress('Fetching ticket and artifacts...')
+      setProcessReviewAgentRunStatus('running')
 
       try {
         const response = await fetch('/api/process-review/run', {
@@ -2290,18 +2332,27 @@ function App() {
 
         if (!result.success) {
           setProcessReviewStatus('failed')
-          setProcessReviewMessage(`Process Review failed: ${result.error || 'Unknown error'}`)
+          setProcessReviewAgentRunStatus('failed')
+          const errorMsg = result.error || 'Unknown error'
+          setProcessReviewMessage(`Process Review failed: ${errorMsg}`)
+          setProcessReviewAgentError(errorMsg)
+          addMessage(convId, 'process-review-agent', `[Process Review] ❌ Failed: ${errorMsg}`)
           return
         }
 
         // Success
         setProcessReviewStatus('completed')
+        setProcessReviewAgentRunStatus('completed')
         const suggestionCount = result.suggestions?.length || 0
-        setProcessReviewMessage(
-          `Process Review completed for ticket ${data.ticketId || data.ticketPk}. ${suggestionCount} suggestion${suggestionCount !== 1 ? 's' : ''} generated.`
-        )
+        const successMsg = `Process Review completed for ticket ${ticketDisplayId}. ${suggestionCount} suggestion${suggestionCount !== 1 ? 's' : ''} generated.`
+        setProcessReviewMessage(successMsg)
+        addMessage(convId, 'process-review-agent', `[Process Review] ✅ ${successMsg}`)
+        
+        if (suggestionCount > 0) {
+          addMessage(convId, 'process-review-agent', `\n**Suggestions generated:**\n${result.suggestions.map((s: { text: string; justification: string }, idx: number) => `${idx + 1}. ${s.text}\n   *${s.justification}*`).join('\n\n')}`)
+        }
 
-        // Reset after 5 seconds
+        // Reset after 5 seconds (Kanban banner only)
         setTimeout(() => {
           setProcessReviewStatus('idle')
           setProcessReviewMessage(null)
@@ -2309,11 +2360,14 @@ function App() {
         }, 5000)
       } catch (err) {
         setProcessReviewStatus('failed')
+        setProcessReviewAgentRunStatus('failed')
         const errorMsg = err instanceof Error ? err.message : String(err)
         setProcessReviewMessage(`Process Review failed: ${errorMsg}`)
+        setProcessReviewAgentError(errorMsg)
+        addMessage(convId, 'process-review-agent', `[Process Review] ❌ Failed: ${errorMsg}`)
       }
     },
-    [supabaseUrl, supabaseAnonKey]
+    [supabaseUrl, supabaseAnonKey, getOrCreateConversation, formatTicketId, addMessage]
   )
 
   const handleImageSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2470,7 +2524,7 @@ function App() {
     setLastCreateTicketAvailable(null)
     setSupabaseUrl(null)
     setSupabaseAnonKey(null)
-    setUnreadByTarget({ 'project-manager': 0, 'implementation-agent': 0, 'qa-agent': 0, standup: 0 })
+    setUnreadByTarget({ 'project-manager': 0, 'implementation-agent': 0, 'qa-agent': 0, 'process-review-agent': 0, standup: 0 })
     // Do NOT clear agent status on disconnect (0097: preserve agent status across disconnect/reconnect)
     // Status boxes are gated by connectedProject, so they'll be hidden anyway
     // Only clear ticket IDs and diagnostics (these are per-session)
@@ -2895,6 +2949,49 @@ function App() {
                                 <div className="impl-agent-progress-label">Progress:</div>
                                 <div className="impl-agent-progress-items">
                                   {qaAgentProgress.slice(-5).map((p, idx) => (
+                                    <div key={idx} className="impl-agent-progress-item">
+                                      <span className="impl-agent-progress-time">[{formatTime(p.timestamp)}]</span>
+                                      <span className="impl-agent-progress-message">{p.message}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    )}
+                    {displayTarget === 'process-review-agent' && (
+                      <>
+                        <div className="agent-stub-banner" role="status">
+                          <p className="agent-stub-title">Process Review Agent</p>
+                          <p className="agent-stub-hint">
+                            {supabaseUrl && supabaseAnonKey
+                              ? 'Process Review analyzes ticket artifacts and suggests improvements to agent instructions. Click "Review top ticket" in the Process Review column to run a review.'
+                              : 'Supabase is not configured. Process Review requires Supabase to access ticket artifacts.'}
+                          </p>
+                        </div>
+                        {(processReviewAgentRunStatus !== 'idle' || processReviewAgentError) && (
+                          <div className="impl-agent-status-panel" role="status" aria-live="polite">
+                            <div className="impl-agent-status-header">
+                              <span className="impl-agent-status-label">Status:</span>
+                              <span className={`impl-agent-status-value impl-status-${processReviewAgentRunStatus}`}>
+                                {processReviewAgentRunStatus === 'preparing' ? 'Preparing' :
+                                 processReviewAgentRunStatus === 'running' ? 'Running' :
+                                 processReviewAgentRunStatus === 'completed' ? 'Completed' :
+                                 processReviewAgentRunStatus === 'failed' ? 'Failed' : 'Idle'}
+                              </span>
+                            </div>
+                            {processReviewAgentError && (
+                              <div className="impl-agent-error" role="alert">
+                                <strong>Error:</strong> {processReviewAgentError}
+                              </div>
+                            )}
+                            {processReviewAgentProgress.length > 0 && (
+                              <div className="impl-agent-progress-feed">
+                                <div className="impl-agent-progress-label">Progress:</div>
+                                <div className="impl-agent-progress-items">
+                                  {processReviewAgentProgress.slice(-5).map((p, idx) => (
                                     <div key={idx} className="impl-agent-progress-item">
                                       <span className="impl-agent-progress-time">[{formatTime(p.timestamp)}]</span>
                                       <span className="impl-agent-progress-message">{p.message}</span>
