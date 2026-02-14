@@ -1844,7 +1844,7 @@ function App() {
               reply =
                 data.createTicketAvailable === false
                   ? '[PM] (No response). Create ticket was not available for this request—ensure the project is connected and .env has VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY, then try again.'
-                  : '[PM] (No response). Open Diagnostics to see whether create_ticket was available and any tool calls.'
+                  : '[PM] (No response). Check whether create_ticket was available and any tool calls were made.'
             }
             setAgentTypingTarget(null)
             if (useDb && supabaseUrl && supabaseAnonKey && connectedProject) {
@@ -3431,24 +3431,27 @@ function App() {
             </div>
           )}
 
-          {/* Configuration Status Panel (0042) */}
-          <div className="config-status-panel" role="region" aria-label="Configuration Status">
-            <h3 className="config-status-title">Configuration</h3>
-            <div className="config-status-row">
-              <span className="config-status-label">Cursor API:</span>
-              {import.meta.env.VITE_CURSOR_API_KEY ? (
-                <span className="config-status-value config-status-configured">Configured</span>
-              ) : (
-                <span className="config-status-value config-status-not-configured">
-                  Not configured
-                  <span className="config-status-hint">Missing CURSOR_API_KEY and VITE_CURSOR_API_KEY in .env</span>
-                </span>
-              )}
+          {/* Configuration Status Panel (0042) - Hidden per ticket 0105, code kept intact */}
+          {false && (
+            <div className="config-status-panel" role="region" aria-label="Configuration Status">
+              <h3 className="config-status-title">Configuration</h3>
+              <div className="config-status-row">
+                <span className="config-status-label">Cursor API:</span>
+                {import.meta.env.VITE_CURSOR_API_KEY ? (
+                  <span className="config-status-value config-status-configured">Configured</span>
+                ) : (
+                  <span className="config-status-value config-status-not-configured">
+                    Not configured
+                    <span className="config-status-hint">Missing CURSOR_API_KEY and VITE_CURSOR_API_KEY in .env</span>
+                  </span>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
-          {/* Diagnostics panel */}
-          <div className="diagnostics-section">
+          {/* Diagnostics panel - Hidden per ticket 0105, code kept intact */}
+          {false && (
+            <div className="diagnostics-section">
             <button
               type="button"
               className="diagnostics-toggle"
@@ -3470,7 +3473,7 @@ function App() {
                     {(() => {
                       const mainElement = document.querySelector('.hal-main')
                       if (!mainElement) return '—'
-                      const mainRect = mainElement.getBoundingClientRect()
+                      const mainRect = mainElement!.getBoundingClientRect()
                       const percentage = (chatWidth / mainRect.width) * 100
                       return `${percentage.toFixed(1)}%`
                     })()}
@@ -3520,10 +3523,10 @@ function App() {
                   <div className="diag-row">
                     <span className="diag-label">Last work button click:</span>
                     <span className="diag-value">
-                      {lastWorkButtonClick.eventId} ({lastWorkButtonClick.timestamp.toLocaleTimeString()})
+                      {lastWorkButtonClick!.eventId} ({lastWorkButtonClick!.timestamp.toLocaleTimeString()})
                       <br />
                       <span style={{ fontSize: '0.9em', color: '#666' }}>
-                        Target: {lastWorkButtonClick.chatTarget}
+                        Target: {lastWorkButtonClick!.chatTarget}
                       </span>
                     </span>
                   </div>
@@ -3637,9 +3640,9 @@ function App() {
                     </button>
                     {toolCallsExpanded && (
                       <div className="diag-section-content">
-                        {diagnostics.lastPmToolCalls && diagnostics.lastPmToolCalls.length > 0 ? (
+                        {diagnostics.lastPmToolCalls && diagnostics.lastPmToolCalls!.length > 0 ? (
                           <ul className="diag-tool-calls">
-                            {diagnostics.lastPmToolCalls.map((call, idx) => (
+                            {diagnostics.lastPmToolCalls!.map((call, idx) => (
                               <li key={idx} className="diag-tool-call">
                                 <strong>{call.name}</strong>
                                 <div className="tool-call-detail">
@@ -3687,20 +3690,20 @@ function App() {
                     <div className="diag-section-header">Ticket creation</div>
                     <div className="diag-section-content">
                       <div className="diag-ticket-creation">
-                        <div><strong>Ticket ID:</strong> {diagnostics.lastTicketCreationResult.id}</div>
-                        <div><strong>File path:</strong> {diagnostics.lastTicketCreationResult.filePath}</div>
-                        {diagnostics.lastTicketCreationResult.retried && diagnostics.lastTicketCreationResult.attempts != null && (
-                          <div><strong>Retry:</strong> Collision resolved after {diagnostics.lastTicketCreationResult.attempts} attempt(s)</div>
+                        <div><strong>Ticket ID:</strong> {diagnostics.lastTicketCreationResult!.id}</div>
+                        <div><strong>File path:</strong> {diagnostics.lastTicketCreationResult!.filePath}</div>
+                        {diagnostics.lastTicketCreationResult!.retried && diagnostics.lastTicketCreationResult!.attempts != null && (
+                          <div><strong>Retry:</strong> Collision resolved after {diagnostics.lastTicketCreationResult!.attempts} attempt(s)</div>
                         )}
                         <div>
                           <strong>Sync:</strong>{' '}
-                          {diagnostics.lastTicketCreationResult.syncSuccess ? (
+                          {diagnostics.lastTicketCreationResult!.syncSuccess ? (
                             <span className="diag-sync-ok">Success</span>
                           ) : (
                             <span className="diag-sync-error">
                               Failed
-                              {diagnostics.lastTicketCreationResult.syncError && (
-                                <> — {diagnostics.lastTicketCreationResult.syncError}</>
+                              {diagnostics.lastTicketCreationResult!.syncError && (
+                                <> — {diagnostics.lastTicketCreationResult!.syncError}</>
                               )}
                             </span>
                           )}
@@ -3712,12 +3715,12 @@ function App() {
 
                 {/* PM Diagnostics: Ticket readiness evaluation (0066) */}
                 {selectedChatTarget === 'project-manager' && diagnostics.lastPmToolCalls && (() => {
-                  const createTicketCall = diagnostics.lastPmToolCalls.find(c => c.name === 'create_ticket')
-                  const updateTicketCall = diagnostics.lastPmToolCalls.find(c => c.name === 'update_ticket_body')
+                  const createTicketCall = diagnostics.lastPmToolCalls!.find(c => c.name === 'create_ticket')
+                  const updateTicketCall = diagnostics.lastPmToolCalls!.find(c => c.name === 'update_ticket_body')
                   const readinessCall = createTicketCall || updateTicketCall
                   if (!readinessCall) return null
                   
-                  const output = readinessCall.output as any
+                  const output = readinessCall!.output as any
                   const isSuccess = output?.success === true
                   const isRejected = output?.success === false && output?.detectedPlaceholders
                   const hasReadiness = isSuccess && (output?.ready !== undefined || output?.missingItems)
@@ -3816,7 +3819,8 @@ function App() {
                 )}
               </div>
             )}
-          </div>
+            </div>
+          )}
         </section>
       </main>
     </div>
