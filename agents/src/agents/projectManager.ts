@@ -1532,28 +1532,40 @@ export async function runPmAgent(
       return tool({
         description:
           'Move a ticket to a specified Kanban column by name (e.g. "Ready to Do", "QA", "Human in the Loop") or column ID. Optionally specify position: "top", "bottom", or a numeric index (0-based). The Kanban UI will reflect the change within ~10 seconds. Use when the user asks to move a ticket to a named column or reorder within a column.',
-        parameters: z.object({
-          ticket_id: z.string().describe('Ticket ID (e.g. "HAL-0121", "0121", or "121").'),
-          column_name: z
-            .string()
-            .optional()
-            .describe(
-              'Column name (e.g. "Ready to Do", "To Do", "QA", "Human in the Loop"). If not provided, column_id must be specified.'
-            ),
-          column_id: z
-            .string()
-            .optional()
-            .describe(
-              'Column ID (e.g. "col-todo", "col-qa", "col-human-in-the-loop"). If not provided, column_name must be specified.'
-            ),
-          position: z
-            .union([z.string(), z.number()])
-            .optional()
-            .describe(
-              'Position in column: "top" (move to top), "bottom" (move to bottom, default), or a number (0-based index, e.g. 0 for first, 1 for second).'
-            ),
-        }),
-        execute: async (input: { ticket_id: string; column_name?: string; column_id?: string; position?: string | number }) => {
+        parameters: z
+          .object({
+            ticket_id: z.string().describe('Ticket ID (e.g. "HAL-0121", "0121", or "121").'),
+            column_name: z
+              .union([z.string(), z.null()])
+              .describe(
+                'Column name (e.g. "Ready to Do", "To Do", "QA", "Human in the Loop"). Pass null when using column_id.'
+              ),
+            column_id: z
+              .union([z.string(), z.null()])
+              .describe(
+                'Column ID (e.g. "col-todo", "col-qa", "col-human-in-the-loop"). Pass null when using column_name.'
+              ),
+            position: z
+              .union([z.string(), z.number(), z.null()])
+              .describe(
+                'Position in column: "top" (move to top), "bottom" (move to bottom, default), or a number (0-based index, e.g. 0 for first, 1 for second). Pass null for the default ("bottom").'
+              ),
+          })
+          .refine(
+            (input) =>
+              (typeof input.column_name === 'string' && input.column_name.trim().length > 0) ||
+              (typeof input.column_id === 'string' && input.column_id.trim().length > 0),
+            {
+              message: 'Either column_name or column_id must be provided.',
+              path: ['column_name'],
+            }
+          ),
+        execute: async (input: {
+          ticket_id: string
+          column_name: string | null
+          column_id: string | null
+          position: string | number | null
+        }) => {
           type MoveResult =
             | {
                 success: true
@@ -1569,15 +1581,24 @@ export async function runPmAgent(
             const baseUrl = process.env.HAL_API_BASE_URL || 'https://portfolio-2026-hal.vercel.app'
             const supabaseUrl = config.supabaseUrl?.trim() || ''
             const supabaseAnonKey = config.supabaseAnonKey?.trim() || ''
+            const columnName =
+              typeof input.column_name === 'string' && input.column_name.trim().length > 0
+                ? input.column_name
+                : undefined
+            const columnId =
+              typeof input.column_id === 'string' && input.column_id.trim().length > 0
+                ? input.column_id
+                : undefined
+            const position = input.position ?? undefined
 
             const response = await fetch(`${baseUrl}/api/tickets/move`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 ticketId: input.ticket_id,
-                columnId: input.column_id,
-                columnName: input.column_name,
-                position: input.position,
+                columnId,
+                columnName,
+                position,
                 supabaseUrl,
                 supabaseAnonKey,
               }),
