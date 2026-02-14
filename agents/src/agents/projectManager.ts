@@ -1156,8 +1156,7 @@ export async function runPmAgent(
             .number()
             .int()
             .min(0)
-            .optional()
-            .describe('Zero-based index of the image to attach (default: 0, the first image). Use when multiple images were uploaded.'),
+            .describe('Zero-based index of the image to attach. Use 0 for the first image (and when only one image was uploaded).'),
         }),
         execute: async (input: { ticket_id: string; image_index?: number }) => {
           type AttachResult =
