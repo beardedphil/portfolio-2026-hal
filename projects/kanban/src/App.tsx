@@ -1282,25 +1282,53 @@ function ArtifactsSection({
 }) {
   const isLoading = loading || refreshing
 
-  // Detect missing expected artifacts for implementation tickets in QA or later columns (0137)
+  // Detect missing required implementation artifacts (0196)
   const isImplementationTicket = artifacts.some((a) => a.agent_type === 'implementation')
   const isInQaOrLater = columnId === 'col-qa' || columnId === 'col-human-in-the-loop' || columnId === 'col-process-review'
-  const hasChangedFiles = artifacts.some((a) => 
-    a.title?.toLowerCase().includes('changed files') && 
-    a.agent_type === 'implementation' &&
-    a.body_md && 
-    a.body_md.trim().length > 0 &&
-    !a.body_md.includes('(No files changed in this PR)') &&
-    !a.body_md.includes('(none)')
-  )
-  const hasVerification = artifacts.some((a) => 
-    a.title?.toLowerCase().includes('verification') && 
-    a.agent_type === 'implementation' &&
-    a.body_md && 
-    a.body_md.trim().length > 0 &&
-    !a.body_md.includes('(none)')
-  )
-
+  
+  // Helper to check if artifact exists and has substantive content
+  const hasArtifact = (artifactType: string): boolean => {
+    return artifacts.some((a) => {
+      const titleLower = a.title?.toLowerCase() || ''
+      const matchesType = 
+        (artifactType === 'plan' && titleLower.includes('plan for ticket')) ||
+        (artifactType === 'worklog' && titleLower.includes('worklog for ticket')) ||
+        (artifactType === 'changed-files' && titleLower.includes('changed files for ticket')) ||
+        (artifactType === 'decisions' && titleLower.includes('decisions for ticket')) ||
+        (artifactType === 'verification' && titleLower.includes('verification for ticket')) ||
+        (artifactType === 'pm-review' && titleLower.includes('pm review for ticket')) ||
+        (artifactType === 'git-diff' && (titleLower.includes('git diff for ticket') || titleLower.includes('git-diff for ticket'))) ||
+        (artifactType === 'instructions-used' && titleLower.includes('instructions used for ticket'))
+      
+      if (!matchesType || a.agent_type !== 'implementation') return false
+      
+      const body = a.body_md || ''
+      // Check for substantive content (at least 50 chars, not just placeholder)
+      if (body.trim().length < 50) return false
+      if (body.includes('(No files changed in this PR)') || body.includes('(none)')) return false
+      
+      return true
+    })
+  }
+  
+  const requiredArtifacts = [
+    { type: 'plan', name: 'Plan' },
+    { type: 'worklog', name: 'Worklog' },
+    { type: 'changed-files', name: 'Changed Files' },
+    { type: 'decisions', name: 'Decisions' },
+    { type: 'verification', name: 'Verification' },
+    { type: 'pm-review', name: 'PM Review' },
+    { type: 'git-diff', name: 'Git diff' },
+    { type: 'instructions-used', name: 'Instructions Used' },
+  ]
+  
+  const missingArtifacts = isImplementationTicket && isInQaOrLater
+    ? requiredArtifacts.filter(a => !hasArtifact(a.type))
+    : []
+  
+  const hasChangedFiles = hasArtifact('changed-files')
+  const hasVerification = hasArtifact('verification')
+  
   const missingChangedFiles = isImplementationTicket && isInQaOrLater && !hasChangedFiles
   const missingVerification = isImplementationTicket && isInQaOrLater && !hasVerification
 
@@ -1357,13 +1385,24 @@ function ArtifactsSection({
         </div>
       )}
 
-      {/* Error states for missing expected artifacts (0137) */}
-      {missingChangedFiles && (
+      {/* Error states for missing required artifacts (0196) */}
+      {missingArtifacts.length > 0 && (
+        <div className="artifacts-error-state" role="alert">
+          <strong>Missing required implementation artifacts:</strong> The following {missingArtifacts.length} required artifact{missingArtifacts.length > 1 ? 's are' : ' is'} missing or empty:
+          <ul style={{ marginTop: '0.5em', marginBottom: '0.5em', paddingLeft: '1.5em' }}>
+            {missingArtifacts.map(a => (
+              <li key={a.type}>{a.name}</li>
+            ))}
+          </ul>
+          This may indicate that artifact insertion failed (API error, validation error, or network error). Check the implementation agent logs for error messages.
+        </div>
+      )}
+      {missingChangedFiles && missingArtifacts.length === 0 && (
         <div className="artifacts-error-state" role="alert">
           <strong>Changed Files artifact unavailable:</strong> Unable to determine changed files. This may be due to missing PR/branch information or GitHub API failure.
         </div>
       )}
-      {missingVerification && (
+      {missingVerification && missingArtifacts.length === 0 && (
         <div className="artifacts-error-state" role="alert">
           <strong>Verification artifact unavailable:</strong> Unable to generate verification content. This may be due to missing PR/branch information or GitHub API failure.
         </div>
