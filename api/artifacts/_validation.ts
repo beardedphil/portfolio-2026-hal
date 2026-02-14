@@ -27,13 +27,24 @@ export function hasSubstantiveContent(body_md: string, title: string): { valid: 
   }
 
   // Check for placeholder patterns (including common placeholders like "(No files changed in this PR)", "(none)", etc.)
-  // Made more lenient: only check if the ENTIRE body matches a placeholder pattern
+  // Made more lenient (0197): only reject if the placeholder is the majority of content
   const trimmed = body_md.trim()
-  const strictPlaceholderPatterns = [
-    /^(TODO|TBD|placeholder|coming soon)$/i, // Only if entire body is just this
+  
+  // Patterns that match entire content (exact match)
+  const exactPlaceholderPatterns = [
+    /^(TODO|TBD|placeholder|coming soon)$/i,
   ]
-
-  for (const pattern of strictPlaceholderPatterns) {
+  
+  // Patterns that should only match if they're the primary content (more than 50% of content)
+  const dominantPlaceholderPatterns = [
+    /^\(No files changed in this PR\)$/i,
+    /^\(none\)$/i,
+    /^##\s+[^\n]+\n+\n*\(No files changed\)\s*$/i,
+    /^##\s+[^\n]+\n+\n*\(none\)\s*$/i,
+  ]
+  
+  // Check exact placeholders first
+  for (const pattern of exactPlaceholderPatterns) {
     if (pattern.test(trimmed)) {
       return {
         valid: false,
@@ -41,20 +52,12 @@ export function hasSubstantiveContent(body_md: string, title: string): { valid: 
       }
     }
   }
-
-  // Check for obvious placeholder patterns that indicate empty content
-  // Only reject if the pattern appears and there's very little other content
-  const placeholderPatterns = [
-    /\(No files changed in this PR\)/i,
-    /\(none\)/i,
-    /^##\s+[^\n]+\n+\n*\(No files changed/i,
-    /^##\s+[^\n]+\n+\n*\(none\)/i,
-  ]
-
-  for (const pattern of placeholderPatterns) {
-    if (pattern.test(trimmed)) {
-      // Only reject if the placeholder is the majority of the content
-      // Allow placeholders if there's substantial other content
+  
+  // Check dominant placeholders - only reject if the placeholder is most of the content
+  for (const pattern of dominantPlaceholderPatterns) {
+    const match = trimmed.match(pattern)
+    if (match) {
+      // Only reject if there's very little other content (less than 20 chars)
       const withoutPlaceholder = trimmed.replace(pattern, '').trim()
       if (withoutPlaceholder.length < 20) {
         return {
