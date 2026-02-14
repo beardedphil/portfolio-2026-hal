@@ -141,4 +141,13 @@ The API automatically handles these formats by trying multiple lookup strategies
 - `col-done` - Done
 - `col-wont-implement` - Will Not Implement
 
+**Peer Review / Definition of Ready Check (0180):**
+Before moving tickets from **Unassigned** to **To Do**, tickets must pass a peer review check that validates:
+- Required sections are present (`## Goal (one sentence)`, `## Human-verifiable deliverable (UI-only)`, `## Acceptance criteria (UI-only)`)
+- Acceptance criteria use checkbox format (`- [ ]`) not plain bullets
+- No unresolved placeholders (`<...>`, `TODO`, `FIXME`, etc.)
+- Required sections have content
+
+PM agents should run "Peer review / DoR check" from the ticket detail view before moving tickets to To Do. The "Prepare top ticket" button automatically checks peer review and prevents moves when the check fails.
+
 **Note:** The HAL API endpoint `/api/tickets/move` uses server-side Supabase credentials, so agents don't need to provide credentials in the request body. The API uses the ticket's primary key (pk) for updates to ensure reliable ticket movement regardless of the ticket ID format provided.
