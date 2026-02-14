@@ -159,17 +159,54 @@ async function insertImplementationArtifact(
       : params.body_md // If existing body is empty, just use new body
     
     console.log(`[agent-tools] Appending to implementation artifact ${targetArtifactId} (existing length=${existingBody.length}, new length=${params.body_md.length})`)
-    const { error: updateError } = await supabase
-      .from('agent_artifacts')
-      .update({
-        title: canonicalTitle, // Use canonical title for consistency
-        body_md: appendedBody,
-      })
-      .eq('artifact_id', targetArtifactId)
+    
+    // Add retry logic for update operations (0196)
+    const maxRetries = 3
+    const retryDelay = 1000
+    let updateError: any = null
+    
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, retryDelay * attempt))
+        console.log(`[agent-tools] Implementation artifact update retry attempt ${attempt + 1}/${maxRetries}`)
+      }
+      
+      const result = await supabase
+        .from('agent_artifacts')
+        .update({
+          title: canonicalTitle, // Use canonical title for consistency
+          body_md: appendedBody,
+        })
+        .eq('artifact_id', targetArtifactId)
+      
+      if (!result.error) {
+        updateError = null
+        break
+      }
+      
+      updateError = result.error
+      
+      // Only retry on network/timeout errors
+      const isRetryableError = 
+        updateError.message?.includes('timeout') ||
+        updateError.message?.includes('network') ||
+        updateError.message?.includes('ECONNREFUSED') ||
+        updateError.message?.includes('ETIMEDOUT') ||
+        updateError.code === 'PGRST116'
+      
+      if (!isRetryableError) {
+        break
+      }
+    }
 
     if (updateError) {
-      console.error(`[agent-tools] Implementation artifact update failed: ${updateError.message}`)
-      return { success: false, error: `Failed to update artifact: ${updateError.message}` }
+      console.error(`[agent-tools] Implementation artifact update failed after ${maxRetries} attempts: ${updateError.message}`)
+      return { 
+        success: false, 
+        error: `Failed to update artifact after ${maxRetries} attempts: ${updateError.message}`,
+        error_code: updateError.code,
+        retries: maxRetries,
+      }
     }
 
     // Verify the update by reading back the artifact
@@ -195,18 +232,51 @@ async function insertImplementationArtifact(
   }
 
   // No existing artifact found (or all were deleted), insert new one with canonical title (0121)
+  // Add retry logic for transient network/API failures (0196)
   console.log(`[agent-tools] Inserting new implementation artifact with body_md length=${params.body_md.length}`)
-  const { data: inserted, error: insertError } = await supabase
-    .from('agent_artifacts')
-    .insert({
-      ticket_pk: ticketPk,
-      repo_full_name: (ticket as { repo_full_name?: string }).repo_full_name || '',
-      agent_type: 'implementation',
-      title: canonicalTitle, // Use canonical title for consistency
-      body_md: params.body_md,
-    })
-    .select('artifact_id')
-    .single()
+  const maxRetries = 3
+  const retryDelay = 1000 // 1 second
+  let inserted: { artifact_id?: string } | null = null
+  let insertError: any = null
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    if (attempt > 0) {
+      await new Promise((resolve) => setTimeout(resolve, retryDelay * attempt))
+      console.log(`[agent-tools] Implementation artifact insert retry attempt ${attempt + 1}/${maxRetries}`)
+    }
+    
+    const result = await supabase
+      .from('agent_artifacts')
+      .insert({
+        ticket_pk: ticketPk,
+        repo_full_name: (ticket as { repo_full_name?: string }).repo_full_name || '',
+        agent_type: 'implementation',
+        title: canonicalTitle, // Use canonical title for consistency
+        body_md: params.body_md,
+      })
+      .select('artifact_id')
+      .single()
+    
+    if (!result.error && result.data) {
+      inserted = result.data
+      insertError = null
+      break
+    }
+    
+    insertError = result.error
+    
+    // Only retry on network/timeout errors, not validation errors
+    const isRetryableError = 
+      insertError.message?.includes('timeout') ||
+      insertError.message?.includes('network') ||
+      insertError.message?.includes('ECONNREFUSED') ||
+      insertError.message?.includes('ETIMEDOUT') ||
+      insertError.code === 'PGRST116' // PostgREST connection error
+    
+    if (!isRetryableError) {
+      break // Don't retry on validation/non-retryable errors
+    }
+  }
 
   if (insertError) {
     // Handle race condition: if duplicate key error, try to find and update the existing artifact
@@ -216,10 +286,10 @@ async function insertImplementationArtifact(
         .select('artifact_id')
         .eq('ticket_pk', ticketPk)
         .eq('agent_type', 'implementation')
-        .eq('title', params.title)
+        .eq('title', canonicalTitle) // Use canonical title for consistency
         .order('created_at', { ascending: false })
         .limit(1)
-        .single()
+        .maybeSingle()
 
       if (!findError && existingArtifact?.artifact_id) {
         const { error: updateError } = await supabase
@@ -239,8 +309,13 @@ async function insertImplementationArtifact(
       }
     }
 
-    console.error(`[agent-tools] Implementation artifact insert failed: ${insertError.message}`)
-    return { success: false, error: `Failed to insert artifact: ${insertError.message}` }
+    console.error(`[agent-tools] Implementation artifact insert failed after ${maxRetries} attempts: ${insertError.message}`)
+    return { 
+      success: false, 
+      error: `Failed to insert artifact after ${maxRetries} attempts: ${insertError.message}`,
+      error_code: insertError.code,
+      retries: maxRetries,
+    }
   }
 
   const insertedId = (inserted as { artifact_id?: string }).artifact_id
