@@ -174,6 +174,40 @@ h1 {
   font-size: 0.95rem;
   color: var(--kanban-success-text);
 }
+.move-status-message {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.move-status-error {
+  background: var(--kanban-error);
+  color: #fff;
+  border-color: var(--kanban-error);
+  font-weight: 500;
+}
+.move-status-dismiss {
+  flex-shrink: 0;
+  padding: 0.25rem 0.5rem;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  color: inherit;
+  opacity: 0.8;
+  border-radius: 3px;
+  transition: opacity 0.2s ease, background 0.2s ease;
+}
+.move-status-dismiss:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.2);
+}
+.move-status-dismiss:focus {
+  outline: 2px solid rgba(255, 255, 255, 0.8);
+  outline-offset: 2px;
+}
 
 /* Columns section */
 .columns-section {
@@ -296,6 +330,11 @@ h1 {
   border: 1px solid var(--kanban-border-muted);
   border-radius: 4px;
   color: var(--kanban-text);
+  transition: opacity 0.2s ease;
+}
+.ticket-card-saving {
+  opacity: 0.7;
+  pointer-events: none;
 }
 
 .ticket-card-top-row {
@@ -384,6 +423,29 @@ h1 {
   outline: 2px solid var(--kanban-primary);
   outline-offset: 1px;
   border-radius: 2px;
+}
+.ticket-card-click-area:disabled {
+  cursor: not-allowed;
+}
+.ticket-card-saving-indicator {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.25rem;
+}
+.ticket-card-saving-spinner {
+  display: inline-block;
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 2px solid var(--kanban-border);
+  border-top-color: var(--kanban-primary);
+  border-radius: 50%;
+  animation: ticket-card-saving-spin 0.6s linear infinite;
+}
+@keyframes ticket-card-saving-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* 0033: ticket detail modal */

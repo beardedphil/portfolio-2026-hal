@@ -1497,11 +1497,13 @@ function SortableCard({
   columnId,
   onOpenDetail,
   agentRun,
+  isSaving = false,
 }: {
   card: Card
   columnId: string
   onOpenDetail?: (cardId: string) => void
   agentRun?: SupabaseAgentRunRow | null
+  isSaving?: boolean
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
@@ -1510,7 +1512,7 @@ function SortableCard({
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.5 : 1,
+    opacity: isDragging ? 0.5 : isSaving ? 0.7 : 1,
   }
   const handleCardClick = () => {
     if (onOpenDetail) onOpenDetail(card.id)
@@ -1521,7 +1523,13 @@ function SortableCard({
   const badgeText = agentName || 'Unassigned'
   const badgeTitle = agentName ? `Working: ${agentName} Agent` : 'No agent currently working'
   return (
-    <div ref={setNodeRef} style={style} className="ticket-card" data-card-id={card.id}>
+    <div 
+      ref={setNodeRef} 
+      style={style} 
+      className={`ticket-card ${isSaving ? 'ticket-card-saving' : ''}`} 
+      data-card-id={card.id}
+      aria-busy={isSaving}
+    >
       <div className="ticket-card-top-row">
         <span
           className="ticket-card-drag-handle"
@@ -1535,8 +1543,14 @@ function SortableCard({
           className="ticket-card-click-area"
           onClick={handleCardClick}
           aria-label={`Open ticket ${card.id}: ${card.title}`}
+          disabled={isSaving}
         >
           <span className="ticket-card-title">{card.title}</span>
+          {isSaving && (
+            <span className="ticket-card-saving-indicator" aria-label="Saving" title="Saving...">
+              <span className="ticket-card-saving-spinner"></span>
+            </span>
+          )}
         </button>
       </div>
       {showAgentBadge && agentName && (
@@ -1560,6 +1574,7 @@ function SortableColumn({
   updateSupabaseTicketKanban,
   refetchSupabaseTickets,
   agentRunsByTicketPk = {},
+  pendingMoves = new Set(),
 }: {
   col: Column
   cards: Record<string, Card>
@@ -1572,6 +1587,7 @@ function SortableColumn({
   updateSupabaseTicketKanban?: (pk: string, updates: { kanban_column_id?: string; kanban_position?: number; kanban_moved_at?: string }) => Promise<{ ok: true } | { ok: false; error: string }>
   refetchSupabaseTickets?: (skipPendingMoves?: boolean) => Promise<boolean>
   agentRunsByTicketPk?: Record<string, SupabaseAgentRunRow>
+  pendingMoves?: Set<string>
 }) {
   const halCtx = useContext(HalKanbanContext)
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
@@ -1752,6 +1768,7 @@ function SortableColumn({
                 columnId={col.id}
                 onOpenDetail={onOpenDetail}
                 agentRun={agentRun}
+                isSaving={pendingMoves.has(card.id)}
               />
             )
           })}
@@ -2604,6 +2621,7 @@ function App() {
       }
       
       // Don't overwrite tickets that have pending moves (0047)
+      // Improved: Compare positions when removing from pendingMoves to prevent jumps (0144)
       if (skipPendingMoves && pendingMoves.size > 0) {
         setSupabaseTickets((prev) => {
           const newMap = new Map(normalizedRows.map((r) => [r.pk, r]))
@@ -2629,7 +2647,53 @@ function App() {
           return result
         })
       } else {
-        setSupabaseTickets(normalizedRows)
+        // When not skipping pending moves, still preserve optimistic positions
+        // to prevent jumps when refetching after a move completes (0144)
+        setSupabaseTickets((prev) => {
+          const newMap = new Map(normalizedRows.map((r) => [r.pk, r]))
+          const result: SupabaseTicketRow[] = []
+          const processedIds = new Set<string>()
+          // For tickets with pending moves, compare positions and only update if they match
+          // This prevents jumps when backend data arrives
+          for (const t of prev) {
+            if (pendingMoves.has(t.pk)) {
+              const dbRow = newMap.get(t.pk)
+              // Only update if position/column matches optimistic update (backend confirmed)
+              // or if there's a real discrepancy (another user moved it)
+              if (dbRow && 
+                  dbRow.kanban_column_id === t.kanban_column_id && 
+                  dbRow.kanban_position === t.kanban_position) {
+                // Backend matches optimistic update - safe to update with DB data
+                result.push(dbRow)
+              } else {
+                // Keep optimistic update - backend hasn't caught up or there's a discrepancy
+                result.push(t)
+              }
+              processedIds.add(t.pk)
+            } else if (newMap.has(t.pk)) {
+              const dbRow = newMap.get(t.pk)!
+              const existingTicket = prev.find((p) => p.pk === dbRow.pk)
+              // Only update if position/column actually changed to prevent unnecessary re-renders (0144)
+              if (existingTicket && 
+                  existingTicket.kanban_column_id === dbRow.kanban_column_id && 
+                  existingTicket.kanban_position === dbRow.kanban_position) {
+                // Position hasn't changed - keep existing ticket to prevent jump
+                result.push(existingTicket)
+              } else {
+                // Position changed or new ticket - update from DB
+                result.push(dbRow)
+              }
+              processedIds.add(t.pk)
+            }
+          }
+          // Add any new tickets from DB that weren't in prev
+          for (const row of normalizedRows) {
+            if (!processedIds.has(row.pk)) {
+              result.push(row)
+            }
+          }
+          return result
+        })
       }
       
       // Wait for normalization updates to complete (fire and forget)
@@ -3146,18 +3210,19 @@ function App() {
           kanban_position: overIndex,
           kanban_moved_at: movedAt,
         })
-        if (result.ok) {
-          setLastMovePersisted({ success: true, timestamp: new Date(), ticketId: ticketPk })
-          addLog(`Supabase ticket dropped into ${overColumn.title}`)
-          // Remove from pending after delay to allow DB write to be visible
-          setTimeout(() => {
-            setPendingMoves((prev) => {
-              const next = new Set(prev)
-              next.delete(ticketPk)
-              return next
-            })
-            refetchSupabaseTickets(false) // Full refetch after move is persisted
-          }, REFETCH_AFTER_MOVE_MS)
+          if (result.ok) {
+            setLastMovePersisted({ success: true, timestamp: new Date(), ticketId: ticketPk })
+            addLog(`Supabase ticket dropped into ${overColumn.title}`)
+            // Remove from pending after delay to allow DB write to be visible
+            // Refetch will compare positions and only update if backend matches optimistic (0144)
+            setTimeout(() => {
+              setPendingMoves((prev) => {
+                const next = new Set(prev)
+                next.delete(ticketPk)
+                return next
+              })
+              refetchSupabaseTickets(false) // Full refetch - will preserve optimistic if backend matches
+            }, REFETCH_AFTER_MOVE_MS)
         } else {
           // Revert optimistic update on failure (0047)
           setLastMovePersisted({ success: false, timestamp: new Date(), ticketId: ticketPk, error: result.error })
@@ -3244,13 +3309,14 @@ function App() {
           if (allSucceeded) {
             setLastMovePersisted({ success: true, timestamp: new Date(), ticketId: ticketPk })
             addLog(`Supabase ticket reordered in ${sourceColumn.title}`)
+            // Remove from pending after delay - refetch will preserve optimistic if backend matches (0144)
             setTimeout(() => {
               setPendingMoves((prev) => {
                 const next = new Set(prev)
                 next.delete(ticketPk)
                 return next
               })
-              refetchSupabaseTickets(false) // Full refetch after move is persisted
+              refetchSupabaseTickets(false) // Full refetch - will preserve optimistic if backend matches
             }, REFETCH_AFTER_MOVE_MS)
           } else {
             // Revert optimistic update on failure (0047)
@@ -3314,13 +3380,14 @@ function App() {
           if (result.ok) {
             setLastMovePersisted({ success: true, timestamp: new Date(), ticketId: ticketPk })
             addLog(`Supabase ticket moved to ${overColumn.title}`)
+            // Remove from pending after delay - refetch will preserve optimistic if backend matches (0144)
             setTimeout(() => {
               setPendingMoves((prev) => {
                 const next = new Set(prev)
                 next.delete(ticketPk)
                 return next
               })
-              refetchSupabaseTickets(false) // Full refetch after move is persisted
+              refetchSupabaseTickets(false) // Full refetch - will preserve optimistic if backend matches
             }, REFETCH_AFTER_MOVE_MS)
           } else {
             // Revert optimistic update on failure (0047)
@@ -3471,17 +3538,28 @@ function App() {
       {/* Ticket persistence status indicator (0047) */}
       {supabaseBoardActive && lastMovePersisted && (
         <div
-          className={lastMovePersisted.success ? 'success-message' : 'config-missing-error'}
+          className={lastMovePersisted.success ? 'success-message move-status-message' : 'config-missing-error move-status-message move-status-error'}
           role={lastMovePersisted.success ? 'status' : 'alert'}
         >
           {lastMovePersisted.success ? (
             <>✓ Move persisted: ticket {lastMovePersisted.ticketId} at {lastMovePersisted.timestamp.toLocaleTimeString()}</>
           ) : (
-            <>✗ Move failed: ticket {lastMovePersisted.ticketId} - {lastMovePersisted.error ?? 'Unknown error'}</>
+            <>
+              ✗ Move failed: ticket {lastMovePersisted.ticketId} - {lastMovePersisted.error ?? 'Unknown error'}
+              <button
+                type="button"
+                className="move-status-dismiss"
+                onClick={() => setLastMovePersisted(null)}
+                aria-label="Dismiss error message"
+                title="Dismiss"
+              >
+                ×
+              </button>
+            </>
           )}
         </div>
       )}
-      {/* Auto-dismiss success messages after 5 seconds (0047) */}
+      {/* Auto-dismiss success messages after 5 seconds (0144: errors stay until dismissed) */}
       {lastMovePersisted?.success && (
         <AutoDismissMessage
           onDismiss={() => setLastMovePersisted(null)}
@@ -3885,6 +3963,7 @@ ${notes || '(none provided)'}
                   updateSupabaseTicketKanban={updateSupabaseTicketKanban}
                   refetchSupabaseTickets={refetchSupabaseTickets}
                   agentRunsByTicketPk={displayAgentRunsByTicketPk}
+                  pendingMoves={pendingMoves}
                 />
               ))}
             </div>
