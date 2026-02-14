@@ -14,7 +14,7 @@ This document defines how we decide a ticket is **properly completed**.
 - **Ticket exists**: `docs/tickets/<id>-<short-title>.md`
 - **Ticket is committed**: the ticket file exists in git history on the branch being verified (not only on someone’s disk).
 - **Required audit artifacts exist** (in Supabase `agent_artifacts`, not in repo):
-  - plan, worklog, changed-files, decisions, verification, pm-review
+  - plan, worklog, changed-files (**MANDATORY:** Must be non-empty. If no files changed, explicitly state "No files changed." with explanation.), decisions, verification, pm-review
 - **Work is committed + pushed**:
   - the implementation agent has committed all changes and pushed them to the remote before declaring “ready for QA”
   - all commits for the ticket include the ticket ID in the commit subject (e.g. `feat(0010): ...`)

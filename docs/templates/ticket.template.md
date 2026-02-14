@@ -52,6 +52,6 @@ Create a new file at `docs/tickets/<task-id>-<short-title>.md` using this templa
 Create `docs/audit/<task-id>-<short-title>/` containing:
 - `plan.md`
 - `worklog.md`
-- `changed-files.md`
+- `changed-files.md` (**MANDATORY:** Must be non-empty. If no files changed, explicitly state "No files changed." with explanation.)
 - `decisions.md`
 - `verification.md` (UI-only)
