@@ -778,8 +778,19 @@ function ArtifactReportViewer({
                   <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.9rem' }}>
                     Components registered: {markdownComponents ? 'YES' : 'NO'}, Has img: {markdownComponents?.img ? 'YES' : 'NO'}
                   </p>
+                  <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.9rem' }}>
+                    Body MD length: {artifact.body_md.length}, Contains ![ : {artifact.body_md.includes('![') ? 'YES' : 'NO'}
+                  </p>
                 </div>
-                <ReactMarkdown components={markdownComponents}>{artifact.body_md}</ReactMarkdown>
+                {/* Test: render without custom component first */}
+                <div style={{ border: '1px solid blue', padding: '1rem', marginBottom: '1rem' }}>
+                  <p style={{ margin: 0, fontWeight: 'bold' }}>Test: ReactMarkdown WITHOUT custom components</p>
+                  <ReactMarkdown>{artifact.body_md}</ReactMarkdown>
+                </div>
+                <div style={{ border: '1px solid green', padding: '1rem', marginBottom: '1rem' }}>
+                  <p style={{ margin: 0, fontWeight: 'bold' }}>Test: ReactMarkdown WITH custom components</p>
+                  <ReactMarkdown components={markdownComponents}>{artifact.body_md}</ReactMarkdown>
+                </div>
               </>
             ) : (
               <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
