@@ -37,6 +37,12 @@ The API uses server-side environment variables (`SUPABASE_URL`, `SUPABASE_ANON_K
   - Body: `{ ticketId: string, artifactType: string, title: string, body_md: string }`
   - Returns: `{ success: boolean, artifact_id?: string, action?: 'inserted' | 'updated', error?: string }`
   - `artifactType` values: `"plan"`, `"worklog"`, `"changed-files"`, `"decisions"`, `"verification"`, `"pm-review"`
+  - **Changed Files artifact requirements:**
+    - **MANDATORY:** The Changed Files artifact (`artifactType: "changed-files"`) is REQUIRED on every ticket and must NEVER be omitted or left blank.
+    - **When files changed:** Must list all file paths that were created/modified/deleted, with a brief one-line description of what changed in each file.
+    - **When no files changed:** Must explicitly state "No files changed." followed by a brief explanation (e.g., "Docs-only ticket handled via Supabase updates", "Investigation only", "Repro failed; no code changes made").
+    - **Process failure:** Leaving the Changed Files artifact blank, omitting it, or storing it with only a title is a PROCESS FAILURE and will cause QA to fail immediately.
+    - The Changed Files `body_md` must be NON-EMPTY and substantive in all cases.
 
 - **`POST /api/artifacts/insert-qa`** - Store QA artifact
   - Body: `{ ticketId: string, title: string, body_md: string }`
@@ -61,7 +67,7 @@ Implementation agents (both cloud and local) must use HAL API endpoints:
 2. **Store artifacts:** `POST /api/artifacts/insert-implementation` for each artifact type:
    - Plan
    - Worklog
-   - Changed Files
+   - Changed Files (**MANDATORY:** Must be non-empty. If no files changed, explicitly state "No files changed." with explanation.)
    - Decisions
    - Verification
    - PM Review
