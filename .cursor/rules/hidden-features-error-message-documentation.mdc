@@ -1,0 +1,173 @@
+---
+description: Require agents to document changes to error messages for hidden/locked/feature-flagged capabilities
+alwaysApply: true
+---
+
+# Hidden Features: Error Message Changes Must Be Documented
+
+**MANDATORY:** Whenever an agent changes an error message that is shown for a hidden/locked/feature-flagged capability, they **must** document the change (what changed + why), so future agents don't misinterpret the message as a product decision.
+
+## What is a "Hidden Feature" Error Message?
+
+A **hidden feature error message** is any user-facing error, warning, or informational message that appears when a user attempts to access or use a capability that is:
+
+- **Feature-flagged** (gated behind a feature flag/toggle)
+- **Conditionally rendered** (hidden based on permissions, roles, or configuration)
+- **Permission-gated** (requires specific user permissions or roles)
+- **Locked** (temporarily disabled or "coming soon")
+- **Environment-restricted** (only available in certain environments)
+
+### Examples of Hidden Feature Error Messages
+
+- "This feature is not available in your plan" (permission-gated)
+- "Coming soon" (locked/planned feature)
+- "Feature disabled" (feature-flagged off)
+- "You don't have permission to access this" (role-based access)
+- "This feature is only available in development" (environment-restricted)
+- Toast notifications, modal dialogs, or inline messages shown when accessing hidden features
+
+## When This Requirement Applies
+
+This requirement applies to **all agents** when making changes to error messages related to hidden features:
+
+- **Implementation agents** — Must document error message changes in their **Implementation "Decisions" artifact** or ticket body "Implementation notes"
+- **QA agents** — Must verify that error message changes are properly documented and include verification in QA report "Notes"
+- **Project Manager agents** — Must ensure error message changes are called out in PM reviews
+
+## Required Documentation
+
+**MANDATORY:** When an agent changes any error message related to a hidden feature, they **must** document the following:
+
+### 1. Previous and New Wording/Behavior
+
+- **Previous wording/behavior:** Copy/paste the exact previous error message text (when practical) or describe the previous behavior
+- **New wording/behavior:** Copy/paste the exact new error message text (when practical) or describe the new behavior
+
+**Example:**
+```markdown
+### Previous Wording
+"This feature is not available in your plan. Please upgrade to access this feature."
+
+### New Wording
+"This feature is not available. Contact support for access."
+```
+
+### 2. Where the Message Lives
+
+- **File path:** The exact file path where the error message is defined or rendered
+- **Component/context:** The specific component, function, or context where the message appears
+
+**Example:**
+```markdown
+### Location
+- File: `src/components/FeatureGate.tsx:42-45`
+- Component: `FeatureGate` component, `renderErrorMessage()` method
+```
+
+### 3. Reason for the Change
+
+Clearly state the reason for the change:
+- **Bugfix** (e.g., "Fixed typo", "Corrected incorrect permission check")
+- **Product decision** (e.g., "Product requested clearer messaging")
+- **Copy tweak** (e.g., "Improved clarity", "Shortened for mobile")
+- **Technical change** (e.g., "Updated to match new permission system")
+
+**Example:**
+```markdown
+### Reason
+Bugfix: The previous message incorrectly referenced "plan" when the feature is actually gated by role permissions, not subscription plan.
+```
+
+### 4. Knock-on UX Impact
+
+Describe any user-visible impact beyond the message text change:
+- **Message visibility:** "User now sees nothing vs a toast", "Toast replaced with inline message"
+- **UI elements:** "Support link removed", "Button text changed from 'Upgrade' to 'Contact Support'"
+- **Behavior changes:** "Message now appears immediately vs after 2s delay", "Message persists until dismissed vs auto-dismisses"
+
+**Example:**
+```markdown
+### UX Impact
+- Support link removed from error message
+- Error now appears as inline message instead of toast notification
+- Message persists until user dismisses it (previously auto-dismissed after 5 seconds)
+```
+
+## Where to Document
+
+The documentation must be included in **one of** the following locations (choose the most appropriate based on the change scope):
+
+1. **Ticket body "Implementation notes"** — For small changes or when the ticket is primarily about the error message change
+2. **Implementation "Decisions" artifact** — For changes made during implementation that affect error messages (stored in Supabase with `artifactType: "decisions"`)
+3. **QA report "Notes"** — For error message changes discovered or made during QA review (stored in Supabase with `artifactType: "qa-report"`)
+
+### Documentation Template
+
+Use this template when documenting error message changes:
+
+```markdown
+## Hidden Feature Error Message Change
+
+**Error message changed:** [Yes / No]
+
+If Yes, complete the following:
+
+### Previous Wording/Behavior
+[Copy/paste exact previous message text or describe previous behavior]
+
+### New Wording/Behavior
+[Copy/paste exact new message text or describe new behavior]
+
+### Location
+- File: `[file path]:[line numbers]`
+- Component/Context: `[component name, function name, or context]`
+
+### Reason for Change
+[Brief explanation: Bugfix / Product decision / Copy tweak / Technical change]
+
+### Knock-on UX Impact
+[Describe any user-visible impact beyond message text, e.g., "Support link removed", "Toast replaced with inline message", etc.]
+```
+
+## QA Review Requirements
+
+**MANDATORY:** When QA agents review a ticket that includes error message changes for hidden features, they **must**:
+
+1. **Verify the change is documented** — If an error message for a hidden feature was changed but the documentation is missing or incomplete, QA **MUST FAIL** the ticket.
+
+2. **Review the documented change** — QA should verify:
+   - The "Previous Wording/Behavior" and "New Wording/Behavior" accurately describe the change
+   - The "Location" correctly identifies where the message lives
+   - The "Reason for Change" provides adequate justification
+   - The "Knock-on UX Impact" accurately describes user-visible changes
+
+3. **Include error message review in QA report** — QA reports should include a section confirming:
+   - Hidden feature error message changes were properly documented (or "No hidden feature error message changes" if none were made)
+   - The documented change matches the code review findings
+   - Any concerns about user experience or messaging clarity
+
+### QA Report Template Addition
+
+QA reports should include:
+
+```markdown
+## Hidden Feature Error Message Review
+
+**Hidden feature error message changes:** [Yes / No]
+
+If Yes:
+- [ ] Change is documented in appropriate location (Implementation notes / Decisions artifact / QA report Notes)
+- [ ] Previous and new wording/behavior documented
+- [ ] Location (file path and component/context) documented
+- [ ] Reason for change documented
+- [ ] Knock-on UX impact documented
+- [ ] Documented change matches code review findings: [Yes / No]
+- [ ] Concerns identified: [None / List any concerns]
+```
+
+## Scope
+
+- Applies to **all agents** (implementation, QA, PM) when error messages for hidden features are changed
+- The documentation must be **human-verifiable** — a reviewer can open the documentation and immediately understand what changed, why it changed, and where it lives
+- The documentation must contain **enough detail** that a future agent can reconstruct intent without reading git history
+- When in doubt, **document the change** — it's better to over-document than to leave future agents guessing whether a message change was intentional or accidental
