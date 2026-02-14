@@ -1,72 +1,57 @@
 ---
-description: Entry point for agent instructions - load basic rules from Supabase
+description: How to access agent instructions via HAL API
 alwaysApply: true
 ---
 
-# Agent Instructions Entry Point
+# Agent Instructions
 
-**All agent instructions are stored in Supabase and accessed via HAL API endpoints.**
+Agent instructions are stored in Supabase and accessed via HAL API endpoints. This file is an entry point to the instruction system.
 
-## First Step: Load Basic Instructions
+## Accessing Instructions
 
-**MANDATORY:** Before starting any work, you **must** load your basic instructions from Supabase.
+### For Agents
 
-### How to Load Instructions
+Agents should access instructions via HAL API endpoints (preferred) or directly from Supabase (fallback).
 
-1. **Read the HAL API base URL:**
-   ```javascript
-   const baseUrl = (await readFile('.hal/api-base-url', 'utf8')).trim()
-   ```
+**HAL API Endpoints:**
 
-2. **Load basic instructions for your agent type:**
-   ```javascript
-   const res = await fetch(`${baseUrl}/api/instructions/get`, {
-     method: 'POST',
-     headers: { 'Content-Type': 'application/json' },
-     body: JSON.stringify({
-       agentType: 'implementation', // or 'qa', 'project-manager', etc.
-       includeBasic: true,
-       includeSituational: false,
-     }),
-   })
-   const result = await res.json()
-   if (result.success) {
-     // result.instructions contains your basic instructions
-     // These include rules for all agents + rules specific to your agent type
-   }
-   ```
+- **Get all instructions:** `POST /api/instructions/get`
+  - Body: `{ repoFullName?: string, agentType?: string, includeBasic?: boolean, includeSituational?: boolean }`
+  - Returns: List of instructions filtered by agent type and instruction type
 
-3. **Read and follow the instructions** - They contain all mandatory workflows, artifact requirements, and procedures.
+- **Get specific topic:** `POST /api/instructions/get-topic`
+  - Body: `{ topicId: string, repoFullName?: string }`
+  - Returns: Full instruction content for a specific topic (used by `get_instruction_set` tool)
 
-## Discovering Available Instruction Sets
+- **Get instruction index:** `POST /api/instructions/get-index`
+  - Body: `{ repoFullName?: string }`
+  - Returns: Instruction index metadata with available topics
 
-To see what additional instruction sets are available:
-
+**Example (get basic instructions):**
 ```javascript
-const res = await fetch(`${baseUrl}/api/instructions/get-index`, {
+const baseUrl = (await readFile('.hal/api-base-url', 'utf8')).trim()
+const res = await fetch(`${baseUrl}/api/instructions/get`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({}),
+  body: JSON.stringify({
+    agentType: 'project-manager',
+    includeBasic: true,
+    includeSituational: false,
+  }),
 })
 const result = await res.json()
 if (result.success) {
-  // result.index contains:
-  // - basic: list of basic instruction topic IDs
-  // - situational: map of agent types to available situational instruction sets
-  // - topics: metadata about each topic
+  // result.instructions contains the basic instructions
 }
 ```
 
-## Requesting Additional Instructions
-
-If you need additional instructions during your work, request a specific topic:
-
+**Example (get specific topic):**
 ```javascript
 const res = await fetch(`${baseUrl}/api/instructions/get-topic`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
-    topicId: 'auditability-and-traceability', // or any topic ID from the index
+    topicId: 'auditability-and-traceability',
   }),
 })
 const result = await res.json()
@@ -75,16 +60,18 @@ if (result.success) {
 }
 ```
 
-## Instruction Structure
+### Instruction Structure
 
-- **Basic Instructions** - Automatically loaded for your agent type (includes rules for all agents + your specific agent type)
-- **Situational Instructions** - Available on-demand via topic ID (use when you need specific guidance)
+Instructions are organized into:
 
-## Editing Instructions
+1. **Basic Instructions** - Always loaded for all agents (minimal core instructions)
+2. **Situational Instructions** - Available on-demand via `get_instruction_set` tool
 
-Instructions are edited in the HAL app UI (not in `.cursor/rules`):
-- Click "Agent Instructions" button in the HAL app header
-- Browse the instruction hierarchy (All Agents → Agent Type → Instruction)
+### For Users
+
+Users can browse and edit instructions in the HAL app:
+- Click "Agent Instructions" button in the header
+- Browse the instruction hierarchy (All Agents → Agent → Instruction)
 - Click "Edit" to modify instructions (saves directly to Supabase)
 
 **Note:** This file (`.cursor/rules/agent-instructions.mdc`) is only an entry point. All actual instructions live in Supabase.

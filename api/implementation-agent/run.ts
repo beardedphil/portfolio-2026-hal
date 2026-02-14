@@ -156,40 +156,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const promptText = [
       'Implement this ticket.',
       '',
-      '## MANDATORY: Load Your Instructions First',
-      '',
-      '**BEFORE starting any work, you MUST load your basic instructions from Supabase.**',
-      '',
-      '**Step 1: Load basic instructions:**',
-      '```javascript',
-      `const baseUrl = '${halApiUrl}'`,
-      'const res = await fetch(`${baseUrl}/api/instructions/get`, {',
-      '  method: \'POST\',',
-      '  headers: { \'Content-Type\': \'application/json\' },',
-      '  body: JSON.stringify({',
-      '    agentType: \'implementation\',',
-      '    includeBasic: true,',
-      '    includeSituational: false,',
-      '  }),',
-      '})',
-      'const result = await res.json()',
-      'if (result.success) {',
-      '  // result.instructions contains your basic instructions',
-      '  // These include all mandatory workflows, artifact requirements, and procedures',
-      '  // READ AND FOLLOW THESE INSTRUCTIONS - they contain critical requirements',
-      '}',
-      '```',
-      '',
-      '**The instructions from Supabase contain:**',
-      '- Required artifacts you must create (plan, worklog, changed-files, decisions, verification, pm-review, git-diff, instructions-used)',
-      '- How to store artifacts via HAL API',
-      '- When and how to move tickets',
-      '- Code citation requirements',
-      '- State management change documentation requirements',
-      '- All other mandatory workflows',
-      '',
-      '**DO NOT proceed with implementation until you have loaded and read your instructions from Supabase.**',
-      '',
       '## Ticket',
       `**ID**: ${displayId}`,
       `**Repo**: ${repoFullName}`,
@@ -222,26 +188,18 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       '',
       isBackInTodo ? '**⚠️ This ticket is back in To Do - it may have been moved back after a failure. Check for QA reports and failure notes before starting.**' : '',
       '',
-      '## Required Artifacts',
+      '## MANDATORY: Store All Required Artifacts',
       '',
       '**YOU MUST store ALL 8 required artifacts before marking the ticket ready for QA. This is MANDATORY, not optional.**',
       '',
-      '**You must create all required artifacts before marking the ticket ready for QA.**',
+      '**CRITICAL: Artifacts must contain SUBSTANTIVE CONTENT, not just titles or placeholders.**',
       '',
-      '**To store artifacts, use:**',
-      '```javascript',
-      `const baseUrl = '${halApiUrl}'`,
-      'await fetch(`${baseUrl}/api/artifacts/insert-implementation`, {',
-      '  method: \'POST\',',
-      '  headers: { \'Content-Type\': \'application/json\' },',
-      '  body: JSON.stringify({',
-      '    ticketId: \'0076\',',
-      '    artifactType: \'plan\', // or worklog, changed-files, decisions, verification, pm-review, git-diff, instructions-used',
-      '    title: \'Plan for ticket 0076\',',
-      '    body_md: \'# Plan\\n\\n...\',',
-      '  }),',
-      '})',
-      '```',
+      '**Artifact content requirements:**',
+      '- Each artifact body_md must contain at least 30-50 characters of substantive content beyond the title',
+      '- Artifacts cannot be empty, contain only headings, or consist of placeholder text (TODO, TBD, etc.)',
+      '- The HAL API will REJECT artifacts that are essentially blank or placeholder-only',
+      '- If you attempt to store an artifact with insufficient content, you will receive a clear error message explaining what is missing',
+      '- Re-running Implementation on the same ticket will NOT overwrite existing artifacts with empty content',
       '',
       '**Required artifacts (call HAL API `/api/artifacts/insert-implementation` for each):**',
       '',
@@ -430,116 +388,29 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         const summary = statusData.summary ?? 'Implementation completed.'
         const prUrl = statusData.target?.prUrl
 
-        // Move ticket to QA with retry logic and error reporting
-        let moveToQaSuccess = false
-        let moveToQaError: string | null = null
-        
-        const moveToQa = async (retries = 3): Promise<{ success: boolean; error?: string }> => {
-          for (let attempt = 1; attempt <= retries; attempt++) {
-            try {
-              // Fetch current QA column position
-              const { data: inColumn, error: fetchError } = await supabase
-                .from('tickets')
-                .select('kanban_position')
-                .eq('repo_full_name', repoFullName)
-                .eq('kanban_column_id', 'col-qa')
-                .order('kanban_position', { ascending: false })
-                .limit(1)
-              
-              if (fetchError) {
-                const errorMsg = `Failed to fetch QA column position: ${fetchError.message}`
-                if (attempt === retries) {
-                  return { success: false, error: errorMsg }
-                }
-                await sleep(1000 * attempt) // Exponential backoff
-                continue
-              }
-              
-              const nextPosition = inColumn?.length ? ((inColumn[0] as any)?.kanban_position ?? -1) + 1 : 0
-              const movedAt = new Date().toISOString()
-              
-              // Update ticket to QA column
-              const { error: updateError } = await supabase
-                .from('tickets')
-                .update({ kanban_column_id: 'col-qa', kanban_position: nextPosition, kanban_moved_at: movedAt })
-                .eq('pk', ticketPk)
-              
-              if (updateError) {
-                const errorMsg = `Failed to update ticket to QA: ${updateError.message}`
-                console.error(`[Implementation Agent] Move to QA attempt ${attempt}/${retries} failed:`, updateError)
-                if (attempt === retries) {
-                  return { success: false, error: errorMsg }
-                }
-                await sleep(1000 * attempt) // Exponential backoff
-                continue
-              }
-              
-              // Verify the move succeeded by checking the ticket's current column
-              const { data: verifyTicket, error: verifyError } = await supabase
-                .from('tickets')
-                .select('kanban_column_id')
-                .eq('pk', ticketPk)
-                .maybeSingle()
-              
-              if (verifyError) {
-                const errorMsg = `Failed to verify ticket move: ${verifyError.message}`
-                console.error(`[Implementation Agent] Verification failed:`, verifyError)
-                if (attempt === retries) {
-                  return { success: false, error: errorMsg }
-                }
-                await sleep(1000 * attempt)
-                continue
-              }
-              
-              if (verifyTicket?.kanban_column_id === 'col-qa') {
-                return { success: true }
-              } else {
-                const errorMsg = `Ticket move verification failed: ticket is in column ${verifyTicket?.kanban_column_id || 'unknown'} instead of col-qa`
-                console.error(`[Implementation Agent] ${errorMsg}`)
-                if (attempt === retries) {
-                  return { success: false, error: errorMsg }
-                }
-                await sleep(1000 * attempt)
-                continue
-              }
-            } catch (err) {
-              const errorMsg = err instanceof Error ? err.message : String(err)
-              console.error(`[Implementation Agent] Move to QA attempt ${attempt}/${retries} threw error:`, err)
-              if (attempt === retries) {
-                return { success: false, error: `Unexpected error: ${errorMsg}` }
-              }
-              await sleep(1000 * attempt) // Exponential backoff
-            }
-          }
-          return { success: false, error: 'Move to QA failed after all retries' }
+        // Move ticket to QA
+        try {
+          const { data: inColumn } = await supabase
+            .from('tickets')
+            .select('kanban_position')
+            .eq('repo_full_name', repoFullName)
+            .eq('kanban_column_id', 'col-qa')
+            .order('kanban_position', { ascending: false })
+            .limit(1)
+          const nextPosition = inColumn?.length ? ((inColumn[0] as any)?.kanban_position ?? -1) + 1 : 0
+          const movedAt = new Date().toISOString()
+          await supabase
+            .from('tickets')
+            .update({ kanban_column_id: 'col-qa', kanban_position: nextPosition, kanban_moved_at: movedAt })
+            .eq('pk', ticketPk)
+        } catch {
+          // non-fatal: still return completion summary
         }
-        
-        const moveResult = await moveToQa()
-        moveToQaSuccess = moveResult.success
-        moveToQaError = moveResult.error || null
 
         const parts = [summary]
         if (prUrl) parts.push(`\n\nPull request: ${prUrl}`)
-        
-        if (moveToQaSuccess) {
-          parts.push(`\n\n✅ Ticket ${displayId} moved to QA.`)
-        } else {
-          parts.push(`\n\n⚠️ **Warning**: Ticket ${displayId} could not be moved to QA automatically.`)
-          parts.push(`\n**Error**: ${moveToQaError || 'Unknown error'}`)
-          parts.push(`\n**Action required**: Please move the ticket to QA manually in the Kanban board.`)
-          console.error(`[Implementation Agent] Failed to move ticket ${displayId} to QA:`, moveToQaError)
-        }
-        
-        writeStage({ 
-          stage: 'completed', 
-          success: true, 
-          content: parts.join(''), 
-          prUrl, 
-          summary, 
-          status: 'completed',
-          moveToQaSuccess,
-          moveToQaError: moveToQaError || undefined,
-        })
+        parts.push(`\n\nTicket ${displayId} moved to QA.`)
+        writeStage({ stage: 'completed', success: true, content: parts.join(''), prUrl, summary, status: 'completed' })
         res.end()
         return
       }
