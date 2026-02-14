@@ -141,6 +141,9 @@ If Yes:
 ## Scope
 
 - Applies to **all agents** (implementation, QA, PM) when conditional rendering is involved
+- Applies to **all conditional rendering** in UI components (React, Vue, or other framework conditionals like `{condition && <Component />}`, `v-if`, `*ngIf`, etc.)
+- Applies when **adding**, **modifying**, or **removing** conditional rendering logic
+- Must be completed **before** claiming implementation is complete
 - The checklist must be **human-verifiable** — a reviewer can open the Plan or Decisions artifact and immediately see the conditional rendering decisions and their justification
 - When in doubt, **document the decision** — it's better to over-document than to accidentally hide or remove features without justification
 - This requirement helps prevent:
