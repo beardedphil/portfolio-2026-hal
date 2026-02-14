@@ -1631,6 +1631,12 @@ function App() {
           }
         }
       }
+      // Deduplication: Check if a message with the same ID already exists (0153: prevent duplicate messages)
+      const existingMessageIndex = conv.messages.findIndex(msg => msg.id === nextId)
+      if (existingMessageIndex >= 0) {
+        // Message with this ID already exists, skip adding duplicate
+        return next
+      }
       next.set(conversationId, {
         ...conv,
         messages: [...conv.messages, { id: nextId, agent, content, timestamp: new Date(), imageAttachments }],
@@ -3042,7 +3048,6 @@ function App() {
       convId = getDefaultConversationId(selectedChatTarget === 'project-manager' ? 'project-manager' : selectedChatTarget)
     }
 
-    const useDb = selectedChatTarget === 'project-manager' && supabaseUrl != null && supabaseAnonKey != null && connectedProject != null
     const attachments = imageAttachment ? [imageAttachment] : undefined
     
     // Track payload summary for diagnostics (0077)
@@ -3060,7 +3065,13 @@ function App() {
     }
     setLastSendPayloadSummary(payloadSummary)
     
-    if (!useDb) addMessage(convId, 'user', content, undefined, attachments)
+    // Don't add message here for PM agent - triggerAgentRun will handle it (0153: prevent duplicates)
+    // For non-PM agents, triggerAgentRun doesn't add user messages, so we add it here
+    // But actually, triggerAgentRun handles PM agent messages, so we should let it handle all messages
+    // to avoid duplicates. The deduplication in addMessage will catch any edge cases.
+    if (selectedChatTarget !== 'project-manager') {
+      addMessage(convId, 'user', content, undefined, attachments)
+    }
     setInputValue('')
     setImageAttachment(null)
     setImageError(null)
