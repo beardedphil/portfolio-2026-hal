@@ -2157,6 +2157,27 @@ export default defineConfig({
           }
           next()
         })
+
+        // Failure escalation check endpoint (0195)
+        server.middlewares.use(async (req, res, next) => {
+          if (req.url === '/api/tickets/check-failure-escalation' && req.method === 'POST') {
+            try {
+              const checkEscalationHandler = await import('./api/tickets/check-failure-escalation')
+              await checkEscalationHandler.default(req, res)
+            } catch (err) {
+              res.statusCode = 500
+              res.setHeader('Content-Type', 'application/json')
+              res.end(
+                JSON.stringify({
+                  success: false,
+                  error: err instanceof Error ? err.message : String(err),
+                })
+              )
+            }
+            return
+          }
+          next()
+        })
       },
     },
   ],
