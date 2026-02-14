@@ -181,6 +181,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     // Gate: moving to Ready for QA requires all 8 implementation artifacts (substantive)
     if (columnId === 'col-qa') {
+      if (!resolvedTicketPk) {
+        json(res, 200, {
+          success: false,
+          error: 'Cannot move to Ready for QA: ticket PK not found.',
+        })
+        return
+      }
+      
       const { data: artifactRows, error: artErr } = await supabase
         .from('agent_artifacts')
         .select('title, agent_type, body_md')
@@ -298,7 +306,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     // Update the ticket using the pk from the fetched ticket (most reliable)
     // This ensures we update the correct ticket even if it was found via a different lookup strategy
-    const ticketPkToUse = ticketPk || (ticketFetch.data as any)?.pk
+    const ticketPkToUse = ticketPk || resolvedTicketPk
     
     if (!ticketPkToUse) {
       json(res, 200, {
