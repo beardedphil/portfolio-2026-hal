@@ -1198,7 +1198,11 @@ export async function runPmAgent(
 
             // Get ticket from Supabase
             const repoFullName =
-              typeof config.projectId === 'string' && config.projectId.trim() ? config.projectId.trim() : ''
+              (typeof config.repoFullName === 'string' && config.repoFullName.trim()
+                ? config.repoFullName.trim()
+                : typeof config.projectId === 'string' && config.projectId.trim()
+                ? config.projectId.trim()
+                : '')
             let ticket: any = null
             let ticketError: string | null = null
 
