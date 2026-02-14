@@ -81,3 +81,36 @@ Users can browse and edit instructions in the HAL app:
 - **Access:** Via HAL API endpoints (no direct Supabase access needed)
 
 See `.cursor/rules/agent-supabase-api-paradigm.mdc` for full API endpoint documentation.
+
+## Moving Tickets After Implementation
+
+After completing implementation work, agents should move the ticket to **Ready for QA** using the HAL API:
+
+**Move ticket to Ready for QA:**
+```javascript
+const baseUrl = (await readFile('.hal/api-base-url', 'utf8')).trim()
+const res = await fetch(`${baseUrl}/api/tickets/move`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    ticketId: '0167', // The ticket ID (e.g., '0167' for HAL-0167)
+    columnId: 'col-qa', // Ready for QA column
+  }),
+})
+const result = await res.json()
+if (result.success) {
+  // Ticket moved successfully to position result.position
+}
+```
+
+**Available column IDs:**
+- `col-unassigned` - Unassigned
+- `col-todo` - To-do
+- `col-doing` - Doing (Active Work)
+- `col-qa` - Ready for QA
+- `col-human-in-the-loop` - Human in the Loop
+- `col-process-review` - Process Review
+- `col-done` - Done
+- `col-wont-implement` - Will Not Implement
+
+**Note:** The HAL API endpoint `/api/tickets/move` uses server-side Supabase credentials, so agents don't need to provide credentials in the request body.
