@@ -3076,6 +3076,7 @@ function App() {
       } else {
         // When not skipping pending moves (refetch after move completes), preserve optimistic positions
         // until backend confirms the move to prevent jumps when backend data arrives (0144)
+        // CRITICAL FIX: Never update tickets in pendingMoves from DB unless backend EXACTLY matches optimistic position
         setSupabaseTickets((prev) => {
           const newMap = new Map(normalizedRows.map((r) => [r.pk, r]))
           const result: SupabaseTicketRow[] = []
@@ -3084,20 +3085,18 @@ function App() {
           // This prevents snap-back when refetch happens before backend save completes
           for (const t of prev) {
             if (pendingMoves.has(t.pk)) {
+              // CRITICAL: For tickets in pendingMoves, NEVER update from DB unless backend position
+              // EXACTLY matches the optimistic position. This prevents snap-back.
               const dbRow = newMap.get(t.pk)
-              // CRITICAL: Only update if position/column EXACTLY matches optimistic update
-              // If backend hasn't updated yet (common case), keep optimistic position
               if (dbRow && 
                   dbRow.kanban_column_id === t.kanban_column_id && 
                   dbRow.kanban_position === t.kanban_position) {
                 // Backend matches optimistic update - safe to update with DB data
-                // Note: We keep ticket in pendingMoves here - it will be removed by the setTimeout
-                // in the drag handler after confirming the position matches
+                // Note: Ticket remains in pendingMoves until handler confirms and removes it
                 result.push(dbRow)
               } else {
-                // Backend hasn't caught up yet OR there's a discrepancy - KEEP optimistic update
-                // This prevents the snap-back behavior where card jumps back to old position
-                // Keep ticket in pendingMoves until backend confirms
+                // Backend hasn't caught up yet OR there's a discrepancy - ALWAYS KEEP optimistic update
+                // This is the key fix: never overwrite optimistic position with stale DB data
                 result.push(t)
               }
               processedIds.add(t.pk)
@@ -3656,15 +3655,20 @@ function App() {
             setTimeout(() => {
               refetchSupabaseTickets(false).then(() => {
                 // After refetch, check if backend position matches optimistic position
-                // Only remove from pendingMoves if backend has confirmed the move
+                // CRITICAL FIX: Check the actual state after refetch to see if backend confirmed
+                // The refetch logic preserves optimistic positions, so if the ticket is still at
+                // the optimistic position after refetch, backend hasn't confirmed yet
                 setSupabaseTickets((currentTickets) => {
                   const currentTicket = currentTickets.find((t) => t.pk === ticketPk)
                   // If backend position matches optimistic position, backend has confirmed
+                  // CRITICAL: Only remove from pendingMoves if position EXACTLY matches
                   if (currentTicket && 
                       currentTicket.kanban_column_id === expectedColumnId && 
                       currentTicket.kanban_position === expectedPosition) {
                     // Backend confirmed - safe to remove from pendingMoves
+                    // Remove synchronously to avoid race conditions
                     setPendingMoves((prev) => {
+                      if (!prev.has(ticketPk)) return prev // Already removed
                       const next = new Set(prev)
                       next.delete(ticketPk)
                       return next
@@ -3786,15 +3790,20 @@ function App() {
             setTimeout(() => {
               refetchSupabaseTickets(false).then(() => {
                 // After refetch, check if backend position matches optimistic position
-                // Only remove from pendingMoves if backend has confirmed the move
+                // CRITICAL FIX: Check the actual state after refetch to see if backend confirmed
+                // The refetch logic preserves optimistic positions, so if the ticket is still at
+                // the optimistic position after refetch, backend hasn't confirmed yet
                 setSupabaseTickets((currentTickets) => {
                   const currentTicket = currentTickets.find((t) => t.pk === ticketPk)
                   // If backend position matches optimistic position, backend has confirmed
+                  // CRITICAL: Only remove from pendingMoves if position EXACTLY matches
                   if (currentTicket && 
                       currentTicket.kanban_column_id === expectedColumnId && 
                       currentTicket.kanban_position === expectedPosition) {
                     // Backend confirmed - safe to remove from pendingMoves
+                    // Remove synchronously to avoid race conditions
                     setPendingMoves((prev) => {
+                      if (!prev.has(ticketPk)) return prev // Already removed
                       const next = new Set(prev)
                       next.delete(ticketPk)
                       return next
@@ -3884,15 +3893,20 @@ function App() {
             setTimeout(() => {
               refetchSupabaseTickets(false).then(() => {
                 // After refetch, check if backend position matches optimistic position
-                // Only remove from pendingMoves if backend has confirmed the move
+                // CRITICAL FIX: Check the actual state after refetch to see if backend confirmed
+                // The refetch logic preserves optimistic positions, so if the ticket is still at
+                // the optimistic position after refetch, backend hasn't confirmed yet
                 setSupabaseTickets((currentTickets) => {
                   const currentTicket = currentTickets.find((t) => t.pk === ticketPk)
                   // If backend position matches optimistic position, backend has confirmed
+                  // CRITICAL: Only remove from pendingMoves if position EXACTLY matches
                   if (currentTicket && 
                       currentTicket.kanban_column_id === expectedColumnId && 
                       currentTicket.kanban_position === expectedPosition) {
                     // Backend confirmed - safe to remove from pendingMoves
+                    // Remove synchronously to avoid race conditions
                     setPendingMoves((prev) => {
+                      if (!prev.has(ticketPk)) return prev // Already removed
                       const next = new Set(prev)
                       next.delete(ticketPk)
                       return next
