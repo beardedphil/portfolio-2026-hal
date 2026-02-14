@@ -1,0 +1,141 @@
+---
+description: AC Confirmation Checklist - mandatory step before marking tickets complete
+alwaysApply: true
+---
+
+# AC Confirmation Checklist
+
+**MANDATORY:** Before marking a ticket complete or moving it forward in the workflow, agents **MUST** perform an explicit Acceptance Criteria (AC) confirmation checklist. This applies to **Implementation**, **QA**, and **PM** agents where relevant.
+
+## When to Perform AC Confirmation
+
+- **Implementation agents:** Before moving ticket to "Ready for QA" and sending completion summary
+- **QA agents:** Before moving ticket to "Human in the Loop" and sending completion summary
+- **PM agents:** Before marking ticket complete or moving to final status (where applicable)
+
+**CRITICAL:** The AC confirmation checklist must be completed **before** any final summary message or ticket movement. Do not mark a ticket complete or move it forward without completing this checklist.
+
+## AC Confirmation Checklist Requirements
+
+### 1. Enumerate Each Acceptance Criteria
+
+You **MUST** enumerate every single Acceptance Criteria line item from the ticket. For each AC:
+
+- List the full text of the AC (or a clear reference that uniquely identifies it)
+- State **"Met"** or **"Not met"** for each AC
+- Provide **evidence** for your determination
+
+### 2. Evidence Requirements
+
+For each AC marked as **"Met"**, provide one or more of the following types of evidence:
+
+- **Links to artifacts:** Reference specific artifacts stored in Supabase (e.g., "See Plan artifact for ticket 0191, section X")
+- **File paths:** Reference specific files and line numbers where the requirement is implemented (e.g., "`.cursor/rules/ac-confirmation-checklist.mdc` lines 15-25")
+- **Screenshots:** If applicable, reference screenshots stored in artifacts
+- **Reproduction steps:** Clear steps a human can follow to verify the AC is met (e.g., "Navigate to X, click Y, verify Z appears")
+
+For each AC marked as **"Not met"**, clearly state:
+- Why it is not met
+- What work remains
+- What the next steps are (see "Handling Unmet ACs" below)
+
+### 3. Handling Unmet Acceptance Criteria
+
+**MANDATORY:** If any AC is marked as **"Not met"**, you **MUST** clearly state what happens next:
+
+- **Do not mark complete:** The ticket cannot be marked complete or moved to a "done" status
+- **Update plan or open follow-up:** If the AC requires additional work, either:
+  - Update the implementation plan to include the missing work, OR
+  - Create/open a bugfix or follow-up ticket to address the unmet AC
+- **Move to appropriate column:** Move the ticket to the appropriate column (e.g., "To-do" if work remains, "Will Not Implement" if the AC is intentionally not being met)
+
+**CRITICAL:** You **MUST NOT** mark a ticket complete or move it forward if any AC is not met, unless explicitly documented that the AC is intentionally not being met (with justification).
+
+## Human-Verifiable Format
+
+The AC confirmation checklist must be written so a human can verify it **purely via UI artifacts and the agent's final summary**. This means:
+
+- **Include in final summary:** The AC confirmation checklist must appear in the agent's final completion message/summary
+- **Reference artifacts:** Evidence should reference artifacts that are stored in Supabase and accessible via the HAL app UI
+- **No terminal-only verification:** All evidence must be verifiable through the HAL app UI (artifacts, ticket content, etc.) without requiring terminal access
+
+### Example AC Confirmation Checklist Format
+
+```markdown
+## AC Confirmation Checklist
+
+### AC 1: "A new, explicit 'AC Confirmation checklist' section exists in the agent process docs/rules"
+- **Status:** Met
+- **Evidence:** 
+  - New rule file created: `.cursor/rules/ac-confirmation-checklist.mdc`
+  - See artifact: "Plan for ticket 0191" section "Implementation Details"
+  - File path: `.cursor/rules/ac-confirmation-checklist.mdc` lines 1-150
+
+### AC 2: "The checklist requires the agent to enumerate each Acceptance Criteria line item from the ticket and write 'Met / Not met' with evidence"
+- **Status:** Met
+- **Evidence:**
+  - See this section (lines 25-45) which requires enumeration and Met/Not met status
+  - See artifact: "Verification for ticket 0191" which demonstrates the checklist format
+
+### AC 3: "The checklist requires the agent to state what happens when any AC is not met"
+- **Status:** Met
+- **Evidence:**
+  - See "Handling Unmet Acceptance Criteria" section (lines 60-75)
+  - This section explicitly requires stating next steps when ACs are not met
+
+### AC 4: "The workflow is written so a human can verify it purely via the UI artifacts and the agent's final summary"
+- **Status:** Met
+- **Evidence:**
+  - See "Human-Verifiable Format" section (lines 80-95)
+  - This section requires all evidence to be verifiable via HAL app UI
+
+### AC 5: "Documentation/rules updates are scoped to process changes only (no product feature implementation required)"
+- **Status:** Met
+- **Evidence:**
+  - Only documentation files were created/modified (`.cursor/rules/ac-confirmation-checklist.mdc`)
+  - No product code changes were made
+  - See artifact: "Changed Files for ticket 0191"
+```
+
+## Integration with Existing Workflows
+
+### For Implementation Agents:
+
+1. Complete all implementation work
+2. Store all required artifacts
+3. **Perform AC Confirmation Checklist** (this step)
+4. If all ACs are met: Move ticket to "Ready for QA" and send completion summary
+5. If any AC is not met: Do not move ticket; update plan or create follow-up ticket
+
+### For QA Agents:
+
+1. Verify required implementation artifacts are present
+2. Perform code review and verification
+3. **Perform AC Confirmation Checklist** (this step) - verify that implementation met all ACs
+4. If all ACs are met: Store QA report, move ticket to "Human in the Loop", merge to main, send completion summary
+5. If any AC is not met: Store QA report with FAIL verdict, move ticket to "To-do", send summary
+
+### For PM Agents:
+
+1. Review ticket and artifacts
+2. **Perform AC Confirmation Checklist** (this step) - verify that all ACs are met
+3. If all ACs are met: Mark ticket complete or move to final status
+4. If any AC is not met: Do not mark complete; move to appropriate column
+
+## Storage of AC Confirmation Checklist
+
+The AC confirmation checklist should be:
+
+- **Included in the agent's final summary message** (mandatory)
+- **Stored in an artifact** (recommended for Implementation and QA agents):
+  - Implementation agents: Include in "Verification for ticket <ticket-id>" artifact
+  - QA agents: Include in "QA report for ticket <ticket-id>" artifact
+  - PM agents: Include in "PM Review for ticket <ticket-id>" artifact (if applicable)
+
+This ensures the checklist is human-verifiable via the HAL app UI.
+
+## Scope
+
+- **Applies to:** Implementation agents, QA agents, PM agents
+- **Applies when:** Before marking tickets complete or moving them forward in workflow
+- **Mandatory:** Yes - this is a required step, not optional

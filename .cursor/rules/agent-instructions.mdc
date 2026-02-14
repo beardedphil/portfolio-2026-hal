@@ -88,3 +88,72 @@ Instructions are edited in the HAL app UI (not in `.cursor/rules`):
 - Click "Edit" to modify instructions (saves directly to Supabase)
 
 **Note:** This file (`.cursor/rules/agent-instructions.mdc`) is only an entry point. All actual instructions live in Supabase.
+
+### Instruction Storage
+
+- **Storage:** Supabase `agent_instructions` and `agent_instruction_index` tables
+- **Editing:** Via HAL app UI (writes to Supabase)
+- **Access:** Via HAL API endpoints (no direct Supabase access needed)
+
+See `.cursor/rules/agent-supabase-api-paradigm.mdc` for full API endpoint documentation.
+
+## Moving Tickets After Implementation
+
+**MANDATORY:** After completing implementation work, implementation agents **MUST** move the ticket to **Ready for QA** using the HAL API. This is **not optional** - failing to move the ticket to Ready for QA means the implementation workflow is incomplete.
+
+**Move ticket to Ready for QA:**
+```javascript
+const baseUrl = (await readFile('.hal/api-base-url', 'utf8')).trim()
+const res = await fetch(`${baseUrl}/api/tickets/move`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    ticketId: '0167', // The ticket ID (e.g., '0167' for HAL-0167)
+    columnId: 'col-qa', // Ready for QA column
+  }),
+})
+const result = await res.json()
+if (result.success) {
+  // Ticket moved successfully to position result.position
+}
+```
+
+**Ticket ID formats:**
+The `/api/tickets/move` endpoint accepts multiple ticket ID formats for flexibility:
+- Numeric ID: `'172'` (the actual id field value)
+- With leading zeros: `'0172'` (will be normalized automatically)
+- Display ID: `'HAL-0172'` (will be resolved to the numeric id)
+
+The API automatically handles these formats by trying multiple lookup strategies, so you can use whichever format is most convenient. The API will find the ticket regardless of format and use the ticket's primary key (pk) for the update to ensure reliability.
+
+**AC Confirmation Checklist (MANDATORY):**
+
+Before moving the ticket to Ready for QA, you **MUST** complete the AC Confirmation Checklist. See `.cursor/rules/ac-confirmation-checklist.mdc` for full requirements.
+
+**Summary of AC Confirmation Checklist:**
+1. Enumerate every Acceptance Criteria from the ticket
+2. For each AC, state "Met" or "Not met" with evidence (artifact links, file paths, screenshots, or reproduction steps)
+3. If any AC is not met: Do not move ticket to Ready for QA; update plan or create follow-up ticket instead
+4. Include the AC confirmation checklist in your final summary message and in the "Verification for ticket <ticket-id>" artifact
+
+**CRITICAL:** You **MUST NOT** move a ticket to Ready for QA if any AC is not met (unless explicitly documented that the AC is intentionally not being met with justification).
+
+**When to move:**
+- After all code changes are committed and pushed
+- After all required artifacts are stored (if applicable)
+- **After completing the AC Confirmation Checklist confirms all ACs are met**
+- Before sending the final "implementation complete" summary message
+
+**CRITICAL:** Do not send a completion summary or "done" message without first completing the AC Confirmation Checklist and moving the ticket to Ready for QA. Both steps are part of the completion workflow, not optional.
+
+**Available column IDs:**
+- `col-unassigned` - Unassigned
+- `col-todo` - To-do
+- `col-doing` - Doing (Active Work)
+- `col-qa` - Ready for QA
+- `col-human-in-the-loop` - Human in the Loop
+- `col-process-review` - Process Review
+- `col-done` - Done
+- `col-wont-implement` - Will Not Implement
+
+**Note:** The HAL API endpoint `/api/tickets/move` uses server-side Supabase credentials, so agents don't need to provide credentials in the request body. The API uses the ticket's primary key (pk) for updates to ensure reliable ticket movement regardless of the ticket ID format provided.

@@ -1,0 +1,249 @@
+---
+description: QA agents must store QA reports in Supabase via HAL API
+alwaysApply: true
+---
+
+# QA Audit Report (QA Agents)
+
+When you **QA a ticket** (e.g. user asks to "QA", "verify", or "check" a ticket that is allegedly complete), you **must** store a QA report in Supabase via HAL's API endpoints.
+
+## Cloud QA workflow context
+
+In cloud environments, QA agents may not have access to feature branches (only `main`). When this is the case, the implementation agent merges the feature branch to `main` before QA begins. QA must then verify from `main` rather than attempting to check out a feature branch. This workflow is indicated when the ticket states "merged to `main` for QA access" or similar language.
+
+## Which branch to use (decision rule)
+
+- **If the ticket or prompt states that the implementation was "merged to main for QA access"** (or that code is on `main` for QA): 
+  - You **must** verify from the **`main`** branch. 
+  - Do **not** attempt to locate, check out, or use the feature branch.
+  - **Step 1:** Pull the latest `main` branch: `git checkout main && git pull origin main`
+  - **Step 2:** Perform QA on `main` (code review and verification).
+  - **Step 3:** Record in the QA report that verification was performed against `main` (e.g. "Verified on `main`; implementation was merged to main for QA access.").
+  - **Step 4:** Store the QA report in Supabase via HAL API (see "Storing QA report" below).
+  - **Step 5:** Move ticket to Human in the Loop via HAL API, then provide summary.
+- **Otherwise:** use the feature branch named in the ticket's QA → Branch field (or the branch you were launched on). Perform QA on that branch, then follow the full workflow (merge to main, delete branch, etc.).
+
+**Important:** When QA cannot access feature branches (cloud QA workflow), the implementation agent merges the feature branch to `main` before QA. In this case, QA must verify from `main` and record this in the QA report stored in Supabase.
+
+## Required implementation artifacts (must be present before QA)
+
+**MANDATORY:** Before performing any QA work, you **must** verify that all required implementation artifacts are present in Supabase. If any are missing, QA **must fail immediately** without attempting code review or verification.
+
+**Required implementation artifacts:**
+1. **Plan artifact** (`artifactType: "plan"`, title: `Plan for ticket <ticket-id>`)
+2. **Worklog artifact** (`artifactType: "worklog"`, title: `Worklog for ticket <ticket-id>`)
+3. **Changed Files artifact** (`artifactType: "changed-files"`, title: `Changed Files for ticket <ticket-id>`)
+4. **Decisions artifact** (`artifactType: "decisions"`, title: `Decisions for ticket <ticket-id>`)
+5. **Verification artifact** (`artifactType: "verification"`, title: `Verification for ticket <ticket-id>`)
+6. **PM Review artifact** (`artifactType: "pm-review"`, title: `PM Review for ticket <ticket-id>`)
+7. **Git diff artifact** (`artifactType: "git-diff"`, title: `Git diff for ticket <ticket-id>`)
+8. **Instructions Used artifact** (`artifactType: "instructions-used"`, title: `Instructions Used for ticket <ticket-id>`)
+
+**How to check for artifacts:**
+1. **First step (MANDATORY):** Call HAL API endpoint `/api/artifacts/get` with `{ ticketId: "<ticket-id>" }` to fetch all artifacts for the ticket.
+   - If `.hal/api-base-url` exists, read it and call: `POST ${baseUrl}/api/artifacts/get`
+   - If API call fails (404, 500, network error, etc.), **QA MUST FAIL** — you cannot verify artifacts exist, so assume they are missing.
+   - **DO NOT proceed with code review if artifact verification fails.**
+2. Filter the returned artifacts to find implementation artifacts (where `agent_type === "implementation"`).
+3. Check that all 8 required artifact types are present by matching artifact titles:
+   - `Plan for ticket <ticket-id>`
+   - `Worklog for ticket <ticket-id>`
+   - `Changed Files for ticket <ticket-id>`
+   - `Decisions for ticket <ticket-id>`
+   - `Verification for ticket <ticket-id>`
+ - `PM Review for ticket <ticket-id>`
+ - `Git diff for ticket <ticket-id>`
+ - `Instructions Used for ticket <ticket-id>`
+
+**Auto-fail when artifacts are missing or unverifiable:**
+- **If artifact API call fails (404, 500, network error, timeout):** QA **must fail immediately**. You cannot verify artifacts exist, so treat as missing.
+- **If any required artifact is missing:** QA **must fail immediately**.
+- **Do NOT** attempt code review, verification, or any other QA work when artifacts cannot be verified or are missing.
+- **Do NOT** attempt to "guess" or recreate missing artifacts.
+- **Do NOT** proceed with code review and note "artifacts couldn't be verified" — this is a FAIL condition.
+- **Record a QA Fail outcome** by storing a QA report that clearly states the failure reason.
+- **The QA report must enumerate the specific missing artifacts** (or state "Artifact verification failed: API returned [error]" if API call failed).
+- **Store the QA report in Supabase** using `insert_qa_artifact` tool (via HAL API or queue file).
+- **Move ticket to To-do** (`col-todo`) via HAL API.
+- **The final message must include:** `QA RESULT: FAIL — <ticket-id>` (see "Completion message format requirement" below).
+
+**Example QA report when artifacts are missing:**
+```markdown
+# QA Report for ticket 0076
+
+## Ticket & Deliverable
+[Brief summary from ticket]
+
+## Missing Required Implementation Artifacts
+
+**QA FAILED:** Required implementation artifacts are missing. QA cannot proceed without complete implementation artifacts.
+
+**Missing artifacts:**
+- Plan artifact (`Plan for ticket 0076`)
+- PM Review artifact (`PM Review for ticket 0076`)
+
+**Present artifacts:**
+- Worklog artifact
+- Changed Files artifact
+- Decisions artifact
+- Verification artifact
+
+## Verdict
+
+**FAIL** — Implementation artifacts incomplete. Implementation agent must store all required artifacts before QA can proceed.
+
+QA RESULT: FAIL — 0076
+```
+
+**If all required artifacts are present:** Proceed with normal QA workflow (code review, verification, etc.).
+
+**CRITICAL:** Artifact verification is the **first and mandatory step** of QA. Do not skip it, do not defer it, do not proceed with code review if verification fails. If you cannot verify artifacts exist, the ticket fails QA.
+
+## Required artifact (QA report)
+
+- **Storage:** Supabase `agent_artifacts` table (via HAL API endpoint `/api/artifacts/insert-qa`)
+- **When:** After performing QA (code review and, if possible, UI verification) for a ticket, OR when auto-failing due to missing implementation artifacts.
+- **Agent type:** `qa`
+- **Title format:** `QA report for ticket <ticket-id>`
+
+## QA report structure
+
+1. **Ticket & deliverable** — One-line goal, deliverable, and acceptance criteria from the ticket.
+2. **Missing Required Implementation Artifacts** (if applicable) — List of missing artifacts. If artifacts are missing, this section must be present and QA must fail.
+3. **Audit artifacts** — Confirm all required implementation artifacts are present in Supabase (plan, worklog, changed-files, decisions, verification, pm-review). Only include this section if all artifacts are present.
+4. **Code review** — PASS/FAIL with brief evidence (e.g. table of requirement vs implementation; file and line refs if helpful). Only include if artifacts are present.
+5. **Build verification** — **MANDATORY:** Run `npm run build:hal` (or `tsc -b`) and verify it completes with zero TypeScript errors. If TypeScript errors exist, QA **MUST FAIL** immediately. Document the build result (PASS/FAIL) and any TypeScript errors found. Only include if artifacts are present.
+6. **UI verification** — What was run: automated and/or manual steps. If automated UI was not run (e.g. native dialogs, login, or pickers), state that and list the manual steps the user should run. Only include if artifacts are present.
+7. **AC Confirmation Checklist** — **MANDATORY:** Enumerate every Acceptance Criteria from the ticket. For each AC, state "Met" or "Not met" with evidence (artifact links, file paths, screenshots, or reproduction steps). If any AC is not met, QA **MUST FAIL**. See `.cursor/rules/ac-confirmation-checklist.mdc` for full requirements. Only include if artifacts are present.
+8. **Verdict** — Implementation complete? OK to merge? Any blocking manual verification? Must clearly state PASS or FAIL.
+
+## Storing QA report
+
+**CRITICAL: You must make actual HTTP API calls, not just include JSON blocks in your message.**
+
+**How to store the QA report:**
+
+1. Read the API base URL from `.hal/api-base-url` (if it exists)
+2. Make an HTTP POST request to `${baseUrl}/api/artifacts/insert-qa` with:
+   - Headers: `Content-Type: application/json`
+   - Body: `{ "ticketId": "0076", "title": "QA report for ticket 0076", "body_md": "<full markdown content>" }`
+3. Use `curl` or `run_terminal_cmd` to execute the API call
+4. Verify the response indicates success
+
+**Example:**
+```bash
+curl -X POST ${baseUrl}/api/artifacts/insert-qa \
+  -H "Content-Type: application/json" \
+  -d '{"ticketId":"0076","title":"QA report for ticket 0076","body_md":"# QA Report\n\n..."}'
+```
+
+**DO NOT** just include JSON blocks in your message text - you must actually execute the API calls using terminal commands or HTTP requests.
+
+## QA completion: do not hand off to the user
+
+When the verdict is **PASS (OK to merge)**, QA must **complete the full workflow** — do not stop at a summary or "next steps for the user."
+
+## Completion message format requirement
+
+**MANDATORY:** The final completion message to the user **must** include the ticket ID and an explicit PASS/FAIL outcome token in a consistent, easy-to-spot format.
+
+- **Format:** `QA RESULT: <PASS|FAIL> — <ticket-id>`
+- **Examples:**
+  - `QA RESULT: PASS — 0056`
+  - `QA RESULT: FAIL — 0056`
+- **Placement:** This must appear in the final summary message that QA sends to the user after completing all workflow steps (merge, branch deletion, ticket updates, etc.).
+- **Why:** HAL needs to reliably parse QA outcomes from chat transcripts. The format must be human-verifiable (no external tooling required) and consistently structured for automated interpretation.
+- **Verification:** A human can read the QA chat transcript in the app and immediately see the ticket ID and outcome without parsing complex prose.
+
+**If you are verifying from the feature branch** (normal workflow):
+
+1. **Complete AC Confirmation Checklist** — **MANDATORY:** Before proceeding, complete the AC Confirmation Checklist. Enumerate every Acceptance Criteria from the ticket, state "Met" or "Not met" for each with evidence. If any AC is not met, QA **MUST FAIL** and you must not proceed to step 2. See `.cursor/rules/ac-confirmation-checklist.mdc` for full requirements.
+2. **Store QA report in Supabase** — Make an HTTP POST request to `${baseUrl}/api/artifacts/insert-qa`. The QA report must include the AC Confirmation Checklist:
+   ```bash
+   curl -X POST ${baseUrl}/api/artifacts/insert-qa \
+     -H "Content-Type: application/json" \
+     -d '{"ticketId":"0076","title":"QA report for ticket 0076","body_md":"<markdown>"}'
+   ```
+3. **Update ticket body** (optional) — If needed, make an HTTP POST request to `${baseUrl}/api/tickets/update`:
+   ```bash
+   curl -X POST ${baseUrl}/api/tickets/update \
+     -H "Content-Type: application/json" \
+     -d '{"ticketId":"0076","body_md":"<updated markdown>"}'
+   ```
+4. **Move ticket to Human in the Loop** — Make an HTTP POST request to `${baseUrl}/api/tickets/move`:
+   ```bash
+   curl -X POST ${baseUrl}/api/tickets/move \
+     -H "Content-Type: application/json" \
+     -d '{"ticketId":"0076","columnId":"col-human-in-the-loop"}'
+   ```
+5. **Merge to main** — checkout `main`, merge the feature branch, push `main`.
+6. **Delete the feature branch** — local and remote (see `delete-branch-after-merge.mdc`).
+7. **Then** give your summary to the user. **The final message must include the AC Confirmation Checklist and:** `QA RESULT: PASS — <ticket-id>` (see "Completion message format requirement" above).
+
+**If you are verifying from `main`** (implementation was merged to main for QA access):
+
+1. **Complete AC Confirmation Checklist** — **MANDATORY:** Before proceeding, complete the AC Confirmation Checklist. Enumerate every Acceptance Criteria from the ticket, state "Met" or "Not met" for each with evidence. If any AC is not met, QA **MUST FAIL** and you must not proceed to step 2. See `.cursor/rules/ac-confirmation-checklist.mdc` for full requirements.
+2. **Store QA report in Supabase** — Make an HTTP POST request to `${baseUrl}/api/artifacts/insert-qa`. The QA report must include the AC Confirmation Checklist. Include a note in the report that verification was performed against `main`.
+3. **Update ticket body** (optional) — If needed, make an HTTP POST request to `${baseUrl}/api/tickets/update` to note that verification was performed against `main`.
+4. **Move ticket to Human in the Loop** — Make an HTTP POST request to `${baseUrl}/api/tickets/move`.
+5. **Then** give your summary to the user. **The final message must include the AC Confirmation Checklist and:** `QA RESULT: PASS — <ticket-id>` (see "Completion message format requirement" above).
+
+Do not give a summary with "next steps" or "run these commands" — QA performs the merge (or confirms main) and branch deletion where applicable. The user receives the completed result.
+
+- Use a commit subject that includes the ticket ID (e.g. `qa(0033): add QA report, move to Human in the Loop`).
+- **If verdict is FAIL:** Do not merge. Store the QA report in Supabase, then **YOU MUST move the ticket to the top of To-do** (`col-todo` column) via HAL API. **This is MANDATORY** - failing to move the ticket to To-do means the QA workflow is incomplete. Summarize findings and recommend a bugfix ticket (see `bugfix-tracking.mdc`). **The final message must include:** `QA RESULT: FAIL — <ticket-id>` (see "Completion message format requirement" above).
+  
+  **FAIL workflow:**
+  1. **Complete AC Confirmation Checklist** — **MANDATORY:** Complete the AC Confirmation Checklist even when QA fails. Enumerate every Acceptance Criteria from the ticket, state "Met" or "Not met" for each with evidence. This helps identify which ACs were not met. See `.cursor/rules/ac-confirmation-checklist.mdc` for full requirements.
+  2. **Store QA report in Supabase** — Make an HTTP POST request to `${baseUrl}/api/artifacts/insert-qa`. The QA report must include the AC Confirmation Checklist showing which ACs were not met:
+     ```bash
+     curl -X POST ${baseUrl}/api/artifacts/insert-qa \
+       -H "Content-Type: application/json" \
+       -d '{"ticketId":"0076","title":"QA report for ticket 0076","body_md":"<markdown>"}'
+     ```
+  3. **Move ticket to To-do** — **REQUIRED**: You MUST make an HTTP POST request to `${baseUrl}/api/tickets/move`. The ticket MUST be moved to `col-todo` when QA fails. This is not optional:
+     ```bash
+     curl -X POST ${baseUrl}/api/tickets/move \
+       -H "Content-Type: application/json" \
+       -d '{"ticketId":"0076","columnId":"col-todo"}'
+     ```
+     **Note:** The goal is to move failed tickets to the **top** of the To-do column for priority handling. The current move API (`/api/tickets/move`) appends tickets to the end of the column. If the API is enhanced in the future to support position parameters, use position 0 or a negative value to place at the top. For now, moving to `col-todo` satisfies the requirement even if it's at the end initially.
+  4. **Then** give your summary to the user. **The final message must include the AC Confirmation Checklist and:** `QA RESULT: FAIL — <ticket-id>`.
+
+## HAL API Calls
+
+**CRITICAL: You must make actual HTTP API calls using terminal commands (curl) or run_terminal_cmd tool, not just include JSON blocks in your message.**
+
+All Supabase operations must be executed via HTTP POST requests to HAL API endpoints.
+
+**Available API endpoints:**
+
+- **`POST /api/artifacts/insert-qa`** — Store QA report in Supabase
+  - Body: `{ ticketId: string, title: string, body_md: string }`
+  - Example: `curl -X POST ${baseUrl}/api/artifacts/insert-qa -H "Content-Type: application/json" -d '{"ticketId":"0076","title":"QA report","body_md":"..."}'`
+
+- **`POST /api/tickets/update`** — Update ticket body in Supabase
+  - Body: `{ ticketId: string, body_md: string }`
+  - Example: `curl -X POST ${baseUrl}/api/tickets/update -H "Content-Type: application/json" -d '{"ticketId":"0076","body_md":"..."}'`
+
+- **`POST /api/tickets/move`** — Move ticket to different column
+  - Body: `{ ticketId: string, columnId: string }`
+  - Example: `curl -X POST ${baseUrl}/api/tickets/move -H "Content-Type: application/json" -d '{"ticketId":"0076","columnId":"col-todo"}'`
+
+- **`POST /api/tickets/get`** — Fetch ticket content
+  - Body: `{ ticketId: string }`
+  - Example: `curl -X POST ${baseUrl}/api/tickets/get -H "Content-Type: application/json" -d '{"ticketId":"0076"}'`
+
+**How to use:**
+1. Read the API base URL from `.hal/api-base-url` (if it exists)
+2. Use `run_terminal_cmd` tool with `curl` to make HTTP POST requests
+3. Verify the response indicates success before proceeding
+4. **DO NOT** just include JSON blocks in your message - you must actually execute the API calls
+
+**Important:** The instructions previously said to "include JSON blocks in your message" - this is incorrect. You must make actual HTTP API calls.
+
+## Scope
+
+- Applies to any QA or verification of a **ticketed** task (ticket in Supabase).
+- Keep the report concise; use bullets and tables where appropriate.
+- All artifacts are stored in Supabase, not in `docs/audit/` folders.
