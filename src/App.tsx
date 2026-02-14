@@ -597,23 +597,8 @@ function App() {
     setGithubRepoQuery('')
   }, [])
 
-  const handleSelectGithubRepo = useCallback((repo: GithubRepo) => {
-    const selected: ConnectedGithubRepo = {
-      fullName: repo.full_name,
-      defaultBranch: repo.default_branch,
-      htmlUrl: repo.html_url,
-      private: repo.private,
-    }
-    setConnectedGithubRepo(selected)
-    try {
-      localStorage.setItem('hal-github-repo', JSON.stringify(selected))
-    } catch {
-      // ignore
-    }
-
-    // Use repo full_name as the project id for persistence + ticket flows (0079)
-    setConnectedProject(repo.full_name)
-
+  // Load conversations for a project (0124: extracted to be reusable for page refresh)
+  const loadConversationsForProject = useCallback(async (projectName: string) => {
     const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
     const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
 
@@ -623,49 +608,9 @@ function App() {
       setSupabaseAnonKey(key)
     }
 
-    // Restore agent status from localStorage (0097: preserve agent status across disconnect/reconnect)
-    try {
-      const savedImplStatus = localStorage.getItem('hal-impl-agent-status')
-      if (savedImplStatus && ['preparing', 'fetching_ticket', 'resolving_repo', 'launching', 'polling', 'completed', 'failed'].includes(savedImplStatus)) {
-        setImplAgentRunStatus(savedImplStatus as typeof implAgentRunStatus)
-      }
-      const savedImplProgress = localStorage.getItem('hal-impl-agent-progress')
-      if (savedImplProgress) {
-        try {
-          const parsed = JSON.parse(savedImplProgress) as Array<{ timestamp: string; message: string }>
-          setImplAgentProgress(parsed.map((p) => ({ timestamp: new Date(p.timestamp), message: p.message })))
-        } catch {
-          // ignore parse errors
-        }
-      }
-      const savedImplError = localStorage.getItem('hal-impl-agent-error')
-      if (savedImplError) {
-        setImplAgentError(savedImplError)
-      }
-      const savedQaStatus = localStorage.getItem('hal-qa-agent-status')
-      if (savedQaStatus && ['preparing', 'fetching_ticket', 'fetching_branch', 'launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(savedQaStatus)) {
-        setQaAgentRunStatus(savedQaStatus as typeof qaAgentRunStatus)
-      }
-      const savedQaProgress = localStorage.getItem('hal-qa-agent-progress')
-      if (savedQaProgress) {
-        try {
-          const parsed = JSON.parse(savedQaProgress) as Array<{ timestamp: string; message: string }>
-          setQaAgentProgress(parsed.map((p) => ({ timestamp: new Date(p.timestamp), message: p.message })))
-        } catch {
-          // ignore parse errors
-        }
-      }
-      const savedQaError = localStorage.getItem('hal-qa-agent-error')
-      if (savedQaError) {
-        setQaAgentError(savedQaError)
-      }
-    } catch {
-      // ignore localStorage errors
-    }
-
     // Load conversations from localStorage first (synchronously) to show them immediately after reconnect (0097: fix empty PM chat)
     // Then load from Supabase asynchronously and merge/overwrite with Supabase data (Supabase takes precedence)
-    const loadResult = loadConversationsFromStorage(repo.full_name)
+    const loadResult = loadConversationsFromStorage(projectName)
     const restoredConversations = loadResult.conversations || new Map<string, Conversation>()
     // Ensure PM conversation exists even if no messages were loaded (0097: fix empty PM chat after reconnect)
     const pmConvId = getConversationId('project-manager', 1)
@@ -697,7 +642,7 @@ function App() {
           const { data: agentRows } = await supabase
             .from('hal_conversation_messages')
             .select('agent')
-            .eq('project_id', repo.full_name)
+            .eq('project_id', projectName)
             .order('agent', { ascending: true })
           
           const uniqueAgents = [...new Set((agentRows || []).map(r => r.agent as string))]
@@ -708,7 +653,7 @@ function App() {
             const { data: agentMessages, error: agentError } = await supabase
               .from('hal_conversation_messages')
               .select('agent, role, content, sequence, created_at, images')
-              .eq('project_id', repo.full_name)
+              .eq('project_id', projectName)
               .eq('agent', agentId)
               .order('sequence', { ascending: false })
               .limit(MESSAGES_PER_PAGE)
@@ -862,9 +807,90 @@ function App() {
         }
       })()
     }
+  }, [supabaseUrl, supabaseAnonKey])
+
+  const handleSelectGithubRepo = useCallback((repo: GithubRepo) => {
+    const selected: ConnectedGithubRepo = {
+      fullName: repo.full_name,
+      defaultBranch: repo.default_branch,
+      htmlUrl: repo.html_url,
+      private: repo.private,
+    }
+    setConnectedGithubRepo(selected)
+    try {
+      localStorage.setItem('hal-github-repo', JSON.stringify(selected))
+    } catch {
+      // ignore
+    }
+
+    // Use repo full_name as the project id for persistence + ticket flows (0079)
+    setConnectedProject(repo.full_name)
+
+    const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
+    const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
+
+    // If Supabase isn't set yet, use Vercel-provided VITE_ env as default (hosted path)
+    if ((!supabaseUrl || !supabaseAnonKey) && url && key) {
+      setSupabaseUrl(url)
+      setSupabaseAnonKey(key)
+    }
+
+    // Restore agent status from localStorage (0097: preserve agent status across disconnect/reconnect)
+    try {
+      const savedImplStatus = localStorage.getItem('hal-impl-agent-status')
+      if (savedImplStatus && ['preparing', 'fetching_ticket', 'resolving_repo', 'launching', 'polling', 'completed', 'failed'].includes(savedImplStatus)) {
+        setImplAgentRunStatus(savedImplStatus as typeof implAgentRunStatus)
+      }
+      const savedImplProgress = localStorage.getItem('hal-impl-agent-progress')
+      if (savedImplProgress) {
+        try {
+          const parsed = JSON.parse(savedImplProgress) as Array<{ timestamp: string; message: string }>
+          setImplAgentProgress(parsed.map((p) => ({ timestamp: new Date(p.timestamp), message: p.message })))
+        } catch {
+          // ignore parse errors
+        }
+      }
+      const savedImplError = localStorage.getItem('hal-impl-agent-error')
+      if (savedImplError) {
+        setImplAgentError(savedImplError)
+      }
+      const savedQaStatus = localStorage.getItem('hal-qa-agent-status')
+      if (savedQaStatus && ['preparing', 'fetching_ticket', 'fetching_branch', 'launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(savedQaStatus)) {
+        setQaAgentRunStatus(savedQaStatus as typeof qaAgentRunStatus)
+      }
+      const savedQaProgress = localStorage.getItem('hal-qa-agent-progress')
+      if (savedQaProgress) {
+        try {
+          const parsed = JSON.parse(savedQaProgress) as Array<{ timestamp: string; message: string }>
+          setQaAgentProgress(parsed.map((p) => ({ timestamp: new Date(p.timestamp), message: p.message })))
+        } catch {
+          // ignore parse errors
+        }
+      }
+      const savedQaError = localStorage.getItem('hal-qa-agent-error')
+      if (savedQaError) {
+        setQaAgentError(savedQaError)
+      }
+    } catch {
+      // ignore localStorage errors
+    }
+
+    // Load conversations using the shared function (0124: refactored to avoid duplication)
+    loadConversationsForProject(repo.full_name).catch((err) => {
+      console.error('[HAL] Error loading conversations when selecting repo:', err)
+    })
 
     setGithubRepoPickerOpen(false)
-  }, [supabaseUrl, supabaseAnonKey])
+  }, [supabaseUrl, supabaseAnonKey, loadConversationsForProject])
+
+  // Load conversations when connectedProject is restored on page refresh (0124: fix chat clearing on refresh)
+  useEffect(() => {
+    if (connectedProject) {
+      loadConversationsForProject(connectedProject).catch((err) => {
+        console.error('[HAL] Error loading conversations on page refresh:', err)
+      })
+    }
+  }, [connectedProject, loadConversationsForProject])
 
   // Auto-expand QA, Implementation, and Process Review groups when conversations are restored after reconnect (0097, 0111)
   useEffect(() => {
