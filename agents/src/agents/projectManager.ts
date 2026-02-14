@@ -552,26 +552,7 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
           }
         }
 
-        // Load instruction index to get topic metadata
-        const indexRes = await fetch(`${halBaseUrl}/api/instructions/get-index`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            repoFullName: config.repoFullName || config.projectId || 'beardedphil/portfolio-2026-hal',
-          }),
-        })
-
-        let instructionIndex: {
-          basic?: string[]
-          topics?: Record<string, { title: string; description: string; agentTypes: string[]; keywords?: string[] }>
-        } = {}
-
-        if (indexRes.ok) {
-          const indexData = await indexRes.json()
-          if (indexData.success && indexData.index) {
-            instructionIndex = indexData.index
-          }
-        }
+        // Note: We get topic metadata directly from instructions, so we don't need to load the index separately
 
         // List available situational instruction topics
         const situationalRes = await fetch(`${halBaseUrl}/api/instructions/get`, {
