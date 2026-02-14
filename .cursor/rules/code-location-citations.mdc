@@ -1,0 +1,98 @@
+---
+description: Require agents to cite specific file paths and line numbers/symbols when referencing where functionality is implemented
+alwaysApply: true
+---
+
+# Code Location Citations
+
+**MANDATORY:** When an agent references "where something is implemented" or claims where key functionality exists, they **must** cite concrete code locations using file paths and (when feasible) line numbers or symbol names.
+
+## Minimum Citation Requirements
+
+When referencing where functionality is implemented, agents **must** include:
+
+1. **File path** (required) — The full path to the file relative to the repository root
+2. **Line numbers or symbols** (when feasible) — Either:
+   - Line number(s): `src/foo.ts:42` or `src/foo.ts:42-61` (for ranges)
+   - Symbol name: `src/foo.ts — function bar()` or `src/foo.ts — class MyComponent`
+   - Route/component identifier: `src/routes/api.ts — route handler "POST /api/users"`
+
+## Minimum Acceptable Citation Formats
+
+Agents must use one of these formats:
+
+- **Line number format:** `src/foo.ts:42` or `src/foo.ts:42-61`
+- **Symbol format:** `src/foo.ts — function bar()` or `src/foo.ts — class MyComponent`
+- **Route/component format:** `src/routes/api.ts — route handler "POST /api/users"` or `src/components/Button.tsx — Button component`
+
+**Examples:**
+- ✅ `src/api/users.ts:15-28` (function `createUser`)
+- ✅ `src/components/Button.tsx — Button component`
+- ✅ `src/routes/api.ts:42 — route handler "POST /api/tickets"`
+- ❌ `src/api/users.ts` (missing line number or symbol)
+- ❌ `the users API file` (no file path)
+
+## Contexts Where Citations Are Required
+
+This requirement applies to:
+
+1. **Implementation summaries/worklogs** — When describing what was implemented or where changes were made
+2. **QA reports** — When reviewing code and identifying where requirements are implemented
+3. **PM guidance** — When answering questions like "where is X implemented?" or "where should I look for Y?"
+
+## Exceptions for Unreliable Line Numbers
+
+When line numbers are unreliable or unavailable (e.g., generated code, minified bundles, transpiled output), agents should:
+
+1. **Cite the nearest stable anchor** instead:
+   - Function/class/component name: `dist/bundle.js — function processTicket()`
+   - Exported symbol: `dist/api.js — export handleRequest`
+   - Route identifier: `dist/routes.js — route "/api/tickets"`
+   - Component name: `dist/components.js — Button component`
+
+2. **Include the file path** even when line numbers aren't available
+
+3. **Note the exception** if helpful: `dist/bundle.js — function processTicket() (minified, line numbers unreliable)`
+
+**Examples of acceptable citations when line numbers are unreliable:**
+- ✅ `dist/bundle.js — function processTicket()` (minified)
+- ✅ `src/generated/api.ts — export createTicket` (generated code)
+- ✅ `build/components.js — Button component` (transpiled)
+
+## Integration with Existing Workflows
+
+### Implementation Agents
+
+In **worklogs** and **implementation summaries**, when describing where functionality was implemented:
+- ✅ "Added user authentication in `src/auth/login.ts:15-45` (function `handleLogin`)"
+- ❌ "Added user authentication in the login file"
+
+### QA Agents
+
+In **QA reports**, when reviewing code and identifying where requirements are implemented:
+- ✅ "Requirement X implemented in `src/api/tickets.ts:42-61` (function `createTicket`)"
+- ✅ "Code review: All requirements implemented. See `src/components/Button.tsx:10-25` for UI changes."
+- ❌ "Requirement X implemented in the tickets API"
+
+### PM Agents
+
+When answering "where is X implemented?" or providing guidance:
+- ✅ "Ticket creation is implemented in `src/api/tickets.ts:42-61` (function `createTicket`)"
+- ❌ "Ticket creation is in the tickets API file"
+
+## Verification
+
+Citations must be **human-verifiable** — a reviewer should be able to:
+1. Quickly locate the cited file
+2. Navigate to the specific line number or symbol
+3. Verify the claimed functionality exists at that location
+
+If a citation is missing or insufficient, the reviewer should request clarification with a proper citation format.
+
+**When in doubt, provide more specific citations** (line numbers + symbol names) rather than less.
+
+## Scope
+
+- Applies to **all agents** (implementation, QA, PM) when referencing code locations
+- Citations must be **human-verifiable** — a reviewer should be able to open the file and find the referenced location
+- When in doubt, provide **more specific citations** (line numbers + symbol names) rather than less

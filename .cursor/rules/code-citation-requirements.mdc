@@ -1,0 +1,96 @@
+---
+description: Require agents to cite specific file paths and line numbers when referencing code locations
+alwaysApply: true
+---
+
+# Code Citation Requirements
+
+When agents reference "where something is implemented" or claim where key functionality exists, they **must** cite concrete code locations using file paths and (when feasible) line numbers or symbol names. This enables reviewers to verify claims quickly without searching the codebase.
+
+## Mandatory Citation Format
+
+**Minimum acceptable citation formats:**
+
+1. **File path with line range:** `src/foo.ts:42-61`
+2. **File path with single line:** `src/foo.ts:42`
+3. **File path with symbol name:** `src/foo.ts — function bar()` or `src/foo.ts — class MyComponent`
+4. **File path with line and symbol:** `src/foo.ts:42 — function bar()`
+
+**Examples:**
+- ✅ `src/api/tickets.ts:123-145` — implementation of ticket syncing
+- ✅ `components/KanbanBoard.tsx:42` — column rendering logic
+- ✅ `src/utils/validation.ts — function validateTicket()` — validation rules
+- ✅ `src/hooks/useTickets.ts:78-92 — useEffect hook` — data fetching
+- ❌ "in the tickets API file" — too vague
+- ❌ "tickets.ts" — missing path context
+- ❌ "the validation function" — no file reference
+
+## Required Contexts
+
+This requirement applies to all of the following contexts:
+
+### 1. Implementation Summaries and Worklogs
+
+When implementation agents document what was implemented, they must cite specific locations:
+
+**Example (worklog):**
+```markdown
+## Changes Made
+
+- Added ticket syncing logic in `src/api/tickets.ts:123-145` — `syncTickets()` function
+- Updated column rendering in `components/KanbanBoard.tsx:42-67` — `renderColumns()` method
+- Fixed validation in `src/utils/validation.ts:89-102 — validateTicket()` function
+```
+
+### 2. QA Reports
+
+When QA agents review code and report findings, they must cite specific locations:
+
+**Example (QA report code review section):**
+```markdown
+## Code Review
+
+| Requirement | Implementation | Status |
+|------------|----------------|--------|
+| Ticket syncing | `src/api/tickets.ts:123-145 — syncTickets()` | ✅ PASS |
+| Column rendering | `components/KanbanBoard.tsx:42-67` | ✅ PASS |
+| Validation | `src/utils/validation.ts:89-102 — validateTicket()` | ⚠️ FAIL — missing null check |
+```
+
+### 3. PM Guidance
+
+When Project Manager agents answer questions like "Where is X implemented?" or "How does Y work?", they must cite specific locations:
+
+**Example (PM response):**
+```markdown
+Ticket syncing is implemented in `src/api/tickets.ts:123-145` in the `syncTickets()` function. The function handles:
+- Fetching tickets from Supabase (`src/api/tickets.ts:130-138`)
+- Updating local state (`src/api/tickets.ts:140-145`)
+```
+
+## Exceptions: When Line Numbers Are Unreliable
+
+When line numbers are unreliable or unstable (e.g., generated code, minified bundles, frequently changing files), cite the nearest stable anchor instead:
+
+**Acceptable alternatives:**
+- **Symbol name + file path:** `src/generated/api.ts — export function fetchTickets()`
+- **Exported function/class:** `src/api/index.ts — export { syncTickets }`
+- **Route ID or path:** `src/routes.ts — route id: 'tickets'`
+- **Component name:** `components/TicketCard.tsx — <TicketCard /> component`
+- **Configuration key:** `config/app.config.ts — tickets.syncInterval`
+
+**Examples:**
+- ✅ `dist/bundle.js — function syncTickets()` (minified bundle)
+- ✅ `src/generated/types.ts — interface Ticket` (generated file)
+- ✅ `src/routes.ts — route: '/tickets'` (routing config)
+- ❌ `dist/bundle.js:1234` (line number in minified code is unreliable)
+
+**When in doubt:** Prefer symbol names, exported identifiers, or stable configuration keys over line numbers in generated or frequently-changing files.
+
+## Enforcement
+
+- **Implementation agents:** Must include citations in worklogs, plans, and implementation summaries.
+- **QA agents:** Must include citations in code review sections of QA reports (see `.cursor/rules/qa-audit-report.mdc`).
+- **PM agents:** Must include citations when answering "where is X implemented?" questions.
+
+**Reviewers should verify:** All code location claims can be verified by navigating to the cited file path and (when provided) line number or symbol name.
