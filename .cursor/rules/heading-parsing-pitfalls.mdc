@@ -1,0 +1,210 @@
+---
+description: Guidance on avoiding common heading parsing pitfalls when creating tickets
+alwaysApply: true
+---
+
+# Heading parsing pitfalls (and how to avoid them)
+
+When creating or editing tickets, agents must use proper markdown headings that HAL can parse and render correctly. This section covers common pitfalls and how to avoid them.
+
+## Pitfall 1: Inconsistent heading levels (skipping levels)
+
+**Problem:** Using heading levels that skip levels (e.g., `#` followed by `###` without `##` in between) makes the document structure unclear and can cause parsing issues.
+
+**❌ Bad:**
+```markdown
+# Ticket
+### Goal
+### Acceptance criteria
+```
+
+**✅ Good:**
+```markdown
+## Ticket
+## Goal (one sentence)
+## Acceptance criteria (UI-only)
+```
+
+**Fix:** Always use sequential heading levels. Start with `##` for top-level sections in tickets (not `#`), then `###` for subsections, `####` for sub-subsections, etc.
+
+## Pitfall 2: Using bold text or colons instead of markdown headings
+
+**Problem:** Using bold text (`**text**`) or lines ending with colons (`Text:`) instead of proper markdown headings (`## Text`) prevents HAL from recognizing section boundaries.
+
+**❌ Bad:**
+```markdown
+**Goal**
+This is the goal text.
+
+**Acceptance criteria:**
+- Item 1
+```
+
+**✅ Good:**
+```markdown
+## Goal (one sentence)
+This is the goal text.
+
+## Acceptance criteria (UI-only)
+- [ ] Item 1
+```
+
+**Fix:** Always use proper markdown headings (`##`, `###`, etc.) for section titles, not bold text or colons.
+
+## Pitfall 3: Required ticket headings don't match canonical text exactly
+
+**Problem:** HAL expects specific, exact heading text for required sections. Variations like "Goals" (plural) instead of "Goal" or missing the parenthetical suffix will fail validation.
+
+**❌ Bad:**
+```markdown
+## Goals
+## Acceptance Criteria
+## Human Verifiable Deliverable
+```
+
+**✅ Good:**
+```markdown
+## Goal (one sentence)
+## Acceptance criteria (UI-only)
+## Human-verifiable deliverable
+```
+
+**Fix:** Use the exact canonical heading text as documented:
+- `## Goal (one sentence)` (not "Goals", "Objective", etc.)
+- `## Acceptance criteria (UI-only)` (not "Acceptance Criteria", "Criteria", etc.)
+- `## Human-verifiable deliverable` (not "Deliverable", "Human Verifiable", etc.)
+
+## Pitfall 4: Duplicating top-level headings
+
+**Problem:** Having multiple `# Ticket` or `## Ticket` headings in the same document creates ambiguity about which is the main ticket definition.
+
+**❌ Bad:**
+```markdown
+## Ticket
+**ID**: HAL-0181
+
+## Goal
+...
+
+## Ticket
+**ID**: HAL-0182
+```
+
+**✅ Good:**
+```markdown
+## Ticket
+**ID**: HAL-0181
+
+## Goal (one sentence)
+...
+```
+
+**Fix:** Use `## Ticket` only once at the beginning of the ticket body. If you need to reference another ticket, use a different heading level or format (e.g., `### Related ticket: HAL-0182`).
+
+## Pitfall 5: Using bullets instead of checkboxes for Acceptance criteria
+
+**Problem:** Acceptance criteria must use checkbox syntax (`- [ ]`) so HAL can track completion status. Regular bullets (`-`) won't be recognized as checkable items.
+
+**❌ Bad:**
+```markdown
+## Acceptance criteria (UI-only)
+- Item 1
+- Item 2
+- Item 3
+```
+
+**✅ Good:**
+```markdown
+## Acceptance criteria (UI-only)
+- [ ] Item 1
+- [ ] Item 2
+- [ ] Item 3
+```
+
+**Fix:** Always use checkbox syntax (`- [ ]`) for acceptance criteria items, not regular bullets (`-`).
+
+## Copy/paste examples
+
+### Example 1: Good minimal ticket skeleton
+
+This example shows a properly formatted ticket that will pass Definition of Ready:
+
+```markdown
+## Ticket
+**ID**: HAL-0181
+**Repo**: beardedphil/portfolio-2026-hal
+
+## Goal (one sentence)
+Add an explicit "Heading parsing pitfalls" section to the agent instruction docs.
+
+## Human-verifiable deliverable
+In the HAL app, the agent instructions UI includes a clearly labeled section titled "Heading parsing pitfalls (and how to avoid them)".
+
+## Acceptance criteria (UI-only)
+- [ ] Agent instruction docs include a new section titled "Heading parsing pitfalls (and how to avoid them)".
+- [ ] The section includes at least 5 concrete pitfalls with recommended fixes.
+- [ ] The section includes at least 2 copy/paste examples (good and bad).
+
+## Constraints
+None specified.
+
+## Non-goals
+This does not change the parsing logic, only adds guidance for agents.
+```
+
+### Example 2: Bad example (common failure mode) and corrected version
+
+**❌ Bad example (will fail Definition of Ready):**
+
+```markdown
+# Ticket
+**ID**: HAL-0181
+
+**Goal:**
+Add heading parsing guidance.
+
+**Acceptance Criteria:**
+- Item 1
+- Item 2
+
+# Ticket
+**ID**: HAL-0182
+```
+
+**Problems:**
+1. Using `#` instead of `##` for top-level headings
+2. Using bold text (`**Goal:**`) instead of markdown headings
+3. Heading text doesn't match canonical format ("Goal" instead of "Goal (one sentence)")
+4. Using bullets (`-`) instead of checkboxes (`- [ ]`)
+5. Duplicate `# Ticket` heading
+
+**✅ Corrected version:**
+
+```markdown
+## Ticket
+**ID**: HAL-0181
+
+## Goal (one sentence)
+Add heading parsing guidance.
+
+## Acceptance criteria (UI-only)
+- [ ] Item 1
+- [ ] Item 2
+```
+
+**Fixes applied:**
+1. Changed `#` to `##` for proper heading levels
+2. Changed `**Goal:**` to `## Goal (one sentence)` (proper heading with canonical text)
+3. Changed `**Acceptance Criteria:**` to `## Acceptance criteria (UI-only)` (proper heading with canonical text)
+4. Changed bullets to checkboxes (`-` to `- [ ]`)
+5. Removed duplicate `# Ticket` heading
+
+## Summary
+
+When creating tickets, always:
+- Use `##` for top-level sections (not `#`)
+- Use proper markdown headings (not bold text or colons)
+- Match required heading text exactly (e.g., "Goal (one sentence)", not "Goals" or "Goal:")
+- Use sequential heading levels (don't skip from `##` to `####`)
+- Use checkboxes (`- [ ]`) for acceptance criteria (not bullets)
+- Include `## Ticket` only once at the beginning
