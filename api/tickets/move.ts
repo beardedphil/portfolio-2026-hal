@@ -21,7 +21,7 @@ function json(res: ServerResponse, statusCode: number, body: unknown) {
   res.end(JSON.stringify(body))
 }
 
-export default async function handler(req: IncomingMessage, res: ServerResponse) {
+async function handleRequest(req: IncomingMessage, res: ServerResponse) {
   // CORS: Allow cross-origin requests (for scripts calling from different origins)
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
@@ -353,5 +353,21 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         message: err.message,
       } : undefined
     })
+  }
+}
+
+export default async function handler(req: IncomingMessage, res: ServerResponse) {
+  try {
+    await handleRequest(req, res)
+  } catch (err) {
+    console.error('[api/tickets/move] Unhandled error in handler wrapper:', err)
+    if (!res.headersSent) {
+      res.statusCode = 500
+      res.setHeader('Content-Type', 'application/json')
+      res.end(JSON.stringify({
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      }))
+    }
   }
 }
