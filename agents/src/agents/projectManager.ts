@@ -518,13 +518,137 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
 
   sections.push('## Repo rules (from Supabase)')
   try {
-    // Try to load from Supabase first
-    if (config.supabaseUrl && config.supabaseAnonKey && config.projectId) {
+    // Try to load from HAL API first (preferred method)
+    let halBaseUrl: string | null = null
+    try {
+      const apiBaseUrlPath = path.join(config.repoRoot, '.hal', 'api-base-url')
+      const apiBaseUrlContent = await fs.readFile(apiBaseUrlPath, 'utf8')
+      halBaseUrl = apiBaseUrlContent.trim()
+    } catch {
+      // .hal/api-base-url not found, will try direct Supabase or filesystem
+    }
+
+    if (halBaseUrl) {
+      try {
+        // Load basic instructions via HAL API
+        const basicRes = await fetch(`${halBaseUrl}/api/instructions/get`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            repoFullName: config.repoFullName || config.projectId || 'beardedphil/portfolio-2026-hal',
+            agentType: 'project-manager',
+            includeBasic: true,
+            includeSituational: false,
+          }),
+        })
+
+        if (basicRes.ok) {
+          const basicData = await basicRes.json()
+          if (basicData.success && basicData.instructions && basicData.instructions.length > 0) {
+            sections.push('### Basic instructions (always active)\n')
+            for (const inst of basicData.instructions) {
+              sections.push(`#### ${inst.filename}\n\n${inst.contentMd}\n`)
+            }
+          }
+        }
+
+        // Load instruction index to get topic metadata
+        const indexRes = await fetch(`${halBaseUrl}/api/instructions/get-index`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            repoFullName: config.repoFullName || config.projectId || 'beardedphil/portfolio-2026-hal',
+          }),
+        })
+
+        let instructionIndex: {
+          basic?: string[]
+          topics?: Record<string, { title: string; description: string; agentTypes: string[]; keywords?: string[] }>
+        } = {}
+
+        if (indexRes.ok) {
+          const indexData = await indexRes.json()
+          if (indexData.success && indexData.index) {
+            instructionIndex = indexData.index
+          }
+        }
+
+        // List available situational instruction topics
+        const situationalRes = await fetch(`${halBaseUrl}/api/instructions/get`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            repoFullName: config.repoFullName || config.projectId || 'beardedphil/portfolio-2026-hal',
+            agentType: 'project-manager',
+            includeBasic: false,
+            includeSituational: true,
+          }),
+        })
+
+        if (situationalRes.ok) {
+          const situationalData = await situationalRes.json()
+          if (situationalData.success && situationalData.instructions && situationalData.instructions.length > 0) {
+            sections.push('\n### Available instruction topics (request on-demand)\n')
+            sections.push('When you encounter a scenario that requires detailed instructions, you can request specific instruction sets using the `get_instruction_set` tool. Available topics:\n')
+            
+            const topicsByAgent: Record<string, Array<{ id: string; title: string; description: string }>> = {}
+            for (const inst of situationalData.instructions) {
+              const topicMeta = inst.topicMetadata || {}
+              const agentTypes = topicMeta.agentTypes || inst.agentTypes || ['all']
+              for (const agentType of agentTypes) {
+                if (!topicsByAgent[agentType]) topicsByAgent[agentType] = []
+                topicsByAgent[agentType].push({
+                  id: inst.topicId,
+                  title: topicMeta.title || inst.title || inst.filename.replace('.mdc', ''),
+                  description: topicMeta.description || inst.description || 'No description',
+                })
+              }
+            }
+
+            // Show topics for current agent type (PM agent)
+            const pmTopics = [
+              ...(topicsByAgent['project-manager'] || []),
+              ...(topicsByAgent['all'] || []),
+            ]
+            
+            if (pmTopics.length > 0) {
+              sections.push('**Topics available for Project Manager:**\n')
+              for (const topic of pmTopics) {
+                sections.push(`- **${topic.title}** (ID: \`${topic.id}\`): ${topic.description}`)
+              }
+            }
+
+            // Also show topics for other agent types for awareness
+            const otherAgentTypes = ['implementation-agent', 'qa-agent'].filter(at => at !== 'project-manager')
+            for (const agentType of otherAgentTypes) {
+              const topics = [
+                ...(topicsByAgent[agentType] || []),
+                ...(topicsByAgent['all'] || []),
+              ]
+              if (topics.length > 0) {
+                sections.push(`\n**Topics available for ${agentType.replace('-', ' ')}:**`)
+                for (const topic of topics) {
+                  sections.push(`- **${topic.title}** (ID: \`${topic.id}\`): ${topic.description}`)
+                }
+              }
+            }
+
+            sections.push('\n**To request an instruction set:** Use the `get_instruction_set` tool with the topic ID (e.g., `get_instruction_set({ topicId: "auditability-and-traceability" })`).')
+          }
+        }
+
+        // If we successfully loaded from HAL API, skip filesystem fallback
+        // (continue to add ticket template and other sections below)
+      } catch (apiErr) {
+        // HAL API failed, fall through to direct Supabase or filesystem
+        console.warn('[PM Agent] HAL API instruction fetch failed, falling back:', apiErr)
+      }
+    }
+
+    // Fallback: Try direct Supabase if HAL API not available but we have Supabase credentials
+    if (!halBaseUrl && config.supabaseUrl && config.supabaseAnonKey && config.projectId) {
       const supabase = createClient(config.supabaseUrl.trim(), config.supabaseAnonKey.trim())
       const repoFullName = config.repoFullName || config.projectId || 'beardedphil/portfolio-2026-hal'
-
-      // Load instruction index (for topic metadata, though we can also get it from instructions)
-      // Note: We use topic_metadata from instructions directly, so we don't need to load the index separately
 
       // Load basic instructions
       const { data: basicInstructions, error: basicError } = await supabase
@@ -597,11 +721,6 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
 
         sections.push('\n**To request an instruction set:** Use the `get_instruction_set` tool with the topic ID (e.g., `get_instruction_set({ topicId: "auditability-and-traceability" })`).')
       }
-
-      // If we successfully loaded from Supabase, skip filesystem fallback
-      // (continue to add ticket template and other sections below)
-    } else {
-      // Supabase not available, will use filesystem fallback below
     }
 
     // Fallback to filesystem if Supabase not available or failed
@@ -2397,7 +2516,49 @@ export async function runPmAgent(
     }),
     execute: async (input) => {
       try {
-        // Try Supabase first
+        // Try HAL API first (preferred method)
+        let halBaseUrl: string | null = null
+        try {
+          const apiBaseUrlPath = path.join(config.repoRoot, '.hal', 'api-base-url')
+          const apiBaseUrlContent = await fs.readFile(apiBaseUrlPath, 'utf8')
+          halBaseUrl = apiBaseUrlContent.trim()
+        } catch {
+          // .hal/api-base-url not found, will try direct Supabase
+        }
+
+        if (halBaseUrl) {
+          try {
+            const res = await fetch(`${halBaseUrl}/api/instructions/get-topic`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                topicId: input.topicId,
+                repoFullName: config.repoFullName || config.projectId || 'beardedphil/portfolio-2026-hal',
+              }),
+            })
+
+            if (res.ok) {
+              const data = await res.json()
+              if (data.success) {
+                const result = {
+                  topicId: data.topicId,
+                  title: data.title,
+                  description: data.description,
+                  content: data.content || data.contentMd || '',
+                }
+                toolCalls.push({ name: 'get_instruction_set', input, output: result })
+                return result
+              } else {
+                return { error: data.error || 'Failed to load instruction topic' }
+              }
+            }
+          } catch (apiErr) {
+            // HAL API failed, fall through to direct Supabase
+            console.warn('[PM Agent] HAL API instruction topic fetch failed, falling back:', apiErr)
+          }
+        }
+
+        // Fallback: Try direct Supabase if HAL API not available
         if (config.supabaseUrl && config.supabaseAnonKey && config.projectId) {
           const supabase = createClient(config.supabaseUrl.trim(), config.supabaseAnonKey.trim())
           const repoFullName = config.repoFullName || config.projectId || 'beardedphil/portfolio-2026-hal'
