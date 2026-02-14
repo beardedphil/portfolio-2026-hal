@@ -49,6 +49,6 @@ The migration script requires:
 
 - Instructions are now stored in Supabase
 - Viewer will load from Supabase automatically
-- Agents will load from Supabase (with filesystem fallback)
+- Agents load from HAL/Supabase first (filesystem fallback is entry-point only)
 - Editing in the viewer writes directly to Supabase
 - No File System Access API needed

@@ -125,7 +125,7 @@ Fetch a ticket's content from Supabase.
 
 ## How Agents Send Tool Calls
 
-**Required:** When the repo contains `.hal/api-base-url`, agents must call the HAL API directly (e.g. `POST ${baseUrl}/api/artifacts/insert-implementation`) so artifacts and ticket moves apply immediately without merging to main. See `.cursor/rules/agent-supabase-api-paradigm.mdc` for the full endpoint mapping and examples.
+**Required:** When the repo contains `.hal/api-base-url`, agents must call the HAL API directly (e.g. `POST ${baseUrl}/api/artifacts/insert-implementation`) so artifacts and ticket moves apply immediately without merging to main. See `docs/process/agent-supabase-api-paradigm.mdc` for the full endpoint mapping and examples.
 
 **Note:** HAL runs as an API-driven app. All tool calls must be sent via direct API calls. The `.hal/api-base-url` file must be present for agents to function properly.
 
