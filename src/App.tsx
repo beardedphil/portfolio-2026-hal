@@ -667,6 +667,17 @@ function App() {
     // Then load from Supabase asynchronously and merge/overwrite with Supabase data (Supabase takes precedence)
     const loadResult = loadConversationsFromStorage(repo.full_name)
     const restoredConversations = loadResult.conversations || new Map<string, Conversation>()
+    // Ensure PM conversation exists even if no messages were loaded (0097: fix empty PM chat after reconnect)
+    const pmConvId = getConversationId('project-manager', 1)
+    if (!restoredConversations.has(pmConvId)) {
+      restoredConversations.set(pmConvId, {
+        id: pmConvId,
+        agentRole: 'project-manager',
+        instanceNumber: 1,
+        messages: [],
+        createdAt: new Date(),
+      })
+    }
     // Set conversations immediately from localStorage so they're visible right away
     setConversations(restoredConversations)
     if (loadResult.error) {
@@ -1321,10 +1332,18 @@ function App() {
   }, [selectedConversationId, selectedChatTarget, conversations, loadOlderMessages, loadingOlderMessages])
 
   // Persist conversations to Supabase (0124: save ALL conversations to Supabase when connected, fallback to localStorage)
+  // 0097: ALWAYS save to localStorage as backup, even when Supabase is available, to ensure conversations persist across disconnect/reconnect
   useEffect(() => {
     if (!connectedProject) return
     const useSupabase = supabaseUrl != null && supabaseAnonKey != null
     
+    // ALWAYS save to localStorage first (synchronously) as backup (0097: ensure conversations persist even if Supabase fails or is slow)
+    const localStorageResult = saveConversationsToStorage(connectedProject, conversations)
+    if (!localStorageResult.success && localStorageResult.error) {
+      setPersistenceError(localStorageResult.error)
+    }
+    
+    // Also save to Supabase if available (async, for cross-device persistence)
     if (useSupabase) {
       // Save ALL conversations to Supabase (0124)
       ;(async () => {
@@ -1358,7 +1377,8 @@ function App() {
               
               if (error) {
                 console.error(`[HAL] Failed to save messages for conversation ${convId}:`, error)
-                setPersistenceError(`DB: ${error.message}`)
+                // Don't overwrite localStorage error if it exists, but show Supabase error
+                setPersistenceError((prev) => prev || `DB: ${error.message}`)
               } else {
                 // Update max sequence for this conversation
                 const newMaxSeq = Math.max(...messagesToSave.map(m => m.id), currentMaxSeq)
@@ -1369,22 +1389,23 @@ function App() {
                   pmMaxSequenceRef.current = newMaxSeq
                 }
                 
-                setPersistenceError(null)
+                // Clear error only if localStorage save succeeded
+                if (localStorageResult.success) {
+                  setPersistenceError(null)
+                }
               }
             }
           }
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err)
           console.error('[HAL] Error persisting conversations to Supabase:', err)
-          setPersistenceError(`DB: ${errMsg}`)
+          // Don't overwrite localStorage error if it exists, but show Supabase error
+          setPersistenceError((prev) => prev || `DB: ${errMsg}`)
         }
       })()
     } else {
-      // No Supabase: save all conversations to localStorage as fallback
-      const result = saveConversationsToStorage(connectedProject, conversations)
-      if (!result.success && result.error) {
-        setPersistenceError(result.error)
-      } else {
+      // No Supabase: localStorage save already done above, just clear error if successful
+      if (localStorageResult.success) {
         setPersistenceError(null)
       }
     }
