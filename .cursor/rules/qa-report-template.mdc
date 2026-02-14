@@ -1,199 +1,243 @@
 ---
 description: Canonical QA report template for QA agents publishing via /api/artifacts/insert-qa
-alwaysApply: true
+alwaysApply: false
 ---
 
 # QA Report Template
 
-**MANDATORY:** QA agents **must** use this template when publishing QA artifacts via `/api/artifacts/insert-qa`. This ensures QA reports are consistent, auditable, and include explicit Acceptance Criteria verification + test outcomes.
+**MANDATORY:** QA agents **must** use this template when publishing QA artifacts via `/api/artifacts/insert-qa`. This template ensures consistent, auditable QA reports with explicit Acceptance Criteria verification and test outcomes.
 
 ## Template Structure
 
-Copy and fill in this template for every QA report:
+Copy and fill out the following template for each QA report:
 
 ```markdown
 # QA Report for ticket <ticket-id>
 
-## Ticket & Deliverable
-
-- **Goal:** [One-line goal from ticket]
-- **Human-verifiable deliverable:** [One-line deliverable from ticket]
-- **Acceptance criteria:** [List all ACs from ticket, or reference "See ticket for full AC list"]
-
 ## Verdict
 
-**<PASS|FAIL>** — [One-sentence summary of outcome]
+**<PASS | FAIL>**
 
-[If PASS:] Implementation complete and matches ticket requirements. OK to merge.
-
-[If FAIL:] [Brief reason for failure. What blocking issues were found?]
-
-## Acceptance Criteria Verification
-
-**MANDATORY:** Enumerate every Acceptance Criteria from the ticket. For each AC, state "Met" or "Not met" with evidence.
-
-### AC 1: "[Full text of AC 1]"
-- **Status:** Met / Not met
-- **Evidence:** 
-  - [File paths with line numbers, artifact references, screenshots, or reproduction steps]
-  - [Additional evidence as needed]
-
-### AC 2: "[Full text of AC 2]"
-- **Status:** Met / Not met
-- **Evidence:** 
-  - [File paths with line numbers, artifact references, screenshots, or reproduction steps]
-  - [Additional evidence as needed]
-
-[... continue for all ACs ...]
-
-## Test Matrix / Scenarios Executed
-
-List all test scenarios that were executed during QA verification.
-
-### Automated Tests
-- [ ] Build verification: `npm run build:hal` (or `tsc -b`)
-  - **Result:** PASS / FAIL
-  - **Notes:** [Any TypeScript errors or build warnings]
-
-### Manual Test Scenarios
-- [ ] **Scenario 1:** [Description of test scenario]
-  - **Result:** PASS / FAIL
-  - **Steps:** [Brief steps executed]
-  - **Observed:** [What was observed]
-
-- [ ] **Scenario 2:** [Description of test scenario]
-  - **Result:** PASS / FAIL
-  - **Steps:** [Brief steps executed]
-  - **Observed:** [What was observed]
-
-[... continue for all test scenarios ...]
-
-## Evidence
-
-**What was observed during verification:**
-
-### Code Review
-- [ ] All required implementation artifacts present (Plan, Worklog, Changed Files, Decisions, Verification, PM Review, Git diff, Instructions Used)
-- [ ] Code implementation matches ticket requirements
-- [ ] Code locations: [File paths with line numbers or symbol names]
-- [ ] **Issues found:** [List any code issues, or "None"]
-
-### Build Verification
-- [ ] Build completed: [PASS / FAIL]
-- [ ] TypeScript errors: [Count or "None"]
-- [ ] Build warnings: [Count or "None"]
-- [ ] **Notes:** [Any build-related observations]
-
-### UI Verification
-- [ ] Manual UI verification performed: [Yes / No / Partial]
-- [ ] Automated UI tests run: [Yes / No / N/A]
-- [ ] **What was verified:** [List UI features/behaviors verified]
-- [ ] **Issues found:** [List any UI issues, or "None"]
-
-### Artifact Review
-- [ ] All required implementation artifacts present and complete
-- [ ] Artifacts contain substantive content (not placeholders)
-- [ ] **Missing artifacts:** [List any missing artifacts, or "None"]
-
-## Repro Steps (for failures only)
-
-**Include this section only if Verdict is FAIL.**
-
-For each failure, provide clear reproduction steps:
-
-### Failure 1: [Brief description]
-- **Expected:** [What should happen]
-- **Actual:** [What actually happened]
-- **Repro steps:**
-  1. [Step 1]
-  2. [Step 2]
-  3. [Step 3]
-- **Suspected area:** [File path or component where issue likely exists]
-- **Screenshots/Logs:** [Reference to screenshots or error logs if available]
-
-### Failure 2: [Brief description]
-- **Expected:** [What should happen]
-- **Actual:** [What actually happened]
-- **Repro steps:**
-  1. [Step 1]
-  2. [Step 2]
-  3. [Step 3]
-- **Suspected area:** [File path or component where issue likely exists]
-
-[... continue for all failures ...]
-
-## Environment
-
-- **Branch verified:** [Feature branch name or `main`]
-- **App version/commit:** [Git commit hash or version if available]
-- **Browser/Platform:** [Browser name and version, or "N/A" if not applicable]
-- **Node version:** [Node.js version if relevant, or "N/A"]
-- **Other relevant environment details:** [Any other environment info needed for reproduction]
-
-## Notes / Risks
-
-- **Blocking issues:** [List any blocking issues that prevent merge, or "None"]
-- **Non-blocking issues:** [List any minor issues or recommendations, or "None"]
-- **Manual verification required:** [Yes / No] — [If yes, describe what manual steps are needed]
-- **Risks identified:** [Any risks or concerns about the implementation, or "None"]
-- **Recommendations:** [Any recommendations for follow-up work, or "None"]
+[One-line summary: Implementation complete and ready to merge? Or blocking issues identified?]
 
 ---
 
-**QA RESULT: <PASS|FAIL> — <ticket-id>**
+## Ticket & Deliverable
+
+**Goal:** [Brief one-line goal from ticket]
+
+**Human-verifiable deliverable:** [Brief description of what should be observable]
+
+**Acceptance Criteria:**
+- [ ] AC1: [First acceptance criterion from ticket]
+- [ ] AC2: [Second acceptance criterion from ticket]
+- [ ] AC3: [Additional acceptance criteria...]
+
+---
+
+## Acceptance Criteria Verification
+
+[For each acceptance criterion, provide explicit verification with evidence]
+
+### AC1: [Criterion description]
+
+**Status:** ✅ PASS | ❌ FAIL
+
+**Evidence:**
+- [What was observed/tested]
+- [Code location or UI behavior observed]
+- [Screenshot reference or test output if applicable]
+
+### AC2: [Criterion description]
+
+**Status:** ✅ PASS | ❌ FAIL
+
+**Evidence:**
+- [What was observed/tested]
+- [Code location or UI behavior observed]
+
+[Continue for all acceptance criteria...]
+
+---
+
+## Test Matrix / Scenarios Executed
+
+| Scenario | Test Type | Status | Notes |
+|----------|-----------|--------|-------|
+| [Scenario 1 description] | Code Review / UI / Build | ✅ PASS / ❌ FAIL | [Brief notes] |
+| [Scenario 2 description] | Code Review / UI / Build | ✅ PASS / ❌ FAIL | [Brief notes] |
+| [Additional scenarios...] | ... | ... | ... |
+
+**Test Coverage:**
+- [x] Code review completed
+- [x] Build verification (`npm run build` or equivalent)
+- [x] UI verification (automated and/or manual steps)
+- [ ] Additional tests: [specify]
+
+---
+
+## Evidence
+
+### Code Review
+
+**Status:** ✅ PASS | ❌ FAIL
+
+**Findings:**
+- [Key implementation details observed]
+- [Code locations verified: `file/path.ts:line-range` or `file/path.ts — function name()`]
+- [Compliance with requirements: Yes/No with details]
+
+### Build Verification
+
+**Status:** ✅ PASS | ❌ FAIL
+
+**Command:** `npm run build` (or equivalent)
+
+**Result:**
+- [Build output summary]
+- [TypeScript errors: None / List errors if any]
+- [Linter errors: None / List errors if any]
+
+### UI Verification
+
+**Status:** ✅ PASS | ❌ FAIL | ⚠️ MANUAL REQUIRED
+
+**Automated Tests:**
+- [List automated tests run and results]
+
+**Manual Steps Executed:**
+1. [Step 1 description and result]
+2. [Step 2 description and result]
+3. [Additional steps...]
+
+**Manual Steps Required (not executed):**
+- [List any manual verification steps that should be performed by user in Human in the Loop phase]
+
+---
+
+## Repro Steps (FAIL only)
+
+[Include this section only if Verdict is FAIL]
+
+### Issue Description
+
+[Clear description of what failed]
+
+### Expected Behavior
+
+[What should have happened]
+
+### Actual Behavior
+
+[What actually happened]
+
+### Repro Steps
+
+1. [Step 1]
+2. [Step 2]
+3. [Additional steps to reproduce the issue]
+
+### Suspected Area
+
+[Code location or component suspected: `file/path.ts:line-range` or `file/path.ts — function name()`]
+
+### Screenshots/Logs
+
+[If applicable, reference screenshots or include relevant log output]
+
+---
+
+## Environment
+
+**App Version/Branch:** [e.g., `main` branch, commit hash, or feature branch name]
+
+**Browser/Platform:** [e.g., Chrome 120, Firefox 121, Safari 17, or Node.js version for CLI tools]
+
+**Verification Date:** [ISO date: YYYY-MM-DD]
+
+**Additional Context:**
+- [Any relevant environment details: Supabase connection, local vs. cloud, etc.]
+
+---
+
+## Notes / Risks
+
+### Implementation Quality
+
+- [Code quality observations]
+- [Follows existing patterns: Yes/No]
+- [Error handling: Adequate/Needs improvement]
+- [Performance considerations: None/List concerns]
+
+### Blocking Issues
+
+[If Verdict is FAIL, list all blocking issues that prevent merge]
+
+### Non-Blocking Issues
+
+[Optional: List minor issues or recommendations that don't block merge]
+
+### Migration Considerations
+
+[If applicable: State management changes, breaking changes, backward compatibility]
+
+### Recommendations
+
+[Optional: Suggestions for improvements or follow-up work]
+
+---
+
+## Artifact Verification
+
+**Required Implementation Artifacts Present:**
+- [x] Plan artifact
+- [x] Worklog artifact
+- [x] Changed Files artifact
+- [x] Decisions artifact
+- [x] Verification artifact
+- [x] PM Review artifact
+- [x] Git diff artifact
+- [x] Instructions Used artifact
+
+**Missing Artifacts:** [List any missing artifacts if Verdict is FAIL due to missing artifacts]
+
+---
+
+## Completion
+
+**QA RESULT: <PASS | FAIL> — <ticket-id>**
+
+[Final summary: Ready to merge? Or what needs to be fixed?]
 ```
 
-## Template Usage Instructions
+## Usage Instructions
 
-### For PASS Reports
+1. **Copy the template** above (everything between the triple backticks)
+2. **Replace placeholders** with actual ticket information and test results
+3. **Fill all sections** - Do not leave placeholder text or empty sections
+4. **For PASS reports:** Include explicit AC1/AC2/... statements with evidence for each criterion
+5. **For FAIL reports:** Include clear repro steps, expected vs actual, and suspected area
+6. **Ensure minimum 100 characters** of substantive content (validation requirement)
+7. **Publish via HAL API:** `POST /api/artifacts/insert-qa` with the filled template as `body_md`
 
-1. Fill in all sections with actual verification results
-2. For each AC, provide clear evidence (file paths, artifact references, or reproduction steps)
-3. List all test scenarios executed (both automated and manual)
-4. Document what was observed in the Evidence section
-5. Include Environment details for reproducibility
-6. Use Notes/Risks section for any non-blocking concerns or recommendations
+## Template Requirements
 
-### For FAIL Reports
+- ✅ **Verdict** must be clearly stated (PASS or FAIL) at the top
+- ✅ **Acceptance Criteria verification** must explicitly check each AC with evidence
+- ✅ **Test matrix** must list all scenarios executed
+- ✅ **Evidence** section must document what was observed (code review, build, UI)
+- ✅ **Repro steps** required for FAIL reports (expected vs actual, suspected area)
+- ✅ **Environment** must specify branch/version and browser/platform
+- ✅ **Notes/Risks** must address blocking issues, quality, and recommendations
+- ✅ **No placeholder-only sections** - all sections must contain substantive content
 
-1. Fill in all sections, including Repro Steps section
-2. For each AC that is "Not met", clearly explain why and provide evidence
-3. In Repro Steps section, provide clear reproduction steps for each failure
-4. Include Expected vs Actual for each failure
-5. Specify suspected area (file/component) where issue likely exists
-6. Document Environment details to help with reproduction
-7. Use Notes/Risks section to highlight blocking issues
+## Validation Compatibility
 
-### Required Sections
-
-**All QA reports must include:**
-- Verdict (PASS/FAIL)
-- Acceptance Criteria Verification (enumerate all ACs)
-- Test Matrix / Scenarios Executed
-- Evidence
-- Environment
-- Notes / Risks
-
-**Conditional sections:**
-- Repro Steps (only for FAIL reports)
-
-### Template Compatibility
-
-This template is designed to be compatible with artifact validation:
-- Minimum 100 characters required (template structure ensures this)
-- No placeholder-only sections (all sections require actual content)
-- Substantive content in all required fields
-
-### Integration with AC Confirmation Checklist
-
-The "Acceptance Criteria Verification" section in this template fulfills the AC Confirmation Checklist requirement (see `.cursor/rules/ac-confirmation-checklist.mdc`). QA agents must enumerate every AC and provide evidence for each.
+This template is designed to pass artifact validation:
+- Minimum 100 characters of substantive content (easily met with filled sections)
+- No placeholder patterns (all placeholders must be replaced with actual content)
+- Structured format with headings, tables, and lists (validation accepts structured content)
 
 ## Examples
 
-See `.cursor/rules/qa-report-examples.mdc` for filled examples of both PASS and FAIL reports using this template. The examples demonstrate:
-- How to enumerate ACs with evidence
-- How to structure test scenarios
-- How to document evidence (code review, build, UI, artifacts)
-- How to write repro steps for failures (Expected vs Actual format)
-- How to document environment details
-- How to use Notes/Risks section
+See `.cursor/rules/qa-report-example-pass.mdc` and `.cursor/rules/qa-report-example-fail.mdc` for filled examples demonstrating correct usage.
