@@ -32,6 +32,7 @@ import {
 } from './frontmatter'
 import { createClient } from '@supabase/supabase-js'
 import ReactMarkdown from 'react-markdown'
+import type { Components } from 'react-markdown'
 
 type LogEntry = { id: number; message: string; at: string }
 type Card = { id: string; title: string; /** Display id for work button (e.g. HAL-0081); when card id is Supabase pk, used for message. */ displayId?: string }
@@ -415,6 +416,102 @@ function getAgentTypeDisplayName(agentType: string): string {
   }
 }
 
+/** Image viewer modal for full-size image display (0158) */
+function ImageViewerModal({
+  open,
+  onClose,
+  imageSrc,
+  imageAlt,
+}: {
+  open: boolean
+  onClose: () => void
+  imageSrc: string | null
+  imageAlt: string
+}) {
+  const modalRef = useRef<HTMLDivElement>(null)
+  const closeBtnRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (!open || !modalRef.current) return
+    const el = closeBtnRef.current ?? modalRef.current.querySelector<HTMLElement>('button, [href]')
+    el?.focus()
+  }, [open])
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+        return
+      }
+    },
+    [onClose]
+  )
+
+  if (!open || !imageSrc) return null
+
+  return (
+    <div
+      className="ticket-detail-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Image viewer"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+      onKeyDown={handleKeyDown}
+    >
+      <div className="ticket-detail-modal" ref={modalRef} style={{ maxWidth: '90vw', maxHeight: '90vh', padding: '1rem' }}>
+        <div className="ticket-detail-header">
+          <h2 id="image-viewer-title" className="ticket-detail-title" style={{ fontSize: '1.25rem' }}>
+            {imageAlt || 'Image'}
+          </h2>
+          <button
+            type="button"
+            className="ticket-detail-close"
+            onClick={onClose}
+            ref={closeBtnRef}
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+        <div className="ticket-detail-body-wrap" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '1rem' }}>
+          <img
+            src={imageSrc}
+            alt={imageAlt}
+            style={{
+              maxWidth: '100%',
+              maxHeight: 'calc(90vh - 100px)',
+              objectFit: 'contain',
+              borderRadius: '4px',
+            }}
+            onError={(e) => {
+              const target = e.currentTarget
+              target.style.display = 'none'
+              const parent = target.parentElement
+              if (parent) {
+                const errorMsg = document.createElement('p')
+                errorMsg.textContent = `Unable to display image: ${imageAlt || 'Unknown image'}`
+                errorMsg.style.color = 'var(--kanban-error)'
+                errorMsg.style.padding = '2rem'
+                errorMsg.style.textAlign = 'center'
+                parent.appendChild(errorMsg)
+              }
+            }}
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /** Artifact report viewer modal (0082) */
 function ArtifactReportViewer({
   open,
@@ -425,11 +522,18 @@ function ArtifactReportViewer({
   onClose: () => void
   artifact: SupabaseAgentArtifactRow | null
 }) {
+  const [imageViewerOpen, setImageViewerOpen] = useState(false)
+  const [imageViewerSrc, setImageViewerSrc] = useState<string | null>(null)
+  const [imageViewerAlt, setImageViewerAlt] = useState<string>('')
   const modalRef = useRef<HTMLDivElement>(null)
   const closeBtnRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
-    if (!open) return
+    if (!open) {
+      // Close image viewer when artifact viewer closes
+      setImageViewerOpen(false)
+      return
+    }
     const prev = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     return () => {
@@ -446,6 +550,10 @@ function ArtifactReportViewer({
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === 'Escape') {
+        if (imageViewerOpen) {
+          setImageViewerOpen(false)
+          return
+        }
         onClose()
         return
       }
@@ -468,8 +576,75 @@ function ArtifactReportViewer({
         }
       }
     },
-    [onClose]
+    [onClose, imageViewerOpen]
   )
+
+  const handleImageClick = useCallback((src: string, alt: string) => {
+    setImageViewerSrc(src)
+    setImageViewerAlt(alt || artifact?.title || 'Image')
+    setImageViewerOpen(true)
+  }, [artifact])
+
+  // Custom image component for ReactMarkdown (0158)
+  const MarkdownImage = useCallback(({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement> & { src?: string; alt?: string }) => {
+    const [imageError, setImageError] = useState(false)
+    const imageSrc = src || null
+    
+    // Handle image load error
+    const handleError = useCallback(() => {
+      setImageError(true)
+    }, [])
+
+    // If image failed to load, show fallback
+    if (imageError || !imageSrc) {
+      return (
+        <div
+          style={{
+            padding: '1rem',
+            border: '1px solid var(--kanban-border)',
+            borderRadius: '4px',
+            backgroundColor: 'var(--kanban-surface-alt)',
+            color: 'var(--kanban-text-muted)',
+            textAlign: 'center',
+          }}
+        >
+          <p style={{ margin: 0 }}>
+            Unable to display image: {alt || artifact?.title || 'Unknown image'}
+          </p>
+        </div>
+      )
+    }
+
+    return (
+      <div style={{ margin: '1rem 0', textAlign: 'center' }}>
+        <img
+          {...props}
+          src={imageSrc}
+          alt={alt || artifact?.title || 'Image'}
+          onClick={() => handleImageClick(imageSrc, alt || artifact?.title || 'Image')}
+          onError={handleError}
+          style={{
+            maxWidth: '100%',
+            height: 'auto',
+            cursor: 'pointer',
+            borderRadius: '4px',
+            border: '1px solid var(--kanban-border)',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+          }}
+          title="Click to view full size"
+        />
+        {alt && (
+          <p style={{ marginTop: '0.5rem', fontSize: '0.9rem', color: 'var(--kanban-text-muted)', fontStyle: 'italic' }}>
+            {alt}
+          </p>
+        )}
+      </div>
+    )
+  }, [artifact, handleImageClick])
+
+  const markdownComponents: Components = useMemo(() => ({
+    img: MarkdownImage,
+  }), [MarkdownImage])
 
   if (!open || !artifact) return null
 
@@ -507,7 +682,7 @@ function ArtifactReportViewer({
         <div className="ticket-detail-body-wrap">
           <div className="ticket-detail-body">
             {artifact.body_md && artifact.body_md.trim().length > 0 ? (
-              <ReactMarkdown>{artifact.body_md}</ReactMarkdown>
+              <ReactMarkdown components={markdownComponents}>{artifact.body_md}</ReactMarkdown>
             ) : (
               <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
                 No output produced. This artifact was created but contains no content.
@@ -516,6 +691,12 @@ function ArtifactReportViewer({
           </div>
         </div>
       </div>
+      <ImageViewerModal
+        open={imageViewerOpen}
+        onClose={() => setImageViewerOpen(false)}
+        imageSrc={imageViewerSrc}
+        imageAlt={imageViewerAlt}
+      />
     </div>
   )
 }
