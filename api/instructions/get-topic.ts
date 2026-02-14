@@ -47,6 +47,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const body = (await readJsonBody(req)) as {
       topicId?: string
       repoFullName?: string
+      agentType?: string
       supabaseUrl?: string
       supabaseAnonKey?: string
     }
@@ -117,8 +118,27 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     const topicMeta = data.topic_metadata || {}
+    const instructionAgentTypes = data.agent_types || []
+    
+    // Check if requesting agent type has access (if agentType is provided)
+    const requestingAgentType = typeof body.agentType === 'string' ? body.agentType.trim() : undefined
+    let hasAccess = true
+    let accessReason = 'no-agent-type-specified'
+    
+    if (requestingAgentType) {
+      // Check if instruction applies to this agent type
+      hasAccess = 
+        data.always_apply ||
+        instructionAgentTypes.includes('all') ||
+        instructionAgentTypes.includes(requestingAgentType)
+      
+      accessReason = hasAccess 
+        ? (data.always_apply ? 'always-apply' : instructionAgentTypes.includes('all') ? 'shared-global' : 'agent-type-match')
+        : 'out-of-scope'
+    }
 
-    json(res, 200, {
+    // Build response with access metadata
+    const response: any = {
       success: true,
       topicId: data.topic_id,
       title: topicMeta.title || data.title || data.topic_id,
@@ -127,11 +147,20 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       contentMd: data.content_md,
       contentBody: data.content_body,
       alwaysApply: data.always_apply,
-      agentTypes: data.agent_types || [],
+      agentTypes: instructionAgentTypes,
       isBasic: data.is_basic,
       isSituational: data.is_situational,
       topicMetadata: data.topic_metadata,
-    })
+      accessMetadata: {
+        requestingAgentType: requestingAgentType || null,
+        hasAccess,
+        accessReason,
+        instructionAgentTypes,
+        accessedAt: new Date().toISOString(),
+      },
+    }
+
+    json(res, 200, response)
   } catch (err) {
     json(res, 500, {
       success: false,

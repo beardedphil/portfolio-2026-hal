@@ -91,38 +91,49 @@ export function AgentInstructionsViewer({
           throw new Error('Supabase not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env')
         }
 
-        const supabase = getSupabaseClient(url, key)
+        // Use HAL API endpoint to load instructions (supports agent type scoping)
+        const baseUrl = window.location.origin
+        const instructionsResponse = await fetch(`${baseUrl}/api/instructions/get`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            repoFullName,
+            includeBasic: true,
+            includeSituational: true,
+            // Don't filter by agent type here - load all, then filter by selected agent
+          }),
+        })
 
-        // Load instructions
-        const { data: instructionsData, error: instructionsError } = await supabase
-          .from('agent_instructions')
-          .select('*')
-          .eq('repo_full_name', repoFullName)
-          .order('filename')
-
-        if (instructionsError) {
-          throw new Error(`Failed to load instructions: ${instructionsError.message}`)
+        if (!instructionsResponse.ok) {
+          throw new Error(`Failed to load instructions: ${instructionsResponse.statusText}`)
         }
 
-        // Load instruction index
-        const { data: indexData, error: indexError } = await supabase
-          .from('agent_instruction_index')
-          .select('index_data')
-          .eq('repo_full_name', repoFullName)
-          .single()
+        const instructionsResult = await instructionsResponse.json()
+        if (!instructionsResult.success) {
+          throw new Error(instructionsResult.error || 'Failed to load instructions')
+        }
 
-        // Convert Supabase rows to InstructionFile format
-        const loadedInstructions: InstructionFile[] = (instructionsData || []).map((row: any) => ({
+        // Load instruction index (also via API)
+        const indexResponse = await fetch(`${baseUrl}/api/instructions/get-index`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            repoFullName,
+          }),
+        })
+
+        // Convert API response to InstructionFile format
+        const loadedInstructions: InstructionFile[] = (instructionsResult.instructions || []).map((row: any) => ({
           path: row.filename,
           name: row.title || row.filename.replace('.mdc', '').replace(/-/g, ' '),
           description: row.description || 'No description',
-          alwaysApply: row.always_apply || false,
-          content: row.content_body || row.content_md, // Use body if available, fallback to full content
-          agentTypes: row.agent_types || [],
-          topicId: row.topic_id,
-          isBasic: row.is_basic || false,
-          isSituational: row.is_situational || false,
-          topicMetadata: row.topic_metadata,
+          alwaysApply: row.alwaysApply || false,
+          content: row.contentBody || row.contentMd, // Use body if available, fallback to full content
+          agentTypes: row.agentTypes || [],
+          topicId: row.topicId,
+          isBasic: row.isBasic || false,
+          isSituational: row.isSituational || false,
+          topicMetadata: row.topicMetadata,
         }))
 
         setInstructions(loadedInstructions)
@@ -131,11 +142,14 @@ export function AgentInstructionsViewer({
         setBasicInstructions(loadedInstructions.filter(inst => inst.isBasic))
         setSituationalInstructions(loadedInstructions.filter(inst => inst.isSituational))
 
-        // Set index
-        if (indexData && !indexError) {
-          setInstructionIndex(indexData.index_data)
-        } else if (!indexError) {
-          // Index doesn't exist yet, derive from instructions
+        // Set index from API response
+        if (indexResponse.ok) {
+          const indexResult = await indexResponse.json()
+          if (indexResult.success && indexResult.index) {
+            setInstructionIndex(indexResult.index)
+          }
+        } else {
+          // Fallback: derive index from instructions
           const derivedIndex = {
             basic: loadedInstructions.filter(inst => inst.isBasic).map(inst => inst.topicId || inst.path.replace('.mdc', '')),
             situational: {},
