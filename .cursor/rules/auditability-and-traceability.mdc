@@ -135,6 +135,12 @@ Use HAL API endpoints (tool calls) to store artifacts:
 - **PM Review artifact** (agent_type: `implementation`, title: `PM Review for ticket <ticket-id>`)
   - Likelihood of success (0–100%), potential failures, and how to diagnose them.
   - Store via tool call: `insert_implementation_artifact` with `artifactType: "pm-review"`
+- **Git diff artifact** (agent_type: `implementation`, title: `Git diff for ticket <ticket-id>`)
+  - Full unified git diff of all changes for this ticket.
+  - Generate using: `git diff main...HEAD` (or `git diff main` if on feature branch) to get all changes.
+  - If no changes exist or diff is empty, include a message explaining why (e.g., "No changes detected" or "All changes already merged").
+  - The diff should be in unified diff format and will be displayed with syntax highlighting in the UI.
+  - Store via tool call: `insert_implementation_artifact` with `artifactType: "git-diff"`
 - **QA Report artifact** (agent_type: `qa`, title: `QA report for ticket <ticket-id>`)
   - Created by QA agent after code review and verification.
   - Store via tool call: `insert_qa_artifact`
@@ -170,10 +176,10 @@ Use HAL API endpoints (tool calls) to store artifacts:
   - the **feature branch name** (so QA can review and merge), and
   - the exact `git status -sb` output.
 - The implementation agent **must add the branch name to the ticket** when claiming "ready for QA" (see ticket template: QA → Branch).
-- The implementation agent **must store all 6 required artifacts in Supabase** when marking ready for QA (see "Required Artifacts" above).
+- The implementation agent **must store all 7 required artifacts in Supabase** when marking ready for QA (see "Required Artifacts" above).
 - The implementation agent **must move the ticket to QA column** (`col-qa`) via HAL API (`POST /api/tickets/move` with `{ ticketId: "<id>", columnId: "col-qa" }`) when marking ready for QA. **FORBIDDEN:** Claiming "ready" without moving the ticket to QA column. 
   - **Storage method:** Call HAL API directly (`POST ${baseUrl}/api/artifacts/insert-implementation`) or write to `.hal-tool-call-queue.json`.
-  - **Verification:** After storing, call `/api/artifacts/get` to verify all 6 artifacts are present. If any are missing, store them again.
+  - **Verification:** After storing, call `/api/artifacts/get` to verify all 7 artifacts are present. If any are missing, store them again.
   - **FORBIDDEN:** Claiming "ready" without verifying all artifacts are stored. QA will fail tickets with missing artifacts.
 
 - Artifacts must be **stored in Supabase**:

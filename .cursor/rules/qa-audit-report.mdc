@@ -36,6 +36,7 @@ In cloud environments, QA agents may not have access to feature branches (only `
 4. **Decisions artifact** (`artifactType: "decisions"`, title: `Decisions for ticket <ticket-id>`)
 5. **Verification artifact** (`artifactType: "verification"`, title: `Verification for ticket <ticket-id>`)
 6. **PM Review artifact** (`artifactType: "pm-review"`, title: `PM Review for ticket <ticket-id>`)
+7. **Git diff artifact** (`artifactType: "git-diff"`, title: `Git diff for ticket <ticket-id>`)
 
 **How to check for artifacts:**
 1. **First step (MANDATORY):** Call HAL API endpoint `/api/artifacts/get` with `{ ticketId: "<ticket-id>" }` to fetch all artifacts for the ticket.
@@ -43,13 +44,14 @@ In cloud environments, QA agents may not have access to feature branches (only `
    - If API call fails (404, 500, network error, etc.), **QA MUST FAIL** — you cannot verify artifacts exist, so assume they are missing.
    - **DO NOT proceed with code review if artifact verification fails.**
 2. Filter the returned artifacts to find implementation artifacts (where `agent_type === "implementation"`).
-3. Check that all 6 required artifact types are present by matching artifact titles:
+3. Check that all 7 required artifact types are present by matching artifact titles:
    - `Plan for ticket <ticket-id>`
    - `Worklog for ticket <ticket-id>`
    - `Changed Files for ticket <ticket-id>`
    - `Decisions for ticket <ticket-id>`
    - `Verification for ticket <ticket-id>`
    - `PM Review for ticket <ticket-id>`
+   - `Git diff for ticket <ticket-id>`
 
 **Auto-fail when artifacts are missing or unverifiable:**
 - **If artifact API call fails (404, 500, network error, timeout):** QA **must fail immediately**. You cannot verify artifacts exist, so treat as missing.
