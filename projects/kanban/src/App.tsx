@@ -5122,8 +5122,13 @@ QA RESULT: FAIL — ${displayId}
                   
                   const qaResult = await qaResponse.json()
                   if (!qaResult.success) {
-                    console.warn(`Failed to create QA artifact for ticket ${ticketNumber}:`, qaResult.error)
-                    addLog(`Warning: Failed to create QA artifact: ${qaResult.error}`)
+                    const errorMsg = qaResult.error || 'Unknown error'
+                    const validationReason = qaResult.validation_reason || (qaResult.validation_failed ? 'Validation failed' : undefined)
+                    const fullErrorMsg = validationReason 
+                      ? `Failed to create QA artifact: ${errorMsg}. Validation reason: ${validationReason}`
+                      : `Failed to create QA artifact: ${errorMsg}`
+                    console.warn(`Failed to create QA artifact for ticket ${ticketNumber}:`, fullErrorMsg)
+                    addLog(`Warning: ${fullErrorMsg}`)
                     // Continue with ticket update even if artifact creation fails
                   } else {
                     addLog(`QA artifact created/updated for ticket ${displayId} with FAIL verdict`)

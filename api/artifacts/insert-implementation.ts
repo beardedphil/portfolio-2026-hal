@@ -15,7 +15,13 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   }
   const raw = Buffer.concat(chunks).toString('utf8').trim()
   if (!raw) return {}
-  return JSON.parse(raw) as unknown
+  try {
+    return JSON.parse(raw) as unknown
+  } catch (parseError) {
+    console.error(`[insert-implementation] JSON parse error: ${parseError instanceof Error ? parseError.message : String(parseError)}`)
+    console.error(`[insert-implementation] Raw body length: ${raw.length}, first 500 chars: ${raw.substring(0, 500)}`)
+    throw new Error(`Failed to parse request body as JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`)
+  }
 }
 
 function json(res: ServerResponse, statusCode: number, body: unknown) {
@@ -55,10 +61,21 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const ticketId = typeof body.ticketId === 'string' ? body.ticketId.trim() : undefined
     const artifactType = typeof body.artifactType === 'string' ? body.artifactType.trim() : undefined
     const title = typeof body.title === 'string' ? body.title.trim() : undefined
-    const body_md = typeof body.body_md === 'string' ? body.body_md : undefined
+    const body_md = typeof body.body_md === 'string' ? body.body_md : (body.body_md !== undefined && body.body_md !== null ? String(body.body_md) : undefined)
 
     // Log artifact creation request for tracing
-    console.log(`[insert-implementation] Artifact creation request: ticketId=${ticketId}, artifactType=${artifactType}, title="${title}", body_md length=${body_md?.length ?? 'undefined'}`)
+    console.log(`[insert-implementation] Artifact creation request: ticketId=${ticketId}, artifactType=${artifactType}, title="${title}", body_md type=${typeof body.body_md}, body_md length=${body_md?.length ?? 'undefined'}`)
+    
+    // Additional validation: ensure body_md is actually a string and not empty
+    if (body_md !== undefined && (typeof body_md !== 'string' || body_md.length === 0)) {
+      console.error(`[insert-implementation] Invalid body_md: type=${typeof body_md}, value=${body_md?.substring(0, 100) ?? 'null/undefined'}`)
+      json(res, 400, {
+        success: false,
+        error: 'body_md must be a non-empty string. Received invalid or empty body_md.',
+        validation_failed: true,
+      })
+      return
+    }
 
     // Use credentials from request body if provided, otherwise fall back to server environment variables
     const supabaseUrl =
@@ -127,8 +144,31 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     // Validate that body_md contains substantive content (after we have ticket for logging)
+    // Ensure body_md is a valid string before validation
+    if (!body_md || typeof body_md !== 'string') {
+      const errorMsg = 'body_md is required and must be a string'
+      console.error(`[insert-implementation] ${errorMsg}: body_md type=${typeof body_md}, value=${body_md?.substring(0, 100) ?? 'null/undefined'}`)
+      await logStorageAttempt(
+        supabase,
+        ticket.pk,
+        ticket.repo_full_name || '',
+        artifactType || 'unknown',
+        'implementation',
+        '/api/artifacts/insert-implementation',
+        'rejected by validation',
+        errorMsg,
+        errorMsg
+      )
+      json(res, 400, {
+        success: false,
+        error: errorMsg,
+        validation_failed: true,
+      })
+      return
+    }
+    
     const contentValidation = hasSubstantiveContent(body_md, title)
-    console.log(`[insert-implementation] Content validation: valid=${contentValidation.valid}, reason=${contentValidation.reason || 'none'}, body_md length=${body_md?.length ?? 'undefined'}`)
+    console.log(`[insert-implementation] Content validation: valid=${contentValidation.valid}, reason=${contentValidation.reason || 'none'}, body_md length=${body_md.length}`)
     if (!contentValidation.valid) {
       // Log validation failure attempt (0175)
       await logStorageAttempt(
@@ -146,6 +186,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         success: false,
         error: contentValidation.reason || 'Artifact body must contain substantive content, not just a title or placeholder text.',
         validation_failed: true,
+        validation_reason: contentValidation.reason, // Include validation reason for UI display
       })
       return
     }
@@ -342,26 +383,40 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     if (insertError) {
       // Handle race condition: if duplicate key error, try to find and update the existing artifact
       if (insertError.message.includes('duplicate') || insertError.code === '23505') {
-        const { data: existingArtifact, error: findError } = await supabase
-          .from('agent_artifacts')
-          .select('artifact_id')
-          .eq('ticket_pk', ticket.pk)
-          .eq('agent_type', 'implementation')
-          .eq('title', title)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .single()
-
-        if (!findError && existingArtifact?.artifact_id) {
+        console.log(`[insert-implementation] Race condition detected: duplicate key error, attempting to find and update existing artifact`)
+        // Try to find by canonical identifier instead of exact title match
+        const { artifacts: raceArtifacts, error: raceFindError } = await findArtifactsByCanonicalId(
+          supabase,
+          ticket.pk,
+          'implementation',
+          artifactType
+        )
+        
+        if (!raceFindError && raceArtifacts && raceArtifacts.length > 0) {
+          // Use the most recent artifact
+          const targetArtifact = raceArtifacts[0]
           const { error: updateError } = await supabase
             .from('agent_artifacts')
-            .update({ body_md })
-            .eq('artifact_id', existingArtifact.artifact_id)
+            .update({ 
+              title: canonicalTitle, // Use canonical title for consistency
+              body_md 
+            })
+            .eq('artifact_id', targetArtifact.artifact_id)
 
           if (!updateError) {
+            // Log successful storage attempt (0175)
+            await logStorageAttempt(
+              supabase,
+              ticket.pk,
+              ticket.repo_full_name || '',
+              artifactType,
+              'implementation',
+              '/api/artifacts/insert-implementation',
+              'stored'
+            )
             json(res, 200, {
               success: true,
-              artifact_id: existingArtifact.artifact_id,
+              artifact_id: targetArtifact.artifact_id,
               action: 'updated',
               cleaned_up_duplicates: emptyArtifactIds.length,
               race_condition_handled: true,
