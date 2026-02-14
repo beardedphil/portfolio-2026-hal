@@ -2695,13 +2695,16 @@ function App() {
     if (!url || !key || !connectedRepoFullName) return
     try {
       const client = createClient(url, key)
-      // Use fresh tickets if provided, otherwise use ref (0135)
-      // This ensures we always use the latest tickets when available, avoiding stale ref reads
-      const ticketsToUse = freshTickets ?? supabaseTicketsRef.current
+      // CRITICAL FIX (0135): Always use the latest state, not stale freshTickets
+      // When called after a move, freshTickets might be from before the optimistic update
+      // Use functional state update to read the current state, which includes optimistic updates
       
-      // Get all tickets in Doing column from fresh tickets or ref
+      // Get all tickets in Doing column from current state
       setAgentRunsByTicketPk((prevRuns) => {
-        const doingTickets = ticketsToUse.filter((t) => t.kanban_column_id === 'col-doing')
+        // CRITICAL FIX (0135): Read current state to get tickets with optimistic updates
+        // This ensures we use the actual current state, not stale data
+        const currentTickets = freshTickets ?? supabaseTicketsRef.current
+        const doingTickets = currentTickets.filter((t) => t.kanban_column_id === 'col-doing')
         const ticketPkSet = new Set(doingTickets.map((t) => t.pk))
         
         // Immediately clear runs for tickets that are no longer in Doing (0135)
@@ -2717,8 +2720,10 @@ function App() {
         return cleanedRuns
       })
       
-      // Then fetch fresh runs for tickets currently in Doing
-      const doingTickets = ticketsToUse.filter((t) => t.kanban_column_id === 'col-doing')
+      // CRITICAL FIX (0135): Re-read current state after clearing to ensure we have latest tickets
+      // This handles the case where state was updated between the setState call and now
+      const currentTicketsAfterClear = freshTickets ?? supabaseTicketsRef.current
+      const doingTickets = currentTicketsAfterClear.filter((t) => t.kanban_column_id === 'col-doing')
       if (doingTickets.length === 0) {
         // Already cleared above, just ensure state is empty
         setAgentRunsByTicketPk({})
@@ -2744,10 +2749,10 @@ function App() {
           runsByTicket[run.ticket_pk] = run
         }
       }
-      // Update state with fresh runs, ensuring we only include tickets currently in Doing (0135)
-      // Double-check using fresh tickets or ref - handles race conditions where tickets
-      // might have moved during the async fetch
-      const latestTickets = freshTickets ?? supabaseTicketsRef.current
+      // CRITICAL FIX (0135): Final check using current state to ensure we only include tickets currently in Doing
+      // This handles race conditions where tickets might have moved during the async fetch
+      // Read the absolute latest tickets from ref (updated synchronously in refetchSupabaseTickets)
+      const latestTickets = supabaseTicketsRef.current
       const currentDoingTickets = latestTickets.filter((t) => t.kanban_column_id === 'col-doing')
       const currentTicketPkSet = new Set(currentDoingTickets.map((t) => t.pk))
       const finalRuns: Record<string, SupabaseAgentRunRow> = {}
@@ -3277,7 +3282,8 @@ function App() {
         setSupabaseColumnsLastError(null)
       }
       
-      // Update ref synchronously with final tickets (0135)
+      // CRITICAL FIX (0135): Update ref synchronously with final tickets
+      // This ensures fetchActiveAgentRuns always has the latest tickets including optimistic updates
       supabaseTicketsRef.current = finalTickets
       
       return { success: true, freshTickets: finalTickets }
