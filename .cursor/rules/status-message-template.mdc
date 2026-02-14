@@ -1,0 +1,161 @@
+---
+description: Standard template for agent status updates to ensure consistent, scan-friendly progress messages
+alwaysApply: true
+---
+
+# Status Message Template
+
+Agents **must** post status updates using this template to ensure consistent, scan-friendly progress communication.
+
+## When to Post Status Updates
+
+Post status updates:
+- **On start** — When beginning work on a ticket or task
+- **After meaningful milestones** — After completing significant steps (e.g., "implemented X", "fixed Y", "merged branch")
+- **When blocked** — Immediately when encountering blockers or waiting for input
+- **On completion** — When finishing work (before moving ticket or closing task)
+
+## Where to Post
+
+- **In the ticket thread** — Post status updates as messages in the ticket conversation/chat
+- **In the chat running log** — For long-running tasks, post updates in the active chat session
+
+## Template (Copy-Paste)
+
+```
+## Status Update
+
+**Context:** [Brief one-line context: ticket ID, task name, or current focus]
+
+**State:** [Current state: Starting / In progress / Blocked / Done]
+
+**What I did:**
+- [Bullet point of completed work]
+- [Another bullet if applicable]
+
+**Next:**
+- [Next immediate step or milestone]
+
+**Risks:** [Any blockers, dependencies, or concerns — use "None" if clear]
+
+**ETA:** [Time estimate or "Unknown" if uncertain]
+
+**Links:** [Relevant links: PRs, commits, docs — use "None" if not applicable]
+```
+
+## Examples
+
+### Example 1: Starting
+
+```
+## Status Update
+
+**Context:** HAL-0189 — Adding status message template to agent rules
+
+**State:** Starting
+
+**What I did:**
+- Reviewed existing rules structure in `.cursor/rules/`
+- Identified format and location for new template file
+
+**Next:**
+- Create `status-message-template.mdc` with template and examples
+- Commit and push changes
+
+**Risks:** None
+
+**ETA:** 15 minutes
+
+**Links:** None
+```
+
+### Example 2: In Progress
+
+```
+## Status Update
+
+**Context:** HAL-0189 — Adding status message template to agent rules
+
+**State:** In progress
+
+**What I did:**
+- Created `status-message-template.mdc` with copy-paste template
+- Added 3 examples (Starting, In Progress, Blocked)
+- Documented when/where to post status updates
+
+**Next:**
+- Add "Done" example
+- Verify template matches acceptance criteria
+- Commit and push
+
+**Risks:** None
+
+**ETA:** 5 minutes
+
+**Links:** None
+```
+
+### Example 3: Blocked
+
+```
+## Status Update
+
+**Context:** HAL-0189 — Adding status message template to agent rules
+
+**State:** Blocked
+
+**What I did:**
+- Created template file and examples
+- Ready to commit changes
+
+**Next:**
+- Wait for clarification on preferred file location
+- Proceed with commit after confirmation
+
+**Risks:** Need confirmation: should template be in `.cursor/rules/` or `docs/process/`?
+
+**ETA:** Unknown (waiting on input)
+
+**Links:** None
+```
+
+### Example 4: Done
+
+```
+## Status Update
+
+**Context:** HAL-0189 — Adding status message template to agent rules
+
+**State:** Done
+
+**What I did:**
+- Created `status-message-template.mdc` with copy-paste template
+- Added 4 examples (Starting, In Progress, Blocked, Done)
+- Documented when/where/how often to post updates
+- Committed and pushed to `ticket/0189-implementation`
+
+**Next:**
+- Move ticket to Ready for QA
+
+**Risks:** None
+
+**ETA:** N/A
+
+**Links:** Commit: `abc123` — Added status message template
+```
+
+## Formatting Guidelines
+
+- **Keep lines short** — Aim for 80 characters or less per line
+- **Use bullets** — Prefer bullet lists over paragraphs for scanability
+- **Consistent labels** — Always use the exact field names: Context, State, What I did, Next, Risks, ETA, Links
+- **Be concise** — One-line entries where possible; expand only when necessary
+- **Avoid ambiguity** — Use clear, specific language (e.g., "HAL-0189" not "the ticket")
+
+## State Values
+
+Use these exact state values:
+- `Starting` — Just beginning work
+- `In progress` — Actively working, making progress
+- `Blocked` — Waiting on input, dependency, or resolution
+- `Done` — Work complete, ready for next step (QA, merge, etc.)
