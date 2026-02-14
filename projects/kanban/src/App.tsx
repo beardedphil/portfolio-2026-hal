@@ -1320,9 +1320,11 @@ function ArtifactsSection({
 }) {
   const isLoading = loading || refreshing
 
-  // Detect missing expected artifacts for implementation tickets in QA or later columns (0196)
+  // Detect missing expected artifacts for implementation tickets (0196)
+  // Show errors immediately for any implementation ticket, not just in QA columns
   const isImplementationTicket = artifacts.some((a) => a.agent_type === 'implementation')
   const isInQaOrLater = columnId === 'col-qa' || columnId === 'col-human-in-the-loop' || columnId === 'col-process-review'
+  const isInDoingOrLater = columnId === 'col-doing' || isInQaOrLater
   
   // Check for all 8 required implementation artifacts
   const requiredArtifactTypes = [
@@ -1359,7 +1361,9 @@ function ArtifactsSection({
     })
   }
   
-  const missingArtifacts = isImplementationTicket && isInQaOrLater
+  // Show missing artifacts for implementation tickets in "Doing" or later columns (0196)
+  // This ensures errors are visible immediately when implementation is in progress, not just in QA
+  const missingArtifacts = isImplementationTicket && isInDoingOrLater
     ? requiredArtifactTypes.filter(({ key }) => !hasArtifact(key))
     : []
   
@@ -1431,7 +1435,18 @@ function ArtifactsSection({
               <li key={title}>{title}</li>
             ))}
           </ul>
-          This may indicate that artifact insertion failed (API error, validation error, or network error). Check the implementation agent logs for error messages.
+          <p style={{ marginTop: '0.5em', marginBottom: '0' }}>
+            <strong>Possible causes:</strong>
+          </p>
+          <ul style={{ marginTop: '0.25em', marginBottom: '0.5em', paddingLeft: '1.5em' }}>
+            <li><strong>API error:</strong> The artifact insertion API call failed (check network connectivity and HAL API status)</li>
+            <li><strong>Validation error:</strong> The artifact content was rejected (too short, placeholder text, or missing required content)</li>
+            <li><strong>Network error:</strong> Transient network failure during artifact insertion (retry may be needed)</li>
+            <li><strong>Implementation incomplete:</strong> The implementation agent has not yet created this artifact</li>
+          </ul>
+          <p style={{ marginTop: '0.5em', marginBottom: '0', fontSize: '0.9em', fontStyle: 'italic' }}>
+            If artifact insertion failed, the implementation agent should have logged the specific error. Check the agent logs or re-run the implementation to retry artifact creation.
+          </p>
         </div>
       )}
       {/* Legacy error states for backward compatibility (0137) */}
