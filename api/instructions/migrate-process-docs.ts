@@ -49,13 +49,13 @@ function determineAgentTypes(filename: string, content: string): string[] {
     agentTypes.push('process-review-agent')
   }
 
-  // Specific file-based rules
+  // Specific file-based rules for process docs
   if (filenameLower.includes('ready-to-start') || filenameLower.includes('ticket-verification')) {
-    // These apply to all agents
-    agentTypes.push('all')
+    // These apply to all agents (shared/global)
+    if (!agentTypes.includes('all')) agentTypes.push('all')
   } else if (filenameLower.includes('agent-supabase-api') || filenameLower.includes('hal-tool-call')) {
-    // These apply to all agents
-    agentTypes.push('all')
+    // These apply to all agents (shared/global)
+    if (!agentTypes.includes('all')) agentTypes.push('all')
   } else if (filenameLower.includes('chat-ui-staging') || filenameLower.includes('vercel-preview')) {
     // These apply to Implementation and QA
     if (!agentTypes.includes('implementation-agent')) agentTypes.push('implementation-agent')
@@ -67,6 +67,9 @@ function determineAgentTypes(filename: string, content: string): string[] {
     // PM and Process Review
     if (!agentTypes.includes('project-manager')) agentTypes.push('project-manager')
     if (!agentTypes.includes('process-review-agent')) agentTypes.push('process-review-agent')
+  } else if (filenameLower.includes('qa-agent')) {
+    // QA-specific
+    if (!agentTypes.includes('qa-agent')) agentTypes.push('qa-agent')
   }
 
   // If no specific agent types found, default to 'all' (shared/global)
@@ -135,6 +138,13 @@ function parseProcessDoc(filePath: string, content: string) {
     body.split('\n\n').find(p => p.trim().length > 20 && !p.trim().startsWith('#'))?.slice(0, 200) ||
     'Process documentation'
 
+  // Normalize agent types: if alwaysApply, use ['all'], otherwise use specific types (remove 'all' if present)
+  const normalizedAgentTypes = alwaysApply 
+    ? ['all'] 
+    : agentTypes.filter(t => t !== 'all').length > 0 
+      ? agentTypes.filter(t => t !== 'all')
+      : ['all'] // Fallback to 'all' if no specific types found
+
   return {
     topicId,
     filename,
@@ -143,7 +153,7 @@ function parseProcessDoc(filePath: string, content: string) {
     contentMd: content,
     contentBody: body,
     alwaysApply,
-    agentTypes: alwaysApply ? ['all'] : agentTypes.filter(t => t !== 'all'), // If alwaysApply, use 'all', otherwise use specific types
+    agentTypes: normalizedAgentTypes,
     relativePath,
   }
 }
