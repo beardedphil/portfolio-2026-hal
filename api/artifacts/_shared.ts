@@ -3,6 +3,62 @@
  */
 
 /**
+ * The 8 required implementation artifact type keys. Single source of truth for move-to-QA gate,
+ * implementation prompt, and QA/Kanban checks.
+ */
+export const REQUIRED_IMPLEMENTATION_ARTIFACT_TYPES = [
+  'plan',
+  'worklog',
+  'changed-files',
+  'decisions',
+  'verification',
+  'pm-review',
+  'git-diff',
+  'instructions-used',
+] as const
+
+export type RequiredImplementationArtifactType = (typeof REQUIRED_IMPLEMENTATION_ARTIFACT_TYPES)[number]
+
+/** Artifact row as returned from agent_artifacts (minimal shape for readiness check). */
+export interface ArtifactRowForCheck {
+  title?: string | null
+  agent_type?: string | null
+  body_md?: string | null
+}
+
+/**
+ * Returns true if body_md is substantive (matches Kanban/QA rules: length > 50, no placeholders).
+ */
+function isSubstantiveBody(body_md: string | null | undefined): boolean {
+  if (body_md == null) return false
+  const trimmed = body_md.trim()
+  if (trimmed.length <= 50) return false
+  if (trimmed.includes('(none)')) return false
+  if (trimmed.includes('(No files changed')) return false
+  return true
+}
+
+/**
+ * Given a list of artifacts for a ticket, returns which required implementation artifact types
+ * are missing or not substantive. Used by the move-to-QA gate and can be used by agents/UI.
+ * Matches Kanban logic: implementation agent_type, title matches type, substantive body_md.
+ */
+export function getMissingRequiredImplementationArtifacts(
+  artifacts: ArtifactRowForCheck[]
+): string[] {
+  const hasSubstantive = (type: string): boolean => {
+    const typeLower = type.toLowerCase()
+    return artifacts.some((a) => {
+      if (a.agent_type !== 'implementation') return false
+      const extracted = extractArtifactTypeFromTitle(a.title || '')
+      if (extracted !== typeLower) return false
+      return isSubstantiveBody(a.body_md)
+    })
+  }
+  return REQUIRED_IMPLEMENTATION_ARTIFACT_TYPES.filter((key) => !hasSubstantive(key))
+}
+
+/**
  * Extracts the artifact type from a title.
  * Examples:
  *   "Plan for ticket 0121" -> "plan"
