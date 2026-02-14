@@ -358,7 +358,7 @@ body {
   position: relative;
   min-height: 0;
   min-width: 0;
-  overflow-y: auto;
+  overflow-y: visible;
   overflow-x: hidden;
   display: flex;
   flex-direction: column;
