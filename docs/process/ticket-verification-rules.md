@@ -23,6 +23,7 @@ This document defines how we decide a ticket is **properly completed**.
   - no untracked files may remain from the task (unless explicitly ignored and documented as a generated artifact)
 - **Verification steps**:
   - verification artifact (in Supabase) defines QA steps (code review + automated: build, lint) and, when relevant, Human-in-the-Loop steps (manual UI verification after merge)
+  - verification artifact **MUST** include a **"Testing scenarios used"** section with at least 1 happy-path scenario and 2 edge/negative scenarios (see `.cursor/rules/testing-scenarios-required.mdc`)
   - no devtools / console / logs required for human verification
 - **No “handoff chores”**:
   - a ticket cannot be considered “ready for QA” if the agent tells the user/PM to perform git steps (commit/push) or to update audit artifacts
@@ -30,6 +31,11 @@ This document defines how we decide a ticket is **properly completed**.
 - **Acceptance criteria satisfied**:
   - each checkbox in the ticket maps to one or more explicit steps in the verification artifact
   - verification includes clear **pass/fail observations**
+  - when agents mark acceptance criteria as verified/passed, they must include a **"Testing scenarios used"** section (see `.cursor/rules/testing-scenarios-required.mdc`):
+    - Implementation agent: in the Verification artifact
+    - QA agent: in the QA Report
+    - PM/Process review (when applicable): in the review artifact/notes
+    - Minimum content: at least 1 happy-path scenario and at least 2 edge/negative scenarios, each concrete and referencing UI state/inputs
 - **In-app diagnostics updated as needed**:
   - if something can fail, the app should provide enough in-app visibility to understand “what happened” without the console
 

@@ -222,4 +222,4 @@ Create `docs/audit/<task-id>-<short-title>/` containing:
 - `worklog.md`
 - `changed-files.md`
 - `decisions.md`
-- `verification.md` (UI-only)
+- `verification.md` (UI-only) — **MUST** include **"Testing scenarios used"** section with at least 1 happy-path scenario and 2 edge/negative scenarios (see `.cursor/rules/testing-scenarios-required.mdc`)

@@ -5,169 +5,87 @@ alwaysApply: true
 
 # Testing Scenarios Requirement
 
-**MANDATORY:** When an agent marks acceptance criteria as verified/passed, they **must** include a **"Testing scenarios used"** section listing the concrete scenarios they actually ran (happy path + edge cases).
-
-## When This Requirement Applies
-
-This requirement applies to **all agents** when they verify acceptance criteria:
-
-- **Implementation agents** — Must include testing scenarios in the **Verification artifact** (`artifactType: "verification"`)
-- **QA agents** — Must include testing scenarios in the **QA Report** (`artifactType: "qa-report"`)
-- **PM/Process review agents** — Must include testing scenarios in the **PM Review artifact** or review notes when applicable (`artifactType: "pm-review"`)
-
-## Where Testing Scenarios Must Appear
-
-### Implementation Agent: Verification Artifact
-
-**Location:** The **Verification artifact** stored in Supabase with `artifactType: "verification"` and title format `"Verification for ticket <ticket-id>"`.
-
-**Required section format:**
-```markdown
-## Testing scenarios used
-
-### Happy path
-- [Scenario description: 1-3 bullets describing the UI state/inputs used]
-  - Example: "Opened ticket list, clicked 'Create Ticket' button, filled in title 'Test Ticket', clicked 'Save', verified ticket appears in list with correct title"
-
-### Edge cases / Negative scenarios
-- [Scenario 1: 1-3 bullets describing the UI state/inputs used]
-  - Example: "Attempted to create ticket with empty title, clicked 'Save', verified error message 'Title is required' appears"
-- [Scenario 2: 1-3 bullets describing the UI state/inputs used]
-  - Example: "Created ticket with very long title (200+ characters), verified title is truncated with ellipsis in list view"
-```
-
-### QA Agent: QA Report
-
-**Location:** The **QA Report** stored in Supabase with `artifactType: "qa-report"` and title format `"QA Report for ticket <ticket-id>"`.
-
-**Required section format:**
-```markdown
-## Testing scenarios used
-
-### Happy path
-- [Scenario description: 1-3 bullets describing the UI state/inputs used]
-
-### Edge cases / Negative scenarios
-- [Scenario 1: 1-3 bullets describing the UI state/inputs used]
-- [Scenario 2: 1-3 bullets describing the UI state/inputs used]
-```
-
-The testing scenarios section should appear in the QA report, typically after the code review section and before or as part of the UI verification section.
-
-### PM/Process Review: PM Review Artifact
-
-**Location:** The **PM Review artifact** stored in Supabase with `artifactType: "pm-review"` and title format `"PM Review for ticket <ticket-id>"`.
-
-**When applicable:** Include testing scenarios when the PM agent performs verification or reviews acceptance criteria.
-
-**Required section format:** Same as Implementation Agent format above.
-
-## Minimum Content Requirements
-
-Each "Testing scenarios used" section **must** include:
-
-1. **At least 1 happy-path scenario** — A scenario that tests the primary, expected user flow
-   - Must be 1-3 bullets describing the UI state/inputs used
-   - Must reference specific UI elements, actions, or inputs (no vague "tested it works")
-   - Example: ✅ "Opened Settings page, clicked 'Change Password' button, entered new password in 'New Password' field, clicked 'Save', verified success message 'Password updated' appears"
-   - Example: ❌ "Tested password change functionality" (too vague)
-
-2. **At least 2 edge/negative scenarios** — Scenarios that test error handling, boundary conditions, or unexpected inputs
-   - Each scenario must be 1-3 bullets describing the UI state/inputs used
-   - Must reference specific UI elements, actions, or inputs
-   - Must be relevant to the ticket's acceptance criteria
-   - Examples:
-     - ✅ "Attempted to change password with empty 'New Password' field, clicked 'Save', verified error message 'Password is required' appears below the field"
-     - ✅ "Entered password with only 3 characters (below minimum length), clicked 'Save', verified error message 'Password must be at least 8 characters' appears"
-     - ❌ "Tested error handling" (too vague)
-
-3. **Concrete UI state/inputs** — Each scenario must describe:
-   - What UI elements were interacted with (buttons, fields, pages, etc.)
-   - What inputs were provided (values, actions, etc.)
-   - What was verified (expected outcomes, error messages, UI changes, etc.)
-
-## Examples
-
-### Good Example: Implementation Verification Artifact
-
-```markdown
-# Verification for ticket 0176
-
-## Testing scenarios used
-
-### Happy path
-- Opened HAL app, navigated to Agent Instructions view, clicked "Edit" button on "All Agents" instruction, modified content, clicked "Save", verified updated content appears in instruction viewer
-
-### Edge cases / Negative scenarios
-- Attempted to save instruction with empty content, clicked "Save", verified error message "Content cannot be empty" appears and save is prevented
-- Opened instruction editor, made changes, navigated away without saving, verified browser warning "You have unsaved changes" appears
-```
-
-### Good Example: QA Report
-
-```markdown
-# QA Report: 0176 - Testing scenarios requirement
-
-## Code review — PASS
-[Code review content...]
-
-## Testing scenarios used
-
-### Happy path
-- Opened HAL app, navigated to a completed ticket's Verification artifact, verified "Testing scenarios used" section is present with happy path and edge case scenarios
-
-### Edge cases / Negative scenarios
-- Checked Verification artifact for ticket completed before this change, verified "Testing scenarios used" section is not present (expected for older tickets)
-- Opened QA Report for a different ticket, verified "Testing scenarios used" section is present in QA report format
-```
-
-### Bad Example (Too Vague)
-
-```markdown
-## Testing scenarios used
-
-### Happy path
-- Tested the feature and it works
-
-### Edge cases / Negative scenarios
-- Tested error cases
-- Tested edge cases
-```
-
-**Why this is bad:**
-- No specific UI elements mentioned
-- No concrete inputs or actions described
-- No verification steps specified
-- Vague language that doesn't help reviewers understand what was actually tested
-
-## Integration with Existing Workflows
-
-### Verification Artifact
-
-The testing scenarios section must be included in the **Verification artifact**:
-- **Artifact type:** `verification`
-- **Title format:** `Verification for ticket <ticket-id>`
-- **Storage:** Via HAL API endpoint `/api/artifacts/insert-implementation` with `artifactType: "verification"`
-- **Location in artifact:** Should appear as a clearly labeled section, typically after verification steps or as part of the verification summary
-
-### QA Report
-
-The testing scenarios section must be included in the **QA Report**:
-- **Artifact type:** `qa-report`
-- **Title format:** `QA Report for ticket <ticket-id>`
-- **Storage:** Via HAL API endpoint `/api/artifacts/insert-qa`
-- **Location in report:** Should appear as a clearly labeled section, typically after code review and before or as part of UI verification
-
-### PM Review Artifact
-
-When PM agents perform verification or review acceptance criteria, they must include testing scenarios:
-- **Artifact type:** `pm-review`
-- **Title format:** `PM Review for ticket <ticket-id>`
-- **Storage:** Via HAL API endpoint `/api/artifacts/insert-implementation` with `artifactType: "pm-review"`
+**MANDATORY:** When any agent marks acceptance criteria as verified/passed, they **must** include a clearly labeled **"Testing scenarios used"** section that documents the concrete scenarios they actually ran.
 
 ## Scope
 
-- Applies to **all agents** (implementation, QA, PM) when verifying acceptance criteria
-- The testing scenarios section must be **human-verifiable** — a reviewer can open the artifact and immediately see what scenarios were actually tested
-- Scenarios must be **concrete and specific** — no vague "tested it works" language
-- When in doubt, **include more detail** — it's better to over-document testing scenarios than to leave reviewers guessing what was actually tested
+This requirement applies to:
+- **Implementation agents** — when creating the Verification artifact
+- **QA agents** — when creating the QA Report
+- **PM/Process review agents** — when creating PM review artifacts/notes (when applicable)
+
+## Where scenarios must appear
+
+### Implementation Agent
+
+The **"Testing scenarios used"** section must appear in the **Verification artifact** (`artifactType: "verification"`, title: `Verification for ticket <ticket-id>`).
+- **Storage:** Stored in Supabase via HAL API endpoint `/api/artifacts/insert-implementation`
+
+### QA Agent
+
+The **"Testing scenarios used"** section must appear in the **QA Report** (`artifactType: "qa-report"`, title: `QA Report for ticket <ticket-id>`).
+- **Storage:** Stored in Supabase via HAL API endpoint `/api/artifacts/insert-qa`
+
+### PM/Process Review Agent
+
+The **"Testing scenarios used"** section must appear in the **PM Review artifact** (`artifactType: "pm-review"`, title: `PM Review for ticket <ticket-id>`) when the PM review includes verification of acceptance criteria.
+- **Storage:** Stored in Supabase via HAL API endpoint `/api/artifacts/insert-implementation` (for PM review artifacts)
+
+## Minimum content requirements
+
+The **"Testing scenarios used"** section must include:
+
+1. **At least 1 happy-path scenario** — The primary success case that demonstrates the feature works as intended.
+2. **At least 2 edge/negative scenarios** — Relevant edge cases, error conditions, or boundary conditions that test robustness.
+3. **Concrete details** — Each scenario must be 1–3 bullets and reference:
+   - Specific UI state/inputs used (e.g., "Clicked 'Save' button with form fields: name='Test', email='test@example.com'")
+   - Expected outcomes (e.g., "Ticket appeared in 'Done' column")
+   - No vague statements like "tested it works" or "verified functionality"
+
+**Do NOT use vague descriptions** like "tested it works" or "verified functionality". Each scenario must be specific and reproducible.
+
+## Format example
+
+```markdown
+## Testing scenarios used
+
+### Happy path
+- **Scenario:** [Description of primary success case]
+  - **Steps:** [Specific UI actions/inputs]
+  - **Expected:** [Concrete outcome]
+  - **Result:** PASS
+
+### Edge cases
+- **Scenario:** [Description of edge case 1]
+  - **Steps:** [Specific UI actions/inputs]
+  - **Expected:** [Concrete outcome]
+  - **Result:** PASS
+
+- **Scenario:** [Description of edge case 2]
+  - **Steps:** [Specific UI actions/inputs]
+  - **Expected:** [Concrete outcome]
+  - **Result:** PASS
+```
+
+## When to include
+
+- **Implementation agent:** Include in Verification artifact when marking acceptance criteria as verified
+- **QA agent:** Include in QA Report when performing verification and marking acceptance criteria as passed
+- **PM/Process review:** Include in review notes when reviewing implementation and verifying acceptance criteria
+
+## Why this matters
+
+- Provides human-verifiable evidence that acceptance criteria were actually tested
+- Makes it clear what was tested vs. what was assumed
+- Helps identify gaps in testing coverage
+- Enables quick spot-checks in the HAL app UI to confirm testing was performed
+
+## Enforcement
+
+- Agents must not claim acceptance criteria are verified/passed without including this section
+- QA agents should verify that implementation Verification artifacts include this section
+- Missing or incomplete testing scenarios sections are grounds for QA failure
+
+## Scope
+
+This requirement applies to all ticketed tasks where acceptance criteria are verified. The testing scenarios section provides transparency and traceability for how acceptance criteria were validated. The scenarios section must be clearly labeled as **"Testing scenarios used"** and scenarios must correspond to the ticket's acceptance criteria. If a ticket has no testable acceptance criteria, state that explicitly in the scenarios section.
