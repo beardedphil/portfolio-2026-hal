@@ -132,6 +132,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     
     // Find existing artifacts by canonical identifier (ticket_pk + agent_type + artifact_type)
     // instead of exact title match to handle different title formats (0121)
+    // This ensures idempotency: re-running the same agent will update existing artifacts
+    // instead of creating duplicates (0196)
     const { artifacts: existingArtifacts, error: findError } = await findArtifactsByCanonicalId(
       supabase,
       ticket.pk,
@@ -171,6 +173,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     // Delete all empty/placeholder artifacts to clean up duplicates
+    // This ensures idempotency: empty "shell" artifacts from failed attempts are removed (0196)
     if (emptyArtifactIds.length > 0) {
       const { error: deleteError } = await supabase
         .from('agent_artifacts')
@@ -199,6 +202,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     if (targetArtifactId) {
       // Delete ALL other artifacts with the same canonical type (different title formats) (0121)
+      // This ensures idempotency: only one artifact per type exists, preventing duplicates (0196)
       const duplicateIds = artifacts
         .map((a) => a.artifact_id)
         .filter((id) => id !== targetArtifactId && !emptyArtifactIds.includes(id))
