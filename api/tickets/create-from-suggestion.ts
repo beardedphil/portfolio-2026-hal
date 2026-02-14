@@ -75,23 +75,20 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const body = (await readJsonBody(req)) as {
       sourceTicketId?: string
       sourceTicketPk?: string
-      suggestions?: string[]
-      suggestion?: string // Single suggestion for one-ticket-per-suggestion mode (0167)
-      reviewId?: string // Process Review run ID for idempotency (0167)
+      suggestion?: string
+      justification?: string
+      reviewId?: string
+      suggestionIndex?: number
       supabaseUrl?: string
       supabaseAnonKey?: string
     }
 
     const sourceTicketPk = typeof body.sourceTicketPk === 'string' ? body.sourceTicketPk.trim() : undefined
     const sourceTicketId = typeof body.sourceTicketId === 'string' ? body.sourceTicketId.trim() : undefined
+    const suggestion = typeof body.suggestion === 'string' ? body.suggestion.trim() : undefined
+    const justification = typeof body.justification === 'string' ? body.justification.trim() : undefined
     const reviewId = typeof body.reviewId === 'string' ? body.reviewId.trim() : undefined
-    // Support both single suggestion (new) and array of suggestions (legacy)
-    const singleSuggestion = typeof body.suggestion === 'string' ? body.suggestion.trim() : undefined
-    const suggestions = singleSuggestion 
-      ? [singleSuggestion] 
-      : Array.isArray(body.suggestions) 
-        ? body.suggestions.filter((s) => typeof s === 'string' && s.trim()) 
-        : []
+    const suggestionIndex = typeof body.suggestionIndex === 'number' ? body.suggestionIndex : undefined
 
     // Use credentials from request body if provided, otherwise fall back to server environment variables
     const supabaseUrl =
@@ -113,10 +110,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
-    if (suggestions.length === 0) {
+    if (!suggestion || suggestion.length === 0) {
       json(res, 400, {
         success: false,
-        error: 'At least one suggestion is required to create a ticket.',
+        error: 'suggestion is required and must be non-empty.',
       })
       return
     }
@@ -140,21 +137,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const repoFullName = sourceTicket.repo_full_name || 'legacy/unknown'
     const prefix = repoHintPrefix(repoFullName)
 
-    // Idempotency check: if single suggestion is provided, check if ticket with same suggestion already exists (0167)
-    // We check by suggestion hash + source ticket to prevent duplicates even if Process Review runs multiple times
-    if (singleSuggestion) {
-      const suggestionHash = crypto.createHash('sha256').update(singleSuggestion).digest('hex').slice(0, 16)
-      const hashPattern = `**Suggestion Hash**: ${suggestionHash}`
-      const sourceRef = sourceTicket.display_id || sourceTicket.id
-      const sourcePattern = `**Proposed from**: ${sourceRef} — Process Review`
-      
-      // Check for existing ticket with same suggestion hash and source ticket
+    // Check for existing ticket with same review_id and suggestion_index (idempotency)
+    if (reviewId !== undefined && suggestionIndex !== undefined) {
       const { data: existingTickets } = await supabase
         .from('tickets')
         .select('pk, id, display_id')
-        .eq('repo_full_name', repoFullName)
-        .like('body_md', `%${sourcePattern}%`)
-        .like('body_md', `%${hashPattern}%`)
+        .like('body_md', `%review_id: ${reviewId}%`)
+        .like('body_md', `%suggestion_index: ${suggestionIndex}%`)
         .limit(1)
 
       if (existingTickets && existingTickets.length > 0) {
@@ -163,7 +152,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           ticketId: existingTickets[0].display_id || existingTickets[0].id,
           id: existingTickets[0].id,
           pk: existingTickets[0].pk,
-          alreadyExists: true,
+          skipped: true,
+          reason: 'Ticket already exists for this suggestion',
         })
         return
       }
@@ -187,29 +177,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       // Fallback to 1 if query fails
     }
 
-    // Generate ticket content from suggestions
-    // Support both single suggestion field (new) and single-item array (backward compatibility) (0167)
+    // Generate ticket content from single suggestion
     const sourceRef = sourceTicket.display_id || sourceTicket.id
-    const isSingleSuggestion = singleSuggestion !== undefined || suggestions.length === 1
-    const actualSuggestion = singleSuggestion || (suggestions.length === 1 ? suggestions[0] : '')
-    const suggestionText = isSingleSuggestion ? actualSuggestion : suggestions.map((s, i) => `- ${s}`).join('\n')
-    
-    // Generate suggestion hash for idempotency tracking (0167)
-    const suggestionHash = isSingleSuggestion && actualSuggestion
-      ? crypto.createHash('sha256').update(actualSuggestion).digest('hex').slice(0, 16)
-      : null
-    const idempotencySection = reviewId && suggestionHash
-      ? `- **Process Review ID**: ${reviewId}
-- **Suggestion Hash**: ${suggestionHash}`
-      : ''
-    
-    let title: string
-    let bodyMd: string
-    
-    if (isSingleSuggestion && actualSuggestion) {
-      // One ticket per suggestion: use the suggestion as the main goal (0167)
-      title = actualSuggestion.length > 100 ? `${actualSuggestion.slice(0, 97)}...` : actualSuggestion
-      bodyMd = `# Ticket
+    const title = suggestion.length > 80 ? `${suggestion.slice(0, 77)}...` : suggestion
+    const bodyMd = `# Ticket
 
 - **ID**: (auto-assigned)
 - **Title**: (auto-assigned)
@@ -219,16 +190,15 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
 ## Linkage (for tracking)
 
-- **Proposed from**: ${sourceRef} — Process Review
-${idempotencySection ? `\n${idempotencySection}` : ''}
+- **Proposed from**: ${sourceRef} — Process Review${reviewId ? `\n- **Review ID**: ${reviewId}${suggestionIndex !== undefined ? `\n- **Suggestion Index**: ${suggestionIndex}` : ''}` : ''}
 
 ## Goal (one sentence)
 
-${actualSuggestion}
+${suggestion}
 
 ## Human-verifiable deliverable (UI-only)
 
-Updated agent instructions, rules, templates, or process documentation that implements the improvement described in the Goal above.
+Updated agent rules, templates, or process documentation that addresses the suggestion above.
 
 ## Acceptance criteria (UI-only)
 
@@ -246,100 +216,16 @@ Updated agent instructions, rules, templates, or process documentation that impl
 - Implementation code changes
 - Feature additions unrelated to process improvement
 
-## Implementation notes (optional)
+## Suggestion details
 
-This ticket was automatically created from Process Review suggestion for ticket ${sourceRef}. Review the Goal above and implement the appropriate improvement to agent instructions, rules, or process documentation.
-`
-    } else {
-      // Multiple suggestions: create one ticket with all (legacy behavior)
-      title = `Improve agent instructions based on ${sourceRef} Process Review`
-      bodyMd = `# Ticket
+${suggestion}
 
-- **ID**: (auto-assigned)
-- **Title**: (auto-assigned)
-- **Owner**: Implementation agent
-- **Type**: Process
-- **Priority**: P2
-
-## Linkage (for tracking)
-
-- **Proposed from**: ${sourceRef} — Process Review
-${idempotencySection ? `\n${idempotencySection}` : ''}
-
-## Goal (one sentence)
-
-${singleSuggestion}
-
-## Human-verifiable deliverable (UI-only)
-
-Updated agent instructions, rules, templates, or process documentation that implements the improvement described in the Goal above.
-
-## Acceptance criteria (UI-only)
-
-- [ ] Agent instructions/rules updated to address the suggestion
-- [ ] Changes are documented and tested
-- [ ] Process improvements are reflected in relevant documentation
-
-## Constraints
-
-- Keep changes focused on agent instructions and process, not implementation code
-- Ensure changes are backward compatible where possible
-
-## Non-goals
-
-- Implementation code changes
-- Feature additions unrelated to process improvement
+${justification ? `\n**Justification**: ${justification}` : ''}
 
 ## Implementation notes (optional)
 
-This ticket was automatically created from Process Review suggestion for ticket ${sourceRef}. Review the Goal above and implement the appropriate improvement to agent instructions, rules, or process documentation.
+This ticket was automatically created from Process Review suggestion for ticket ${sourceRef}. Review the suggestion above and implement the appropriate improvements to agent instructions, rules, or process documentation.
 `
-      : `# Ticket
-
-- **ID**: (auto-assigned)
-- **Title**: (auto-assigned)
-- **Owner**: Implementation agent
-- **Type**: Process
-- **Priority**: P2
-
-## Linkage (for tracking)
-
-- **Proposed from**: ${sourceRef} — Process Review
-${idempotencySection ? `\n${idempotencySection}` : ''}
-
-## Goal (one sentence)
-
-Improve agent instructions and process documentation based on review of ticket ${sourceRef} artifacts.
-
-## Human-verifiable deliverable (UI-only)
-
-Updated agent rules, templates, or process documentation that addresses the suggested improvements below.
-
-## Acceptance criteria (UI-only)
-
-- [ ] Agent instructions/rules updated to address the suggestions
-- [ ] Changes are documented and tested
-- [ ] Process improvements are reflected in relevant documentation
-
-## Constraints
-
-- Keep changes focused on agent instructions and process, not implementation code
-- Ensure changes are backward compatible where possible
-
-## Non-goals
-
-- Implementation code changes
-- Feature additions unrelated to process improvement
-
-## Suggested improvements
-
-${suggestionText}
-
-## Implementation notes (optional)
-
-This ticket was automatically created from Process Review suggestions for ticket ${sourceRef}. Review the suggestions above and implement the appropriate improvements to agent instructions, rules, or process documentation.
-`
-    }
 
     // Try to create ticket with retries for ID collisions
     const MAX_RETRIES = 10

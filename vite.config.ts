@@ -2100,12 +2100,49 @@ export default defineConfig({
           next()
         })
 
-        // Process Review endpoints (0118, 0134)
+        // Process Review endpoints (0118, 0134, 0167)
         server.middlewares.use(async (req, res, next) => {
           if (req.url === '/api/process-review/run' && req.method === 'POST') {
             try {
               const processReviewHandler = await import('./api/process-review/run')
               await processReviewHandler.default(req, res)
+            } catch (err) {
+              res.statusCode = 500
+              res.setHeader('Content-Type', 'application/json')
+              res.end(
+                JSON.stringify({
+                  success: false,
+                  error: err instanceof Error ? err.message : String(err),
+                })
+              )
+            }
+            return
+          }
+          if (req.url === '/api/process-review/create-tickets' && req.method === 'POST') {
+            try {
+              const createTicketsHandler = await import('./api/process-review/create-tickets')
+              await createTicketsHandler.default(req, res)
+            } catch (err) {
+              res.statusCode = 500
+              res.setHeader('Content-Type', 'application/json')
+              res.end(
+                JSON.stringify({
+                  success: false,
+                  error: err instanceof Error ? err.message : String(err),
+                })
+              )
+            }
+            return
+          }
+          next()
+        })
+
+        // Ticket creation from Process Review suggestion (0167)
+        server.middlewares.use(async (req, res, next) => {
+          if (req.url === '/api/tickets/create-from-suggestion' && req.method === 'POST') {
+            try {
+              const createFromSuggestionHandler = await import('./api/tickets/create-from-suggestion')
+              await createFromSuggestionHandler.default(req, res)
             } catch (err) {
               res.statusCode = 500
               res.setHeader('Content-Type', 'application/json')
