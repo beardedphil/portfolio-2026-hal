@@ -34,6 +34,7 @@ import { createClient } from '@supabase/supabase-js'
 import ReactMarkdown from 'react-markdown'
 import type { Components } from 'react-markdown'
 import { GitDiffViewer } from './GitDiffViewer'
+import { performPeerReview, formatPeerReviewResult, type PeerReviewResult } from './peerReview'
 
 type LogEntry = { id: number; message: string; at: string }
 type Card = { id: string; title: string; /** Display id for work button (e.g. HAL-0081); when card id is Supabase pk, used for message. */ displayId?: string }
@@ -1042,6 +1043,161 @@ function HumanValidationSection({
           Fail
         </button>
       </div>
+    </div>
+  )
+}
+
+/** Peer Review / DoR check section component (0180) */
+function PeerReviewSection({
+  ticketId,
+  ticketPk,
+  body,
+  onOpenEditor,
+}: {
+  ticketId: string
+  ticketPk: string
+  body: string | null
+  onOpenEditor?: () => void
+}) {
+  const [reviewResult, setReviewResult] = useState<PeerReviewResult | null>(null)
+  const [isRunning, setIsRunning] = useState(false)
+
+  const handleRunReview = useCallback(() => {
+    if (!body || isRunning) return
+    
+    setIsRunning(true)
+    try {
+      const result = performPeerReview(body)
+      setReviewResult(result)
+    } catch (err) {
+      console.error('Peer review error:', err)
+      setReviewResult({
+        pass: false,
+        issues: [{
+          type: 'other',
+          message: `Error running peer review: ${err instanceof Error ? err.message : String(err)}`,
+        }],
+      })
+    } finally {
+      setIsRunning(false)
+    }
+  }, [body, isRunning])
+
+  // Auto-run review when body changes (if body exists)
+  useEffect(() => {
+    if (body && body.trim()) {
+      const result = performPeerReview(body)
+      setReviewResult(result)
+    } else {
+      setReviewResult(null)
+    }
+  }, [body])
+
+  const handleFixIssue = useCallback((issue: { section?: string; lineNumber?: number }) => {
+    if (onOpenEditor) {
+      onOpenEditor()
+      // Scroll to section if available (would need DOM manipulation or state to focus)
+      // For now, just open the editor
+    }
+  }, [onOpenEditor])
+
+  return (
+    <div className="peer-review-section">
+      <h3 className="peer-review-title">Peer Review / DoR Check</h3>
+      
+      <div className="peer-review-actions" style={{ marginBottom: '1rem' }}>
+        <button
+          type="button"
+          className="peer-review-run-button"
+          onClick={handleRunReview}
+          disabled={!body || isRunning}
+          style={{
+            padding: '8px 16px',
+            fontSize: '14px',
+            fontWeight: '500',
+            backgroundColor: '#3b82f6',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: isRunning || !body ? 'not-allowed' : 'pointer',
+            opacity: isRunning || !body ? 0.6 : 1,
+          }}
+        >
+          {isRunning ? 'Running...' : 'Run Peer Review / DoR Check'}
+        </button>
+      </div>
+
+      {reviewResult && (
+        <div 
+          className={`peer-review-result ${reviewResult.pass ? 'peer-review-pass' : 'peer-review-fail'}`}
+          style={{
+            padding: '12px',
+            borderRadius: '4px',
+            marginBottom: '1rem',
+            backgroundColor: reviewResult.pass ? '#d1fae5' : '#fee2e2',
+            border: `1px solid ${reviewResult.pass ? '#10b981' : '#ef4444'}`,
+          }}
+        >
+          <div style={{ fontWeight: '600', marginBottom: reviewResult.pass ? '0' : '8px' }}>
+            {reviewResult.pass ? '✅ PASS' : '❌ FAIL'}
+          </div>
+          
+          {!reviewResult.pass && reviewResult.issues.length > 0 && (
+            <div style={{ marginTop: '8px' }}>
+              <div style={{ fontWeight: '500', marginBottom: '4px' }}>
+                Found {reviewResult.issues.length} issue(s):
+              </div>
+              <ul style={{ margin: '4px 0', paddingLeft: '20px' }}>
+                {reviewResult.issues.map((issue, idx) => (
+                  <li 
+                    key={idx}
+                    style={{ 
+                      marginBottom: '4px',
+                      cursor: onOpenEditor ? 'pointer' : 'default',
+                      textDecoration: onOpenEditor ? 'underline' : 'none',
+                    }}
+                    onClick={() => handleFixIssue(issue)}
+                    title={onOpenEditor ? 'Click to open editor and fix this issue' : undefined}
+                  >
+                    {issue.message}
+                    {issue.lineNumber && ` (line ${issue.lineNumber})`}
+                  </li>
+                ))}
+              </ul>
+              {onOpenEditor && (
+                <button
+                  type="button"
+                  onClick={onOpenEditor}
+                  style={{
+                    marginTop: '8px',
+                    padding: '6px 12px',
+                    fontSize: '13px',
+                    backgroundColor: '#3b82f6',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Open Editor to Fix Issues
+                </button>
+              )}
+            </div>
+          )}
+          
+          {reviewResult.pass && (
+            <div style={{ marginTop: '4px', fontSize: '14px' }}>
+              Ticket meets Definition of Ready requirements and is eligible to be moved to To Do.
+            </div>
+          )}
+        </div>
+      )}
+
+      {!body && (
+        <div style={{ padding: '12px', backgroundColor: '#fef3c7', borderRadius: '4px', color: '#92400e' }}>
+          No ticket body available for review.
+        </div>
+      )}
     </div>
   )
 }
@@ -2153,6 +2309,7 @@ function TicketDetailModal({
   const markdownBody = body ? stripQAInformationBlockFromBody(bodyOnly) : ''
   const showValidationSection = columnId === 'col-human-in-the-loop'
   const showProcessReviewSection = columnId === 'col-process-review'
+  const showPeerReviewSection = columnId === 'col-unassigned' || columnId === 'col-todo' || !columnId
 
   return (
     <div
@@ -2277,6 +2434,18 @@ function TicketDetailModal({
                   artifacts={artifacts}
                   supabaseUrl={supabaseUrl}
                   supabaseAnonKey={supabaseKey}
+                />
+              )}
+              {showPeerReviewSection && (
+                <PeerReviewSection
+                  ticketId={ticketId}
+                  ticketPk={ticketId}
+                  body={body}
+                  onOpenEditor={() => {
+                    // TODO: Implement editor opening (could scroll to section or open edit mode)
+                    // For now, just log
+                    console.log('Open editor to fix peer review issues')
+                  }}
                 />
               )}
             </>
@@ -2460,6 +2629,30 @@ function SortableColumn({
     if (isProcessReview) {
       await handleProcessReviewButtonClick()
       return
+    }
+
+    // Peer review check for "Prepare top ticket" (col-unassigned) - prevent move to To Do if peer review fails (0180)
+    if (col.id === 'col-unassigned' && buttonConfig.chatTarget === 'project-manager') {
+      // Get ticket body to check peer review
+      const ticket = halCtx?.tickets?.find((t) => t.pk === firstCardId) ?? 
+                    supabaseTickets.find((t) => t.pk === firstCardId)
+      
+      if (ticket && ticket.body_md) {
+        const peerReviewResult = performPeerReview(ticket.body_md)
+        if (!peerReviewResult.pass) {
+          // Show error message and prevent action
+          const issueCount = peerReviewResult.issues.length
+          const issueList = peerReviewResult.issues
+            .slice(0, 3) // Show first 3 issues
+            .map((issue) => `• ${issue.message}`)
+            .join('\n')
+          const moreIssues = issueCount > 3 ? `\n... and ${issueCount - 3} more issue(s)` : ''
+          alert(
+            `❌ Peer Review FAILED\n\nFound ${issueCount} issue(s):\n\n${issueList}${moreIssues}\n\nPlease fix the issues before moving the ticket to To Do. You can run "Peer review / DoR check" from the ticket detail view to see all issues.`
+          )
+          return
+        }
+      }
     }
 
     // Library mode: HAL owns data; tell HAL to open chat (HAL will move ticket to Doing for Implement if needed)
