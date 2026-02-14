@@ -1,6 +1,40 @@
 # Ticket Template (Workspace Standard)
 
-Create a new file at `docs/tickets/<task-id>-<short-title>.md` using this template.
+## Ticket template (copy/paste)
+
+Copy and paste the template below to create tickets that consistently pass Definition of Ready. **Remove all placeholders** (e.g. `<...>`, "TBD", "(auto-assigned)") before moving a ticket out of Unassigned.
+
+```markdown
+## Goal (one sentence)
+
+<Brief description of what we want to achieve>
+
+## Human-verifiable deliverable (UI-only)
+
+<Describe exactly what a non-technical human will see/click in the UI. Must be verifiable without terminal, devtools, or console.>
+
+## Acceptance criteria (UI-only)
+
+**IMPORTANT:** All acceptance criteria must be **UI-verifiable**. Do not include criteria that require running commands, checking logs, or verifying database rows. Each item should be something a human can verify by looking at or interacting with the UI.
+
+- [ ] <Example: User can see a new button labeled "Save" in the top toolbar>
+- [ ] <Example: Clicking the button shows a success message in the UI>
+- [ ] <Example: The button is disabled when no changes are pending>
+
+## Constraints
+
+<Any technical or process constraints that apply to this ticket>
+
+## Non-goals
+
+<Explicitly state what is out of scope for this ticket>
+```
+
+**Placeholder warning:** Before moving a ticket from Unassigned to To Do, ensure all placeholders (angle brackets like `<...>`, "TBD", "(auto-assigned)", etc.) are replaced with concrete values. Tickets with unresolved placeholders will fail the Definition of Ready check.
+
+---
+
+Create a new file at `docs/tickets/<task-id>-<short-title>.md` using the detailed template below.
 
 ## Ticket
 
