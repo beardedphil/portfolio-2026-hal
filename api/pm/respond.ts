@@ -290,7 +290,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       ...(images ? { images } : {}),
     }
     // Debug: log what's being passed to PM agent (0119) - use console.warn for visibility
-    console.warn(`[PM] Config passed to runner: repoFullName=${config.repoFullName || 'NOT SET'}, hasGithubReadFile=${typeof config.githubReadFile === 'function'}, hasGithubSearchCode=${typeof config.githubSearchCode === 'function'}, hasGithubListDirectory=${typeof config.githubListDirectory === 'function'}`)
+    console.warn(`[PM] Config passed to runner: repoFullName=${config.repoFullName || 'NOT SET'}, hasGithubReadFile=${typeof config.githubReadFile === 'function'}, hasGithubSearchCode=${typeof config.githubSearchCode === 'function'}, hasGithubListDirectory=${typeof config.githubListDirectory === 'function'}, hasImages=${!!config.images}, imageCount=${config.images?.length || 0}`)
     const result = (await runner.run(message, config)) as PmAgentResponse & {
       toolCalls: Array<{ name: string; input: unknown; output: unknown }>
     }
