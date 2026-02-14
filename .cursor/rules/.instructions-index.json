@@ -6,7 +6,8 @@
     "code-location-citations",
     "code-citation-requirements",
     "state-management-change-documentation",
-    "key-decisions-summary"
+    "key-decisions-summary",
+    "hidden-features-error-message-documentation"
   ],
   "situational": {},
   "topics": {
@@ -33,6 +34,11 @@
     "key-decisions-summary": {
       "title": "Key Decisions Summary Requirement",
       "description": "Require agents to include a \"Key decisions\" summary in completion write-ups so reviewers can understand tradeoffs without re-reading entire worklogs",
+      "agentTypes": ["all"]
+    },
+    "hidden-features-error-message-documentation": {
+      "title": "Hidden Features: Error Message Changes Must Be Documented",
+      "description": "Require agents to document changes to error messages for hidden/locked/feature-flagged capabilities so future agents don't misinterpret them as product decisions",
       "agentTypes": ["all"]
     }
   }
