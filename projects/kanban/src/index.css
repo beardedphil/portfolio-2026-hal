@@ -570,8 +570,8 @@ h1 {
 .human-validation-section {
   margin-top: 1.5rem;
   padding-top: 1.5rem;
-  border-top: 2px solid #1976d2;
-  background: #f5f9ff;
+  border-top: 2px solid var(--kanban-primary);
+  background: var(--kanban-surface-alt);
   padding: 1.5rem;
   border-radius: 8px;
   margin-left: -1rem;
@@ -582,7 +582,7 @@ h1 {
   font-size: 1.1rem;
   font-weight: 600;
   margin: 0 0 1rem 0;
-  color: #1976d2;
+  color: var(--kanban-primary);
 }
 .human-validation-fields {
   display: flex;
@@ -598,26 +598,29 @@ h1 {
 .human-validation-label {
   font-size: 0.9rem;
   font-weight: 500;
-  color: #333;
+  color: var(--kanban-text);
 }
 .human-validation-textarea {
   width: 100%;
   padding: 0.75rem;
-  border: 1px solid #ccc;
+  border: 1px solid var(--kanban-border);
   border-radius: 6px;
   font-size: 0.9rem;
   font-family: inherit;
   resize: vertical;
   min-height: 80px;
+  background: var(--kanban-surface);
+  color: var(--kanban-text);
 }
 .human-validation-textarea:focus {
   outline: none;
-  border-color: #1976d2;
-  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.1);
+  border-color: var(--kanban-primary);
+  box-shadow: 0 0 0 2px rgba(100, 181, 246, 0.2);
 }
 .human-validation-textarea:disabled {
-  background: #f5f5f5;
+  background: var(--kanban-surface-alt);
   cursor: not-allowed;
+  opacity: 0.6;
 }
 .human-validation-actions {
   display: flex;
@@ -645,18 +648,20 @@ h1 {
   transform: translateY(0);
 }
 .human-validation-button-pass {
-  background: #4caf50;
+  background: var(--kanban-success);
   color: white;
 }
 .human-validation-button-pass:not(:disabled):hover {
-  background: #45a049;
+  background: var(--kanban-success);
+  filter: brightness(0.9);
 }
 .human-validation-button-fail {
-  background: #f44336;
+  background: var(--kanban-error);
   color: white;
 }
 .human-validation-button-fail:not(:disabled):hover {
-  background: #da190b;
+  background: var(--kanban-error);
+  filter: brightness(0.9);
 }
 
 /* QA sections removed from UI; hide any that remain in ticket body HTML */
