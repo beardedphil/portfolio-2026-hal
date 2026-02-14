@@ -190,7 +190,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       '',
       '## MANDATORY: Store All Required Artifacts',
       '',
-      '**YOU MUST store ALL 6 required artifacts before marking the ticket ready for QA. This is MANDATORY, not optional.**',
+      '**YOU MUST store ALL 7 required artifacts before marking the ticket ready for QA. This is MANDATORY, not optional.**',
       '',
       '**CRITICAL: Artifacts must contain SUBSTANTIVE CONTENT, not just titles or placeholders.**',
       '',

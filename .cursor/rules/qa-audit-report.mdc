@@ -112,6 +112,13 @@ QA RESULT: FAIL — 0076
 
 **CRITICAL:** Artifact verification is the **first and mandatory step** of QA. Do not skip it, do not defer it, do not proceed with code review if verification fails. If you cannot verify artifacts exist, the ticket fails QA.
 
+**Changed Files artifact validation:**
+- **MANDATORY:** The Changed Files artifact must be present and NON-EMPTY on every ticket.
+- **When files changed:** The artifact must contain a list of file paths and a brief one-line description of what changed in each file.
+- **When no files changed:** The artifact must explicitly state "No files changed." followed by a short reason (e.g., "Docs-only ticket handled via Supabase updates", "Investigation only", "Repro failed; no code changes made").
+- **Process failure:** If the Changed Files artifact is blank, contains only headings, consists of placeholder text, or omits the explicit "No files changed." statement when applicable, this is a PROCESS FAILURE and QA **MUST FAIL** immediately.
+- **QA must verify:** Check that the Changed Files artifact content is substantive and follows the requirements above. If it does not, fail QA and move the ticket back to To-do.
+
 ## Required artifact (QA report)
 
 - **Storage:** Supabase `agent_artifacts` table (via HAL API endpoint `/api/artifacts/insert-qa`)
