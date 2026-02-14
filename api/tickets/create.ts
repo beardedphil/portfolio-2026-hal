@@ -163,7 +163,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           ticketId: existingTickets[0].display_id || existingTickets[0].id,
           id: existingTickets[0].id,
           pk: existingTickets[0].pk,
-          alreadyExists: true,
+          duplicate: true,
         })
         return
       }
