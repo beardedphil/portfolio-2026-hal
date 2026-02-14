@@ -452,6 +452,18 @@ function App() {
     }
     return 400 // default width
   })
+  /** Whether chat is collapsed (0160). */
+  const [chatCollapsed, setChatCollapsed] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('hal-chat-collapsed')
+      if (saved) {
+        return saved === 'true'
+      }
+    } catch {
+      // ignore localStorage errors
+    }
+    return false // default to expanded
+  })
   /** Whether the divider is currently being dragged (0060). */
   const [isDragging, setIsDragging] = useState(false)
   const dividerRef = useRef<HTMLDivElement>(null)
@@ -960,6 +972,15 @@ function App() {
       // ignore localStorage errors
     }
   }, [chatWidth])
+
+  // Persist chat collapsed state to localStorage (0160)
+  useEffect(() => {
+    try {
+      localStorage.setItem('hal-chat-collapsed', String(chatCollapsed))
+    } catch {
+      // ignore localStorage errors
+    }
+  }, [chatCollapsed])
 
   // Handle divider drag with smooth animation (0076)
   const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
@@ -3904,33 +3925,45 @@ function App() {
           </div>
         </section>
 
-        {/* Resizable divider (0060) */}
-        <div
-          ref={dividerRef}
-          className={`hal-divider ${isDragging ? 'hal-divider-dragging' : ''}`}
-          onMouseDown={handleDividerMouseDown}
-          role="separator"
-          aria-label="Resize chat and kanban panes"
-          aria-orientation="vertical"
-        >
-          {isDragging && (() => {
-            const mainElement = document.querySelector('.hal-main')
-            if (!mainElement) return null
-            const mainRect = mainElement.getBoundingClientRect()
-            const percentage = (chatWidth / mainRect.width) * 100
-            return (
-              <div className="hal-divider-width-display">
-                {percentage.toFixed(1)}%
-              </div>
-            )
-          })()}
-        </div>
-
-        {/* Right column: Chat UI */}
-        <section className="hal-chat-region" aria-label="Chat" style={{ width: `${chatWidth}px` }}>
-          <div className="chat-header">
-            <h2>Chat</h2>
+        {/* Resizable divider (0060) - hidden when chat is collapsed (0160) */}
+        {!chatCollapsed && (
+          <div
+            ref={dividerRef}
+            className={`hal-divider ${isDragging ? 'hal-divider-dragging' : ''}`}
+            onMouseDown={handleDividerMouseDown}
+            role="separator"
+            aria-label="Resize chat and kanban panes"
+            aria-orientation="vertical"
+          >
+            {isDragging && (() => {
+              const mainElement = document.querySelector('.hal-main')
+              if (!mainElement) return null
+              const mainRect = mainElement.getBoundingClientRect()
+              const percentage = (chatWidth / mainRect.width) * 100
+              return (
+                <div className="hal-divider-width-display">
+                  {percentage.toFixed(1)}%
+                </div>
+              )
+            })()}
           </div>
+        )}
+
+        {/* Right column: Chat UI (0160: hidden when collapsed) */}
+        {!chatCollapsed && (
+          <section className="hal-chat-region" aria-label="Chat" style={{ width: `${chatWidth}px` }}>
+            <div className="chat-header">
+              <h2>Chat</h2>
+              <button
+                type="button"
+                className="chat-collapse-btn"
+                onClick={() => setChatCollapsed(true)}
+                aria-label="Collapse chat"
+                title="Collapse chat"
+              >
+                <span aria-hidden="true">◀</span>
+              </button>
+            </div>
 
           {/* Chat Preview Stack (0087) */}
           {connectedProject ? (
@@ -4602,7 +4635,22 @@ function App() {
             )}
             </div>
           )}
-        </section>
+          </section>
+        )}
+
+        {/* Restore chat button when collapsed (0160) */}
+        {chatCollapsed && (
+          <button
+            type="button"
+            className="chat-restore-btn"
+            onClick={() => setChatCollapsed(false)}
+            aria-label="Restore chat"
+            title="Restore chat"
+          >
+            <span aria-hidden="true">▶</span>
+            <span className="chat-restore-label">Chat</span>
+          </button>
+        )}
       </main>
     </div>
   )
