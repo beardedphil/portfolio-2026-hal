@@ -1,12 +1,15 @@
-import { createClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import crypto from 'node:crypto'
+
+/** Type accepted by shared escalation helpers (avoids strict client generics mismatch across call sites). */
+type SupabaseClientLike = SupabaseClient
 
 /**
  * Count QA failures by parsing QA artifacts for "QA RESULT: FAIL" entries.
  * Returns the count of FAIL outcomes.
  */
 export async function countQaFailures(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseClientLike,
   ticketPk: string
 ): Promise<number> {
   const { data: artifacts, error } = await supabase
@@ -50,7 +53,7 @@ export async function countQaFailures(
  * was in the Human in the Loop column, or by checking for "Human validation failure" text.
  */
 export async function countHitlFailures(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseClientLike,
   ticketPk: string
 ): Promise<number> {
   const { data: artifacts, error } = await supabase
@@ -98,7 +101,7 @@ export async function countHitlFailures(
  * The suggestion focuses on process improvements to reduce repeat failures.
  */
 export async function createSuggestionTicket(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseClientLike,
   sourceTicket: { pk: string; display_id: string; id: string; title: string; repo_full_name: string },
   failureType: 'qa' | 'hitl',
   failureCount: number
@@ -251,7 +254,7 @@ This ticket was automatically created when ticket ${sourceRef} failed ${failureT
  * Returns the failure counts and whether escalation occurred.
  */
 export async function checkFailureEscalation(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseClientLike,
   ticketPk: string,
   failureType?: 'qa' | 'hitl'
 ): Promise<{
