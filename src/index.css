@@ -74,8 +74,14 @@
   box-sizing: border-box;
 }
 
+html,
 body {
+  height: 100vh;
+  overflow: hidden;
   margin: 0;
+}
+
+body {
   font-family: system-ui, -apple-system, sans-serif;
   font-size: 16px;
   line-height: 1.5;
@@ -84,14 +90,16 @@ body {
 }
 
 #root {
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 /* HAL App Layout */
 .hal-app {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .hal-header {
@@ -793,7 +801,6 @@ body {
 .chat-transcript {
   flex: 1;
   min-height: 200px;
-  max-height: calc(100vh - 350px);
   overflow-y: auto;
   padding: 0.75rem 1rem;
   background: var(--hal-chat-bg);
