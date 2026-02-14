@@ -47,25 +47,23 @@ Create a new file at `docs/tickets/<task-id>-<short-title>.md` using this templa
 
 - <hints, suspected cause, suggested approach>
 
-## Verification checklist
+## Verification checklist (for chat-related work)
+
+When working on chat-related features or fixes, verify chat persistence across disconnect/reconnect to prevent regression in HAL-0097:
 
 ### Chat persistence after disconnect/reconnect
 
-**Purpose**: Verify that chat conversations persist correctly across disconnect/reconnect operations (regression test for HAL-0097).
-
-**Steps**:
 1. **Start a chat**: Connect to a repository and start a conversation with any agent (e.g., Project Manager, Implementation Agent, or QA Agent). Send at least 2-3 messages to establish a conversation history.
 2. **Disconnect/reconnect**: Click the "Disconnect" button, then reconnect to the same repository (or refresh the page if testing page refresh behavior).
 3. **Verify thread and messages remain visible**: 
-   - The chat preview should still be visible in the chat preview stack
-   - Opening the chat should show the same conversation history (all previous messages visible)
-   - The thread ID should remain the same (verify by checking that the conversation continues seamlessly)
-4. **Send a new message after reconnect**: Type and send a new message in the reconnected chat.
+   - The chat preview should remain visible in the chat preview stack
+   - Opening the chat should show the existing conversation history (not empty/new)
+   - **Expected**: Same thread ID, message count unchanged, all previous messages visible
+4. **Send a new message after reconnect**: Send a new message in the reconnected chat.
 5. **Verify no duplicates/blank messages appear**:
-   - Message count should match the expected count (previous messages + new message)
-   - No duplicate messages should appear
-   - No empty message shells or blank message bubbles should be visible
-   - The new message should appear at the end of the conversation
+   - **Expected**: No duplicate chat threads created
+   - **Expected**: No empty message shells or blank messages
+   - **Expected**: New message appears correctly in the conversation flow
 
 **Expected UI results**:
 - ✅ Same thread ID (conversation continues without creating a new thread)
@@ -75,6 +73,8 @@ Create a new file at `docs/tickets/<task-id>-<short-title>.md` using this templa
 - ✅ No duplicate messages or threads created
 
 **When to use**: Apply this checklist when working on any chat-related features, UI changes to the chat component, or state management that could affect conversation persistence.
+
+**Reference**: This checklist prevents regression of HAL-0097 (Preserve chats across disconnect/reconnect).
 
 ## Audit artifacts required (implementation agent)
 
