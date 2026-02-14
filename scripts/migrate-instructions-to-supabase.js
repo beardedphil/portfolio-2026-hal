@@ -15,20 +15,27 @@ const __dirname = path.dirname(__filename)
 
 // Load environment variables
 dotenv.config({ path: path.join(__dirname, '..', '.env') })
+dotenv.config({ path: path.join(__dirname, '..', '.env.local') })
 
 const RULES_DIR = path.join(__dirname, '..', '.cursor', 'rules')
 const INDEX_FILE = path.join(RULES_DIR, '.instructions-index.json')
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
 const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY
 const REPO_FULL_NAME = process.env.REPO_FULL_NAME || 'beardedphil/portfolio-2026-hal'
 
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  console.error('Error: SUPABASE_URL and SUPABASE_ANON_KEY must be set in .env')
+// Use service role key if available (for migrations), otherwise use anon key
+const supabaseKey = SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY
+
+if (!SUPABASE_URL || !supabaseKey) {
+  console.error('Error: SUPABASE_URL and SUPABASE_ANON_KEY (or SUPABASE_SERVICE_ROLE_KEY) must be set in .env')
+  console.error('   Set VITE_SUPABASE_URL or SUPABASE_URL')
+  console.error('   Set VITE_SUPABASE_ANON_KEY or SUPABASE_ANON_KEY')
   process.exit(1)
 }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+const supabase = createClient(SUPABASE_URL, supabaseKey)
 
 function parseInstructionFile(filePath, content) {
   const filename = path.basename(filePath)

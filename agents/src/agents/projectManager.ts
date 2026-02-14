@@ -521,7 +521,7 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
     // Try to load from Supabase first
     if (config.supabaseUrl && config.supabaseAnonKey && config.projectId) {
       const supabase = createClient(config.supabaseUrl.trim(), config.supabaseAnonKey.trim())
-      const repoFullName = config.repoFullName || config.projectId
+      const repoFullName = config.repoFullName || config.projectId || 'beardedphil/portfolio-2026-hal'
 
       // Load instruction index
       const { data: indexData, error: indexError } = await supabase
@@ -613,9 +613,9 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
       }
 
       // If we successfully loaded from Supabase, skip filesystem fallback
-      if (!basicError && !situationalError) {
-        return
-      }
+      // (continue to add ticket template and other sections below)
+    } else {
+      // Supabase not available, will use filesystem fallback below
     }
 
     // Fallback to filesystem if Supabase not available or failed
@@ -2414,7 +2414,7 @@ export async function runPmAgent(
         // Try Supabase first
         if (config.supabaseUrl && config.supabaseAnonKey && config.projectId) {
           const supabase = createClient(config.supabaseUrl.trim(), config.supabaseAnonKey.trim())
-          const repoFullName = config.repoFullName || config.projectId
+          const repoFullName = config.repoFullName || config.projectId || 'beardedphil/portfolio-2026-hal'
 
           const { data, error } = await supabase
             .from('agent_instructions')
