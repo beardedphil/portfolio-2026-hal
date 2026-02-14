@@ -170,6 +170,26 @@ body {
   border-color: rgba(255, 255, 255, 0.4);
 }
 
+.agent-instructions-btn {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.15);
+  color: var(--hal-header-text);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 6px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.agent-instructions-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
 .hal-main {
   display: flex;
   flex: 1;
@@ -1765,4 +1785,169 @@ body {
   padding: 0.75rem 1rem;
   background: var(--hal-surface-alt);
   border-radius: 0 0 8px 8px;
+}
+
+/* Agent Instructions Viewer */
+.agent-instructions-modal {
+  max-width: 1000px;
+  width: 95%;
+}
+
+.agent-instructions-content {
+  padding: 1.5rem;
+  overflow-y: auto;
+  max-height: calc(90vh - 60px);
+}
+
+.agent-instructions-loading,
+.agent-instructions-error {
+  padding: 2rem;
+  text-align: center;
+  color: var(--hal-text-muted);
+}
+
+.agent-instructions-error {
+  color: var(--hal-status-error);
+  background: rgba(198, 40, 40, 0.1);
+  border: 1px solid var(--hal-status-error);
+  border-radius: 6px;
+  padding: 1rem;
+}
+
+.agent-instructions-breadcrumbs {
+  display: flex;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--hal-border);
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.breadcrumb-separator {
+  color: var(--hal-text-muted);
+  margin: 0 0.25rem;
+}
+
+.breadcrumb-link {
+  background: none;
+  border: none;
+  color: var(--hal-primary);
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  transition: background-color 0.2s;
+}
+
+.breadcrumb-link:hover {
+  background: var(--hal-surface-alt);
+  text-decoration: underline;
+}
+
+.agent-instructions-agents h4,
+.agent-instructions-list h4,
+.agent-instruction-detail h4 {
+  margin: 0 0 1rem 0;
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--hal-text);
+}
+
+.agent-list,
+.instruction-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.agent-item,
+.instruction-item {
+  display: flex;
+  flex-direction: column;
+  padding: 1rem;
+  background: var(--hal-surface);
+  border: 1px solid var(--hal-border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.2s, border-color 0.2s, transform 0.1s;
+  text-align: left;
+  width: 100%;
+}
+
+.agent-item:hover,
+.instruction-item:hover {
+  background: var(--hal-surface-alt);
+  border-color: var(--hal-primary);
+  transform: translateY(-1px);
+}
+
+.agent-item:active,
+.instruction-item:active {
+  transform: translateY(0);
+}
+
+.agent-item-name,
+.instruction-item-name {
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--hal-text);
+  margin-bottom: 0.25rem;
+}
+
+.agent-item-count {
+  font-size: 0.85rem;
+  color: var(--hal-text-muted);
+}
+
+.instruction-item-description {
+  font-size: 0.9rem;
+  color: var(--hal-text-muted);
+  line-height: 1.4;
+  margin-top: 0.25rem;
+}
+
+.agent-instruction-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.instruction-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem;
+  background: var(--hal-surface-alt);
+  border: 1px solid var(--hal-border);
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.instruction-meta-item {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.instruction-meta-item strong {
+  color: var(--hal-text);
+  min-width: 100px;
+}
+
+.instruction-content {
+  padding: 1rem;
+  background: var(--hal-surface);
+  border: 1px solid var(--hal-border);
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+.instruction-markdown {
+  margin: 0;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--hal-text);
+  white-space: pre-wrap;
+  word-wrap: break-word;
 }
