@@ -1,0 +1,37 @@
+{
+  "basic": [
+    "agent-instructions",
+    "code-location-citations",
+    "code-citation-requirements",
+    "state-management-change-documentation",
+    "key-decisions-summary"
+  ],
+  "situational": {},
+  "topics": {
+    "agent-instructions": {
+      "title": "Agent Instructions Entry Point",
+      "description": "Entry point for agent instructions - load basic rules from Supabase",
+      "agentTypes": ["all"]
+    },
+    "code-location-citations": {
+      "title": "Code Location Citations",
+      "description": "Require agents to cite concrete code locations that reviewers can verify quickly",
+      "agentTypes": ["all"]
+    },
+    "code-citation-requirements": {
+      "title": "Code Citation Requirements",
+      "description": "Require agents to cite specific file paths and line numbers when referencing code locations",
+      "agentTypes": ["all"]
+    },
+    "state-management-change-documentation": {
+      "title": "State Management Change Documentation",
+      "description": "Require agents to document and justify any changes to application state management in review artifacts",
+      "agentTypes": ["all"]
+    },
+    "key-decisions-summary": {
+      "title": "Key Decisions Summary Requirement",
+      "description": "Require agents to include a \"Key decisions\" summary in completion write-ups so reviewers can understand tradeoffs without re-reading entire worklogs",
+      "agentTypes": ["all"]
+    }
+  }
+}
