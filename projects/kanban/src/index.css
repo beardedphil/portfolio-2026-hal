@@ -1818,3 +1818,173 @@ h1 {
   color: #666;
   font-size: 0.75rem;
 }
+
+/* Git diff viewer (0146) */
+.git-diff-viewer {
+  font-family: ui-monospace, 'Courier New', monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  background: var(--kanban-bg);
+  color: var(--kanban-text);
+  border: 1px solid var(--kanban-border);
+  border-radius: 6px;
+  overflow: auto;
+  max-height: 80vh;
+}
+
+.git-diff-empty {
+  padding: 2rem;
+  text-align: center;
+  color: var(--kanban-text-muted);
+  font-style: italic;
+}
+
+.git-diff-file {
+  border-bottom: 2px solid var(--kanban-border);
+}
+
+.git-diff-file:last-child {
+  border-bottom: none;
+}
+
+.git-diff-file-header {
+  background: var(--kanban-surface-alt);
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--kanban-border);
+  font-weight: 600;
+  color: var(--kanban-text);
+}
+
+.git-diff-file-header pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-family: ui-monospace, 'Courier New', monospace;
+  font-size: 0.875rem;
+}
+
+.git-diff-hunk {
+  margin: 0;
+}
+
+.git-diff-hunk-header {
+  background: var(--kanban-surface-alt);
+  padding: 0.5rem 1rem;
+  color: var(--kanban-text-muted);
+  font-size: 0.8rem;
+  border-bottom: 1px solid var(--kanban-border);
+}
+
+.git-diff-hunk-header pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-family: ui-monospace, 'Courier New', monospace;
+}
+
+.git-diff-lines {
+  display: block;
+}
+
+.git-diff-line {
+  display: flex;
+  padding: 0.125rem 1rem;
+  white-space: pre;
+  font-family: ui-monospace, 'Courier New', monospace;
+  min-height: 1.5em;
+}
+
+.git-diff-line-prefix {
+  display: inline-block;
+  width: 1.5rem;
+  text-align: center;
+  flex-shrink: 0;
+  font-weight: 600;
+  user-select: none;
+  padding-right: 0.5rem;
+}
+
+.git-diff-line-content {
+  flex: 1;
+  overflow-x: auto;
+}
+
+/* Context lines (unchanged) */
+.git-diff-line-context {
+  background: var(--kanban-bg);
+  color: var(--kanban-text);
+}
+
+.git-diff-line-context .git-diff-line-prefix {
+  color: var(--kanban-text-muted);
+}
+
+/* Addition lines */
+.git-diff-line-addition {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.git-diff-line-addition .git-diff-line-prefix {
+  color: #1b5e20;
+  background: #c8e6c9;
+}
+
+/* Deletion lines */
+.git-diff-line-deletion {
+  background: #ffebee;
+  color: #c62828;
+}
+
+.git-diff-line-deletion .git-diff-line-prefix {
+  color: #b71c1c;
+  background: #ffcdd2;
+}
+
+/* Header lines */
+.git-diff-line-header {
+  background: var(--kanban-surface-alt);
+  color: var(--kanban-text-muted);
+  font-style: italic;
+}
+
+/* Dark theme adjustments */
+[data-theme="dark"] .git-diff-viewer {
+  background: var(--kanban-bg);
+  border-color: var(--kanban-border);
+}
+
+[data-theme="dark"] .git-diff-file-header {
+  background: var(--kanban-surface-alt);
+  border-color: var(--kanban-border);
+}
+
+[data-theme="dark"] .git-diff-hunk-header {
+  background: var(--kanban-surface-alt);
+  border-color: var(--kanban-border);
+}
+
+[data-theme="dark"] .git-diff-line-context {
+  background: var(--kanban-bg);
+  color: var(--kanban-text);
+}
+
+[data-theme="dark"] .git-diff-line-addition {
+  background: #1b5e20;
+  color: #a5d6a7;
+}
+
+[data-theme="dark"] .git-diff-line-addition .git-diff-line-prefix {
+  color: #c8e6c9;
+  background: #2e7d32;
+}
+
+[data-theme="dark"] .git-diff-line-deletion {
+  background: #4a1a1a;
+  color: #ef9a9a;
+}
+
+[data-theme="dark"] .git-diff-line-deletion .git-diff-line-prefix {
+  color: #ffcdd2;
+  background: #6a1a1a;
+}
