@@ -114,11 +114,7 @@ QA RESULT: FAIL — 0076
 4. **Code review** — PASS/FAIL with brief evidence (e.g. table of requirement vs implementation; file and line refs if helpful). Only include if artifacts are present.
 5. **Build verification** — **MANDATORY:** Run `npm run build:hal` (or `tsc -b`) and verify it completes with zero TypeScript errors. If TypeScript errors exist, QA **MUST FAIL** immediately. Document the build result (PASS/FAIL) and any TypeScript errors found. Only include if artifacts are present.
 6. **UI verification** — What was run: automated and/or manual steps. If automated UI was not run (e.g. native dialogs, login, or pickers), state that and list the manual steps the user should run. Only include if artifacts are present.
-7. **Testing scenarios used** — **MANDATORY:** When marking acceptance criteria as passed, include a clearly labeled "Testing scenarios used" section with:
-   - At least **1 happy-path scenario** (primary success case)
-   - At least **2 edge/negative scenarios** (relevant edge cases, error conditions, or boundary conditions)
-   - Each scenario is 1–3 bullets and references the specific UI state/inputs used (no vague "tested it works" descriptions)
-   - See `.cursor/rules/testing-scenarios-requirement.mdc` for detailed format requirements
+7. **Testing scenarios used** — **MANDATORY:** When marking acceptance criteria as verified/passed, QA must include a clearly labeled "Testing scenarios used" section listing the concrete scenarios actually run. Must include at least 1 happy-path scenario and at least 2 edge/negative scenarios relevant to the ticket. Each scenario must be 1–3 bullets and reference specific UI state/inputs used (no vague "tested it works" statements). See `.cursor/rules/testing-scenarios-requirement.mdc` for full requirements. Only include if artifacts are present.
 8. **Verdict** — Implementation complete? OK to merge? Any blocking manual verification? Must clearly state PASS or FAIL.
 
 ## Storing QA report
