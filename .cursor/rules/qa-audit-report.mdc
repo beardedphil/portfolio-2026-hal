@@ -113,8 +113,13 @@ QA RESULT: FAIL — 0076
 3. **Audit artifacts** — Confirm all required implementation artifacts are present in Supabase (plan, worklog, changed-files, decisions, verification, pm-review). Only include this section if all artifacts are present.
 4. **Code review** — PASS/FAIL with brief evidence (e.g. table of requirement vs implementation; file and line refs if helpful). Only include if artifacts are present.
 5. **Build verification** — **MANDATORY:** Run `npm run build:hal` (or `tsc -b`) and verify it completes with zero TypeScript errors. If TypeScript errors exist, QA **MUST FAIL** immediately. Document the build result (PASS/FAIL) and any TypeScript errors found. Only include if artifacts are present.
-6. **UI verification** — What was run: automated and/or manual steps. If automated UI was not run (e.g. native dialogs, login, or pickers), state that and list the manual steps the user should run. Only include if artifacts are present.
-7. **Testing scenarios used** — **MANDATORY:** When marking acceptance criteria as verified/passed, QA must include a clearly labeled "Testing scenarios used" section listing the concrete scenarios actually run. Must include at least 1 happy-path scenario and at least 2 edge/negative scenarios relevant to the ticket. Each scenario must be 1–3 bullets and reference specific UI state/inputs used (no vague "tested it works" statements). See `.cursor/rules/testing-scenarios-requirement.mdc` for full requirements. Only include if artifacts are present.
+6. **Testing scenarios used** — **MANDATORY:** When marking acceptance criteria as verified/passed, QA **MUST** include a clearly labeled **"Testing scenarios used"** section. This section must include:
+   - At least **1 happy-path scenario** (primary success case)
+   - At least **2 edge/negative scenarios** (relevant edge cases, error conditions, or boundary conditions)
+   - Each scenario must be 1–3 bullets and reference the UI state/inputs used (no vague "tested it works" statements)
+   - See `.cursor/rules/testing-scenarios-required.mdc` for full requirements and examples
+   - Only include if artifacts are present
+7. **UI verification** — What was run: automated and/or manual steps. If automated UI was not run (e.g. native dialogs, login, or pickers), state that and list the manual steps the user should run. Only include if artifacts are present.
 8. **Verdict** — Implementation complete? OK to merge? Any blocking manual verification? Must clearly state PASS or FAIL.
 
 ## Storing QA report
