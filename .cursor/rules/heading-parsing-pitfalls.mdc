@@ -1,0 +1,336 @@
+---
+description: Guide for agents to produce headings that HAL can parse and render correctly
+alwaysApply: true
+---
+
+# Heading parsing pitfalls (and how to avoid them)
+
+When creating tickets or writing documentation, agents must produce headings that HAL can parse and render correctly. This guide covers common pitfalls and how to avoid them.
+
+## Pitfall 1: Inconsistent heading levels
+
+**Problem:** Using `#` (H1) or `###` (H3) when `##` (H2) is required, or skipping heading levels (e.g., going from `##` to `####`).
+
+**Why this fails:** HAL's parsing logic expects specific heading levels. Required ticket sections must use `##` (H2) to be recognized correctly.
+
+**❌ Bad examples:**
+```markdown
+# Goal (one sentence)
+
+Add a feature.
+
+### Acceptance criteria
+
+- [ ] Item 1
+```
+
+```markdown
+## Goal (one sentence)
+
+Add a feature.
+
+#### Acceptance criteria
+
+- [ ] Item 1
+```
+
+**✅ Good example:**
+```markdown
+## Goal (one sentence)
+
+Add a feature.
+
+## Acceptance criteria (UI-only)
+
+- [ ] Item 1
+```
+
+**Fix:** Always use `##` (H2) for required ticket sections. Maintain consistent heading hierarchy throughout the document.
+
+## Pitfall 2: Ambiguous "pseudo-headings" instead of real markdown headings
+
+**Problem:** Using bold text (`**Section Name:**`) or text with colons (`Section Name:`) when a real markdown heading is intended.
+
+**Why this fails:** HAL's parsing logic looks for markdown heading syntax (`## Section Name`), not bold text or colons. Pseudo-headings won't be recognized as section boundaries.
+
+**❌ Bad examples:**
+```markdown
+**Goal (one sentence):**
+
+Add a feature.
+
+**Acceptance criteria (UI-only):**
+
+- [ ] Item 1
+```
+
+```markdown
+Goal (one sentence):
+
+Add a feature.
+
+Acceptance criteria (UI-only):
+
+- [ ] Item 1
+```
+
+**✅ Good example:**
+```markdown
+## Goal (one sentence)
+
+Add a feature.
+
+## Acceptance criteria (UI-only)
+
+- [ ] Item 1
+```
+
+**Fix:** Use proper markdown heading syntax (`## Section Name`) instead of bold text or plain text with colons.
+
+## Pitfall 3: Required ticket headings don't match canonical text exactly
+
+**Problem:** Using variations like "Goal" instead of "Goal (one sentence)", or "Acceptance criteria" instead of "Acceptance criteria (UI-only)".
+
+**Why this fails:** HAL's parsing logic uses case-sensitive, exact text matching. Headings must match the canonical format exactly to be recognized.
+
+**❌ Bad examples:**
+```markdown
+## Goal
+
+Add a feature.
+
+## Human-verifiable deliverable
+
+User sees a button.
+
+## Acceptance criteria
+
+- [ ] Item 1
+```
+
+```markdown
+## Goal (one sentence)
+
+Add a feature.
+
+## Human-verifiable deliverable (UI only)
+
+User sees a button.
+
+## Acceptance Criteria (UI-only)
+
+- [ ] Item 1
+```
+
+**✅ Good example:**
+```markdown
+## Goal (one sentence)
+
+Add a feature.
+
+## Human-verifiable deliverable (UI-only)
+
+User sees a button.
+
+## Acceptance criteria (UI-only)
+
+- [ ] Item 1
+```
+
+**Fix:** Use the exact canonical text for required ticket sections:
+- `## Goal (one sentence)`
+- `## Human-verifiable deliverable (UI-only)`
+- `## Acceptance criteria (UI-only)`
+- `## Constraints`
+- `## Non-goals`
+
+## Pitfall 4: Duplicating the same top-level heading multiple times
+
+**Problem:** Including multiple `# Ticket` blocks or repeating the same top-level section heading.
+
+**Why this fails:** HAL's parsing logic expects a single, well-structured document. Duplicate headings can cause parsing confusion and make sections ambiguous.
+
+**❌ Bad example:**
+```markdown
+# Ticket
+
+## Goal (one sentence)
+
+Add a feature.
+
+# Ticket
+
+## Goal (one sentence)
+
+Add another feature.
+```
+
+**✅ Good example:**
+```markdown
+## Goal (one sentence)
+
+Add a feature.
+
+## Human-verifiable deliverable (UI-only)
+
+User sees a button.
+
+## Acceptance criteria (UI-only)
+
+- [ ] Item 1
+- [ ] Item 2
+```
+
+**Fix:** Use each heading only once. If you need to group related content, use subheadings (`###`) or organize content within a single section.
+
+## Pitfall 5: Using plain bullets instead of checkboxes in Acceptance criteria
+
+**Problem:** Using `- Item` or `* Item` instead of `- [ ] Item` for Acceptance criteria items.
+
+**Why this fails:** HAL's Ready-to-start checklist requires Acceptance criteria to use checkbox format (`- [ ]`) so items can be tracked and verified. Plain bullets won't pass validation.
+
+**❌ Bad examples:**
+```markdown
+## Acceptance criteria (UI-only)
+
+- User sees a button
+- Button is clickable
+- Clicking shows a message
+```
+
+```markdown
+## Acceptance criteria (UI-only)
+
+* User sees a button
+* Button is clickable
+* Clicking shows a message
+```
+
+**✅ Good example:**
+```markdown
+## Acceptance criteria (UI-only)
+
+- [ ] User sees a button labeled "Save" in the header
+- [ ] Button is clickable and responds to clicks
+- [ ] Clicking the button shows a success message in the UI
+```
+
+**Fix:** Always use checkbox format (`- [ ]`) for Acceptance criteria items. Each item should be UI-verifiable (a human can confirm by looking at the UI or running a manual test).
+
+## Copy/paste examples
+
+### Good: Minimal ticket skeleton that passes Definition of Ready
+
+```markdown
+## Goal (one sentence)
+
+Add a dark mode toggle button to the settings page that persists the user's preference.
+
+## Human-verifiable deliverable (UI-only)
+
+A non-technical user opens the app, navigates to Settings, sees a "Dark mode" toggle switch, clicks it, and observes the entire app UI changes from light to dark theme. The preference persists after page refresh.
+
+## Acceptance criteria (UI-only)
+
+- [ ] Settings page displays a "Dark mode" toggle switch that is clearly visible and clickable
+- [ ] Clicking the toggle immediately changes the app theme from light to dark (or vice versa) with a smooth transition
+- [ ] The selected theme preference persists after page refresh (the toggle state matches the current theme on reload)
+
+## Constraints
+
+- Keep this task as small as possible while still producing a **human-verifiable** UI change.
+- Verification must require **no external tools** (no terminal, no devtools, no console).
+
+## Non-goals
+
+- Theme customization beyond light/dark (no color pickers or advanced theming)
+- Per-component theme overrides (global theme only)
+```
+
+**Why this is good:**
+- All headings use `##` (H2) consistently
+- Headings match canonical text exactly
+- Acceptance criteria use checkbox format (`- [ ]`)
+- No placeholders or pseudo-headings
+- All sections are present and properly formatted
+
+### Bad: Common failure mode and corrected version
+
+**❌ Bad example (multiple pitfalls):**
+```markdown
+# Ticket
+
+**Goal:** Add dark mode toggle
+
+### Human-verifiable deliverable
+
+User sees toggle in settings.
+
+## Acceptance criteria
+
+- User sees toggle
+- Toggle works
+- Preference saves
+
+## Constraints
+
+- Use existing theme system
+
+## Non-goals
+
+- Advanced theming
+```
+
+**Problems:**
+1. Uses `# Ticket` (H1) instead of starting with `## Goal`
+2. Uses bold pseudo-heading `**Goal:**` instead of `## Goal (one sentence)`
+3. Uses `###` (H3) for "Human-verifiable deliverable" instead of `##`
+4. Missing "(one sentence)" and "(UI-only)" suffixes in headings
+5. Uses plain bullets (`-`) instead of checkboxes (`- [ ]`) in Acceptance criteria
+6. Acceptance criteria items are not UI-verifiable (too vague)
+
+**✅ Corrected version:**
+```markdown
+## Goal (one sentence)
+
+Add a dark mode toggle button to the settings page that persists the user's preference.
+
+## Human-verifiable deliverable (UI-only)
+
+A non-technical user opens the app, navigates to Settings, sees a "Dark mode" toggle switch, clicks it, and observes the entire app UI changes from light to dark theme. The preference persists after page refresh.
+
+## Acceptance criteria (UI-only)
+
+- [ ] Settings page displays a "Dark mode" toggle switch that is clearly visible and clickable
+- [ ] Clicking the toggle immediately changes the app theme from light to dark (or vice versa) with a smooth transition
+- [ ] The selected theme preference persists after page refresh (the toggle state matches the current theme on reload)
+
+## Constraints
+
+- Use existing theme system (no new CSS framework)
+- Theme preference must be stored in localStorage
+
+## Non-goals
+
+- Theme customization beyond light/dark (no color pickers or advanced theming)
+- Per-component theme overrides (global theme only)
+```
+
+**Why this is correct:**
+- All headings use `##` (H2) consistently
+- Headings match canonical text exactly: "Goal (one sentence)", "Human-verifiable deliverable (UI-only)", "Acceptance criteria (UI-only)"
+- Acceptance criteria use checkbox format (`- [ ]`)
+- All items are UI-verifiable with specific, testable descriptions
+- No pseudo-headings or placeholders
+
+## Summary
+
+To produce headings that HAL can parse correctly:
+
+1. **Use `##` (H2) consistently** for required ticket sections
+2. **Use proper markdown heading syntax** (`## Section Name`), not bold text or colons
+3. **Match canonical text exactly** (case-sensitive): "Goal (one sentence)", "Human-verifiable deliverable (UI-only)", "Acceptance criteria (UI-only)"
+4. **Avoid duplicate top-level headings** — use each heading only once
+5. **Use checkbox format** (`- [ ]`) for Acceptance criteria items, not plain bullets
+
+Following these guidelines ensures your tickets will pass HAL's Definition of Ready validation and be correctly parsed and rendered in the UI.
