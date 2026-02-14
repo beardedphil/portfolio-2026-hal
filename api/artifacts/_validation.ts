@@ -22,20 +22,43 @@ export function hasSubstantiveContent(body_md: string, title: string): { valid: 
   }
 
   // Check for placeholder patterns (including common placeholders like "(No files changed in this PR)", "(none)", etc.)
+  // Only reject if the placeholder is the dominant content, not just if it appears somewhere
   const trimmed = body_md.trim()
-  const placeholderPatterns = [
+  
+  // Patterns that match entire content (exact match)
+  const exactPlaceholderPatterns = [
     /^(TODO|TBD|placeholder|coming soon)$/i,
-    /\(No files changed in this PR\)/i,
-    /\(none\)/i,
-    /^##\s+[^\n]+\n+\n*\(No files changed/i,
-    /^##\s+[^\n]+\n+\n*\(none\)/i,
   ]
-
-  for (const pattern of placeholderPatterns) {
+  
+  // Patterns that should only match if they're the primary content (more than 50% of content)
+  const dominantPlaceholderPatterns = [
+    /^\(No files changed in this PR\)$/i,
+    /^\(none\)$/i,
+    /^##\s+[^\n]+\n+\n*\(No files changed\)\s*$/i,
+    /^##\s+[^\n]+\n+\n*\(none\)\s*$/i,
+  ]
+  
+  // Check exact placeholders first
+  for (const pattern of exactPlaceholderPatterns) {
     if (pattern.test(trimmed)) {
       return {
         valid: false,
         reason: 'Artifact body appears to contain only placeholder text. Artifacts must include actual content.',
+      }
+    }
+  }
+  
+  // Check dominant placeholders - only reject if the placeholder is most of the content
+  for (const pattern of dominantPlaceholderPatterns) {
+    const match = trimmed.match(pattern)
+    if (match) {
+      // If the matched placeholder is more than 50% of the trimmed content, reject
+      const matchLength = match[0].length
+      if (matchLength > trimmed.length * 0.5) {
+        return {
+          valid: false,
+          reason: 'Artifact body appears to contain only placeholder text. Artifacts must include actual content.',
+        }
       }
     }
   }
