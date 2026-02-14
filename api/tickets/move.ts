@@ -126,35 +126,30 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     // Fetch current ticket to get repo_full_name for scoped queries
-    // Try multiple lookup strategies to handle different ticket ID formats:
-    // - "172" (numeric id)
-    // - "0172" (numeric id with leading zeros)
-    // - "HAL-0172" (display_id format)
+    // Try multiple lookup strategies to handle different ticket ID formats
     let ticketFetch: any = null
     
     if (ticketPk) {
       ticketFetch = await supabase.from('tickets').select('pk, repo_full_name, kanban_column_id, kanban_position').eq('pk', ticketPk).maybeSingle()
     } else if (ticketId) {
-      // Strategy 1: Try by id field as-is (e.g., "172")
+      // First try by id field (numeric, e.g., "172")
       ticketFetch = await supabase.from('tickets').select('pk, repo_full_name, kanban_column_id, kanban_position').eq('id', ticketId).maybeSingle()
       
-      // Strategy 2: If not found, try by display_id (e.g., "HAL-0172")
+      // If not found, try by display_id (e.g., "HAL-0172")
       if (ticketFetch.error || !ticketFetch.data) {
         ticketFetch = await supabase.from('tickets').select('pk, repo_full_name, kanban_column_id, kanban_position').eq('display_id', ticketId).maybeSingle()
       }
       
-      // Strategy 3: If ticketId looks like display_id (e.g., "HAL-0172"), extract numeric part and try by id
+      // If still not found and ticketId looks like a display_id (contains prefix), try extracting numeric part
       if ((ticketFetch.error || !ticketFetch.data) && /^[A-Z]+-/.test(ticketId)) {
-        const numericPart = ticketId.replace(/^[A-Z]+-/, '')
-        // Remove leading zeros to get the actual id value (e.g., "0172" -> "172")
-        const idValue = numericPart.replace(/^0+/, '') || numericPart
-        if (idValue !== ticketId) {
-          ticketFetch = await supabase.from('tickets').select('pk, repo_full_name, kanban_column_id, kanban_position').eq('id', idValue).maybeSingle()
+        const numericPart = ticketId.replace(/^[A-Z]+-/, '').replace(/^0+/, '') || ticketId.replace(/^[A-Z]+-/, '')
+        if (numericPart !== ticketId) {
+          ticketFetch = await supabase.from('tickets').select('pk, repo_full_name, kanban_column_id, kanban_position').eq('id', numericPart).maybeSingle()
         }
       }
       
-      // Strategy 4: If ticketId is numeric with leading zeros (e.g., "0172"), try without leading zeros
-      if ((ticketFetch.error || !ticketFetch.data) && /^\d+$/.test(ticketId) && ticketId.startsWith('0')) {
+      // If still not found and ticketId has leading zeros, try without leading zeros
+      if ((ticketFetch.error || !ticketFetch.data) && /^0+/.test(ticketId)) {
         const withoutLeadingZeros = ticketId.replace(/^0+/, '') || ticketId
         if (withoutLeadingZeros !== ticketId) {
           ticketFetch = await supabase.from('tickets').select('pk, repo_full_name, kanban_column_id, kanban_position').eq('id', withoutLeadingZeros).maybeSingle()
@@ -246,26 +241,24 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const movedAt = new Date().toISOString()
 
-    // Update the ticket using the pk from the fetched ticket (most reliable)
-    // This ensures we update the correct ticket even if it was found via a different lookup strategy
-    const ticketPkToUse = ticketPk || (ticketFetch.data as any)?.pk
-    
-    if (!ticketPkToUse) {
-      json(res, 200, {
-        success: false,
-        error: 'Could not determine ticket PK for update.',
-      })
-      return
-    }
-
-    const update = await supabase
-      .from('tickets')
-      .update({
-        kanban_column_id: columnId,
-        kanban_position: targetPosition,
-        kanban_moved_at: movedAt,
-      })
-      .eq('pk', ticketPkToUse)
+    // Update the ticket
+    const update = ticketPk
+      ? await supabase
+          .from('tickets')
+          .update({
+            kanban_column_id: columnId,
+            kanban_position: targetPosition,
+            kanban_moved_at: movedAt,
+          })
+          .eq('pk', ticketPk)
+      : await supabase
+          .from('tickets')
+          .update({
+            kanban_column_id: columnId,
+            kanban_position: targetPosition,
+            kanban_moved_at: movedAt,
+          })
+          .eq('id', ticketId!)
 
     if (update.error) {
       json(res, 200, {
