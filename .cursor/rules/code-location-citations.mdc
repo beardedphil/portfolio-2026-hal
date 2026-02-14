@@ -5,91 +5,48 @@ alwaysApply: true
 
 # Code Location Citations
 
-**MANDATORY:** When an agent references "where something is implemented" or claims where key functionality exists, they **must** cite concrete code locations using file paths and (when feasible) line numbers or symbol names.
+When an agent references "where something is implemented" or claims where key functionality exists, they **must** cite concrete code locations that reviewers can verify quickly.
 
-## Minimum Citation Requirements
+## Required Citation Format
 
-When referencing where functionality is implemented, agents **must** include:
+**Minimum acceptable citation formats:**
 
-1. **File path** (required) — The full path to the file relative to the repository root
-2. **Line numbers or symbols** (when feasible) — Either:
-   - Line number(s): `src/foo.ts:42` or `src/foo.ts:42-61` (for ranges)
-   - Symbol name: `src/foo.ts — function bar()` or `src/foo.ts — class MyComponent`
-   - Route/component identifier: `src/routes/api.ts — route handler "POST /api/users"`
-
-## Minimum Acceptable Citation Formats
-
-Agents must use one of these formats:
-
-- **Line number format:** `src/foo.ts:42` or `src/foo.ts:42-61`
-- **Symbol format:** `src/foo.ts — function bar()` or `src/foo.ts — class MyComponent`
-- **Route/component format:** `src/routes/api.ts — route handler "POST /api/users"` or `src/components/Button.tsx — Button component`
+- **File path with line range:** `src/foo.ts:42-61`
+- **File path with function/class name:** `src/foo.ts — function bar()`
+- **File path with symbol:** `src/foo.ts — class MyComponent`
+- **File path with route/component ID:** `src/routes.ts — route id: "dashboard"`
 
 **Examples:**
-- ✅ `src/api/users.ts:15-28` (function `createUser`)
-- ✅ `src/components/Button.tsx — Button component`
-- ✅ `src/routes/api.ts:42 — route handler "POST /api/tickets"`
-- ❌ `src/api/users.ts` (missing line number or symbol)
-- ❌ `the users API file` (no file path)
+- ✅ `src/components/Button.tsx:15-23` (line range)
+- ✅ `src/utils/api.ts — function fetchUser()` (symbol name)
+- ✅ `src/routes.ts:42 — route id: "settings"` (route identifier)
+- ✅ `src/App.tsx — component App` (component name)
+- ❌ `src/components/Button.tsx` (missing line/symbol)
+- ❌ `the Button component` (no file path)
 
-## Contexts Where Citations Are Required
+## When Citations Are Required
 
-This requirement applies to:
+Citations are **mandatory** in these contexts:
 
 1. **Implementation summaries/worklogs** — When describing what was implemented or where changes were made
-2. **QA reports** — When reviewing code and identifying where requirements are implemented
-3. **PM guidance** — When answering questions like "where is X implemented?" or "where should I look for Y?"
+2. **QA reports** — When reviewing code and referencing where functionality exists
+3. **PM guidance** — When answering "where is X implemented?" or similar questions
 
-## Exceptions for Unreliable Line Numbers
+## Exceptions: Unreliable Line Numbers
 
-When line numbers are unreliable or unavailable (e.g., generated code, minified bundles, transpiled output), agents should:
+If line numbers are unreliable or unstable (e.g., generated code, minified bundles, auto-generated files), cite the **nearest stable anchor** instead:
 
-1. **Cite the nearest stable anchor** instead:
-   - Function/class/component name: `dist/bundle.js — function processTicket()`
-   - Exported symbol: `dist/api.js — export handleRequest`
-   - Route identifier: `dist/routes.js — route "/api/tickets"`
-   - Component name: `dist/components.js — Button component`
+- **Symbol name** (exported function, class, constant)
+- **Route ID** or **component name**
+- **Export identifier**
+- **File path** (always required, even when line numbers aren't)
 
-2. **Include the file path** even when line numbers aren't available
+**Examples of stable anchors:**
+- `src/generated/api.ts — export function createUser()` (generated file, use symbol)
+- `dist/bundle.js — function handleClick()` (minified, use symbol)
+- `src/routes.ts — route id: "dashboard"` (route identifier)
 
-3. **Note the exception** if helpful: `dist/bundle.js — function processTicket() (minified, line numbers unreliable)`
-
-**Examples of acceptable citations when line numbers are unreliable:**
-- ✅ `dist/bundle.js — function processTicket()` (minified)
-- ✅ `src/generated/api.ts — export createTicket` (generated code)
-- ✅ `build/components.js — Button component` (transpiled)
-
-## Integration with Existing Workflows
-
-### Implementation Agents
-
-In **worklogs** and **implementation summaries**, when describing where functionality was implemented:
-- ✅ "Added user authentication in `src/auth/login.ts:15-45` (function `handleLogin`)"
-- ❌ "Added user authentication in the login file"
-
-### QA Agents
-
-In **QA reports**, when reviewing code and identifying where requirements are implemented:
-- ✅ "Requirement X implemented in `src/api/tickets.ts:42-61` (function `createTicket`)"
-- ✅ "Code review: All requirements implemented. See `src/components/Button.tsx:10-25` for UI changes."
-- ❌ "Requirement X implemented in the tickets API"
-
-### PM Agents
-
-When answering "where is X implemented?" or providing guidance:
-- ✅ "Ticket creation is implemented in `src/api/tickets.ts:42-61` (function `createTicket`)"
-- ❌ "Ticket creation is in the tickets API file"
-
-## Verification
-
-Citations must be **human-verifiable** — a reviewer should be able to:
-1. Quickly locate the cited file
-2. Navigate to the specific line number or symbol
-3. Verify the claimed functionality exists at that location
-
-If a citation is missing or insufficient, the reviewer should request clarification with a proper citation format.
-
-**When in doubt, provide more specific citations** (line numbers + symbol names) rather than less.
+**Always include the file path** even when using stable anchors instead of line numbers.
 
 ## Scope
 

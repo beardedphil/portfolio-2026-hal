@@ -1,0 +1,144 @@
+---
+description: Require agents to document and justify any changes to application state management in review artifacts
+alwaysApply: true
+---
+
+# State Management Change Documentation
+
+**MANDATORY:** Any change to application state management (stores, reducers, context, persistence, query cache, etc.) must be **called out and justified** in the agent's review artifact(s), so reviewers can quickly understand behavioral risk.
+
+## What is a "State Management Change"?
+
+A **state management change** is any modification to how application state is stored, accessed, updated, or persisted. This includes:
+
+### Examples of State Management Changes
+
+- **Store modifications** (Zustand, Redux, Pinia, etc.)
+  - Adding/removing/modifying store slices or actions
+  - Changing store structure or initial state
+  - Modifying store selectors or computed values
+
+- **Context provider changes** (React Context, Vue provide/inject, etc.)
+  - Adding/removing/modifying context providers
+  - Changing context value structure
+  - Modifying context consumers
+
+- **Persistence/hydration changes**
+  - Adding/removing localStorage/sessionStorage usage
+  - Changing persistence keys or serialization format
+  - Modifying hydration logic (loading persisted state on app start)
+  - Changing persistence scope (what gets persisted vs. ephemeral)
+
+- **Query cache changes** (React Query, SWR, Apollo, etc.)
+  - Modifying cache keys or invalidation strategies
+  - Changing cache time-to-live (TTL) or stale-while-revalidate settings
+  - Adding/removing cache mutations or optimistic updates
+
+- **Cross-tab synchronization changes**
+  - Adding/removing `storage` event listeners
+  - Modifying broadcast channel or shared worker usage
+  - Changing how state syncs across browser tabs/windows
+
+- **State migration changes**
+  - Adding migration logic for existing persisted state
+  - Changing state schema versions
+  - Modifying backward compatibility handling
+
+## When This Requirement Applies
+
+This requirement applies to **all agents** when making changes that affect state management:
+
+- **Implementation agents** — Must document state management changes in their **PM Review artifact**
+- **QA agents** — Must verify that state management changes are properly documented and check the impact during QA review
+- **Project Manager agents** — Must ensure state management changes are called out in PM reviews
+
+## Required Documentation: PM Review Checklist
+
+**MANDATORY:** When an implementation agent makes any state management change, they **must** include the following checklist in their **PM Review artifact** (stored in Supabase with `artifactType: "pm-review"`).
+
+### Copy/Paste Checklist Template
+
+```markdown
+## State Management Changes
+
+**State management changes made:** [Yes / No]
+
+If Yes, complete the following:
+
+### What Changed
+- [ ] Store/Context/Cache modified: [specify which and what changed]
+- [ ] Persistence logic modified: [specify what changed]
+- [ ] Migration logic added: [specify what changed]
+- [ ] Other state management change: [specify what changed]
+
+### Why This Change Was Necessary
+[Brief explanation of why the state management change was required]
+
+### Migration Considerations
+- [ ] Existing persisted state affected: [Yes / No]
+- [ ] Backward compatibility: [Maintained / Broken / N/A]
+- [ ] Migration path: [Describe how existing users' state will be handled, if applicable]
+
+### User-Visible Impact
+- [ ] State persists across sessions: [Yes / No / Changed]
+- [ ] State syncs across tabs: [Yes / No / Changed]
+- [ ] User data loss risk: [None / Low / Medium / High]
+- [ ] Performance impact: [None / Low / Medium / High]
+- [ ] Breaking changes: [None / Describe if any]
+
+### Code Locations
+[Cite specific file paths and line numbers where state management changes were made, per `.cursor/rules/code-location-citations.mdc`]
+```
+
+## QA Review Requirements
+
+**MANDATORY:** When QA agents review a ticket that includes state management changes, they **must**:
+
+1. **Verify the PM Review artifact includes the state management checklist** — If state management changes were made but the checklist is missing or incomplete, QA **MUST FAIL** the ticket.
+
+2. **Review the documented impact** — QA should verify:
+   - The "What Changed" section accurately describes the code changes
+   - The "Why This Change Was Necessary" provides adequate justification
+   - Migration considerations are addressed if applicable
+   - User-visible impact is accurately assessed
+
+3. **Include state management review in QA report** — QA reports should include a section confirming:
+   - State management changes were properly documented (or "No state management changes" if none were made)
+   - The documented impact assessment appears reasonable
+   - Any concerns about user data loss, breaking changes, or migration issues
+
+### QA Report Template Addition
+
+QA reports should include:
+
+```markdown
+## State Management Review
+
+**State management changes:** [Yes / No]
+
+If Yes:
+- [ ] PM Review includes complete state management checklist
+- [ ] Documented changes match code review findings
+- [ ] Migration considerations addressed: [Yes / No / N/A]
+- [ ] User-visible impact assessment appears reasonable: [Yes / No]
+- [ ] Concerns identified: [None / List any concerns]
+```
+
+## Integration with Existing Workflows
+
+### PM Review Artifact
+
+The state management checklist must be included in the **PM Review artifact** stored in Supabase:
+- **Artifact type:** `pm-review`
+- **Title format:** `PM Review for ticket <ticket-id>`
+- **Storage:** Via HAL API endpoint `/api/artifacts/insert-pm-review` (or equivalent)
+
+### QA Audit Report
+
+QA agents must verify state management documentation as part of their standard QA workflow (see `.cursor/rules/qa-audit-report.mdc`).
+
+## Scope
+
+- Applies to **all agents** (implementation, QA, PM) when state management changes are involved
+- The checklist must be **human-verifiable** — a reviewer can open the PM Review artifact and immediately see whether state management changes were made and their impact
+- When in doubt, **document the change** — it's better to over-document than to miss a state management change that could affect user experience

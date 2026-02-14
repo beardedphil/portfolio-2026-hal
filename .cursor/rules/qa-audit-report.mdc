@@ -111,10 +111,11 @@ QA RESULT: FAIL — 0076
 1. **Ticket & deliverable** — One-line goal, deliverable, and acceptance criteria from the ticket.
 2. **Missing Required Implementation Artifacts** (if applicable) — List of missing artifacts. If artifacts are missing, this section must be present and QA must fail.
 3. **Audit artifacts** — Confirm all required implementation artifacts are present in Supabase (plan, worklog, changed-files, decisions, verification, pm-review). Only include this section if all artifacts are present.
-4. **Code review** — PASS/FAIL with brief evidence (e.g. table of requirement vs implementation). **MANDATORY:** Must cite specific file paths and line numbers (see `.cursor/rules/code-citation-requirements.mdc`). Only include if artifacts are present.
-5. **Build verification** — **MANDATORY:** Run `npm run build:hal` (or `tsc -b`) and verify it completes with zero TypeScript errors. If TypeScript errors exist, QA **MUST FAIL** immediately. Document the build result (PASS/FAIL) and any TypeScript errors found. Only include if artifacts are present.
-6. **UI verification** — What was run: automated and/or manual steps. If automated UI was not run (e.g. native dialogs, login, or pickers), state that and list the manual steps the user should run. Only include if artifacts are present.
-7. **Verdict** — Implementation complete? OK to merge? Any blocking manual verification? Must clearly state PASS or FAIL.
+4. **State management review** — **MANDATORY:** If any state management changes were made, verify the PM Review artifact includes the complete state management checklist (see `.cursor/rules/state-management-change-documentation.mdc`). If state management changes exist but are not documented, QA **MUST FAIL**. Only include if artifacts are present.
+5. **Code review** — PASS/FAIL with brief evidence (e.g. table of requirement vs implementation). **MANDATORY:** Must cite specific file paths and line numbers (see `.cursor/rules/code-citation-requirements.mdc`). Only include if artifacts are present.
+6. **Build verification** — **MANDATORY:** Run `npm run build:hal` (or `tsc -b`) and verify it completes with zero TypeScript errors. If TypeScript errors exist, QA **MUST FAIL** immediately. Document the build result (PASS/FAIL) and any TypeScript errors found. Only include if artifacts are present.
+7. **UI verification** — What was run: automated and/or manual steps. If automated UI was not run (e.g. native dialogs, login, or pickers), state that and list the manual steps the user should run. Only include if artifacts are present.
+8. **Verdict** — Implementation complete? OK to merge? Any blocking manual verification? Must clearly state PASS or FAIL.
 
 ## Storing QA report
 
