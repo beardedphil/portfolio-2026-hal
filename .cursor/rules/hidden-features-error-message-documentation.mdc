@@ -1,0 +1,235 @@
+---
+description: Require agents to document changes to error messages for hidden/locked/feature-flagged capabilities so future agents don't misinterpret them as product decisions
+alwaysApply: true
+---
+
+# Hidden Features: Error Message Changes Must Be Documented
+
+**MANDATORY:** Whenever an agent changes an error message that is shown for a hidden/locked/feature-flagged capability, they **must** document the change (what changed + why), so future agents don't misinterpret the message as a product decision.
+
+## When This Requirement Applies
+
+This requirement applies to **all agent types** (PM / Implementation / QA) when making changes to **error messages related to hidden features**, including:
+
+- **Feature flags** — Error messages shown when a feature is disabled via feature flag
+- **Conditional rendering** — Error messages shown when UI is conditionally hidden
+- **Permission-gated UI** — Error messages shown when user lacks permissions
+- **"Coming soon" messages** — Placeholder messages for features not yet available
+- **Locked capabilities** — Error messages shown when functionality is locked/restricted
+- **Hidden functionality** — Any error message that appears because a feature is intentionally hidden or unavailable
+
+## What Must Be Documented
+
+**MANDATORY:** When changing an error message for a hidden feature, agents **must** document:
+
+### 1. Previous and New Wording/Behavior
+
+- **Previous wording/behavior** — Copy/paste the exact string(s) when practical, or describe the exact behavior
+- **New wording/behavior** — Copy/paste the exact string(s) when practical, or describe the exact behavior
+
+**Example:**
+```markdown
+**Previous:** "This feature is not available in your plan. Upgrade to access."
+**New:** "This feature is coming soon. Check back later!"
+```
+
+### 2. Where the Message Lives
+
+- **File path** — The exact file path where the message is defined or rendered
+- **Component/context** — The component, function, or context where the message appears
+
+**Example:**
+```markdown
+**Location:** `src/components/FeatureGate.tsx:42-45` — `FeatureGate` component, `renderErrorMessage()` method
+```
+
+### 3. Reason for the Change
+
+Clearly state the reason for the change:
+- **Bugfix** — Fixing a typo, incorrect wording, or broken behavior
+- **Product decision** — Intentional product change (e.g., changing messaging strategy)
+- **Copy tweak** — Minor wording improvement without changing meaning
+- **Technical refactor** — Code cleanup that incidentally changes the message
+
+**Example:**
+```markdown
+**Reason:** Bugfix — Previous message incorrectly suggested the feature was available via upgrade, when it's actually not implemented yet. Changed to "coming soon" to accurately reflect the feature status.
+```
+
+### 4. Knock-on UX Impact
+
+Document any user-visible impact of the change:
+- **Message visibility** — Does the user still see a message, or is it now hidden?
+- **Message type** — Did the message type change (e.g., toast → inline error, error → info)?
+- **Support links** — Were support links or help text removed or added?
+- **User actions** — Can users still take the same actions, or did available actions change?
+
+**Example:**
+```markdown
+**UX Impact:** 
+- User now sees an informational "coming soon" message instead of an error suggesting upgrade
+- Support link to upgrade page was removed (no longer relevant)
+- User can no longer click "Upgrade" button (button removed)
+```
+
+## Where Documentation Must Go
+
+**MANDATORY:** The documentation must be placed in **one of** the following locations (choose the most appropriate):
+
+1. **Ticket body "Implementation notes"** — If the change is part of a ticket implementation, add a section in the ticket body
+2. **Implementation "Decisions" artifact** — If the change is made during implementation, document it in the Decisions artifact (stored in Supabase with `artifactType: "decisions"`)
+3. **QA report "Notes"** — If the change is discovered or made during QA, document it in the QA report
+
+**The documentation must include enough detail that a future agent can reconstruct the intent without reading git history.**
+
+### Documentation Template
+
+```markdown
+## Hidden Feature Error Message Change
+
+**Feature:** [Name of the hidden/feature-flagged capability]
+
+**Previous wording/behavior:**
+[Copy/paste exact string or describe behavior]
+
+**New wording/behavior:**
+[Copy/paste exact string or describe behavior]
+
+**Location:**
+- File: `[file path]`
+- Component/context: `[component/function name]`
+
+**Reason for change:**
+[Brief explanation: bugfix / product decision / copy tweak / technical refactor]
+
+**UX Impact:**
+- [List any user-visible changes]
+```
+
+## Examples
+
+### Example 1: Bugfix Change
+
+```markdown
+## Hidden Feature Error Message Change
+
+**Feature:** Advanced analytics dashboard (feature-flagged)
+
+**Previous wording/behavior:**
+"This feature requires a Pro subscription. Upgrade now to access advanced analytics."
+
+**New wording/behavior:**
+"This feature is coming soon. We're working on bringing advanced analytics to all users."
+
+**Location:**
+- File: `src/components/AnalyticsDashboard.tsx:78-82`
+- Component/context: `AnalyticsDashboard` component, `renderFeatureGate()` method
+
+**Reason for change:**
+Bugfix — Previous message incorrectly suggested the feature was available via upgrade, when it's actually not implemented yet (feature flag is disabled for all users). Changed to "coming soon" to accurately reflect the feature status.
+
+**UX Impact:**
+- User now sees an informational "coming soon" message instead of an error suggesting upgrade
+- "Upgrade now" button was removed (no longer relevant)
+- Support link to pricing page was removed
+```
+
+### Example 2: Copy Tweak
+
+```markdown
+## Hidden Feature Error Message Change
+
+**Feature:** Export to PDF (permission-gated)
+
+**Previous wording/behavior:**
+"PDF export is not available."
+
+**New wording/behavior:**
+"PDF export is not available in your current plan."
+
+**Location:**
+- File: `src/components/ExportMenu.tsx:45`
+- Component/context: `ExportMenu` component, `renderPDFOption()` method
+
+**Reason for change:**
+Copy tweak — Minor wording improvement to clarify that the feature exists but is plan-restricted, not broken or missing.
+
+**UX Impact:**
+- Message is slightly more informative but functionally equivalent
+- No changes to user actions or support links
+```
+
+## QA Review Requirements
+
+**MANDATORY:** When QA agents review a ticket that includes error message changes for hidden features, they **must**:
+
+1. **Verify the change is documented** — Check that the documentation exists in one of the required locations (ticket body, Decisions artifact, or QA report)
+
+2. **Verify documentation completeness** — Ensure the documentation includes:
+   - Previous and new wording/behavior
+   - Location (file path and component/context)
+   - Reason for the change
+   - UX impact
+
+3. **Include error message review in QA report** — QA reports should include a section confirming:
+   - Error message changes for hidden features were properly documented (or "No error message changes for hidden features" if none were made)
+   - The documentation is complete and clear
+   - The reason for the change is justified
+
+### QA Report Template Addition
+
+QA reports should include:
+
+```markdown
+## Hidden Feature Error Message Review
+
+**Error message changes for hidden features:** [Yes / No]
+
+If Yes:
+- [ ] Change is documented in appropriate location (ticket body / Decisions artifact / QA report)
+- [ ] Documentation includes previous and new wording/behavior
+- [ ] Documentation includes location (file path and component/context)
+- [ ] Documentation includes reason for change
+- [ ] Documentation includes UX impact
+- [ ] Reason for change is justified: [Yes / No]
+- [ ] Concerns identified: [None / List any concerns]
+```
+
+## Integration with Existing Workflows
+
+### Implementation Agents
+
+When implementation agents change error messages for hidden features, they **must**:
+1. Document the change in the **Decisions artifact** (preferred) or ticket body "Implementation notes"
+2. Include all required information (previous/new wording, location, reason, UX impact)
+3. Ensure documentation is detailed enough that future agents can understand the intent without reading git history
+
+### QA Agents
+
+When QA agents discover or make error message changes for hidden features, they **must**:
+1. Document the change in the **QA report "Notes"** section
+2. Verify that implementation agents have documented any error message changes they made
+3. Include the error message review section in the QA report
+
+### Project Manager Agents
+
+When PM agents review tickets that include error message changes for hidden features, they **must**:
+1. Verify that the change is documented in an appropriate location
+2. Ensure the documentation explains why the change was made (to avoid misinterpretation as a product decision)
+3. Flag missing or incomplete documentation as a blocker
+
+## Scope
+
+- Applies to **all agents** (PM, Implementation, QA) when changing error messages for hidden features
+- The documentation must be **human-verifiable** — a reviewer can open the ticket body, Decisions artifact, or QA report and immediately see what changed and why
+- When in doubt, **document the change** — it's better to over-document than to leave future agents guessing whether a message change was intentional or accidental
+
+## How to Verify
+
+**UI-only verification:** Reviewers can open the updated rule/doc (`.cursor/rules/hidden-features-error-message-documentation.mdc`) and confirm:
+- The guideline is present and clearly states the requirement
+- The guideline applies to all agent types (PM / Implementation / QA)
+- The guideline covers error messages related to hidden features (feature flags, conditional rendering, permission-gated UI, "coming soon", etc.)
+- The guideline explicitly requires documenting previous/new wording, location, reason, and UX impact
+- The guideline specifies where documentation must go (ticket body, Decisions artifact, or QA report)
+- The guideline is unambiguous and provides clear examples
