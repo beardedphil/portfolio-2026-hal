@@ -107,3 +107,9 @@ If your ticket involves multiple significant decisions, create a separate decisi
 
 [Use template above]
 ```
+
+## Notes
+
+- If no significant decisions were made during implementation, state that explicitly: "No significant implementation decisions were required for this ticket. The implementation followed standard patterns and existing conventions."
+- Focus on decisions that affect maintainability, architecture, or future work. Minor implementation details don't need full entries.
+- Each decision entry should be self-contained and understandable to someone reviewing the code later.
