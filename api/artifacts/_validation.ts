@@ -45,10 +45,26 @@ export function hasSubstantiveContent(body_md: string, title: string): { valid: 
   // For "Changed Files" artifacts, check that there's actual file content (not just headings)
   if (title.toLowerCase().includes('changed files')) {
     const withoutHeadings = trimmed.replace(/^#{1,6}\s+.*$/gm, '').trim()
+    
+    // Allow "No files changed." with a reason (must be at least 50 chars total to ensure there's a substantive reason)
+    const noFilesChangedPattern = /^No files changed\./i
+    if (noFilesChangedPattern.test(withoutHeadings)) {
+      // If it starts with "No files changed.", require at least 50 characters total (ensures a reason is provided)
+      if (withoutHeadings.length < 50) {
+        return {
+          valid: false,
+          reason: 'Changed Files artifact must include a brief reason when no files changed (e.g., "No files changed. Docs-only ticket handled via Supabase updates.").',
+        }
+      }
+      // Valid "No files changed." with reason
+      return { valid: true }
+    }
+    
+    // Reject placeholder patterns like "(none)" or "(No files changed" without proper format
     if (withoutHeadings.length < 30 || /^(\(none\)|\(No files changed)/i.test(withoutHeadings)) {
       return {
         valid: false,
-        reason: 'Changed Files artifact must list actual file changes, not placeholder text.',
+        reason: 'Changed Files artifact must list actual file changes, or explicitly state "No files changed." with a brief reason.',
       }
     }
   }
