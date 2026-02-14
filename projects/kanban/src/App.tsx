@@ -1923,6 +1923,8 @@ function SortableColumn({
   agentRunsByTicketPk = {},
   pendingMoves = new Set(),
   fetchActiveAgentRuns,
+  setSupabaseTickets,
+  supabaseTicketsRef,
 }: {
   col: Column
   cards: Record<string, Card>
@@ -1936,7 +1938,9 @@ function SortableColumn({
   refetchSupabaseTickets?: (skipPendingMoves?: boolean) => Promise<boolean>
   agentRunsByTicketPk?: Record<string, SupabaseAgentRunRow>
   pendingMoves?: Set<string>
-  fetchActiveAgentRuns?: () => Promise<void>
+  fetchActiveAgentRuns?: (freshTickets?: SupabaseTicketRow[]) => Promise<void>
+  setSupabaseTickets?: React.Dispatch<React.SetStateAction<SupabaseTicketRow[]>>
+  supabaseTicketsRef?: React.MutableRefObject<SupabaseTicketRow[]>
 }) {
   const halCtx = useContext(HalKanbanContext)
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
@@ -2037,9 +2041,25 @@ function SortableColumn({
           if (result.ok) {
             setTimeout(() => {
               refetchSupabaseTickets(false).then(() => {
+                // Get fresh tickets from state after refetch (0135)
+                let freshTickets: SupabaseTicketRow[] | null = null
+                if (setSupabaseTickets && supabaseTicketsRef) {
+                  setSupabaseTickets((currentTickets) => {
+                    freshTickets = currentTickets
+                    // Update ref synchronously with fresh tickets (0135)
+                    supabaseTicketsRef.current = currentTickets
+                    return currentTickets
+                  })
+                }
                 // Refetch agent runs since ticket moved to Doing (0135)
+                // Pass fresh tickets directly to avoid stale ref reads
                 if (fetchActiveAgentRuns) {
-                  fetchActiveAgentRuns()
+                  if (freshTickets) {
+                    fetchActiveAgentRuns(freshTickets)
+                  } else {
+                    // Fallback: ref should be updated by now, but use it as backup
+                    fetchActiveAgentRuns()
+                  }
                 }
               })
             }, 500)
@@ -2067,9 +2087,25 @@ function SortableColumn({
           if (result.ok) {
             setTimeout(() => {
               refetchSupabaseTickets(false).then(() => {
+                // Get fresh tickets from state after refetch (0135)
+                let freshTickets: SupabaseTicketRow[] | null = null
+                if (setSupabaseTickets && supabaseTicketsRef) {
+                  setSupabaseTickets((currentTickets) => {
+                    freshTickets = currentTickets
+                    // Update ref synchronously with fresh tickets (0135)
+                    supabaseTicketsRef.current = currentTickets
+                    return currentTickets
+                  })
+                }
                 // Refetch agent runs since ticket moved to Doing (0135)
+                // Pass fresh tickets directly to avoid stale ref reads
                 if (fetchActiveAgentRuns) {
-                  fetchActiveAgentRuns()
+                  if (freshTickets) {
+                    fetchActiveAgentRuns(freshTickets)
+                  } else {
+                    // Fallback: ref should be updated by now, but use it as backup
+                    fetchActiveAgentRuns()
+                  }
                 }
               })
             }, 500)
@@ -2681,18 +2717,19 @@ function App() {
   )
 
   /** Fetch active agent runs for tickets in Doing column (0114) */
-  const fetchActiveAgentRuns = useCallback(async () => {
+  const fetchActiveAgentRuns = useCallback(async (freshTickets?: SupabaseTicketRow[]) => {
     const url = supabaseProjectUrl.trim()
     const key = supabaseAnonKey.trim()
     if (!url || !key || !connectedRepoFullName) return
     try {
       const client = createClient(url, key)
-      // Get all tickets in Doing column - use ref to always get latest tickets (0135)
-      // This prevents stale closure values when function is called after ticket moves
+      // Use fresh tickets if provided, otherwise use ref (0135)
+      // This ensures we always use the latest tickets when available, avoiding stale ref reads
+      const ticketsToUse = freshTickets ?? supabaseTicketsRef.current
+      
+      // Get all tickets in Doing column from fresh tickets or ref
       setAgentRunsByTicketPk((prevRuns) => {
-        // Get current tickets in Doing column from ref (always latest value)
-        const currentTickets = supabaseTicketsRef.current
-        const doingTickets = currentTickets.filter((t) => t.kanban_column_id === 'col-doing')
+        const doingTickets = ticketsToUse.filter((t) => t.kanban_column_id === 'col-doing')
         const ticketPkSet = new Set(doingTickets.map((t) => t.pk))
         
         // Immediately clear runs for tickets that are no longer in Doing (0135)
@@ -2708,9 +2745,8 @@ function App() {
         return cleanedRuns
       })
       
-      // Then fetch fresh runs for tickets currently in Doing - use ref for latest tickets (0135)
-      const currentTickets = supabaseTicketsRef.current
-      const doingTickets = currentTickets.filter((t) => t.kanban_column_id === 'col-doing')
+      // Then fetch fresh runs for tickets currently in Doing
+      const doingTickets = ticketsToUse.filter((t) => t.kanban_column_id === 'col-doing')
       if (doingTickets.length === 0) {
         // Already cleared above, just ensure state is empty
         setAgentRunsByTicketPk({})
@@ -2737,9 +2773,9 @@ function App() {
         }
       }
       // Update state with fresh runs, ensuring we only include tickets currently in Doing (0135)
-      // Double-check using ref to get latest tickets - handles race conditions where tickets
+      // Double-check using fresh tickets or ref - handles race conditions where tickets
       // might have moved during the async fetch
-      const latestTickets = supabaseTicketsRef.current
+      const latestTickets = freshTickets ?? supabaseTicketsRef.current
       const currentDoingTickets = latestTickets.filter((t) => t.kanban_column_id === 'col-doing')
       const currentTicketPkSet = new Set(currentDoingTickets.map((t) => t.pk))
       const finalRuns: Record<string, SupabaseAgentRunRow> = {}
@@ -3379,8 +3415,22 @@ function App() {
                 // Refetch after a short delay to ensure DB write is visible
                 setTimeout(() => {
                   refetchSupabaseTickets(false).then(() => {
+                    // Get fresh tickets from state after refetch (0135)
+                    let freshTickets: SupabaseTicketRow[] | null = null
+                    setSupabaseTickets((currentTickets) => {
+                      freshTickets = currentTickets
+                      // Update ref synchronously with fresh tickets (0135)
+                      supabaseTicketsRef.current = currentTickets
+                      return currentTickets
+                    })
                     // Refetch agent runs since ticket moved from Doing to QA (0135)
-                    fetchActiveAgentRuns()
+                    // Pass fresh tickets directly to avoid stale ref reads
+                    if (freshTickets) {
+                      fetchActiveAgentRuns(freshTickets)
+                    } else {
+                      // Fallback: ref should be updated by now, but use it as backup
+                      fetchActiveAgentRuns()
+                    }
                   })
                 }, 500)
               }
@@ -3783,6 +3833,7 @@ function App() {
                 // CRITICAL FIX: Check the actual state after refetch to see if backend confirmed
                 // The refetch logic preserves optimistic positions, so if the ticket is still at
                 // the optimistic position after refetch, backend hasn't confirmed yet
+                let freshTickets: SupabaseTicketRow[] | null = null
                 setSupabaseTickets((currentTickets) => {
                   const currentTicket = currentTickets.find((t) => t.pk === ticketPk)
                   // If backend position matches optimistic position, backend has confirmed
@@ -3800,11 +3851,21 @@ function App() {
                     })
                   }
                   // If backend hasn't confirmed yet, keep in pendingMoves (will be checked on next poll)
+                  // Store fresh tickets to pass to fetchActiveAgentRuns (0135)
+                  freshTickets = currentTickets
+                  // Update ref synchronously with fresh tickets (0135)
+                  supabaseTicketsRef.current = currentTickets
                   return currentTickets
                 })
                 // Refetch agent runs if ticket moved to/from Doing column (0135)
+                // Pass fresh tickets directly to avoid stale ref reads
                 if (overColumn.id === 'col-doing' || ticket?.kanban_column_id === 'col-doing') {
-                  fetchActiveAgentRuns()
+                  if (freshTickets) {
+                    fetchActiveAgentRuns(freshTickets)
+                  } else {
+                    // Fallback: ref should be updated by now, but use it as backup
+                    fetchActiveAgentRuns()
+                  }
                 }
               }).catch(() => {
                 // On error, still remove from pending to avoid stuck state
@@ -3824,9 +3885,23 @@ function App() {
             return next
           })
           refetchSupabaseTickets(false).then(() => {
+            // Get fresh tickets from state after refetch (0135)
+            let freshTickets: SupabaseTicketRow[] | null = null
+            setSupabaseTickets((currentTickets) => {
+              freshTickets = currentTickets
+              // Update ref synchronously with fresh tickets (0135)
+              supabaseTicketsRef.current = currentTickets
+              return currentTickets
+            })
             // Refetch agent runs if ticket was in Doing column (0135)
+            // Pass fresh tickets directly to avoid stale ref reads
             if (ticket?.kanban_column_id === 'col-doing' || overColumn.id === 'col-doing') {
-              fetchActiveAgentRuns()
+              if (freshTickets) {
+                fetchActiveAgentRuns(freshTickets)
+              } else {
+                // Fallback: ref should be updated by now, but use it as backup
+                fetchActiveAgentRuns()
+              }
             }
           }) // Full refetch to restore correct state
           addLog(`Supabase update failed: ${result.error}`)
@@ -4021,6 +4096,7 @@ function App() {
                 // CRITICAL FIX: Check the actual state after refetch to see if backend confirmed
                 // The refetch logic preserves optimistic positions, so if the ticket is still at
                 // the optimistic position after refetch, backend hasn't confirmed yet
+                let freshTickets: SupabaseTicketRow[] | null = null
                 setSupabaseTickets((currentTickets) => {
                   const currentTicket = currentTickets.find((t) => t.pk === ticketPk)
                   // If backend position matches optimistic position, backend has confirmed
@@ -4038,11 +4114,21 @@ function App() {
                     })
                   }
                   // If backend hasn't confirmed yet, keep in pendingMoves (will be checked on next poll)
+                  // Store fresh tickets to pass to fetchActiveAgentRuns (0135)
+                  freshTickets = currentTickets
+                  // Update ref synchronously with fresh tickets (0135)
+                  supabaseTicketsRef.current = currentTickets
                   return currentTickets
                 })
                 // Refetch agent runs if ticket moved to/from Doing column (0135)
+                // Pass fresh tickets directly to avoid stale ref reads
                 if (overColumn.id === 'col-doing' || sourceTicket?.kanban_column_id === 'col-doing') {
-                  fetchActiveAgentRuns()
+                  if (freshTickets) {
+                    fetchActiveAgentRuns(freshTickets)
+                  } else {
+                    // Fallback: ref should be updated by now, but use it as backup
+                    fetchActiveAgentRuns()
+                  }
                 }
               }).catch(() => {
                 // On error, still remove from pending to avoid stuck state
@@ -4063,9 +4149,23 @@ function App() {
             })
             const sourceTicket = supabaseTickets.find((t) => t.pk === ticketPk)
             refetchSupabaseTickets(false).then(() => {
+              // Get fresh tickets from state after refetch (0135)
+              let freshTickets: SupabaseTicketRow[] | null = null
+              setSupabaseTickets((currentTickets) => {
+                freshTickets = currentTickets
+                // Update ref synchronously with fresh tickets (0135)
+                supabaseTicketsRef.current = currentTickets
+                return currentTickets
+              })
               // Refetch agent runs if ticket was in Doing column (0135)
+              // Pass fresh tickets directly to avoid stale ref reads
               if (sourceTicket?.kanban_column_id === 'col-doing' || overColumn.id === 'col-doing') {
-                fetchActiveAgentRuns()
+                if (freshTickets) {
+                  fetchActiveAgentRuns(freshTickets)
+                } else {
+                  // Fallback: ref should be updated by now, but use it as backup
+                  fetchActiveAgentRuns()
+                }
               }
             }) // Full refetch to restore correct state
             addLog(`Supabase ticket move failed: ${result.error}`)
@@ -4709,6 +4809,8 @@ ${notes || '(none provided)'}
                   agentRunsByTicketPk={displayAgentRunsByTicketPk}
                   pendingMoves={pendingMoves}
                   fetchActiveAgentRuns={fetchActiveAgentRuns}
+                  setSupabaseTickets={setSupabaseTickets}
+                  supabaseTicketsRef={supabaseTicketsRef}
                 />
               ))}
             </div>
