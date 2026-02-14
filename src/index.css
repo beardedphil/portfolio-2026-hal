@@ -387,33 +387,46 @@ body {
   height: auto !important;
   padding: 0 !important;
   overflow: visible !important;
+  overflow-y: visible !important; /* Explicitly override overflow-y: auto from Kanban CSS */
+  overflow-x: hidden !important;
   display: flex;
   flex-direction: column;
 }
 
 /* Ensure Kanban app container doesn't create its own scroll context */
 .kanban-frame-container [data-kanban-build] {
-  height: auto;
-  overflow: visible;
+  height: auto !important;
+  overflow: visible !important;
+  overflow-y: visible !important;
+  overflow-x: hidden !important;
   display: flex;
   flex-direction: column;
 }
 
+/* Ensure columns section doesn't constrain height */
+.kanban-frame-container .columns-section {
+  flex: 0 1 auto !important; /* Don't grow to fill space, allow natural height */
+  min-height: 0;
+  margin-bottom: 1.5rem;
+}
+
 /* Ensure Kanban columns container can scroll horizontally (preserved) */
-/* 0165: Unified scrolling - columns row grows to natural height */
+/* 0165: Unified scrolling - columns row grows to natural height, doesn't constrain columns */
 .kanban-frame-container .columns-row {
   overflow-x: auto;
   overflow-y: visible;
-  flex: 1;
+  flex: 0 1 auto; /* Don't grow, allow shrink, auto basis - allows natural height */
   min-height: 0;
+  align-items: flex-start; /* Align columns to top */
 }
 
 /* Ensure Kanban column content doesn't have height constraint - allows natural height */
 .kanban-frame-container .column-card {
-  height: auto;
+  height: auto !important; /* Override Kanban's height: 100% */
   display: flex;
   flex-direction: column;
   min-height: 0;
+  flex-shrink: 0; /* Don't shrink columns */
 }
 
 /* Kanban column content - no individual vertical scrolling (0165: unified scroll) */
@@ -426,8 +439,10 @@ body {
 
 /* Kanban column cards container - no individual scrolling (0165: unified scroll) */
 .kanban-frame-container .column-cards {
-  overflow-y: visible;
+  overflow-y: visible !important; /* Ensure no scrolling */
   overflow-x: hidden;
+  flex: 0 1 auto; /* Don't grow to fill space, allow natural height */
+  min-height: 2rem; /* Keep minimum height for empty columns */
 }
 
 .kanban-loading-overlay {
