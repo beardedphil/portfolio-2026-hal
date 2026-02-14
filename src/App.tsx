@@ -1244,6 +1244,7 @@ function App() {
 
   // Add welcome message to empty Process Review conversations (0111)
   useEffect(() => {
+<<<<<<< HEAD
     for (const [convId, conv] of conversations.entries()) {
       if (conv.agentRole === 'process-review-agent' && conv.messages.length === 0) {
         const isAvailable = supabaseUrl != null && supabaseAnonKey != null
@@ -1251,6 +1252,49 @@ function App() {
           ? '[Process Review] Process Review is available. Click "Review top ticket" in the Process Review column to analyze a ticket and generate improvement suggestions.'
           : '[Process Review] Process Review is unavailable. Supabase credentials are required to access ticket artifacts. Connect a project folder with Supabase configuration to enable Process Review.'
         addMessage(convId, 'process-review-agent', welcomeMsg)
+=======
+    if (selectedChatTarget === 'tools-agent' || openChatTarget === 'tools-agent') {
+      // Initialize Tools Agent conversation if it doesn't exist
+      getDefaultConversationId('tools-agent')
+    }
+  }, [selectedChatTarget, openChatTarget, getDefaultConversationId])
+
+  // Ensure Process Review Agent conversation exists when chat is opened (0111)
+  useEffect(() => {
+    if (selectedChatTarget === 'process-review-agent' || openChatTarget === 'process-review-agent') {
+      // Initialize Process Review Agent conversation if it doesn't exist
+      getDefaultConversationId('process-review-agent')
+    }
+  }, [selectedChatTarget, openChatTarget, getDefaultConversationId])
+
+  // Add initial welcome/status message to Process Review conversations when they're created (0111)
+  useEffect(() => {
+    const processReviewConvId = getConversationId('process-review-agent', 1)
+    const conv = conversations.get(processReviewConvId)
+    if (conv && conv.messages.length === 0) {
+      const isAvailable = !!(supabaseUrl && supabaseAnonKey)
+      const welcomeMessage = isAvailable
+        ? '**Process Review Agent**\n\nI analyze ticket artifacts to suggest improvements to agent instructions and process documentation.\n\nTo run a review, say "Review process for ticket NNNN" (e.g., "Review process for ticket 0046").\n\nI\'m ready to help!'
+        : '**Process Review Agent**\n\nI analyze ticket artifacts to suggest improvements to agent instructions and process documentation.\n\n⚠️ **Currently unavailable**: Supabase is not configured. Connect to Supabase to enable Process Review.\n\nOnce Supabase is connected, you can say "Review process for ticket NNNN" to run a review.'
+      addMessage(processReviewConvId, 'process-review-agent', welcomeMessage)
+    }
+  }, [conversations, supabaseUrl, supabaseAnonKey, addMessage])
+
+  // Poll for recent executions every 5 seconds (0107)
+  useEffect(() => {
+    let mounted = true
+    // Initial check - fetch latest timestamp first to avoid loading all historical executions
+    ;(async () => {
+      try {
+        const response = await fetch('/api/tool-calls/recent-executions?since=0')
+        const result = await response.json()
+        if (mounted && result.success && result.latestTimestamp) {
+          // Set timestamp to latest, so we only get new executions going forward
+          setLastExecutionTimestamp(result.latestTimestamp)
+        }
+      } catch (err) {
+        console.error('Failed to initialize execution timestamp:', err)
+>>>>>>> origin/ticket/0111-implementation
       }
     }
   }, [conversations, supabaseUrl, supabaseAnonKey, addMessage])
