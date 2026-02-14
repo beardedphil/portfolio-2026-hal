@@ -246,24 +246,26 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const movedAt = new Date().toISOString()
 
-    // Update the ticket
-    const update = ticketPk
-      ? await supabase
-          .from('tickets')
-          .update({
-            kanban_column_id: columnId,
-            kanban_position: targetPosition,
-            kanban_moved_at: movedAt,
-          })
-          .eq('pk', ticketPk)
-      : await supabase
-          .from('tickets')
-          .update({
-            kanban_column_id: columnId,
-            kanban_position: targetPosition,
-            kanban_moved_at: movedAt,
-          })
-          .eq('id', ticketId!)
+    // Update the ticket using the pk from the fetched ticket (most reliable)
+    // This ensures we update the correct ticket even if it was found via a different lookup strategy
+    const ticketPkToUse = ticketPk || (ticketFetch.data as any)?.pk
+    
+    if (!ticketPkToUse) {
+      json(res, 200, {
+        success: false,
+        error: 'Could not determine ticket PK for update.',
+      })
+      return
+    }
+
+    const update = await supabase
+      .from('tickets')
+      .update({
+        kanban_column_id: columnId,
+        kanban_position: targetPosition,
+        kanban_moved_at: movedAt,
+      })
+      .eq('pk', ticketPkToUse)
 
     if (update.error) {
       json(res, 200, {
