@@ -27,6 +27,9 @@ export function extractArtifactTypeFromTitle(title: string): string | null {
   // QA artifact type
   if (normalized.startsWith('qa report for ticket')) return 'qa-report'
   
+  // Image artifact type
+  if (normalized.startsWith('image for ticket') || normalized.includes('image attached to ticket')) return 'image'
+  
   return null
 }
 
@@ -74,6 +77,7 @@ export function createCanonicalTitle(
     'verification': `Verification for ticket ${normalizedDisplayId}`,
     'pm-review': `PM Review for ticket ${normalizedDisplayId}`,
     'qa-report': `QA report for ticket ${normalizedDisplayId}`,
+    'image': `Image for ticket ${normalizedDisplayId}`,
   }
   
   return titleMap[artifactType] || `Artifact for ticket ${normalizedDisplayId}`
