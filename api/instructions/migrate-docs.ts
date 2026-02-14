@@ -149,7 +149,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const supabase = createClient(supabaseUrl, supabaseAnonKey)
     const repoRoot = process.cwd()
 
-    const instructions: Array<{
+    type InstructionRow = {
       repo_full_name: string
       topic_id: string
       filename: string
@@ -162,39 +162,59 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       is_basic: boolean
       is_situational: boolean
       topic_metadata: Record<string, unknown> | null
-    }> = []
+    }
+
+    const instructions: InstructionRow[] = []
     const errors: string[] = []
 
-    for (const { relPath, topicId, isBasic, agentTypes } of DOCS_INSTRUCTIONS) {
-      const filePath = path.join(repoRoot, relPath)
+    const bundlePath = path.join(repoRoot, 'api', 'instructions', 'docs-bundle.json')
+    if (fs.existsSync(bundlePath)) {
       try {
-        if (!fs.existsSync(filePath)) {
-          errors.push(`File not found: ${relPath}`)
-          continue
+        const raw = fs.readFileSync(bundlePath, 'utf8')
+        const bundle = JSON.parse(raw) as Array<Omit<InstructionRow, 'repo_full_name'>>
+        for (const row of bundle) {
+          instructions.push({
+            ...row,
+            repo_full_name: repoFullName,
+          })
         }
-        const content = fs.readFileSync(filePath, 'utf8')
-        const filename = path.basename(relPath)
-        const isMdc = filename.endsWith('.mdc')
-        const { title, description, body } = isMdc ? parseMdc(content, filename) : parseMd(content, filename)
-        const inferredAgents = agentTypesFromContent(content, filename)
-        const combinedAgents = [...new Set([...agentTypes, ...inferredAgents])]
-
-        instructions.push({
-          repo_full_name: repoFullName,
-          topic_id: topicId,
-          filename,
-          title,
-          description,
-          content_md: content,
-          content_body: body,
-          always_apply: false,
-          agent_types: combinedAgents,
-          is_basic: isBasic,
-          is_situational: !isBasic,
-          topic_metadata: { title, description },
-        })
       } catch (err) {
-        errors.push(`${relPath}: ${err instanceof Error ? err.message : String(err)}`)
+        errors.push(`Bundle read failed: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+
+    if (instructions.length === 0) {
+      for (const { relPath, topicId, isBasic, agentTypes } of DOCS_INSTRUCTIONS) {
+        const filePath = path.join(repoRoot, relPath)
+        try {
+          if (!fs.existsSync(filePath)) {
+            errors.push(`File not found: ${relPath}`)
+            continue
+          }
+          const content = fs.readFileSync(filePath, 'utf8')
+          const filename = path.basename(relPath)
+          const isMdc = filename.endsWith('.mdc')
+          const { title, description, body } = isMdc ? parseMdc(content, filename) : parseMd(content, filename)
+          const inferredAgents = agentTypesFromContent(content, filename)
+          const combinedAgents = [...new Set([...agentTypes, ...inferredAgents])]
+
+          instructions.push({
+            repo_full_name: repoFullName,
+            topic_id: topicId,
+            filename,
+            title,
+            description,
+            content_md: content,
+            content_body: body,
+            always_apply: false,
+            agent_types: combinedAgents,
+            is_basic: isBasic,
+            is_situational: !isBasic,
+            topic_metadata: { title, description },
+          })
+        } catch (err) {
+          errors.push(`${relPath}: ${err instanceof Error ? err.message : String(err)}`)
+        }
       }
     }
 
