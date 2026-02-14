@@ -198,7 +198,7 @@ When the verdict is **PASS (OK to merge)**, QA must **complete the full workflow
 Do not give a summary with "next steps" or "run these commands" — QA performs the merge (or confirms main) and branch deletion where applicable. The user receives the completed result.
 
 - Use a commit subject that includes the ticket ID (e.g. `qa(0033): add QA report, move to Human in the Loop`).
-- **If verdict is FAIL:** Do not merge. Store the QA report in Supabase, then **YOU MUST move the ticket to the top of To-do** ( column) via HAL API. **This is MANDATORY** - failing to move the ticket to To-do means the QA workflow is incomplete. (`col-todo` column) via HAL API. Summarize findings and recommend a bugfix ticket (see `bugfix-tracking.mdc`). **The final message must include:** `QA RESULT: FAIL — <ticket-id>` (see "Completion message format requirement" above).
+- **If verdict is FAIL:** Do not merge. Store the QA report in Supabase, then **YOU MUST move the ticket to the top of To-do** (`col-todo` column) via HAL API. **This is MANDATORY** - failing to move the ticket to To-do means the QA workflow is incomplete. Summarize findings and recommend a bugfix ticket (see `bugfix-tracking.mdc`). **The final message must include:** `QA RESULT: FAIL — <ticket-id>` (see "Completion message format requirement" above).
   
   **FAIL workflow:**
   1. **Store QA report in Supabase** — Include a tool call in your message:
@@ -212,7 +212,7 @@ Do not give a summary with "next steps" or "run these commands" — QA performs 
        }
      }
      ```
-  2. **Move ticket to To-do** — **REQUIRED**: You MUST include this tool call. The ticket MUST be moved to  when QA fails. This is not optional. — Include a tool call to move the ticket to `col-todo`:
+  2. **Move ticket to To-do** — **REQUIRED**: You MUST include this tool call. The ticket MUST be moved to `col-todo` when QA fails. This is not optional. Include a tool call to move the ticket to `col-todo`:
      ```json
      {
        "tool": "move_ticket_column",
