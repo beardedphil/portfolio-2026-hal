@@ -358,6 +358,8 @@ body {
   position: relative;
   min-height: 0;
   min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
 }
@@ -379,7 +381,7 @@ body {
   border: none;
 }
 
-/* Override Kanban root styles when embedded in HAL - no individual scrolling, part of parent scroll */
+/* Override Kanban root styles when embedded in HAL - remove height constraint and scrolling */
 .kanban-frame-container #root {
   min-height: 0 !important;
   height: auto !important;
@@ -389,7 +391,7 @@ body {
   flex-direction: column;
 }
 
-/* Ensure Kanban app container flows with parent scroll, no individual scrolling */
+/* Ensure Kanban app container doesn't create its own scroll context */
 .kanban-frame-container [data-kanban-build] {
   height: auto;
   overflow: visible;
@@ -406,7 +408,7 @@ body {
   min-height: 0;
 }
 
-/* Kanban column card - no individual vertical scrolling, part of unified scroll */
+/* Ensure Kanban column content doesn't have height constraint - allows natural height */
 .kanban-frame-container .column-card {
   height: auto;
   display: flex;
