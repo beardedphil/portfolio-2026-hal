@@ -103,6 +103,14 @@ if (result.success) {
 }
 ```
 
+**Ticket ID formats:**
+The `/api/tickets/move` endpoint accepts multiple ticket ID formats for flexibility:
+- Numeric ID: `'172'` (the actual id field value)
+- With leading zeros: `'0172'` (will be normalized automatically)
+- Display ID: `'HAL-0172'` (will be resolved to the numeric id)
+
+The API automatically handles these formats by trying multiple lookup strategies, so you can use whichever format is most convenient. The API will find the ticket regardless of format and use the ticket's primary key (pk) for the update to ensure reliability.
+
 **When to move:**
 - After all code changes are committed and pushed
 - After all required artifacts are stored (if applicable)
@@ -120,4 +128,4 @@ if (result.success) {
 - `col-done` - Done
 - `col-wont-implement` - Will Not Implement
 
-**Note:** The HAL API endpoint `/api/tickets/move` uses server-side Supabase credentials, so agents don't need to provide credentials in the request body.
+**Note:** The HAL API endpoint `/api/tickets/move` uses server-side Supabase credentials, so agents don't need to provide credentials in the request body. The API uses the ticket's primary key (pk) for updates to ensure reliable ticket movement regardless of the ticket ID format provided.
