@@ -126,9 +126,36 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     // Fetch current ticket to get repo_full_name for scoped queries
-    const ticketFetch = ticketPk
-      ? await supabase.from('tickets').select('pk, repo_full_name, kanban_column_id, kanban_position').eq('pk', ticketPk).maybeSingle()
-      : await supabase.from('tickets').select('pk, repo_full_name, kanban_column_id, kanban_position').eq('id', ticketId!).maybeSingle()
+    // Try multiple lookup strategies to handle different ticket ID formats
+    let ticketFetch: any = null
+    
+    if (ticketPk) {
+      ticketFetch = await supabase.from('tickets').select('pk, repo_full_name, kanban_column_id, kanban_position').eq('pk', ticketPk).maybeSingle()
+    } else if (ticketId) {
+      // First try by id field (numeric, e.g., "172")
+      ticketFetch = await supabase.from('tickets').select('pk, repo_full_name, kanban_column_id, kanban_position').eq('id', ticketId).maybeSingle()
+      
+      // If not found, try by display_id (e.g., "HAL-0172")
+      if (ticketFetch.error || !ticketFetch.data) {
+        ticketFetch = await supabase.from('tickets').select('pk, repo_full_name, kanban_column_id, kanban_position').eq('display_id', ticketId).maybeSingle()
+      }
+      
+      // If still not found and ticketId looks like a display_id (contains prefix), try extracting numeric part
+      if ((ticketFetch.error || !ticketFetch.data) && /^[A-Z]+-/.test(ticketId)) {
+        const numericPart = ticketId.replace(/^[A-Z]+-/, '').replace(/^0+/, '') || ticketId.replace(/^[A-Z]+-/, '')
+        if (numericPart !== ticketId) {
+          ticketFetch = await supabase.from('tickets').select('pk, repo_full_name, kanban_column_id, kanban_position').eq('id', numericPart).maybeSingle()
+        }
+      }
+      
+      // If still not found and ticketId has leading zeros, try without leading zeros
+      if ((ticketFetch.error || !ticketFetch.data) && /^0+/.test(ticketId)) {
+        const withoutLeadingZeros = ticketId.replace(/^0+/, '') || ticketId
+        if (withoutLeadingZeros !== ticketId) {
+          ticketFetch = await supabase.from('tickets').select('pk, repo_full_name, kanban_column_id, kanban_position').eq('id', withoutLeadingZeros).maybeSingle()
+        }
+      }
+    }
 
     if (ticketFetch.error || !ticketFetch.data) {
       json(res, 200, {
