@@ -1,5 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { createClient } from '@supabase/supabase-js'
+import {
+  getMissingRequiredImplementationArtifacts,
+  type ArtifactRowForCheck,
+} from '../artifacts/_shared'
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []
@@ -173,6 +177,43 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const ticket = ticketFetch.data
     const repoFullName = (ticket as any).repo_full_name || ''
     const currentColumnId = (ticket as any).kanban_column_id
+    const resolvedTicketPk = (ticket as any).pk as string
+
+    // Gate: moving to Ready for QA requires all 8 implementation artifacts (substantive)
+    if (columnId === 'col-qa') {
+      const { data: artifactRows, error: artErr } = await supabase
+        .from('agent_artifacts')
+        .select('title, agent_type, body_md')
+        .eq('ticket_pk', resolvedTicketPk)
+        .eq('agent_type', 'implementation')
+
+      if (artErr) {
+        json(res, 200, {
+          success: false,
+          error: `Cannot move to Ready for QA: failed to check artifacts (${artErr.message}).`,
+        })
+        return
+      }
+
+      const artifactsForCheck: ArtifactRowForCheck[] = (artifactRows || []).map((r: any) => ({
+        title: r.title,
+        agent_type: r.agent_type,
+        body_md: r.body_md,
+      }))
+      const missingArtifacts = getMissingRequiredImplementationArtifacts(artifactsForCheck)
+
+      if (missingArtifacts.length > 0) {
+        json(res, 200, {
+          success: false,
+          error:
+            'Cannot move to Ready for QA: missing required implementation artifacts.',
+          missingArtifacts,
+          remedy:
+            'Store each listed artifact via POST /api/artifacts/insert-implementation with the corresponding artifactType, then retry POST /api/tickets/move.',
+        })
+        return
+      }
+    }
 
     // Determine target position
     let targetPosition: number
