@@ -206,7 +206,8 @@ body {
   min-width: 280px;
   min-height: 400px;
   background: var(--hal-surface);
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .kanban-header {
@@ -357,7 +358,8 @@ body {
   position: relative;
   min-height: 0;
   min-width: 0;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
 }
@@ -379,45 +381,51 @@ body {
   border: none;
 }
 
-/* Override Kanban root styles when embedded in HAL to prevent viewport overflow */
+/* Override Kanban root styles when embedded in HAL - remove height constraint and scrolling */
 .kanban-frame-container #root {
   min-height: 0 !important;
-  height: 100% !important;
+  height: auto !important;
   padding: 0 !important;
-  overflow-y: auto !important;
-  overflow-x: hidden !important;
+  overflow: visible !important;
   display: flex;
   flex-direction: column;
 }
 
-/* Ensure Kanban app container fills its parent and allows internal scrolling */
+/* Ensure Kanban app container doesn't create its own scroll context */
 .kanban-frame-container [data-kanban-build] {
-  height: 100%;
-  overflow-y: auto;
-  overflow-x: hidden;
+  height: auto;
+  overflow: visible;
   display: flex;
   flex-direction: column;
 }
 
-/* Ensure Kanban columns container can scroll horizontally */
+/* Ensure Kanban columns container can scroll horizontally (preserved) */
+/* 0165: Unified scrolling - columns row grows to natural height */
 .kanban-frame-container .columns-row {
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: visible;
   flex: 1;
   min-height: 0;
 }
 
-/* Ensure Kanban column content can scroll vertically */
+/* Ensure Kanban column content doesn't have height constraint - allows natural height */
 .kanban-frame-container .column-card {
-  height: 100%;
+  height: auto;
   display: flex;
   flex-direction: column;
   min-height: 0;
 }
 
+/* Kanban column content - no individual vertical scrolling (0165: unified scroll) */
 .kanban-frame-container .column-content {
   flex: 1;
   min-height: 0;
+  overflow-y: visible;
+  overflow-x: hidden;
+}
+
+/* Kanban column cards container - no individual scrolling (0165: unified scroll) */
+.kanban-frame-container .column-cards {
   overflow-y: visible;
   overflow-x: hidden;
 }
