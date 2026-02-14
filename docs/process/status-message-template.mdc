@@ -1,0 +1,256 @@
+# Status Message Template
+
+## Overview
+
+Agents must post **consistent, scan-friendly progress updates** during ticket execution. This template ensures all status messages follow a standard format that makes progress easy to track and understand.
+
+## When to Post Status Messages
+
+**Post status messages:**
+
+1. **On start** - When beginning work on a ticket
+2. **After each meaningful milestone** - After completing significant steps (e.g., "Explored codebase", "Implemented feature X", "Fixed bug Y")
+3. **When blocked** - Immediately when encountering blockers or waiting for external dependencies
+4. **On completion** - When ticket work is finished (before moving to QA or Done)
+
+**Posting frequency:**
+- **Minimum:** Once at start, once on completion
+- **Recommended:** Every 30-60 minutes of active work, or after each major milestone
+- **Required:** Immediately when blocked or encountering errors
+
+## Where to Post Status Messages
+
+**Post status messages in:**
+- **Ticket thread/chat** - The primary conversation thread where the ticket is being discussed
+- **Running log** - If using a chat interface with a running log or activity feed, post there as well
+
+**Format:** Use the template below as a copy-paste starting point, then fill in the relevant fields.
+
+## Copy-Paste Template
+
+```markdown
+## Status Update
+
+**Context:** [Brief 1-2 sentence description of current work context]
+
+**State:** [Starting | In Progress | Blocked | Done]
+
+**What I did:**
+- [ ] Action item 1
+- [ ] Action item 2
+- [ ] Action item 3
+
+**Next:**
+- [ ] Next action 1
+- [ ] Next action 2
+
+**Risks:** [None | List any blockers, dependencies, or concerns]
+
+**ETA:** [Time estimate or "Unknown" if blocked]
+
+**Links:** [Optional: Links to relevant PRs, commits, or artifacts]
+```
+
+## Field Descriptions
+
+### Context
+- **Purpose:** Quick orientation for reviewers
+- **Format:** 1-2 sentences describing what you're working on
+- **Example:** "Implementing dark mode toggle button on settings page"
+
+### State
+- **Purpose:** At-a-glance progress indicator
+- **Values:** `Starting`, `In Progress`, `Blocked`, `Done`
+- **Usage:** Use exactly one of these values (case-sensitive)
+
+### What I did
+- **Purpose:** Document completed work items
+- **Format:** Bullet list with checkboxes (`- [x]` for completed, `- [ ]` for in-progress)
+- **Guideline:** Keep items specific and actionable (e.g., "Added dark mode toggle component" not "Worked on feature")
+
+### Next
+- **Purpose:** Show upcoming work items
+- **Format:** Bullet list with checkboxes (`- [ ]`)
+- **Guideline:** List 2-5 immediate next steps, ordered by priority
+
+### Risks
+- **Purpose:** Surface blockers and dependencies early
+- **Format:** `None` if no risks, or bullet list of concerns
+- **Guideline:** Include external dependencies, missing information, or technical concerns
+
+### ETA
+- **Purpose:** Set expectations for completion time
+- **Format:** Time estimate (e.g., "30 minutes", "2 hours") or `Unknown` if blocked
+- **Guideline:** Be realistic; update if estimates change
+
+### Links
+- **Purpose:** Reference related artifacts, PRs, or commits
+- **Format:** Optional markdown links
+- **Guideline:** Include links to relevant artifacts, PRs, commits, or documentation
+
+## Examples
+
+### Example 1: Starting
+
+```markdown
+## Status Update
+
+**Context:** Beginning implementation of dark mode toggle button on settings page.
+
+**State:** Starting
+
+**What I did:**
+- [x] Reviewed ticket requirements and acceptance criteria
+- [x] Explored existing theme system and settings page structure
+
+**Next:**
+- [ ] Create dark mode toggle component
+- [ ] Integrate toggle into settings page
+- [ ] Add localStorage persistence for theme preference
+
+**Risks:** None
+
+**ETA:** 2 hours
+
+**Links:**
+```
+
+### Example 2: In Progress
+
+```markdown
+## Status Update
+
+**Context:** Implementing dark mode toggle with localStorage persistence.
+
+**State:** In Progress
+
+**What I did:**
+- [x] Created `DarkModeToggle.tsx` component with switch UI
+- [x] Integrated toggle into settings page layout
+- [x] Added theme context provider for global theme state
+- [ ] Implemented localStorage persistence (in progress)
+
+**Next:**
+- [ ] Complete localStorage persistence logic
+- [ ] Test theme switching and persistence across page refreshes
+- [ ] Verify accessibility (keyboard navigation, screen readers)
+
+**Risks:** None
+
+**ETA:** 45 minutes
+
+**Links:**
+- Component: `src/components/DarkModeToggle.tsx:15-42`
+```
+
+### Example 3: Blocked
+
+```markdown
+## Status Update
+
+**Context:** Blocked on localStorage persistence - need to verify existing state management approach.
+
+**State:** Blocked
+
+**What I did:**
+- [x] Created dark mode toggle component
+- [x] Integrated toggle into settings page
+- [x] Added theme context provider
+- [ ] Implemented localStorage persistence (blocked)
+
+**Next:**
+- [ ] Wait for clarification on state management approach
+- [ ] Implement localStorage once approach is confirmed
+
+**Risks:** 
+- Need clarification: Should localStorage be managed through existing Zustand store or directly in theme context?
+- Dependency: Waiting for PM review of state management approach
+
+**ETA:** Unknown (blocked)
+
+**Links:**
+- Question posted in ticket thread
+```
+
+### Example 4: Done
+
+```markdown
+## Status Update
+
+**Context:** Completed dark mode toggle implementation with full persistence and accessibility support.
+
+**State:** Done
+
+**What I did:**
+- [x] Created `DarkModeToggle.tsx` component with switch UI
+- [x] Integrated toggle into settings page
+- [x] Added theme context provider for global theme state
+- [x] Implemented localStorage persistence
+- [x] Tested theme switching and persistence across page refreshes
+- [x] Verified accessibility (keyboard navigation, screen readers)
+- [x] Committed and pushed changes to feature branch
+
+**Next:**
+- [ ] Move ticket to "Ready for QA"
+
+**Risks:** None
+
+**ETA:** Complete
+
+**Links:**
+- Component: `src/components/DarkModeToggle.tsx:15-67`
+- Context: `src/contexts/ThemeContext.tsx:23-45`
+- Commit: `abc1234` - "Add dark mode toggle with persistence"
+```
+
+## Best Practices
+
+### Scan-Friendly Formatting
+
+- **Short lines:** Keep lines under 80 characters when possible
+- **Consistent labels:** Always use the exact field names (Context, State, What I did, Next, Risks, ETA, Links)
+- **Bullets:** Use checkbox bullets (`- [x]` or `- [ ]`) for action items
+- **Whitespace:** Add blank lines between sections for readability
+
+### Content Guidelines
+
+- **Be specific:** "Added dark mode toggle component" not "Worked on feature"
+- **Be concise:** Each action item should be one line
+- **Update regularly:** Post updates every 30-60 minutes of active work
+- **Surface blockers early:** Don't wait to report blockers - post immediately
+
+### State Transitions
+
+- **Starting → In Progress:** After first meaningful work item completed
+- **In Progress → Blocked:** When encountering blockers or waiting for dependencies
+- **Blocked → In Progress:** When blocker is resolved
+- **In Progress → Done:** When all work items are complete and changes are committed/pushed
+
+## Integration with Agent Workflows
+
+### Implementation Agents
+
+- Post status update when starting ticket work
+- Post updates after completing each major milestone (planning, implementation, testing, verification)
+- Post immediately when blocked
+- Post final update when moving ticket to "Ready for QA"
+
+### QA Agents
+
+- Post status update when starting QA review
+- Post updates after completing code review, testing, and artifact verification
+- Post immediately when blocking issues are found
+- Post final update when moving ticket to "Human in the Loop" or back to "To-do"
+
+### PM Agents
+
+- Post status update when starting ticket analysis or planning
+- Post updates after completing research, ticket creation, or handoff
+- Post immediately when clarification is needed
+- Post final update when ticket is ready for implementation
+
+## Scope
+
+- **Applies to:** All agent types (Implementation, QA, PM, and future agent types)
+- **Enforcement:** Status messages should follow this template format for consistency
+- **Flexibility:** Template fields can be omitted if not applicable (e.g., "Risks: None" can be shortened to just "Risks: None" or omitted entirely if truly no risks)
