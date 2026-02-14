@@ -364,7 +364,8 @@ body {
   min-height: 0 !important;
   height: 100% !important;
   padding: 0 !important;
-  overflow: hidden;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
   display: flex;
   flex-direction: column;
 }
@@ -372,7 +373,8 @@ body {
 /* Ensure Kanban app container fills its parent and allows internal scrolling */
 .kanban-frame-container [data-kanban-build] {
   height: 100%;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
 }
@@ -396,7 +398,7 @@ body {
 .kanban-frame-container .column-content {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+  overflow-y: visible;
   overflow-x: hidden;
 }
 
