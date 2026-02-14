@@ -489,6 +489,7 @@ function App() {
         if (parsed?.fullName) {
           setConnectedGithubRepo(parsed)
           setConnectedProject(parsed.fullName)
+          // Conversations will be loaded by the useEffect that watches connectedProject (0124)
         }
       }
     } catch {
@@ -883,12 +884,52 @@ function App() {
     setGithubRepoPickerOpen(false)
   }, [supabaseUrl, supabaseAnonKey, loadConversationsForProject])
 
-  // Load conversations when connectedProject is restored on page refresh (0124: fix chat clearing on refresh)
+  // Persist selected conversation to localStorage (0124: restore last-open conversation on refresh)
   useEffect(() => {
-    if (connectedProject) {
+    if (connectedProject && selectedConversationId) {
+      try {
+        localStorage.setItem(`hal-selected-conversation-${connectedProject}`, selectedConversationId)
+      } catch {
+        // ignore localStorage errors
+      }
+    }
+  }, [connectedProject, selectedConversationId])
+
+  // Restore selected conversation after conversations are loaded (0124: restore last-open conversation on refresh)
+  const restoredSelectedConvRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (connectedProject && conversations.size > 0 && !restoredSelectedConvRef.current) {
+      try {
+        const savedSelectedConv = localStorage.getItem(`hal-selected-conversation-${connectedProject}`)
+        if (savedSelectedConv && conversations.has(savedSelectedConv)) {
+          setSelectedConversationId(savedSelectedConv)
+          restoredSelectedConvRef.current = savedSelectedConv
+        }
+      } catch {
+        // ignore localStorage errors
+      }
+    } else if (!connectedProject) {
+      restoredSelectedConvRef.current = null
+    }
+  }, [connectedProject, conversations, selectedConversationId])
+
+  // Load conversations when connectedProject is restored on page refresh (0124: fix chat clearing on refresh)
+  // CRITICAL: This must run immediately when connectedProject is set, regardless of Supabase credentials
+  // We use a ref to track if we've already loaded for this project to avoid duplicate loads
+  const loadedProjectRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (connectedProject && loadedProjectRef.current !== connectedProject) {
+      loadedProjectRef.current = connectedProject
+      restoredSelectedConvRef.current = null // Reset restoration flag when project changes
+      // Load conversations immediately - loadConversationsForProject handles localStorage first, then Supabase
+      // This ensures conversations are visible immediately on page refresh, even before Supabase loads
       loadConversationsForProject(connectedProject).catch((err) => {
         console.error('[HAL] Error loading conversations on page refresh:', err)
       })
+    } else if (!connectedProject) {
+      // Reset ref when disconnected
+      loadedProjectRef.current = null
+      restoredSelectedConvRef.current = null
     }
   }, [connectedProject, loadConversationsForProject])
 
