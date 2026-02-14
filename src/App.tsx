@@ -44,6 +44,8 @@ type Conversation = {
   instanceNumber: number // 1, 2, 3, etc.
   messages: Message[]
   createdAt: Date
+  oldestLoadedSequence?: number // Track oldest message sequence loaded (for pagination)
+  hasMoreMessages?: boolean // Whether there are more messages to load
 }
 
 type ToolCallRecord = {
@@ -348,6 +350,8 @@ function App() {
   // Track max sequence per agent instance (e.g., "project-manager-1", "implementation-agent-2")
   const agentSequenceRefs = useRef<Map<string, number>>(new Map())
   const transcriptRef = useRef<HTMLDivElement>(null)
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState<string | null>(null) // conversationId loading older messages
+  const MESSAGES_PER_PAGE = 50 // Number of messages to load per page
   const selectedChatTargetRef = useRef<ChatTarget>(selectedChatTarget)
   
   const [unreadByTarget, setUnreadByTarget] = useState<Record<ChatTarget, number>>(() => ({
@@ -665,12 +669,35 @@ function App() {
         try {
           const supabase = getSupabaseClient(url, key)
           // Load ALL conversations from Supabase (not just PM) (0124)
-          const { data: rows, error } = await supabase
+          // Load only the most recent messages per conversation for initial load (pagination)
+          // Get distinct agents first
+          const { data: agentRows } = await supabase
             .from('hal_conversation_messages')
-            .select('agent, role, content, sequence, created_at, images')
+            .select('agent')
             .eq('project_id', repo.full_name)
             .order('agent', { ascending: true })
-            .order('sequence', { ascending: true })
+          
+          const uniqueAgents = [...new Set((agentRows || []).map(r => r.agent as string))]
+          
+          // For each agent, load only the most recent MESSAGES_PER_PAGE messages
+          const allRows: Array<{ agent: string; role: string; content: string; sequence: number; created_at: string; images?: unknown }> = []
+          for (const agentId of uniqueAgents) {
+            const { data: agentMessages, error: agentError } = await supabase
+              .from('hal_conversation_messages')
+              .select('agent, role, content, sequence, created_at, images')
+              .eq('project_id', repo.full_name)
+              .eq('agent', agentId)
+              .order('sequence', { ascending: false })
+              .limit(MESSAGES_PER_PAGE)
+            
+            if (!agentError && agentMessages) {
+              // Reverse to get chronological order (oldest to newest)
+              allRows.push(...agentMessages.reverse())
+            }
+          }
+          
+          const rows = allRows
+          const error = null // We handle errors per agent above
           
           if (error) {
             console.error('[HAL] Failed to load conversations from Supabase:', error)
@@ -746,8 +773,14 @@ function App() {
           const loadedConversations = new Map<string, Conversation>()
           for (const [agentId, { messages, createdAt }] of conversationsByAgent.entries()) {
             const parsed = parseConversationId(agentId)
+            const sortedMessages = messages.sort((a, b) => a.id - b.id) // Ensure chronological order
+            const minSeq = sortedMessages.length > 0 ? Math.min(...sortedMessages.map(m => m.id)) : undefined
+            const maxSeq = sortedMessages.length > 0 ? Math.max(...sortedMessages.map(m => m.id)) : 0
+            
+            // Check if there are more messages to load (if we loaded exactly MESSAGES_PER_PAGE, there might be more)
+            const hasMore = messages.length >= MESSAGES_PER_PAGE
+            
             if (parsed) {
-              const maxSeq = Math.max(...messages.map(m => m.id), 0)
               agentSequenceRefs.current.set(agentId, maxSeq)
               
               // Backward compatibility: update pmMaxSequenceRef for PM conversations
@@ -759,14 +792,15 @@ function App() {
                 id: agentId,
                 agentRole: parsed.agentRole,
                 instanceNumber: parsed.instanceNumber,
-                messages,
+                messages: sortedMessages,
                 createdAt,
+                oldestLoadedSequence: minSeq,
+                hasMoreMessages: hasMore,
               })
             } else {
               // Legacy format: treat as instance 1
               const agentRole = agentId.split('-')[0] as Agent
               const legacyId = `${agentRole}-1`
-              const maxSeq = Math.max(...messages.map(m => m.id), 0)
               agentSequenceRefs.current.set(legacyId, maxSeq)
               
               if (agentRole === 'project-manager') {
@@ -777,8 +811,10 @@ function App() {
                 id: legacyId,
                 agentRole,
                 instanceNumber: 1,
-                messages,
+                messages: sortedMessages,
                 createdAt,
+                oldestLoadedSequence: minSeq,
+                hasMoreMessages: hasMore,
               })
             }
           }
@@ -1158,12 +1194,126 @@ function App() {
     return 'Idle'
   }, [])
 
-  // Auto-scroll transcript to bottom when messages or typing indicator change
+  // Load older messages for a conversation (pagination)
+  const loadOlderMessages = useCallback(
+    async (conversationId: string) => {
+      if (!connectedProject || !supabaseUrl || !supabaseAnonKey) return
+      if (loadingOlderMessages === conversationId) return // Already loading
+      
+      const conv = conversations.get(conversationId)
+      if (!conv || !conv.hasMoreMessages || conv.oldestLoadedSequence === undefined) return
+      
+      setLoadingOlderMessages(conversationId)
+      
+      try {
+        const supabase = getSupabaseClient(supabaseUrl, supabaseAnonKey)
+        const { data: rows, error } = await supabase
+          .from('hal_conversation_messages')
+          .select('agent, role, content, sequence, created_at, images')
+          .eq('project_id', connectedProject)
+          .eq('agent', conversationId)
+          .lt('sequence', conv.oldestLoadedSequence!)
+          .order('sequence', { ascending: false })
+          .limit(MESSAGES_PER_PAGE)
+        
+        if (error) {
+          console.error('[HAL] Failed to load older messages:', error)
+          setLoadingOlderMessages(null)
+          return
+        }
+        
+        if (rows && rows.length > 0) {
+          const olderMessages: Message[] = rows.reverse().map((row) => ({
+            id: row.sequence as number,
+            agent: row.role === 'user' ? 'user' : (conv.agentRole),
+            content: row.content ?? '',
+            timestamp: row.created_at ? new Date(row.created_at) : new Date(),
+            imageAttachments: undefined,
+          }))
+          
+          // Preserve scroll position
+          const transcript = transcriptRef.current
+          const scrollHeightBefore = transcript?.scrollHeight ?? 0
+          const scrollTopBefore = transcript?.scrollTop ?? 0
+          
+          // Update conversation with older messages prepended
+          setConversations((prev) => {
+            const next = new Map(prev)
+            const existingConv = next.get(conversationId)
+            if (!existingConv) return next
+            
+            const allMessages = [...olderMessages, ...existingConv.messages].sort((a, b) => a.id - b.id)
+            const newOldestSeq = Math.min(...allMessages.map(m => m.id))
+            const hasMore = olderMessages.length >= MESSAGES_PER_PAGE
+            
+            next.set(conversationId, {
+              ...existingConv,
+              messages: allMessages,
+              oldestLoadedSequence: newOldestSeq,
+              hasMoreMessages: hasMore,
+            })
+            return next
+          })
+          
+          // Restore scroll position after messages are added
+          requestAnimationFrame(() => {
+            if (transcript) {
+              const scrollHeightAfter = transcript.scrollHeight
+              const scrollDiff = scrollHeightAfter - scrollHeightBefore
+              transcript.scrollTop = scrollTopBefore + scrollDiff
+            }
+          })
+        } else {
+          // No more messages
+          setConversations((prev) => {
+            const next = new Map(prev)
+            const existingConv = next.get(conversationId)
+            if (existingConv) {
+              next.set(conversationId, {
+                ...existingConv,
+                hasMoreMessages: false,
+              })
+            }
+            return next
+          })
+        }
+      } catch (err) {
+        console.error('[HAL] Error loading older messages:', err)
+      } finally {
+        setLoadingOlderMessages(null)
+      }
+    },
+    [connectedProject, supabaseUrl, supabaseAnonKey, conversations, loadingOlderMessages]
+  )
+
+  // Auto-scroll transcript to bottom when messages or typing indicator change (but not when loading older messages)
   useEffect(() => {
-    if (transcriptRef.current) {
+    if (transcriptRef.current && !loadingOlderMessages) {
       transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight
     }
-  }, [activeMessages, agentTypingTarget, selectedConversationId, implAgentRunStatus, qaAgentRunStatus, processReviewAgentRunStatus, implAgentProgress, qaAgentProgress, processReviewAgentProgress])
+  }, [activeMessages, agentTypingTarget, selectedConversationId, implAgentRunStatus, qaAgentRunStatus, processReviewAgentRunStatus, implAgentProgress, qaAgentProgress, processReviewAgentProgress, loadingOlderMessages])
+
+  // Detect scroll to top and load older messages
+  useEffect(() => {
+    const transcript = transcriptRef.current
+    if (!transcript) return
+    
+    const handleScroll = () => {
+      // Load more when scrolled within 100px of top
+      if (transcript.scrollTop < 100) {
+        const currentConvId = selectedConversationId || (selectedChatTarget === 'project-manager' ? getConversationId('project-manager', 1) : null)
+        if (currentConvId) {
+          const conv = conversations.get(currentConvId)
+          if (conv && conv.hasMoreMessages && loadingOlderMessages !== currentConvId) {
+            loadOlderMessages(currentConvId)
+          }
+        }
+      }
+    }
+    
+    transcript.addEventListener('scroll', handleScroll)
+    return () => transcript.removeEventListener('scroll', handleScroll)
+  }, [selectedConversationId, selectedChatTarget, conversations, loadOlderMessages, loadingOlderMessages])
 
   // Persist conversations to Supabase (0124: save ALL conversations to Supabase when connected, fallback to localStorage)
   useEffect(() => {
@@ -3325,6 +3475,28 @@ function App() {
 
                     {/* Chat transcript */}
                     <div className="chat-transcript" ref={transcriptRef}>
+                      {/* Loading older messages indicator */}
+                      {(() => {
+                        const currentConvId = selectedConversationId || (selectedChatTarget === 'project-manager' ? getConversationId('project-manager', 1) : null)
+                        const conv = currentConvId ? conversations.get(currentConvId) : null
+                        const isLoading = loadingOlderMessages === currentConvId
+                        const hasMore = conv?.hasMoreMessages
+                        return isLoading || hasMore ? (
+                          <div className="load-more-messages" style={{ padding: '12px', textAlign: 'center', borderBottom: '1px solid rgba(0,0,0,0.1)' }}>
+                            {isLoading ? (
+                              <span>Loading older messages...</span>
+                            ) : hasMore ? (
+                              <button
+                                type="button"
+                                onClick={() => currentConvId && loadOlderMessages(currentConvId)}
+                                style={{ background: 'transparent', border: '1px solid rgba(0,0,0,0.2)', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer' }}
+                              >
+                                Load older messages
+                              </button>
+                            ) : null}
+                          </div>
+                        ) : null
+                      })()}
                       {displayMessages.length === 0 && agentTypingTarget !== displayTarget ? (
                         <p className="transcript-empty">No messages yet. Start a conversation.</p>
                       ) : (
