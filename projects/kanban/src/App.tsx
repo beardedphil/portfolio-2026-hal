@@ -2577,8 +2577,9 @@ function App() {
   const cardsForDisplay = supabaseBoardActive ? supabaseCards : cards
   
   // Get tickets in Doing column for Active work row (0145)
+  // Use sourceTickets (halCtx.tickets in library mode, supabaseTickets in standalone) so it works in both modes
   const doingTickets = supabaseBoardActive
-    ? supabaseTickets.filter((t) => t.kanban_column_id === 'col-doing').sort((a, b) => {
+    ? sourceTickets.filter((t) => t.kanban_column_id === 'col-doing').sort((a, b) => {
         // Sort by position, then by moved_at timestamp
         if (a.kanban_position !== null && b.kanban_position !== null) {
           return a.kanban_position - b.kanban_position
