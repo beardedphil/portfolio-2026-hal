@@ -3294,3 +3294,133 @@ export async function summarizeForContext(
   const result = await generateText({ model, prompt })
   return (result.text ?? '').trim() || '(No summary generated)'
 }
+
+/**
+ * Extract and update working memory from conversation messages (0173).
+ * Uses LLM to extract key facts (goals, requirements, constraints, decisions, etc.)
+ * from the conversation and update the working memory.
+ */
+export async function extractWorkingMemory(
+  messages: ConversationTurn[],
+  existingWorkingMemory: {
+    summary: string
+    goals: string
+    requirements: string
+    constraints: string
+    decisions: string
+    assumptions: string
+    open_questions: string
+    glossary_terms: string
+    stakeholders: string
+  } | null,
+  openaiApiKey: string,
+  openaiModel: string
+): Promise<{
+  summary: string
+  goals: string
+  requirements: string
+  constraints: string
+  decisions: string
+  assumptions: string
+  open_questions: string
+  glossary_terms: string
+  stakeholders: string
+}> {
+  if (messages.length === 0) {
+    return existingWorkingMemory || {
+      summary: '',
+      goals: '',
+      requirements: '',
+      constraints: '',
+      decisions: '',
+      assumptions: '',
+      open_questions: '',
+      glossary_terms: '',
+      stakeholders: '',
+    }
+  }
+
+  const openai = createOpenAI({ apiKey: openaiApiKey })
+  const model = openai.responses(openaiModel)
+  
+  const transcript = messages.map((t) => `${t.role}: ${t.content}`).join('\n\n')
+  const existingContext = existingWorkingMemory
+    ? `\n\nExisting working memory:\n- Summary: ${existingWorkingMemory.summary || '(none)'}\n- Goals: ${existingWorkingMemory.goals || '(none)'}\n- Requirements: ${existingWorkingMemory.requirements || '(none)'}\n- Constraints: ${existingWorkingMemory.constraints || '(none)'}\n- Decisions: ${existingWorkingMemory.decisions || '(none)'}\n- Assumptions: ${existingWorkingMemory.assumptions || '(none)'}\n- Open Questions: ${existingWorkingMemory.open_questions || '(none)'}\n- Glossary/Terms: ${existingWorkingMemory.glossary_terms || '(none)'}\n- Stakeholders: ${existingWorkingMemory.stakeholders || '(none)'}`
+    : ''
+  
+  const prompt = `Extract and update working memory from this conversation. Working memory accumulates key facts that persist across sessions.
+
+Instructions:
+- Extract key information into structured fields
+- Update existing working memory with new information (don't just replace, merge/accumulate)
+- Keep each field concise but comprehensive
+- If a field is empty or unchanged, keep the existing value
+
+Return a JSON object with these exact fields:
+{
+  "summary": "Concise 1-2 sentence summary of the conversation",
+  "goals": "Project goals discussed (bullet points or short paragraphs)",
+  "requirements": "Requirements identified (bullet points or short paragraphs)",
+  "constraints": "Constraints and limitations mentioned (bullet points or short paragraphs)",
+  "decisions": "Key decisions made (bullet points or short paragraphs)",
+  "assumptions": "Assumptions made or identified (bullet points or short paragraphs)",
+  "open_questions": "Open questions that need answers (bullet points)",
+  "glossary_terms": "Terminology and definitions used (format: term: definition, one per line)",
+  "stakeholders": "Stakeholders mentioned or involved (comma-separated or bullet points)"
+}
+
+Conversation:
+${transcript}${existingContext}
+
+Return only valid JSON, no markdown formatting or code blocks.`
+
+  try {
+    const result = await generateText({ model, prompt })
+    const text = (result.text ?? '').trim()
+    
+    // Try to extract JSON from the response (handle cases where LLM wraps it in markdown)
+    let jsonText = text
+    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    if (jsonMatch) {
+      jsonText = jsonMatch[0]
+    }
+    
+    const parsed = JSON.parse(jsonText) as {
+      summary?: string
+      goals?: string
+      requirements?: string
+      constraints?: string
+      decisions?: string
+      assumptions?: string
+      open_questions?: string
+      glossary_terms?: string
+      stakeholders?: string
+    }
+    
+    return {
+      summary: parsed.summary || existingWorkingMemory?.summary || '',
+      goals: parsed.goals || existingWorkingMemory?.goals || '',
+      requirements: parsed.requirements || existingWorkingMemory?.requirements || '',
+      constraints: parsed.constraints || existingWorkingMemory?.constraints || '',
+      decisions: parsed.decisions || existingWorkingMemory?.decisions || '',
+      assumptions: parsed.assumptions || existingWorkingMemory?.assumptions || '',
+      open_questions: parsed.open_questions || existingWorkingMemory?.open_questions || '',
+      glossary_terms: parsed.glossary_terms || existingWorkingMemory?.glossary_terms || '',
+      stakeholders: parsed.stakeholders || existingWorkingMemory?.stakeholders || '',
+    }
+  } catch (err) {
+    // If extraction fails, return existing working memory or empty structure
+    console.warn('[PM] Working memory extraction failed:', err)
+    return existingWorkingMemory || {
+      summary: '',
+      goals: '',
+      requirements: '',
+      constraints: '',
+      decisions: '',
+      assumptions: '',
+      open_questions: '',
+      glossary_terms: '',
+      stakeholders: '',
+    }
+  }
+}
