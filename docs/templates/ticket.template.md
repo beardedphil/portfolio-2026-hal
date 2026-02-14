@@ -2,39 +2,83 @@
 
 ## Ticket template (copy/paste)
 
-Copy and paste the template below to create tickets that consistently pass Definition of Ready. **Remove all placeholders** (e.g. `<...>`, "TBD", "(auto-assigned)") before moving a ticket out of Unassigned.
+**Copy the template below and paste it into your ticket. Replace all placeholders with concrete content before moving a ticket out of Unassigned.**
+
+### Required sections (in order)
+
+1. **Goal (one sentence)** — One sentence describing what we want to achieve
+2. **Human-verifiable deliverable (UI-only)** — Describe exactly what a non-technical human will see/click in the UI
+3. **Acceptance criteria (UI-only)** — Use `- [ ]` checkbox format (at least 3 items). **All AC must be UI-verifiable** — no "run command", "check logs", or "verify DB row". A human must be able to verify by clicking/seeing something in the app UI.
+4. **Constraints** — Technical or process constraints
+5. **Non-goals** — Explicitly out of scope
+
+### ⚠️ Critical warnings
+
+- **No placeholders allowed**: Remove all angle-bracket placeholders (e.g. `<...>`, `<AC 1>`, `<task-id>`, `<what we want to achieve>`) before moving a ticket out of Unassigned. Placeholders like `TBD` or `(auto-assigned)` are also not allowed.
+- **UI-verifiable only**: Acceptance criteria must be verifiable in the app UI. Do not include criteria that require terminal commands, devtools, logs, or database inspection.
+
+### Template (copy/paste this)
 
 ```markdown
 ## Goal (one sentence)
 
-<Brief description of what we want to achieve>
+<what we want to achieve>
 
 ## Human-verifiable deliverable (UI-only)
 
-<Describe exactly what a non-technical human will see/click in the UI. Must be verifiable without terminal, devtools, or console.>
+<Describe exactly what a non-technical human will see/click in the UI.>
 
 ## Acceptance criteria (UI-only)
 
-**IMPORTANT:** All acceptance criteria must be **UI-verifiable**. Do not include criteria that require running commands, checking logs, or verifying database rows. Each item should be something a human can verify by looking at or interacting with the UI.
-
-- [ ] <Example: User can see a new button labeled "Save" in the top toolbar>
-- [ ] <Example: Clicking the button shows a success message in the UI>
-- [ ] <Example: The button is disabled when no changes are pending>
+- [ ] <AC 1>
+- [ ] <AC 2>
+- [ ] <AC 3>
 
 ## Constraints
 
-<Any technical or process constraints that apply to this ticket>
+- Keep this task as small as possible while still producing a **human-verifiable** UI change.
+- Verification must require **no external tools** (no terminal, no devtools, no console).
+- Add/extend **in-app** diagnostics as needed so failures are explainable from within the app.
 
 ## Non-goals
 
-<Explicitly state what is out of scope for this ticket>
+- <explicitly out of scope>
 ```
 
-**Placeholder warning:** Before moving a ticket from Unassigned to To Do, ensure all placeholders (angle brackets like `<...>`, "TBD", "(auto-assigned)", etc.) are replaced with concrete values. Tickets with unresolved placeholders will fail the Definition of Ready check.
+### Example (filled-in)
+
+```markdown
+## Goal (one sentence)
+
+Add a dark mode toggle button to the settings page that persists the user's preference.
+
+## Human-verifiable deliverable (UI-only)
+
+A non-technical user opens the app, navigates to Settings, sees a "Dark mode" toggle switch, clicks it, and observes the entire app UI changes from light to dark theme. The preference persists after page refresh.
+
+## Acceptance criteria (UI-only)
+
+- [ ] Settings page displays a "Dark mode" toggle switch that is clearly visible and clickable
+- [ ] Clicking the toggle immediately changes the app theme from light to dark (or vice versa) with a smooth transition
+- [ ] The selected theme preference persists after page refresh (the toggle state matches the current theme on reload)
+
+## Constraints
+
+- Keep this task as small as possible while still producing a **human-verifiable** UI change.
+- Verification must require **no external tools** (no terminal, no devtools, no console).
+- Add/extend **in-app** diagnostics as needed so failures are explainable from within the app.
+
+## Non-goals
+
+- Theme customization beyond light/dark (no color pickers or advanced theming)
+- Per-component theme overrides (global theme only)
+```
 
 ---
 
-Create a new file at `docs/tickets/<task-id>-<short-title>.md` using the detailed template below.
+## Full ticket structure (for reference)
+
+When creating a complete ticket file at `docs/tickets/<task-id>-<short-title>.md`, use this full structure:
 
 ## Ticket
 
