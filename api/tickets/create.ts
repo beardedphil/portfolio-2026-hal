@@ -144,9 +144,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     // We check by suggestion hash + source ticket to prevent duplicates even if Process Review runs multiple times
     if (singleSuggestion) {
       const suggestionHash = crypto.createHash('sha256').update(singleSuggestion).digest('hex').slice(0, 16)
-      const hashPattern = `**Suggestion Hash**: ${suggestionHash}`
+      // Match both stored formats: "- **Suggestion Hash**: hash" and "**Suggestion Hash**: hash"
+      const hashPattern = `Suggestion Hash**: ${suggestionHash}`
       const sourceRef = sourceTicket.display_id || sourceTicket.id
-      const sourcePattern = `**Proposed from**: ${sourceRef} — Process Review`
+      // Match both stored formats: "- **Proposed from**: ..." and "**Proposed from**: ..."
+      const sourcePattern = `Proposed from**: ${sourceRef} — Process Review`
       
       // Check for existing ticket with same suggestion hash and source ticket
       const { data: existingTickets } = await supabase
