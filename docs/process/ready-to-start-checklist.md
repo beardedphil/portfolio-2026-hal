@@ -16,5 +16,5 @@ A ticket is **ready to start** when it can be moved from **Unassigned** into **T
 
 ## Reference
 
-- Ticket template: `docs/templates/ticket.template.md`
+- Ticket template: `docs/templates/ticket.template.md` (includes a "Ticket template (copy/paste)" section with required headings and a filled-in example)
 - PM agent: uses this checklist via the `evaluate_ticket_ready` tool before calling `kanban_move_ticket_to_todo`.

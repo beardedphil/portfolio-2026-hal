@@ -80,6 +80,86 @@ A non-technical user opens the app, navigates to Settings, sees a "Dark mode" to
 
 When creating a complete ticket file at `docs/tickets/<task-id>-<short-title>.md`, use this full structure:
 
+## Ticket template (copy/paste)
+
+Copy and paste the template below to create a new ticket. **All sections are required** and must be filled in with concrete content (no placeholders) before moving a ticket out of Unassigned.
+
+### Required sections (in order)
+
+```markdown
+## Goal (one sentence)
+
+<one sentence describing what we want to achieve>
+
+## Human-verifiable deliverable (UI-only)
+
+<Describe exactly what a non-technical human will see/click in the UI. No terminal commands, no devtools, no console logs.>
+
+## Acceptance criteria (UI-only)
+
+- [ ] <First UI-verifiable criterion>
+- [ ] <Second UI-verifiable criterion>
+- [ ] <Third UI-verifiable criterion>
+
+## Constraints
+
+<Any technical or scope constraints>
+
+## Non-goals
+
+<What is explicitly out of scope>
+```
+
+### Example (filled-in)
+
+```markdown
+## Goal (one sentence)
+
+Add a dark mode toggle button to the settings page that persists the user's preference.
+
+## Human-verifiable deliverable (UI-only)
+
+A toggle button labeled "Dark mode" appears in the Settings page. Clicking it switches the entire app between light and dark color schemes. The preference persists after page refresh.
+
+## Acceptance criteria (UI-only)
+
+- [ ] A "Dark mode" toggle button is visible in the Settings page
+- [ ] Clicking the toggle switches the app between light and dark themes immediately
+- [ ] The selected theme persists after refreshing the page
+- [ ] The toggle state (on/off) matches the current theme when the page loads
+
+## Constraints
+
+- Use the existing theme system (no new CSS framework)
+- Theme preference must be stored in localStorage
+- All existing UI components must support both themes
+
+## Non-goals
+
+- Automatic theme detection based on system preferences
+- Per-component theme customization
+- Theme animation/transitions
+```
+
+### Important instructions
+
+**Acceptance criteria must be UI-verifiable:**
+- ✅ Good: "A button labeled 'Save' appears in the header"
+- ✅ Good: "Clicking the button shows a success message in the UI"
+- ❌ Bad: "Run `npm test` and verify tests pass"
+- ❌ Bad: "Check the console for error messages"
+- ❌ Bad: "Verify the database row was created"
+
+**No placeholders allowed:**
+- ❌ Remove all angle-bracket placeholders like `<AC 1>`, `<task-id>`, `<what we want to achieve>`
+- ❌ Remove all "TBD" or "(auto-assigned)" text
+- ❌ Replace all template placeholders with concrete content before moving a ticket out of Unassigned
+
+**Checkbox format:**
+- Use `- [ ]` (space between brackets) for unchecked items
+- Use `- [x]` for checked items (only after verification)
+- Each AC item must be a complete, verifiable statement
+
 ## Ticket
 
 - **ID**: `<task-id>`
