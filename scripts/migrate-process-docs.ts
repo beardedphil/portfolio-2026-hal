@@ -7,8 +7,22 @@
 
 import fs from 'fs'
 import path from 'path'
+import { fileURLToPath } from 'url'
 
-const API_BASE_URL = process.env.HAL_API_BASE_URL || 'http://localhost:5173'
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+
+// Read API base URL from .hal/api-base-url if it exists
+let API_BASE_URL = process.env.HAL_API_BASE_URL || 'http://localhost:5173'
+try {
+  const apiBaseUrlPath = path.join(process.cwd(), '.hal', 'api-base-url')
+  if (fs.existsSync(apiBaseUrlPath)) {
+    API_BASE_URL = fs.readFileSync(apiBaseUrlPath, 'utf-8').trim()
+  }
+} catch (err) {
+  // Use default
+}
+
 const REPO_FULL_NAME = 'beardedphil/portfolio-2026-hal'
 
 async function migrateProcessDocs() {
@@ -25,7 +39,17 @@ async function migrateProcessDocs() {
       }),
     })
 
-    const result = await response.json()
+    if (!response.ok) {
+      const text = await response.text()
+      throw new Error(`HTTP ${response.status}: ${text}`)
+    }
+
+    const text = await response.text()
+    if (!text.trim()) {
+      throw new Error('Empty response from API')
+    }
+
+    const result = JSON.parse(text)
 
     if (!result.success) {
       console.error('Migration failed:', result.error || result.errors)
@@ -108,7 +132,8 @@ function generateMigrationMappingDoc(mapping: Array<{ sourceFile: string; topicI
   return lines.join('\n')
 }
 
-if (require.main === module) {
+// Run if executed directly
+if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith('migrate-process-docs.ts')) {
   migrateProcessDocs()
     .then(() => {
       console.log('\n✅ Script completed successfully')
