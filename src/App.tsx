@@ -2251,7 +2251,8 @@ function App() {
           .from('agent_artifacts')
           .select('artifact_id, ticket_pk, repo_full_name, agent_type, title, body_md, created_at, updated_at')
           .eq('ticket_pk', ticketPk)
-          .order('created_at', { ascending: false })
+          .order('created_at', { ascending: true })
+          .order('artifact_id', { ascending: true })
         if (error) {
           console.warn('[HAL] fetchArtifactsForTicket:', error.message)
           return trySyncAndUseResponse()
@@ -2264,7 +2265,8 @@ function App() {
             .from('agent_artifacts')
             .select('artifact_id, ticket_pk, repo_full_name, agent_type, title, body_md, created_at, updated_at')
             .eq('ticket_pk', ticketPk)
-            .order('created_at', { ascending: false })
+            .order('created_at', { ascending: true })
+            .order('artifact_id', { ascending: true })
           list = (data2 ?? []) as ArtifactRow[]
         }
         return list

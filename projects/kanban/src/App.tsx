@@ -860,9 +860,15 @@ function ArtifactReportViewer({
       // Fallback: if artifacts array is empty but we have an artifact, use it
       return [artifact]
     }
-    return [...artifacts].sort(
-      (a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
-    )
+    return [...artifacts].sort((a, b) => {
+      const timeA = new Date(a.created_at || 0).getTime()
+      const timeB = new Date(b.created_at || 0).getTime()
+      if (timeA !== timeB) {
+        return timeA - timeB
+      }
+      // Secondary sort by artifact_id for deterministic ordering when timestamps are equal (0147)
+      return (a.artifact_id || '').localeCompare(b.artifact_id || '')
+    })
   }, [artifacts, artifact])
   
   // Find the actual index of the current artifact in the sorted list
@@ -1387,10 +1393,16 @@ function ArtifactsSection({
     )
   }
 
-  // Sort all artifacts by created_at ascending (oldest first) - chronological order (0148)
-  const sortedArtifacts = [...artifacts].sort(
-    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-  )
+  // Sort all artifacts by created_at ascending (oldest first) with secondary sort by artifact_id for deterministic ordering (0147)
+  const sortedArtifacts = [...artifacts].sort((a, b) => {
+    const timeA = new Date(a.created_at).getTime()
+    const timeB = new Date(b.created_at).getTime()
+    if (timeA !== timeB) {
+      return timeA - timeB
+    }
+    // Secondary sort by artifact_id for deterministic ordering when timestamps are equal
+    return a.artifact_id.localeCompare(b.artifact_id)
+  })
 
   return (
     <div className="artifacts-section">
@@ -2684,7 +2696,8 @@ function App() {
           .from('agent_artifacts')
           .select('artifact_id, ticket_pk, repo_full_name, agent_type, title, body_md, created_at, updated_at')
           .eq('ticket_pk', ticketPk)
-          .order('created_at', { ascending: false })
+          .order('created_at', { ascending: true })
+          .order('artifact_id', { ascending: true })
         if (error) {
           console.warn('Failed to fetch artifacts:', error)
           return []
@@ -3055,9 +3068,15 @@ function App() {
       ? detailModalArtifacts 
       : [artifact] // Fallback to the artifact itself if list is empty
     
-    const sortedArtifacts = [...artifactsToSearch].sort(
-      (a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
-    )
+    const sortedArtifacts = [...artifactsToSearch].sort((a, b) => {
+      const timeA = new Date(a.created_at || 0).getTime()
+      const timeB = new Date(b.created_at || 0).getTime()
+      if (timeA !== timeB) {
+        return timeA - timeB
+      }
+      // Secondary sort by artifact_id for deterministic ordering when timestamps are equal (0147)
+      return (a.artifact_id || '').localeCompare(b.artifact_id || '')
+    })
     const index = sortedArtifacts.findIndex(a => a.artifact_id === artifact.artifact_id)
     
     // Always set the artifact (it's valid since it came from the list)
@@ -3075,9 +3094,15 @@ function App() {
       return
     }
     
-    const sortedArtifacts = [...detailModalArtifacts].sort(
-      (a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
-    )
+    const sortedArtifacts = [...detailModalArtifacts].sort((a, b) => {
+      const timeA = new Date(a.created_at || 0).getTime()
+      const timeB = new Date(b.created_at || 0).getTime()
+      if (timeA !== timeB) {
+        return timeA - timeB
+      }
+      // Secondary sort by artifact_id for deterministic ordering when timestamps are equal (0147)
+      return (a.artifact_id || '').localeCompare(b.artifact_id || '')
+    })
     if (index >= 0 && index < sortedArtifacts.length) {
       const targetArtifact = sortedArtifacts[index]
       if (targetArtifact && targetArtifact.artifact_id) {

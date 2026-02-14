@@ -118,11 +118,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     // Fetch all artifacts for this ticket
+    // Order by created_at ascending (oldest first) with secondary sort by artifact_id for deterministic ordering (0147)
     const { data: artifacts, error: artifactsError } = await supabase
       .from('agent_artifacts')
       .select('artifact_id, ticket_pk, repo_full_name, agent_type, title, body_md, created_at, updated_at')
       .eq('ticket_pk', finalTicketPk)
-      .order('created_at', { ascending: false })
+      .order('created_at', { ascending: true })
+      .order('artifact_id', { ascending: true })
 
     if (artifactsError) {
       json(res, 200, {
