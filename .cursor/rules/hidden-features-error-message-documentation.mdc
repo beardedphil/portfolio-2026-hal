@@ -101,6 +101,8 @@ The documentation must be included in **one of** the following locations (choose
 2. **Implementation "Decisions" artifact** — For changes made during implementation that affect error messages (stored in Supabase with `artifactType: "decisions"`)
 3. **QA report "Notes"** — For error message changes discovered or made during QA review (stored in Supabase with `artifactType: "qa-report"`)
 
+**Important:** The documentation must contain **enough detail** that a future agent can reconstruct the intent and context without reading git history. Include all four required elements (previous/new wording, location, reason, UX impact) in the chosen location.
+
 ### Documentation Template
 
 Use this template when documenting error message changes:
@@ -171,3 +173,10 @@ If Yes:
 - The documentation must be **human-verifiable** — a reviewer can open the documentation and immediately understand what changed, why it changed, and where it lives
 - The documentation must contain **enough detail** that a future agent can reconstruct intent without reading git history
 - When in doubt, **document the change** — it's better to over-document than to leave future agents guessing whether a message change was intentional or accidental
+
+## Verification
+
+To verify this guideline is being followed:
+1. Open the rule file: `.cursor/rules/hidden-features-error-message-documentation.mdc`
+2. Confirm the guideline is present and unambiguous
+3. Check that recent tickets/changes involving hidden feature error messages include the required documentation
