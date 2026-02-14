@@ -3309,62 +3309,6 @@ function App() {
                 </button>
               </div>
             )}
-            {/* Realtime connection status indicator (0140) */}
-            {connectedProject && (
-              <div
-                className="kanban-realtime-status"
-                style={{
-                  position: 'absolute',
-                  top: '8px',
-                  right: '8px',
-                  padding: '4px 8px',
-                  borderRadius: '4px',
-                  fontSize: '12px',
-                  fontWeight: '500',
-                  zIndex: 1000,
-                  backgroundColor:
-                    kanbanRealtimeStatus === 'connected'
-                      ? '#10b981'
-                      : kanbanRealtimeStatus === 'polling'
-                        ? '#f59e0b'
-                        : '#6b7280',
-                  color: 'white',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                }}
-                title={
-                  kanbanRealtimeStatus === 'connected'
-                    ? 'Live updates enabled - changes appear instantly'
-                    : kanbanRealtimeStatus === 'polling'
-                      ? 'Realtime unavailable - using polling fallback (updates every 10 seconds)'
-                      : 'Connecting to realtime...'
-                }
-              >
-                <span
-                  style={{
-                    width: '8px',
-                    height: '8px',
-                    borderRadius: '50%',
-                    backgroundColor: 'white',
-                    display: 'inline-block',
-                    animation:
-                      kanbanRealtimeStatus === 'connected'
-                        ? 'none'
-                        : kanbanRealtimeStatus === 'polling'
-                          ? 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
-                          : 'pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-                  }}
-                />
-                <span>
-                  {kanbanRealtimeStatus === 'connected'
-                    ? 'Live'
-                    : kanbanRealtimeStatus === 'polling'
-                      ? 'Polling'
-                      : 'Connecting'}
-                </span>
-              </div>
-            )}
             <KanbanBoard
               {...({
                 tickets: kanbanTickets,
