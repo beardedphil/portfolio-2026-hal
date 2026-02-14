@@ -43,28 +43,45 @@ export function hasSubstantiveContent(body_md: string, title: string): { valid: 
   }
 
   // For "Changed Files" artifacts, check that there's actual file content (not just headings)
+  // Allow "No files changed." with a reason, but reject placeholder patterns like "(none)" or "(No files changed in this PR)"
   if (title.toLowerCase().includes('changed files')) {
     const withoutHeadings = trimmed.replace(/^#{1,6}\s+.*$/gm, '').trim()
     
-    // Allow "No files changed." with a reason (must be at least 50 chars total to ensure there's a substantive reason)
-    const noFilesChangedPattern = /^No files changed\./i
-    if (noFilesChangedPattern.test(withoutHeadings)) {
-      // If it starts with "No files changed.", require at least 50 characters total (ensures a reason is provided)
+    // Check for valid "no changes" format: "No files changed." followed by a reason
+    const validNoChangesPattern = /^No files changed\./i
+    const hasValidNoChanges = validNoChangesPattern.test(withoutHeadings)
+    
+    // Reject placeholder patterns (parentheses indicate placeholder, not explicit statement)
+    const placeholderPatterns = [
+      /^(\(none\)|\(No files changed)/i,
+      /^\(No files changed in this PR\)/i,
+    ]
+    const hasPlaceholder = placeholderPatterns.some(pattern => pattern.test(withoutHeadings))
+    
+    if (hasPlaceholder) {
+      return {
+        valid: false,
+        reason: 'Changed Files artifact must explicitly state "No files changed." with a reason, not use placeholder text like "(none)" or "(No files changed in this PR)".',
+      }
+    }
+    
+    // If it's a valid "no changes" statement, require at least 50 characters (to ensure a reason is provided)
+    if (hasValidNoChanges) {
       if (withoutHeadings.length < 50) {
         return {
           valid: false,
-          reason: 'Changed Files artifact must include a brief reason when no files changed (e.g., "No files changed. Docs-only ticket handled via Supabase updates.").',
+          reason: 'Changed Files artifact with "No files changed." must include a brief reason explaining why (at least 50 characters total).',
         }
       }
-      // Valid "No files changed." with reason
+      // Valid "no changes" format - allow it
       return { valid: true }
     }
     
-    // Reject placeholder patterns like "(none)" or "(No files changed" without proper format
-    if (withoutHeadings.length < 30 || /^(\(none\)|\(No files changed)/i.test(withoutHeadings)) {
+    // If files were changed, require at least 30 characters of actual file listing
+    if (withoutHeadings.length < 30) {
       return {
         valid: false,
-        reason: 'Changed Files artifact must list actual file changes, or explicitly state "No files changed." with a brief reason.',
+        reason: 'Changed Files artifact must list actual file changes with file paths and descriptions, or explicitly state "No files changed." with a reason.',
       }
     }
   }
