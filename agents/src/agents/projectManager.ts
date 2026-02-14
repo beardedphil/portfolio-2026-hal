@@ -1669,35 +1669,50 @@ export async function runPmAgent(
     (() => {
       return tool({
         description:
-          'Attach an uploaded image to a ticket as an artifact. Use when the user asks to attach an image to a ticket (e.g. "Add this image to ticket HAL-0143"). The image must have been uploaded in the current conversation. Provide the ticket ID and image data from the conversation.',
+          'Attach an uploaded image to a ticket as an artifact. Use when the user asks to attach an image to a ticket (e.g. "Add this image to ticket HAL-0143"). The image must have been uploaded in the current conversation turn. Provide only the ticket ID; the tool will automatically use the most recent image from the conversation.',
         parameters: z.object({
           ticket_id: z.string().describe('Ticket ID (e.g. "HAL-0143", "0143", or "143").'),
-          image_data_url: z.string().describe('Base64 data URL of the image (data:image/... format).'),
-          image_filename: z.string().describe('Original filename of the image.'),
-          image_mime_type: z.string().describe('MIME type of the image (e.g. "image/png", "image/jpeg").'),
+          image_index: z
+            .number()
+            .optional()
+            .describe('Optional: index of the image to attach (0-based). If not provided, uses the first image (index 0).'),
         }),
-        execute: async (input: {
-          ticket_id: string
-          image_data_url: string
-          image_filename: string
-          image_mime_type: string
-        }) => {
+        execute: async (input: { ticket_id: string; image_index?: number }) => {
           type AttachResult =
             | {
                 success: true
                 ticket_id: string
                 artifact_id: string
                 title: string
+                image_filename: string
               }
             | { success: false; error: string }
           let out: AttachResult
           try {
+            // Get image from config.images (provided in current conversation turn)
+            const images = config.images || []
+            const imageIndex = input.image_index ?? 0
+            if (images.length === 0) {
+              out = { success: false, error: 'No images found in the current conversation. Please upload an image first.' }
+              toolCalls.push({ name: 'attach_image_to_ticket', input, output: out })
+              return out
+            }
+            if (imageIndex < 0 || imageIndex >= images.length) {
+              out = {
+                success: false,
+                error: `Image index ${imageIndex} is out of range. ${images.length} image(s) available (indices 0-${images.length - 1}).`,
+              }
+              toolCalls.push({ name: 'attach_image_to_ticket', input, output: out })
+              return out
+            }
+            const image = images[imageIndex]
+
             const baseUrl = process.env.HAL_API_BASE_URL || 'https://portfolio-2026-hal.vercel.app'
             const supabaseUrl = config.supabaseUrl?.trim() || ''
             const supabaseAnonKey = config.supabaseAnonKey?.trim() || ''
 
             // Create artifact body with image embedded as markdown
-            const bodyMd = `# Image: ${input.image_filename}\n\n![${input.image_filename}](${input.image_data_url})\n\n**Filename:** ${input.image_filename}\n**MIME Type:** ${input.image_mime_type}\n**Uploaded:** ${new Date().toISOString()}`
+            const bodyMd = `# Image: ${image.filename}\n\n![${image.filename}](${image.dataUrl})\n\n**Filename:** ${image.filename}\n**MIME Type:** ${image.mimeType}\n**Uploaded:** ${new Date().toISOString()}`
 
             const response = await fetch(`${baseUrl}/api/artifacts/insert-implementation`, {
               method: 'POST',
@@ -1719,6 +1734,7 @@ export async function runPmAgent(
                 ticket_id: input.ticket_id,
                 artifact_id: result.artifact_id,
                 title: `Image for ticket ${input.ticket_id}`,
+                image_filename: image.filename,
               }
             } else {
               out = { success: false, error: result.error || 'Failed to attach image to ticket' }
