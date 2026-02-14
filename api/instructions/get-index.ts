@@ -46,11 +46,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   try {
     const body = (await readJsonBody(req)) as {
       repoFullName?: string
+      agentType?: string
       supabaseUrl?: string
       supabaseAnonKey?: string
     }
 
     const repoFullName = typeof body.repoFullName === 'string' ? body.repoFullName.trim() : 'beardedphil/portfolio-2026-hal'
+    const agentType = typeof body.agentType === 'string' ? body.agentType.trim() : undefined
 
     // Use credentials from request body if provided, otherwise fall back to server environment variables
     const supabaseUrl =
@@ -93,7 +95,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     if (!indexData || indexError?.code === 'PGRST116') {
       const { data: instructions, error: instError } = await supabase
         .from('agent_instructions')
-        .select('topic_id, is_basic, topic_metadata')
+        .select('topic_id, is_basic, is_situational, agent_types, always_apply, topic_metadata')
         .eq('repo_full_name', repoFullName)
 
       if (instError) {
@@ -104,16 +106,29 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         return
       }
 
-      // Derive index from instructions
+      // Filter by agent type if specified
+      let filteredInstructions = instructions || []
+      if (agentType) {
+        filteredInstructions = filteredInstructions.filter((inst: any) => {
+          const agentTypes = inst.agent_types || []
+          return (
+            inst.always_apply ||
+            agentTypes.includes('all') ||
+            agentTypes.includes(agentType)
+          )
+        })
+      }
+
+      // Derive index from filtered instructions
       const derivedIndex = {
-        basic: (instructions || [])
+        basic: filteredInstructions
           .filter((inst: any) => inst.is_basic)
           .map((inst: any) => inst.topic_id),
         situational: {} as Record<string, string[]>,
         topics: {} as Record<string, any>,
       }
 
-      for (const inst of instructions || []) {
+      for (const inst of filteredInstructions) {
         if (inst.topic_metadata) {
           derivedIndex.topics[inst.topic_id] = inst.topic_metadata
         }
@@ -123,16 +138,56 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         success: true,
         index: derivedIndex,
         repoFullName,
+        agentType: agentType || 'all',
         source: 'derived',
+        metadata: {
+          scoped: agentType ? true : false,
+          totalTopics: filteredInstructions.length,
+        },
       })
       return
     }
 
+    // If stored index exists, still apply agent type filtering
+    let index = indexData.index_data
+    if (agentType) {
+      // Need to fetch instructions to filter properly
+      const { data: instructions, error: instError } = await supabase
+        .from('agent_instructions')
+        .select('topic_id, is_basic, is_situational, agent_types, always_apply')
+        .eq('repo_full_name', repoFullName)
+
+      if (!instError && instructions) {
+        const filteredInstructions = instructions.filter((inst: any) => {
+          const agentTypes = inst.agent_types || []
+          return (
+            inst.always_apply ||
+            agentTypes.includes('all') ||
+            agentTypes.includes(agentType)
+          )
+        })
+
+        // Filter index based on filtered instructions
+        const filteredTopicIds = new Set(filteredInstructions.map((inst: any) => inst.topic_id))
+        index = {
+          basic: (index.basic || []).filter((id: string) => filteredTopicIds.has(id)),
+          situational: index.situational || {},
+          topics: Object.fromEntries(
+            Object.entries(index.topics || {}).filter(([id]) => filteredTopicIds.has(id))
+          ),
+        }
+      }
+    }
+
     json(res, 200, {
       success: true,
-      index: indexData.index_data,
+      index,
       repoFullName,
+      agentType: agentType || 'all',
       source: 'stored',
+      metadata: {
+        scoped: agentType ? true : false,
+      },
     })
   } catch (err) {
     json(res, 500, {

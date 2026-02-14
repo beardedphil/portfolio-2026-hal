@@ -106,15 +106,26 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     // Filter by agent type if specified
+    // Enforce agent scoping: include only instructions that:
+    // 1. Have always_apply = true (shared/global instructions)
+    // 2. Have 'all' in agent_types (shared/global instructions)
+    // 3. Have the requested agentType in agent_types (agent-specific instructions)
     let filteredInstructions = instructions || []
+    const excludedTopics: string[] = []
+    
     if (agentType) {
       filteredInstructions = filteredInstructions.filter((inst: any) => {
         const agentTypes = inst.agent_types || []
-        return (
+        const isInScope = 
           inst.always_apply ||
           agentTypes.includes('all') ||
           agentTypes.includes(agentType)
-        )
+        
+        if (!isInScope) {
+          excludedTopics.push(inst.topic_id)
+        }
+        
+        return isInScope
       })
     }
 
@@ -141,6 +152,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       count: formatted.length,
       repoFullName,
       agentType: agentType || 'all',
+      metadata: {
+        scoped: agentType ? true : false,
+        excludedTopicsCount: excludedTopics.length,
+        excludedTopics: excludedTopics.length > 0 ? excludedTopics : undefined,
+      },
     })
   } catch (err) {
     json(res, 500, {

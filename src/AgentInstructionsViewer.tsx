@@ -174,6 +174,12 @@ export function AgentInstructionsViewer({
 
 
   function getInstructionsForAgent(agent: AgentType): InstructionFile[] {
+    // Use pre-loaded scoped instructions if available
+    if (instructionsByAgent[agent]) {
+      return instructionsByAgent[agent]
+    }
+    
+    // Fallback to filtering all instructions
     if (agent === 'all') {
       return instructions.filter(inst => inst.alwaysApply || inst.agentTypes.includes('all'))
     }
@@ -441,15 +447,44 @@ ${alwaysApply ? 'alwaysApply: true' : ''}
                   <div className="agent-list">
                     {(['all', 'project-manager', 'implementation-agent', 'qa-agent', 'process-review-agent'] as AgentType[]).map((agent) => {
                       const agentInstructions = getInstructionsForAgent(agent)
+                      const allCount = instructionsByAgent['all']?.length || instructions.length
+                      const isScoped = agent !== 'all' && instructionsByAgent[agent]
+                      const showScoping = isScoped && agentInstructions.length !== allCount
+                      
                       return (
                         <button
                           key={agent}
                           type="button"
                           className="agent-item"
                           onClick={() => handleAgentClick(agent)}
+                          title={showScoping ? `Scoped: ${agentInstructions.length} of ${allCount} total instructions` : undefined}
                         >
-                          <div className="agent-item-name">{getAgentLabel(agent)}</div>
-                          <div className="agent-item-count">{agentInstructions.length} instruction{agentInstructions.length !== 1 ? 's' : ''}</div>
+                          <div className="agent-item-name">
+                            {getAgentLabel(agent)}
+                            {showScoping && (
+                              <span style={{ 
+                                fontSize: '0.75rem', 
+                                color: '#666', 
+                                marginLeft: '0.5rem',
+                                fontWeight: 'normal'
+                              }}>
+                                (scoped)
+                              </span>
+                            )}
+                          </div>
+                          <div className="agent-item-count">
+                            {agentInstructions.length} instruction{agentInstructions.length !== 1 ? 's' : ''}
+                            {showScoping && (
+                              <span style={{ 
+                                fontSize: '0.75rem', 
+                                color: '#999', 
+                                display: 'block',
+                                marginTop: '0.25rem'
+                              }}>
+                                of {allCount} total
+                              </span>
+                            )}
+                          </div>
                         </button>
                       )
                     })}
@@ -479,9 +514,52 @@ ${alwaysApply ? 'alwaysApply: true' : ''}
                   return instructionIndex?.topics?.[topicId] !== undefined || inst.isSituational
                 })
                 
+                // Get scoping metadata for this agent type
+                const metadata = scopingMetadata[selectedAgent] || {}
+                const allAgentInstructions = instructionsByAgent['all'] || []
+                const currentAgentInstructions = getInstructionsForAgent(selectedAgent)
+                const excludedCount = selectedAgent !== 'all' 
+                  ? (allAgentInstructions.length - currentAgentInstructions.length)
+                  : 0
+
                 return (
                   <div className="agent-instructions-list">
                     <h4>{getAgentLabel(selectedAgent)} Instructions</h4>
+                    
+                    {/* Show scoping metadata */}
+                    {selectedAgent !== 'all' && (
+                      <div className="agent-scoping-info" style={{ 
+                        marginBottom: '1rem', 
+                        padding: '0.75rem', 
+                        backgroundColor: '#f0f0f0', 
+                        borderRadius: '4px',
+                        fontSize: '0.9rem'
+                      }}>
+                        <strong>Agent Type Scoping:</strong>
+                        <ul style={{ margin: '0.5rem 0 0 1.5rem', padding: 0 }}>
+                          <li>This agent type receives <strong>{currentAgentInstructions.length} instructions</strong></li>
+                          {excludedCount > 0 && (
+                            <li><strong>{excludedCount} instructions</strong> are excluded (outside this agent's scope)</li>
+                          )}
+                          <li>Includes: shared/global instructions (applies to all) + agent-specific instructions</li>
+                        </ul>
+                        {metadata.excludedTopics && metadata.excludedTopics.length > 0 && (
+                          <details style={{ marginTop: '0.5rem' }}>
+                            <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>
+                              Excluded topics ({metadata.excludedTopics.length})
+                            </summary>
+                            <ul style={{ margin: '0.5rem 0 0 1.5rem', fontSize: '0.85rem' }}>
+                              {metadata.excludedTopics.slice(0, 10).map((topicId: string) => (
+                                <li key={topicId}><code>{topicId}</code></li>
+                              ))}
+                              {metadata.excludedTopics.length > 10 && (
+                                <li>... and {metadata.excludedTopics.length - 10} more</li>
+                              )}
+                            </ul>
+                          </details>
+                        )}
+                      </div>
+                    )}
                     
                     {/* Show empty state if no instructions found */}
                     {basic.length === 0 && situational.length === 0 ? (

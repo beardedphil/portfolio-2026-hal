@@ -47,12 +47,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const body = (await readJsonBody(req)) as {
       topicId?: string
       repoFullName?: string
+      agentType?: string
       supabaseUrl?: string
       supabaseAnonKey?: string
     }
 
     const topicId = typeof body.topicId === 'string' ? body.topicId.trim() : undefined
     const repoFullName = typeof body.repoFullName === 'string' ? body.repoFullName.trim() : 'beardedphil/portfolio-2026-hal'
+    const agentType = typeof body.agentType === 'string' ? body.agentType.trim() : undefined
 
     if (!topicId) {
       json(res, 400, {
@@ -117,6 +119,22 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     const topicMeta = data.topic_metadata || {}
+    
+    // Check if topic is in scope for the requested agent type
+    // Explicit topicId requests are allowed even if outside scope (per requirements)
+    const agentTypes = data.agent_types || []
+    const isInScope = agentType
+      ? (data.always_apply || agentTypes.includes('all') || agentTypes.includes(agentType))
+      : true // If no agentType specified, consider in scope
+    
+    const accessMetadata = {
+      requestedByAgentType: agentType || null,
+      isInScope,
+      accessedExplicitly: true, // get-topic is always an explicit request
+      scopeNote: !isInScope && agentType
+        ? `Topic "${topicId}" is outside the default scope for agent type "${agentType}" but was accessed via explicit topicId request`
+        : undefined,
+    }
 
     json(res, 200, {
       success: true,
@@ -127,10 +145,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       contentMd: data.content_md,
       contentBody: data.content_body,
       alwaysApply: data.always_apply,
-      agentTypes: data.agent_types || [],
+      agentTypes: agentTypes,
       isBasic: data.is_basic,
       isSituational: data.is_situational,
       topicMetadata: data.topic_metadata,
+      accessMetadata,
     })
   } catch (err) {
     json(res, 500, {
