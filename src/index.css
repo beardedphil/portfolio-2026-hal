@@ -236,21 +236,6 @@ body {
   color: var(--hal-primary);
 }
 
-.check-unassigned-btn {
-  padding: 0.25rem 0.5rem;
-  font-size: 0.8rem;
-  cursor: pointer;
-  background: var(--hal-primary);
-  color: #fff;
-  border: none;
-  border-radius: 4px;
-  font-weight: 500;
-}
-
-.check-unassigned-btn:hover {
-  background: var(--hal-primary-hover);
-}
-
 .disconnect-btn {
   padding: 0.25rem 0.5rem;
   font-size: 0.8rem;

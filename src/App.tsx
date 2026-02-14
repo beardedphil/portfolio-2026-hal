@@ -1708,116 +1708,6 @@ function App() {
   }, [conversations, supabaseUrl, supabaseAnonKey, addMessage])
 
 
-  type CheckUnassignedResult = {
-    moved: string[]
-    notReady: Array<{ id: string; title?: string; missingItems: string[] }>
-    error?: string
-  }
-
-  const formatUnassignedCheckMessage = useCallback((result: CheckUnassignedResult): string => {
-    if (result.error) {
-      return `[PM] Unassigned check failed: ${result.error}`
-    }
-    const movedStr = result.moved.length ? `Moved to To Do: ${result.moved.join(', ')}.` : ''
-    const notReadyParts = result.notReady.map(
-      (n) => `${n.id}${n.title ? ` (${n.title})` : ''} — ${n.missingItems.join('; ')}`
-    )
-    const notReadyStr =
-      result.notReady.length > 0
-        ? `Not ready (not moved): ${notReadyParts.join('. ')}`
-        : result.moved.length === 0
-          ? 'No tickets in Unassigned, or all were already ready.'
-          : ''
-    return `[PM] Unassigned check: ${movedStr} ${notReadyStr}`.trim()
-  }, [])
-
-  const runUnassignedCheck = useCallback(
-    async (url: string, key: string, projectId?: string | null) => {
-      const doFetch = async (): Promise<Response> => {
-        return fetch('/api/pm/check-unassigned', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ supabaseUrl: url, supabaseAnonKey: key }),
-        })
-      }
-      try {
-        let res = await doFetch()
-        if (!res.ok && res.type === 'basic') {
-          const text = await res.text()
-          try {
-            const data = JSON.parse(text) as CheckUnassignedResult & { error?: string }
-            if (data.error?.includes('not available') || data.error?.includes('missing or outdated')) {
-              await new Promise((r) => setTimeout(r, 3000))
-              res = await doFetch()
-            }
-          } catch {
-            // use original res
-          }
-        }
-        const result = (await res.json()) as CheckUnassignedResult
-        const msg = formatUnassignedCheckMessage(result)
-        if (projectId) {
-          const pmConvId = getConversationId('project-manager', 1)
-          const supabase = getSupabaseClient(url, key)
-          const currentMaxSeq = agentSequenceRefs.current.get(pmConvId) ?? 0
-          const nextSeq = currentMaxSeq + 1
-          await supabase.from('hal_conversation_messages').insert({
-            project_id: projectId,
-            agent: pmConvId, // Use conversation ID (0124)
-            role: 'assistant',
-            content: msg,
-            sequence: nextSeq,
-          })
-          agentSequenceRefs.current.set(pmConvId, nextSeq)
-          pmMaxSequenceRef.current = nextSeq // Backward compatibility
-          addMessage(pmConvId, 'project-manager', msg, nextSeq)
-        } else {
-          const pmConvId = getConversationId('project-manager', 1)
-          addMessage(pmConvId, 'project-manager', msg)
-        }
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err)
-        const isFetchError = /failed to fetch|network error/i.test(errMsg)
-        if (isFetchError) {
-          await new Promise((r) => setTimeout(r, 3000))
-          try {
-            const res = await doFetch()
-            const result = (await res.json()) as CheckUnassignedResult
-            const msg = formatUnassignedCheckMessage(result)
-            if (projectId) {
-              const pmConvId = getConversationId('project-manager', 1)
-              const supabase = getSupabaseClient(url, key)
-              const currentMaxSeq = agentSequenceRefs.current.get(pmConvId) ?? 0
-              const nextSeq = currentMaxSeq + 1
-              await supabase.from('hal_conversation_messages').insert({
-                project_id: projectId,
-                agent: pmConvId, // Use conversation ID (0124)
-                role: 'assistant',
-                content: msg,
-                sequence: nextSeq,
-              })
-              agentSequenceRefs.current.set(pmConvId, nextSeq)
-              pmMaxSequenceRef.current = nextSeq // Backward compatibility
-              addMessage(pmConvId, 'project-manager', msg, nextSeq)
-            } else {
-              const pmConvId = getConversationId('project-manager', 1)
-              addMessage(pmConvId, 'project-manager', msg)
-            }
-            return
-          } catch {
-            // fall through to friendly message
-          }
-        }
-        const friendlyMsg = isFetchError
-          ? '[PM] Unassigned check couldn’t run (server may be busy or building). Try connecting again in a moment.'
-          : `[PM] Unassigned check failed: ${errMsg}`
-        const pmConvId = getConversationId('project-manager', 1)
-        addMessage(pmConvId, 'project-manager', friendlyMsg)
-      }
-    },
-    [formatUnassignedCheckMessage, addMessage]
-  )
-
   /** Fetch tickets and columns from Supabase (HAL owns data; passes to KanbanBoard). */
   const fetchKanbanData = useCallback(async (skipIfRecentRealtime = false) => {
     const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
@@ -3385,20 +3275,6 @@ function App() {
                       Repo: {connectedGithubRepo.fullName}
                     </span>
                   )}
-                  <button
-                    type="button"
-                    className="check-unassigned-btn"
-                    onClick={() => {
-                      const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
-                      const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
-                      if (url && key && connectedProject) {
-                        runUnassignedCheck(url, key, connectedProject).catch(() => {})
-                      }
-                    }}
-                    title="Check Unassigned tickets"
-                  >
-                    Check Unassigned
-                  </button>
                   <button
                     ref={disconnectButtonRef}
                     type="button"
