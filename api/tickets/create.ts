@@ -150,10 +150,62 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     // Generate ticket content from suggestions
-    const suggestionsText = suggestions.map((s, i) => `- ${s}`).join('\n')
+    // If single suggestion, use it as the main focus; if multiple, list them (0167)
     const sourceRef = sourceTicket.display_id || sourceTicket.id
-    const title = `Improve agent instructions based on ${sourceRef} Process Review`
-    const bodyMd = `# Ticket
+    const isSingleSuggestion = suggestions.length === 1
+    const suggestionText = suggestions[0] || ''
+    
+    let title: string
+    let bodyMd: string
+    
+    if (isSingleSuggestion) {
+      // One ticket per suggestion: use the suggestion as the main goal (0167)
+      title = suggestionText.length > 60 ? `${suggestionText.slice(0, 57)}...` : suggestionText
+      bodyMd = `# Ticket
+
+- **ID**: (auto-assigned)
+- **Title**: (auto-assigned)
+- **Owner**: Implementation agent
+- **Type**: Process
+- **Priority**: P2
+
+## Linkage (for tracking)
+
+- **Proposed from**: ${sourceRef} — Process Review
+
+## Goal (one sentence)
+
+${suggestionText}
+
+## Human-verifiable deliverable (UI-only)
+
+Updated agent instructions, rules, templates, or process documentation that implements the improvement described in the Goal above.
+
+## Acceptance criteria (UI-only)
+
+- [ ] Agent instructions/rules updated to address the suggestion
+- [ ] Changes are documented and tested
+- [ ] Process improvements are reflected in relevant documentation
+
+## Constraints
+
+- Keep changes focused on agent instructions and process, not implementation code
+- Ensure changes are backward compatible where possible
+
+## Non-goals
+
+- Implementation code changes
+- Feature additions unrelated to process improvement
+
+## Implementation notes (optional)
+
+This ticket was automatically created from Process Review suggestion for ticket ${sourceRef}. Implement the improvement described in the Goal above.
+`
+    } else {
+      // Multiple suggestions: create one ticket with all (legacy behavior, but shouldn't happen with new flow)
+      const suggestionsText = suggestions.map((s, i) => `- ${s}`).join('\n')
+      title = `Improve agent instructions based on ${sourceRef} Process Review`
+      bodyMd = `# Ticket
 
 - **ID**: (auto-assigned)
 - **Title**: (auto-assigned)
@@ -197,6 +249,7 @@ ${suggestionsText}
 
 This ticket was automatically created from Process Review suggestions for ticket ${sourceRef}. Review the suggestions above and implement the appropriate improvements to agent instructions, rules, or process documentation.
 `
+    }
 
     // Try to create ticket with retries for ID collisions
     const MAX_RETRIES = 10
