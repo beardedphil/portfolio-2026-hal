@@ -2090,6 +2090,40 @@ function SortableColumn({
                 }
               })
             }, 500)
+          } else if (result.error) {
+            // Show explicit error message (0159)
+            console.error('[QA Top Ticket] Failed to move ticket:', result.error)
+            // Error will be visible via updateSupabaseTicketKanban error handling
+          }
+        }
+      }
+    }
+    // Iframe/standalone: For QA agent, move ticket from QA to Active Work (col-doing) when QA Top Ticket clicked (0159)
+    if (buttonConfig.chatTarget === 'qa-agent' && supabaseBoardActive && updateSupabaseTicketKanban && refetchSupabaseTickets && firstCardId) {
+      const ticket = supabaseTickets.find((t) => t.pk === firstCardId)
+      if (ticket && ticket.kanban_column_id === 'col-qa') {
+        const targetColumn = supabaseColumns.find((c) => c.id === 'col-doing')
+        if (targetColumn) {
+          const targetPosition = targetColumn.cardIds.length
+          const movedAt = new Date().toISOString()
+          const result = await updateSupabaseTicketKanban(firstCardId, {
+            kanban_column_id: 'col-doing',
+            kanban_position: targetPosition,
+            kanban_moved_at: movedAt,
+          })
+          if (result.ok) {
+            setTimeout(() => {
+              refetchSupabaseTickets(false).then(() => {
+                // Refetch agent runs since ticket moved to Doing (0135)
+                if (fetchActiveAgentRuns) {
+                  fetchActiveAgentRuns()
+                }
+              })
+            }, 500)
+          } else if (result.error) {
+            // Show explicit error message (0159)
+            console.error('[QA Top Ticket] Failed to move ticket:', result.error)
+            // Error will be visible via updateSupabaseTicketKanban error handling
           }
         }
       }

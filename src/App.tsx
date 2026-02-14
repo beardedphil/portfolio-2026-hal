@@ -2889,6 +2889,14 @@ function App() {
         const doingCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-doing').length
         await handleKanbanMoveTicket(data.ticketPk, 'col-doing', doingCount)
       }
+      // QA Top Ticket: move from QA column to Active Work (col-doing) when QA button clicked (0159)
+      if (data.ticketPk && data.chatTarget === 'qa-agent') {
+        const ticket = kanbanTickets.find((t) => t.pk === data.ticketPk)
+        if (ticket && ticket.kanban_column_id === 'col-qa') {
+          const doingCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-doing').length
+          await handleKanbanMoveTicket(data.ticketPk, 'col-doing', doingCount)
+        }
+      }
       triggerAgentRun(data.message, data.chatTarget, undefined, conversationId)
     },
     [triggerAgentRun, getOrCreateConversation, getDefaultConversationId, kanbanTickets, handleKanbanMoveTicket]
