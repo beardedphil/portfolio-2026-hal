@@ -1,0 +1,149 @@
+---
+description: Require agents to review and justify conditional rendering decisions in UI components to prevent accidental feature removal and UX regressions
+alwaysApply: true
+---
+
+# Conditional Rendering Review
+
+**MANDATORY:** Before implementing or changing any conditional rendering in UI components, agents **must** complete the conditional rendering review checklist and document their decisions in their Plan or Decisions artifact.
+
+## What is "Conditional Rendering"?
+
+**Conditional rendering** is any code that shows, hides, or changes UI elements based on application state, user permissions, feature flags, or other runtime conditions. This includes:
+
+### Examples of Conditional Rendering
+
+- **Visibility toggles** (`{isVisible && <Component />}`, `{condition ? <A /> : <B />}`)
+- **Permission-based rendering** (`{user.canEdit && <EditButton />}`)
+- **Feature flag gating** (`{featureFlags.newFeature && <NewFeature />}`)
+- **State-based display** (`{isLoading ? <Spinner /> : <Content />}`)
+- **Role-based UI** (`{user.role === 'admin' && <AdminPanel />}`)
+- **Conditional styling/classes** that significantly change visible behavior
+- **Early returns** that prevent component rendering (`if (!condition) return null`)
+
+## When This Requirement Applies
+
+This requirement applies to **all agents** when implementing or modifying conditional rendering:
+
+- **Implementation agents** — Must complete the checklist before implementing conditional rendering and document decisions in Plan or Decisions artifact
+- **QA agents** — Must verify that conditional rendering decisions are properly documented and test the visible behavior
+- **Project Manager agents** — Must ensure conditional rendering decisions align with product intent
+
+## Conditional Rendering Review Checklist
+
+**MANDATORY:** Before implementing or changing any conditional rendering, agents **must** complete this checklist and document the results in their Plan or Decisions artifact.
+
+### Copy/Paste Checklist Template
+
+```markdown
+## Conditional Rendering Review
+
+**Conditional rendering changes made:** [Yes / No]
+
+If Yes, complete the following for each conditional rendering decision:
+
+### Condition Details
+- [ ] **What condition controls the rendering?** [Describe the condition, e.g., "user.isPremium", "featureFlags.newDashboard", "isLoading"]
+- [ ] **Why does this condition exist?** [Explain the business/product reason, e.g., "Premium feature gating per ticket goal", "Prevent UI flicker during data fetch"]
+- [ ] **What user segment/state does this affect?** [Specify affected users, e.g., "Non-premium users", "Users with incomplete profiles", "All users during initial load"]
+
+### Expected Visible Behavior
+- [ ] **What is the expected visible behavior when condition is TRUE?** [Describe what users see, e.g., "User sees 'Upgrade to Premium' button in header"]
+- [ ] **What is the expected visible behavior when condition is FALSE?** [Describe what users see, e.g., "User sees standard header without upgrade button, or sees fallback message 'Feature available for premium users'"]
+
+### Silent Removal Guardrail
+- [ ] **Does this condition hide a feature that previously existed?** [Yes / No]
+- [ ] **If Yes, should the feature be removed permanently or temporarily hidden?** [Removed / Hidden / N/A]
+- [ ] **Justification for removal/hiding:** [Explain why this aligns with ticket goal and product intent, or note if this is a regression]
+
+### UI-Only Verification Step
+- [ ] **Verification steps:** [Provide at least one UI-only verification step that a human can perform without tools, e.g., "In the running app, visit the Settings page as a non-premium user and confirm the 'Upgrade' button is visible; visit as a premium user and confirm the button is hidden"]
+
+### Code Locations
+[Cite specific file paths and line numbers where conditional rendering was implemented, per `.cursor/rules/code-location-citations.mdc`]
+```
+
+## Example: Acceptable Conditional Rendering Documentation
+
+Here is an example of acceptable documentation for a conditional rendering decision:
+
+```markdown
+## Conditional Rendering Review
+
+**Conditional rendering changes made:** Yes
+
+### Condition Details
+- **What condition controls the rendering?** `user.subscriptionTier === 'premium'`
+- **Why does this condition exist?** Ticket goal requires gating the new analytics dashboard behind premium subscription to align with product monetization strategy.
+- **What user segment/state does this affect?** Non-premium users (free tier and trial users) will not see the analytics dashboard link in navigation.
+
+### Expected Visible Behavior
+- **When condition is TRUE (premium user):** User sees "Analytics" link in main navigation menu, clicking it shows the full analytics dashboard.
+- **When condition is FALSE (non-premium user):** User does not see "Analytics" link in navigation menu. No fallback message is shown (per ticket requirements).
+
+### Silent Removal Guardrail
+- **Does this condition hide a feature that previously existed?** No — this is a new feature being conditionally shown.
+- **If Yes, should the feature be removed permanently or temporarily hidden?** N/A
+- **Justification:** N/A
+
+### UI-Only Verification Step
+- **Verification steps:** 
+  1. In the running app, log in as a premium user (subscriptionTier: 'premium'), navigate to the home page, and confirm the "Analytics" link appears in the main navigation menu.
+  2. Log out and log in as a free-tier user (subscriptionTier: 'free'), navigate to the home page, and confirm the "Analytics" link does not appear in the navigation menu.
+
+### Code Locations
+- `src/components/Navigation.tsx:42-45` — conditional rendering of Analytics link
+- `src/routes.ts:78-82` — route protection for analytics dashboard
+```
+
+## Integration with Existing Workflows
+
+### Plan or Decisions Artifact
+
+The conditional rendering review checklist must be included in the **Plan artifact** (for planned conditional rendering) or **Decisions artifact** (for conditional rendering decisions made during implementation), stored in Supabase:
+- **Artifact type:** `plan` or `decisions`
+- **Storage:** Via HAL API endpoint `/api/artifacts/insert-implementation` with appropriate `artifactType`
+
+### QA Review Requirements
+
+**MANDATORY:** When QA agents review a ticket that includes conditional rendering changes, they **must**:
+
+1. **Verify the Plan or Decisions artifact includes the conditional rendering review checklist** — If conditional rendering changes were made but the checklist is missing or incomplete, QA **MUST FAIL** the ticket.
+
+2. **Verify the documented behavior matches the ticket goal** — QA should confirm:
+   - The "Why does this condition exist?" aligns with the ticket's Goal
+   - The expected visible behavior matches the ticket's Human-verifiable deliverable
+   - Any feature hiding/removal is intentional and justified
+
+3. **Perform UI verification** — QA must execute the documented UI-only verification steps and confirm the behavior matches the documented expectations.
+
+4. **Check for silent removals** — QA must verify that any hidden features are intentional (not accidental regressions) and properly documented.
+
+### QA Report Template Addition
+
+QA reports should include:
+
+```markdown
+## Conditional Rendering Review
+
+**Conditional rendering changes:** [Yes / No]
+
+If Yes:
+- [ ] Plan/Decisions artifact includes complete conditional rendering review checklist
+- [ ] Documented condition aligns with ticket goal: [Yes / No]
+- [ ] Documented visible behavior matches ticket deliverable: [Yes / No]
+- [ ] UI verification steps executed: [Yes / No]
+- [ ] UI behavior matches documented expectations: [Yes / No]
+- [ ] No silent feature removals detected (or removals are intentional and documented): [Yes / No]
+- [ ] Concerns identified: [None / List any concerns]
+```
+
+## Scope
+
+- Applies to **all agents** (implementation, QA, PM) when conditional rendering is involved
+- The checklist must be **human-verifiable** — a reviewer can open the Plan or Decisions artifact and immediately see the conditional rendering decisions and their justification
+- When in doubt, **document the decision** — it's better to over-document than to accidentally hide or remove features without justification
+- This requirement helps prevent:
+  - Accidental feature removal (hiding features that should remain visible)
+  - UX regressions (changing visible behavior without product justification)
+  - Silent breaking changes (removing functionality without explicit decision)
