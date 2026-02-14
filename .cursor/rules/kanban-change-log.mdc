@@ -1,0 +1,328 @@
+---
+description: Agents must log every Kanban ticket move and reorder for auditability
+alwaysApply: true
+---
+
+# Kanban Change Log (All Agents)
+
+**MANDATORY:** Any agent that moves or reorders tickets on the Kanban **MUST** log the change immediately in a durable, human-readable format associated with the ticket. This is **not optional** - failing to log a Kanban change means the workflow is incomplete.
+
+## When Logging Is Required
+
+You **MUST** log a Kanban change entry when you perform **any** of the following operations:
+
+1. **Column move** - Moving a ticket from one column to another (e.g., `col-todo` → `col-qa`)
+2. **Position reorder** - Changing a ticket's position within the same column (e.g., moving from position 5 to position 2)
+3. **Bulk moves** - Moving multiple tickets at once (each ticket must have its own log entry)
+
+**CRITICAL:** The log entry must be created **immediately after** the move/reorder operation, before proceeding with any other work. Do not batch multiple moves and log them later - each move must be logged as it happens.
+
+## Log Format
+
+The Kanban change log entry must follow this exact format (copy/pasteable):
+
+```markdown
+## Kanban Change Log
+
+### <timestamp> — <agent-type> moved ticket <ticket-id>
+
+- **From column:** `<from-column-id>` (position `<old-position>`)
+- **To column:** `<to-column-id>` (position `<new-position>`)
+- **Reason:** `<brief explanation of why the move was made>`
+```
+
+**Format requirements:**
+
+- **Timestamp:** ISO 8601 format (e.g., `2026-02-14T10:30:45Z`) or human-readable format (e.g., `2026-02-14 10:30:45 UTC`)
+- **Agent type:** The type of agent performing the move (e.g., `implementation`, `qa`, `project-manager`)
+- **Ticket ID:** The ticket identifier (e.g., `0192`, `HAL-0192`, or `0172`)
+- **From/To column:** The column IDs (e.g., `col-unassigned`, `col-todo`, `col-qa`, `col-human-in-the-loop`)
+- **Old/New position:** The position within the column (use `null` or `N/A` if position is not applicable or unknown)
+- **Reason:** A brief, human-readable explanation (e.g., "Implementation complete, ready for QA", "DoR passed, moving to To-do", "QA failed, returning to To-do for fixes")
+
+**Example (column move):**
+```markdown
+## Kanban Change Log
+
+### 2026-02-14T10:30:45Z — implementation moved ticket 0192
+
+- **From column:** `col-doing` (position `3`)
+- **To column:** `col-qa` (position `1`)
+- **Reason:** Implementation complete, all code changes committed and pushed, ready for QA
+```
+
+**Example (reorder within same column):**
+```markdown
+## Kanban Change Log
+
+### 2026-02-14T11:15:20Z — project-manager moved ticket 0192
+
+- **From column:** `col-todo` (position `5`)
+- **To column:** `col-todo` (position `2`)
+- **Reason:** Priority adjustment - moving higher priority ticket to top of queue
+```
+
+**Example (column move with unknown position):**
+```markdown
+## Kanban Change Log
+
+### 2026-02-14T12:00:00Z — qa moved ticket 0192
+
+- **From column:** `col-qa` (position `N/A`)
+- **To column:** `col-human-in-the-loop` (position `N/A`)
+- **Reason:** QA passed, ready for human verification
+```
+
+## Where to Store the Log
+
+The Kanban change log must be stored in **two places** to ensure visibility and durability:
+
+### 1. Ticket Body (Primary - Immediate Visibility)
+
+**MANDATORY:** Append the log entry to the ticket body using the HAL API endpoint `/api/tickets/update`.
+
+**How to update ticket body:**
+1. Read the API base URL from `.hal/api-base-url` (if it exists)
+2. Fetch the current ticket body using `/api/tickets/get`
+3. Append the new log entry to the existing ticket body
+4. Update the ticket body using `/api/tickets/update`
+
+**Example:**
+```bash
+# Fetch current ticket body
+baseUrl=$(cat .hal/api-base-url | tr -d '\n')
+currentBody=$(curl -s -X POST ${baseUrl}/api/tickets/get \
+  -H "Content-Type: application/json" \
+  -d '{"ticketId":"0192"}' | jq -r '.ticket.body_md')
+
+# Append log entry
+newBody="${currentBody}
+
+## Kanban Change Log
+
+### 2026-02-14T10:30:45Z — implementation moved ticket 0192
+
+- **From column:** \`col-doing\` (position \`3\`)
+- **To column:** \`col-qa\` (position \`1\`)
+- **Reason:** Implementation complete, all code changes committed and pushed, ready for QA"
+
+# Update ticket body
+curl -X POST ${baseUrl}/api/tickets/update \
+  -H "Content-Type: application/json" \
+  -d "{\"ticketId\":\"0192\",\"body_md\":$(echo "$newBody" | jq -Rs .)}"
+```
+
+**JavaScript/Node.js example:**
+```javascript
+const baseUrl = (await readFile('.hal/api-base-url', 'utf8')).trim()
+
+// Fetch current ticket body
+const getRes = await fetch(`${baseUrl}/api/tickets/get`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ ticketId: '0192' }),
+})
+const getResult = await getRes.json()
+const currentBody = getResult.ticket.body_md || ''
+
+// Append log entry
+const logEntry = `\n\n## Kanban Change Log\n\n### ${new Date().toISOString()} — implementation moved ticket 0192\n\n- **From column:** \`col-doing\` (position \`3\`)\n- **To column:** \`col-qa\` (position \`1\`)\n- **Reason:** Implementation complete, all code changes committed and pushed, ready for QA`
+const newBody = currentBody + logEntry
+
+// Update ticket body
+const updateRes = await fetch(`${baseUrl}/api/tickets/update`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    ticketId: '0192',
+    body_md: newBody,
+  }),
+})
+const updateResult = await updateRes.json()
+if (!updateResult.success) {
+  throw new Error(`Failed to update ticket body: ${updateResult.error}`)
+}
+```
+
+### 2. Artifact Storage (Secondary - Durable Audit Trail)
+
+**MANDATORY:** Store the log entry as an artifact in Supabase using the HAL API endpoint `/api/artifacts/insert` (or similar artifact insertion endpoint).
+
+**Artifact details:**
+- **Agent type:** The type of agent performing the move (e.g., `implementation`, `qa`, `project-manager`)
+- **Artifact type:** `kanban-change-log`
+- **Title format:** `Kanban change log for ticket <ticket-id> — <timestamp>`
+- **Body:** The full log entry in markdown format
+
+**Example:**
+```bash
+baseUrl=$(cat .hal/api-base-url | tr -d '\n')
+curl -X POST ${baseUrl}/api/artifacts/insert \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ticketId": "0192",
+    "agentType": "implementation",
+    "artifactType": "kanban-change-log",
+    "title": "Kanban change log for ticket 0192 — 2026-02-14T10:30:45Z",
+    "body_md": "## Kanban Change Log\n\n### 2026-02-14T10:30:45Z — implementation moved ticket 0192\n\n- **From column:** `col-doing` (position `3`)\n- **To column:** `col-qa` (position `1`)\n- **Reason:** Implementation complete, all code changes committed and pushed, ready for QA"
+  }'
+```
+
+**Note:** If the artifact insertion endpoint structure differs, adapt the request format accordingly. The key requirement is that the log entry is stored as a durable artifact associated with the ticket.
+
+## Workflow: Logging After a Move
+
+**Complete workflow when moving a ticket:**
+
+1. **Perform the move** using `/api/tickets/move`:
+   ```bash
+   curl -X POST ${baseUrl}/api/tickets/move \
+     -H "Content-Type: application/json" \
+     -d '{"ticketId":"0192","columnId":"col-qa"}'
+   ```
+
+2. **Capture move details** from the API response (if available):
+   - Old column (if known from context)
+   - New column (from `columnId` parameter)
+   - Old position (if available from response or context)
+   - New position (from `result.position` if available)
+
+3. **Create log entry** in the specified format with:
+   - Current timestamp
+   - Your agent type
+   - Ticket ID
+   - From/to columns and positions
+   - Clear reason for the move
+
+4. **Store in ticket body** using `/api/tickets/update` (append to existing body)
+
+5. **Store as artifact** using `/api/artifacts/insert` (or appropriate artifact endpoint)
+
+6. **Verify both storage operations succeeded** before proceeding
+
+**CRITICAL:** Do not proceed with other work until both the move and the log entry storage are confirmed successful.
+
+## Error Handling: When Logging Fails
+
+If you **cannot** write a log entry due to tool limitations or API failures, follow this priority order:
+
+### Option 1: Record in Ticket Body Only (Fallback)
+
+If artifact storage fails but ticket body update succeeds:
+- **Proceed** with the ticket body update
+- **Note in your work log or summary** that artifact storage failed but ticket body was updated
+- **Do not** block the move operation - the ticket body log is sufficient for visibility
+
+### Option 2: Document Failure and Continue (Last Resort)
+
+If **both** ticket body update and artifact storage fail:
+- **Do not** undo the move operation (the move itself succeeded)
+- **Immediately** document the failure in your agent work log or summary message
+- **Include** the move details (timestamp, from/to, reason) in your failure documentation
+- **Recommend** opening a follow-up ticket to manually add the missing log entry
+- **State clearly** in your summary: "Kanban move completed but logging failed - manual log entry required"
+
+**Example failure documentation:**
+```markdown
+**Kanban Move Logging Failure:**
+
+- **Move performed:** Ticket 0192 moved from `col-doing` to `col-qa` at 2026-02-14T10:30:45Z
+- **Reason:** Implementation complete, ready for QA
+- **Error:** API endpoint `/api/tickets/update` returned 500 Internal Server Error
+- **Action required:** Manual log entry needed in ticket body and as artifact
+```
+
+### Option 3: Do Not Perform Reorders Without Logging (Preventive)
+
+If you **anticipate** that logging will fail (e.g., API endpoints unavailable, network issues):
+- **Do not** perform the move/reorder operation
+- **Document** the intended move in your work log
+- **Recommend** the move be performed manually or after logging infrastructure is restored
+- **State clearly:** "Move not performed - logging infrastructure unavailable"
+
+**Exception:** If the move is **critical** for workflow progression (e.g., blocking other agents), you may proceed with Option 2 (document failure and continue), but this should be rare.
+
+## Concrete Example: Complete Workflow
+
+**Scenario:** Implementation agent completes work on ticket 0192 and moves it to Ready for QA.
+
+**Step 1: Perform the move**
+```bash
+baseUrl=$(cat .hal/api-base-url | tr -d '\n')
+moveRes=$(curl -s -X POST ${baseUrl}/api/tickets/move \
+  -H "Content-Type: application/json" \
+  -d '{"ticketId":"0192","columnId":"col-qa"}')
+echo $moveRes
+# Response: {"success":true,"position":1}
+```
+
+**Step 2: Create log entry**
+```markdown
+## Kanban Change Log
+
+### 2026-02-14T10:30:45Z — implementation moved ticket 0192
+
+- **From column:** `col-doing` (position `3`)
+- **To column:** `col-qa` (position `1`)
+- **Reason:** Implementation complete, all code changes committed and pushed, ready for QA
+```
+
+**Step 3: Update ticket body**
+```bash
+# Fetch current body
+getRes=$(curl -s -X POST ${baseUrl}/api/tickets/get \
+  -H "Content-Type: application/json" \
+  -d '{"ticketId":"0192"}')
+currentBody=$(echo $getRes | jq -r '.ticket.body_md')
+
+# Append log entry
+logEntry="
+
+## Kanban Change Log
+
+### 2026-02-14T10:30:45Z — implementation moved ticket 0192
+
+- **From column:** \`col-doing\` (position \`3\`)
+- **To column:** \`col-qa\` (position \`1\`)
+- **Reason:** Implementation complete, all code changes committed and pushed, ready for QA"
+newBody="${currentBody}${logEntry}"
+
+# Update ticket
+curl -X POST ${baseUrl}/api/tickets/update \
+  -H "Content-Type: application/json" \
+  -d "{\"ticketId\":\"0192\",\"body_md\":$(echo "$newBody" | jq -Rs .)}"
+```
+
+**Step 4: Store as artifact**
+```bash
+curl -X POST ${baseUrl}/api/artifacts/insert \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ticketId": "0192",
+    "agentType": "implementation",
+    "artifactType": "kanban-change-log",
+    "title": "Kanban change log for ticket 0192 — 2026-02-14T10:30:45Z",
+    "body_md": "## Kanban Change Log\n\n### 2026-02-14T10:30:45Z — implementation moved ticket 0192\n\n- **From column:** `col-doing` (position `3`)\n- **To column:** `col-qa` (position `1`)\n- **Reason:** Implementation complete, all code changes committed and pushed, ready for QA"
+  }'
+```
+
+**Result:** The ticket body now contains the log entry (visible immediately in the ticket UI), and the artifact is stored in Supabase (durable audit trail). Both storage locations are updated, ensuring the move is fully auditable.
+
+## Available Column IDs
+
+For reference, the available column IDs are:
+- `col-unassigned` - Unassigned
+- `col-todo` - To-do
+- `col-doing` - Doing (Active Work)
+- `col-qa` - Ready for QA
+- `col-human-in-the-loop` - Human in the Loop
+- `col-process-review` - Process Review
+- `col-done` - Done
+- `col-wont-implement` - Will Not Implement
+
+## Scope
+
+- **Applies to:** All agents that perform Kanban moves or reorders
+- **Required for:** Every column move and position reorder
+- **Storage:** Both ticket body (immediate visibility) and artifact (durable audit trail)
+- **Timing:** Immediately after the move/reorder operation, before proceeding with other work
