@@ -245,7 +245,7 @@ All Supabase operations are sent to HAL as **tool calls** in your messages. HAL 
 
 **How to use:** Include tool calls as JSON blocks in your messages. HAL will parse and execute them. You don't need API URLs or credentials.
 
-See `docs/process/agent-supabase-api-paradigm.mdc` for full documentation.
+See `.cursor/rules/agent-supabase-api-paradigm.mdc` for full documentation.
 
 ## Scope
 

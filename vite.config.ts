@@ -2120,6 +2120,27 @@ export default defineConfig({
           }
           next()
         })
+
+        // Ticket creation from Process Review suggestion (0167)
+        server.middlewares.use(async (req, res, next) => {
+          if (req.url === '/api/tickets/create-from-suggestion' && req.method === 'POST') {
+            try {
+              const createFromSuggestionHandler = await import('./api/tickets/create-from-suggestion')
+              await createFromSuggestionHandler.default(req, res)
+            } catch (err) {
+              res.statusCode = 500
+              res.setHeader('Content-Type', 'application/json')
+              res.end(
+                JSON.stringify({
+                  success: false,
+                  error: err instanceof Error ? err.message : String(err),
+                })
+              )
+            }
+            return
+          }
+          next()
+        })
       },
     },
   ],

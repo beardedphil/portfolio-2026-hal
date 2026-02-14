@@ -2807,14 +2807,19 @@ function App() {
     async (data: { ticketPk: string; ticketId?: string }) => {
       if (!data.ticketPk) return
       
-      // Move ticket to Active Work (col-doing) when Process Review starts (0167)
-      const doingCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-doing').length
-      await handleKanbanMoveTicket(data.ticketPk, 'col-doing', doingCount)
-      
       // Get or create Process Review conversation
       const convId = getOrCreateConversation('process-review-agent')
       setSelectedChatTarget('process-review-agent')
       setSelectedConversationId(convId)
+      
+      // Move ticket to Active Work (col-doing) immediately when Process Review starts
+      const doingCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-doing').length
+      try {
+        await handleKanbanMoveTicket(data.ticketPk, 'col-doing', doingCount)
+      } catch (moveError) {
+        console.error('Failed to move ticket to Active Work:', moveError)
+        // Continue with Process Review even if move fails
+      }
       
       // Set status to running (for both Kanban banner and chat UI)
       setProcessReviewStatus('running')
@@ -2864,18 +2869,62 @@ function App() {
         const suggestionCount = result.suggestions?.length || 0
         const reviewId = result.reviewId || null
         
-        // Automatically create one ticket per suggestion (0167)
-        let ticketsCreated = 0
-        let ticketsSkipped = 0
-        const ticketCreationErrors: string[] = []
+        addProgress(`Process Review completed. ${suggestionCount} suggestion${suggestionCount !== 1 ? 's' : ''} generated.`)
         
+        // Create one ticket per suggestion automatically
         if (suggestionCount > 0 && result.suggestions) {
-          addProgress('Creating tickets from suggestions...')
+          addProgress('Creating suggestion tickets...')
           
-          for (let i = 0; i < result.suggestions.length; i++) {
-            const suggestion = result.suggestions[i] as { text: string; justification: string }
+          const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
+          const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
+          
+          if (!url || !key) {
+            const errorMsg = 'Cannot create tickets: Supabase credentials not configured'
+            setProcessReviewStatus('failed')
+            setProcessReviewAgentRunStatus('failed')
+            setProcessReviewMessage(`Process Review completed but ticket creation failed: ${errorMsg}`)
+            setProcessReviewAgentError(errorMsg)
+            addMessage(convId, 'process-review-agent', `[Process Review] ⚠️ ${errorMsg}`)
+            return
+          }
+
+          const supabase = getSupabaseClient(url, key)
+          const createdTickets: string[] = []
+          const failedSuggestions: Array<{ index: number; suggestion: { text: string; justification: string }; error: string }> = []
+          
+          // Check for existing tickets to prevent duplicates (idempotency)
+          let existingTickets: Array<{ body_md: string }> = []
+          if (reviewId) {
             try {
-              const createResponse = await fetch('/api/tickets/create', {
+              const { data: existing } = await supabase
+                .from('tickets')
+                .select('body_md')
+                .like('body_md', `%review_id: ${reviewId}%`)
+              existingTickets = existing || []
+            } catch (err) {
+              console.error('Failed to check for existing tickets:', err)
+            }
+          }
+
+          // Create one ticket per suggestion
+          for (let idx = 0; idx < result.suggestions.length; idx++) {
+            const suggestion = result.suggestions[idx] as { text: string; justification: string }
+            
+            // Check if ticket for this suggestion already exists (idempotency)
+            const suggestionHash = `${reviewId || 'unknown'}-${idx}`
+            const alreadyExists = existingTickets.some(t => 
+              t.body_md?.includes(`review_id: ${reviewId}`) && 
+              t.body_md?.includes(`suggestion_index: ${idx}`)
+            )
+            
+            if (alreadyExists) {
+              addProgress(`Skipping suggestion ${idx + 1} (ticket already exists)`)
+              continue
+            }
+
+            try {
+              // Create ticket from single suggestion
+              const createResponse = await fetch('/api/tickets/create-from-suggestion', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -2884,6 +2933,85 @@ function App() {
                   suggestion: suggestion.text,
                   justification: suggestion.justification,
                   reviewId: reviewId,
+                  suggestionIndex: idx,
+                  supabaseUrl: url,
+                  supabaseAnonKey: key,
+                }),
+              })
+
+              const createResult = await createResponse.json()
+
+              if (createResult.success && createResult.ticketId) {
+                createdTickets.push(createResult.ticketId)
+                addProgress(`Created ticket ${createResult.ticketId} for suggestion ${idx + 1}`)
+              } else {
+                failedSuggestions.push({
+                  index: idx,
+                  suggestion,
+                  error: createResult.error || 'Unknown error',
+                })
+                addProgress(`Failed to create ticket for suggestion ${idx + 1}: ${createResult.error || 'Unknown error'}`)
+              }
+            } catch (err) {
+              const errorMsg = err instanceof Error ? err.message : String(err)
+              failedSuggestions.push({
+                index: idx,
+                suggestion,
+                error: errorMsg,
+              })
+              addProgress(`Failed to create ticket for suggestion ${idx + 1}: ${errorMsg}`)
+            }
+          }
+
+          // Refresh Kanban data to show newly created tickets
+          await fetchKanbanData()
+
+          // Handle results
+          if (failedSuggestions.length > 0) {
+            // Some tickets failed to create - show error state
+            const errorMsg = `Failed to create ${failedSuggestions.length} ticket${failedSuggestions.length !== 1 ? 's' : ''} out of ${suggestionCount}. Created ${createdTickets.length} ticket${createdTickets.length !== 1 ? 's' : ''}.`
+            setProcessReviewStatus('failed')
+            setProcessReviewAgentRunStatus('failed')
+            setProcessReviewMessage(`Process Review completed with errors: ${errorMsg}`)
+            setProcessReviewAgentError(errorMsg)
+            addMessage(convId, 'process-review-agent', `[Process Review] ⚠️ ${errorMsg}`)
+            if (failedSuggestions.length > 0) {
+              addMessage(convId, 'process-review-agent', `\n**Failed suggestions:**\n${failedSuggestions.map(f => `${f.index + 1}. ${f.suggestion.text}\n   Error: ${f.error}`).join('\n\n')}`)
+            }
+            // Don't move to Done if there were errors
+            return
+          }
+
+          // All tickets created successfully
+          if (createdTickets.length > 0) {
+            addMessage(convId, 'process-review-agent', `\n**Created ${createdTickets.length} ticket${createdTickets.length !== 1 ? 's' : ''}:**\n${createdTickets.map((id, i) => `${i + 1}. ${id}`).join('\n')}`)
+          }
+        }
+
+        // Move Process Review ticket to Done after successful completion
+        const doneCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-done').length
+        try {
+          await handleKanbanMoveTicket(data.ticketPk, 'col-done', doneCount)
+          addProgress('Moved Process Review ticket to Done')
+        } catch (moveError) {
+          console.error('Failed to move ticket to Done:', moveError)
+          // Continue even if move fails
+        }
+
+        // Success - all done
+        setProcessReviewStatus('completed')
+        setProcessReviewAgentRunStatus('completed')
+        const successMsg = `Process Review completed for ticket ${ticketDisplayId}. ${suggestionCount} suggestion${suggestionCount !== 1 ? 's' : ''} generated${suggestionCount > 0 ? `, ${suggestionCount} ticket${suggestionCount !== 1 ? 's' : ''} created` : ''}.`
+        setProcessReviewMessage(successMsg)
+        addMessage(convId, 'process-review-agent', `[Process Review] ✅ ${successMsg}`)
+        
+        if (suggestionCount > 0) {
+          addMessage(convId, 'process-review-agent', `\n**Suggestions generated:**\n${result.suggestions.map((s: { text: string; justification: string }, idx: number) => `${idx + 1}. ${s.text}\n   *${s.justification}*`).join('\n\n')}`)
+        }
+                body: JSON.stringify({
+                  sourceTicketPk: data.ticketPk,
+                  sourceTicketId: data.ticketId,
+                  suggestions: [suggestionText], // Single suggestion per ticket
                   supabaseUrl: supabaseUrl ?? (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? undefined,
                   supabaseAnonKey: supabaseAnonKey ?? (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? undefined,
                 }),
@@ -2891,55 +3019,101 @@ function App() {
               
               const createResult = await createResponse.json()
               
-              if (createResult.success) {
-                if (createResult.skipped) {
-                  ticketsSkipped++
-                  addMessage(convId, 'process-review-agent', `[Ticket] Skipped duplicate: ${createResult.ticketId || 'unknown'}`)
-                } else {
-                  ticketsCreated++
-                  addMessage(convId, 'process-review-agent', `[Ticket] Created: ${createResult.ticketId || 'unknown'}`)
-                }
+              if (createResult.success && createResult.ticketId) {
+                createdTickets.push(createResult.ticketId)
+                addProgress(`Suggestion ${i + 1}: Created ticket ${createResult.ticketId}`)
               } else {
-                ticketCreationErrors.push(`Suggestion ${i + 1}: ${createResult.error || 'Unknown error'}`)
-                addMessage(convId, 'process-review-agent', `[Ticket] ❌ Failed to create ticket for suggestion ${i + 1}: ${createResult.error || 'Unknown error'}`)
+                const errorMsg = createResult.error || 'Unknown error'
+                errors.push(`Suggestion ${i + 1}: ${errorMsg}`)
+                addProgress(`Suggestion ${i + 1}: Failed - ${errorMsg}`)
               }
             } catch (createErr) {
               const errorMsg = createErr instanceof Error ? createErr.message : String(createErr)
-              ticketCreationErrors.push(`Suggestion ${i + 1}: ${errorMsg}`)
-              addMessage(convId, 'process-review-agent', `[Ticket] ❌ Failed to create ticket for suggestion ${i + 1}: ${errorMsg}`)
+              errors.push(`Suggestion ${i + 1}: ${errorMsg}`)
+              addProgress(`Suggestion ${i + 1}: Error - ${errorMsg}`)
             }
           }
-        }
-        
-        // Determine final status based on ticket creation results (0167)
-        if (ticketCreationErrors.length > 0) {
-          // Some tickets failed - show error state but don't move to Done
-          setProcessReviewStatus('failed')
-          setProcessReviewAgentRunStatus('failed')
-          const errorMsg = `Ticket creation failed for ${ticketCreationErrors.length} suggestion(s). Created: ${ticketsCreated}, Skipped: ${ticketsSkipped}, Failed: ${ticketCreationErrors.length}`
-          setProcessReviewMessage(errorMsg)
-          setProcessReviewAgentError(errorMsg + '\n\nErrors:\n' + ticketCreationErrors.join('\n'))
-          addMessage(convId, 'process-review-agent', `[Process Review] ⚠️ Completed with errors: ${errorMsg}`)
           
-          // Don't reset status - keep it visible so user can see the error
-          return
+          // Handle results
+          if (errors.length > 0) {
+            // Some tickets failed to create - show error state (0167)
+            const errorMsg = `Failed to create ${errors.length} ticket${errors.length !== 1 ? 's' : ''}: ${errors.join('; ')}`
+            setProcessReviewStatus('failed')
+            setProcessReviewAgentRunStatus('failed')
+            setProcessReviewMessage(`Process Review completed but ticket creation failed: ${errorMsg}`)
+            setProcessReviewAgentError(errorMsg)
+            addMessage(convId, 'process-review-agent', `[Process Review] ⚠️ Completed with errors: ${errorMsg}`)
+            
+            // Update process_reviews table with error status
+            try {
+              const supabase = getSupabaseClient(
+                supabaseUrl ?? (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? '',
+                supabaseAnonKey ?? (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? ''
+              )
+              if (reviewId) {
+                await supabase
+                  .from('process_reviews')
+                  .update({
+                    status: 'failed',
+                    error_message: errorMsg,
+                  })
+                  .eq('id', reviewId)
+              }
+            } catch (updateErr) {
+              console.error('[Process Review] Failed to update error status:', updateErr)
+            }
+            
+            // Don't move to Done if there are errors
+            return
+          }
+          
+          // All tickets created successfully - move Process Review ticket to Done (0167)
+          if (createdTickets.length > 0) {
+            addProgress(`All ${createdTickets.length} suggestion tickets created successfully`)
+            
+            // Refresh Kanban board to show newly created tickets (0167)
+            try {
+              await fetchKanbanData()
+            } catch (refreshError) {
+              console.warn('[Process Review] Failed to refresh Kanban board:', refreshError)
+              // Continue even if refresh fails
+            }
+            
+            try {
+              const doneCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-done').length
+              await handleKanbanMoveTicket(data.ticketPk, 'col-done', doneCount)
+              addProgress('Process Review ticket moved to Done')
+            } catch (moveError) {
+              console.error('[Process Review] Failed to move ticket to Done:', moveError)
+              // Continue even if move fails
+            }
+          }
+          
+          const successMsg = `Process Review completed for ticket ${ticketDisplayId}. ${createdTickets.length} suggestion ticket${createdTickets.length !== 1 ? 's' : ''} created in Unassigned.`
+          setProcessReviewStatus('completed')
+          setProcessReviewAgentRunStatus('completed')
+          setProcessReviewMessage(successMsg)
+          addMessage(convId, 'process-review-agent', `[Process Review] ✅ ${successMsg}`)
+          
+          if (createdTickets.length > 0) {
+            addMessage(convId, 'process-review-agent', `\n**Created tickets:**\n${createdTickets.map((id, idx) => `${idx + 1}. ${id}`).join('\n')}`)
+          }
+        } else {
+          // No suggestions - just mark as completed and move to Done
+          const successMsg = `Process Review completed for ticket ${ticketDisplayId}. No suggestions generated.`
+          setProcessReviewStatus('completed')
+          setProcessReviewAgentRunStatus('completed')
+          setProcessReviewMessage(successMsg)
+          addMessage(convId, 'process-review-agent', `[Process Review] ✅ ${successMsg}`)
+          
+          // Move to Done even if no suggestions
+          try {
+            const doneCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-done').length
+            await handleKanbanMoveTicket(data.ticketPk, 'col-done', doneCount)
+          } catch (moveError) {
+            console.error('[Process Review] Failed to move ticket to Done:', moveError)
+          }
         }
-        
-        // All tickets created successfully - move to Done (0167)
-        setProcessReviewStatus('completed')
-        setProcessReviewAgentRunStatus('completed')
-        const successMsg = `Process Review completed for ticket ${ticketDisplayId}. ${suggestionCount} suggestion${suggestionCount !== 1 ? 's' : ''} generated. Created ${ticketsCreated} ticket${ticketsCreated !== 1 ? 's' : ''}${ticketsSkipped > 0 ? `, skipped ${ticketsSkipped} duplicate${ticketsSkipped !== 1 ? 's' : ''}` : ''}.`
-        setProcessReviewMessage(successMsg)
-        addMessage(convId, 'process-review-agent', `[Process Review] ✅ ${successMsg}`)
-        
-        if (suggestionCount > 0) {
-          addMessage(convId, 'process-review-agent', `\n**Suggestions generated:**\n${result.suggestions.map((s: { text: string; justification: string }, idx: number) => `${idx + 1}. ${s.text}\n   *${s.justification}*`).join('\n\n')}`)
-        }
-        
-        // Move Process Review ticket to Done after successful completion (0167)
-        const doneCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-done').length
-        await handleKanbanMoveTicket(data.ticketPk, 'col-done', doneCount)
-        addMessage(convId, 'process-review-agent', `[Process Review] Moved ticket to Done column.`)
 
         // Reset after 5 seconds (Kanban banner only)
         setTimeout(() => {
@@ -2956,7 +3130,7 @@ function App() {
         addMessage(convId, 'process-review-agent', `[Process Review] ❌ Failed: ${errorMsg}`)
       }
     },
-    [supabaseUrl, supabaseAnonKey, getOrCreateConversation, formatTicketId, addMessage, kanbanTickets, handleKanbanMoveTicket]
+    [supabaseUrl, supabaseAnonKey, getOrCreateConversation, formatTicketId, addMessage, kanbanTickets, handleKanbanMoveTicket, fetchKanbanData]
   )
 
   const handleImageSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {

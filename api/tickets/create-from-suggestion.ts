@@ -75,14 +75,20 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const body = (await readJsonBody(req)) as {
       sourceTicketId?: string
       sourceTicketPk?: string
-      suggestions?: string[]
+      suggestion?: string
+      justification?: string
+      reviewId?: string
+      suggestionIndex?: number
       supabaseUrl?: string
       supabaseAnonKey?: string
     }
 
     const sourceTicketPk = typeof body.sourceTicketPk === 'string' ? body.sourceTicketPk.trim() : undefined
     const sourceTicketId = typeof body.sourceTicketId === 'string' ? body.sourceTicketId.trim() : undefined
-    const suggestions = Array.isArray(body.suggestions) ? body.suggestions.filter((s) => typeof s === 'string' && s.trim()) : []
+    const suggestion = typeof body.suggestion === 'string' ? body.suggestion.trim() : undefined
+    const justification = typeof body.justification === 'string' ? body.justification.trim() : undefined
+    const reviewId = typeof body.reviewId === 'string' ? body.reviewId.trim() : undefined
+    const suggestionIndex = typeof body.suggestionIndex === 'number' ? body.suggestionIndex : undefined
 
     // Use credentials from request body if provided, otherwise fall back to server environment variables
     const supabaseUrl =
@@ -104,10 +110,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
-    if (suggestions.length === 0) {
+    if (!suggestion || suggestion.length === 0) {
       json(res, 400, {
         success: false,
-        error: 'At least one suggestion is required to create a ticket.',
+        error: 'suggestion is required and must be non-empty.',
       })
       return
     }
@@ -131,6 +137,28 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const repoFullName = sourceTicket.repo_full_name || 'legacy/unknown'
     const prefix = repoHintPrefix(repoFullName)
 
+    // Check for existing ticket with same review_id and suggestion_index (idempotency)
+    if (reviewId !== undefined && suggestionIndex !== undefined) {
+      const { data: existingTickets } = await supabase
+        .from('tickets')
+        .select('pk, id, display_id')
+        .like('body_md', `%review_id: ${reviewId}%`)
+        .like('body_md', `%suggestion_index: ${suggestionIndex}%`)
+        .limit(1)
+
+      if (existingTickets && existingTickets.length > 0) {
+        json(res, 200, {
+          success: true,
+          ticketId: existingTickets[0].display_id || existingTickets[0].id,
+          id: existingTickets[0].id,
+          pk: existingTickets[0].pk,
+          skipped: true,
+          reason: 'Ticket already exists for this suggestion',
+        })
+        return
+      }
+    }
+
     // Determine next ticket number (repo-scoped)
     let startNum = 1
     try {
@@ -149,19 +177,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       // Fallback to 1 if query fails
     }
 
-    // Generate ticket content from suggestions
-    // If single suggestion, use it as the main focus; if multiple, list them (0167)
+    // Generate ticket content from single suggestion
     const sourceRef = sourceTicket.display_id || sourceTicket.id
-    const isSingleSuggestion = suggestions.length === 1
-    const suggestionText = suggestions[0] || ''
-    
-    let title: string
-    let bodyMd: string
-    
-    if (isSingleSuggestion) {
-      // One ticket per suggestion: use the suggestion as the main goal (0167)
-      title = suggestionText.length > 60 ? `${suggestionText.slice(0, 57)}...` : suggestionText
-      bodyMd = `# Ticket
+    const title = suggestion.length > 80 ? `${suggestion.slice(0, 77)}...` : suggestion
+    const bodyMd = `# Ticket
 
 - **ID**: (auto-assigned)
 - **Title**: (auto-assigned)
@@ -171,15 +190,15 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
 ## Linkage (for tracking)
 
-- **Proposed from**: ${sourceRef} — Process Review
+- **Proposed from**: ${sourceRef} — Process Review${reviewId ? `\n- **Review ID**: ${reviewId}${suggestionIndex !== undefined ? `\n- **Suggestion Index**: ${suggestionIndex}` : ''}` : ''}
 
 ## Goal (one sentence)
 
-${suggestionText}
+${suggestion}
 
 ## Human-verifiable deliverable (UI-only)
 
-Updated agent instructions, rules, templates, or process documentation that implements the improvement described in the Goal above.
+Updated agent rules, templates, or process documentation that addresses the suggestion above.
 
 ## Acceptance criteria (UI-only)
 
@@ -197,59 +216,16 @@ Updated agent instructions, rules, templates, or process documentation that impl
 - Implementation code changes
 - Feature additions unrelated to process improvement
 
-## Implementation notes (optional)
+## Suggestion details
 
-This ticket was automatically created from Process Review suggestion for ticket ${sourceRef}. Implement the improvement described in the Goal above.
-`
-    } else {
-      // Multiple suggestions: create one ticket with all (legacy behavior, but shouldn't happen with new flow)
-      const suggestionsText = suggestions.map((s, i) => `- ${s}`).join('\n')
-      title = `Improve agent instructions based on ${sourceRef} Process Review`
-      bodyMd = `# Ticket
+${suggestion}
 
-- **ID**: (auto-assigned)
-- **Title**: (auto-assigned)
-- **Owner**: Implementation agent
-- **Type**: Process
-- **Priority**: P2
-
-## Linkage (for tracking)
-
-- **Proposed from**: ${sourceRef} — Process Review
-
-## Goal (one sentence)
-
-Improve agent instructions and process documentation based on review of ticket ${sourceRef} artifacts.
-
-## Human-verifiable deliverable (UI-only)
-
-Updated agent rules, templates, or process documentation that addresses the suggested improvements below.
-
-## Acceptance criteria (UI-only)
-
-- [ ] Agent instructions/rules updated to address the suggestions
-- [ ] Changes are documented and tested
-- [ ] Process improvements are reflected in relevant documentation
-
-## Constraints
-
-- Keep changes focused on agent instructions and process, not implementation code
-- Ensure changes are backward compatible where possible
-
-## Non-goals
-
-- Implementation code changes
-- Feature additions unrelated to process improvement
-
-## Suggested improvements
-
-${suggestionsText}
+${justification ? `\n**Justification**: ${justification}` : ''}
 
 ## Implementation notes (optional)
 
-This ticket was automatically created from Process Review suggestions for ticket ${sourceRef}. Review the suggestions above and implement the appropriate improvements to agent instructions, rules, or process documentation.
+This ticket was automatically created from Process Review suggestion for ticket ${sourceRef}. Review the suggestion above and implement the appropriate improvements to agent instructions, rules, or process documentation.
 `
-    }
 
     // Try to create ticket with retries for ID collisions
     const MAX_RETRIES = 10
