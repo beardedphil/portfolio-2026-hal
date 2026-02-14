@@ -221,5 +221,5 @@ Create `docs/audit/<task-id>-<short-title>/` containing:
 - `plan.md`
 - `worklog.md`
 - `changed-files.md`
-- `decisions.md`
+- `decisions.md` — **Must follow the [Decision Log template](decision-log.template.md)**
 - `verification.md` (UI-only)

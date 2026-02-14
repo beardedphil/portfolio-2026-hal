@@ -15,6 +15,9 @@ This document defines how we decide a ticket is **properly completed**.
 - **Ticket is committed**: the ticket file exists in git history on the branch being verified (not only on someone’s disk).
 - **Required audit artifacts exist** (in Supabase `agent_artifacts`, not in repo):
   - plan, worklog, changed-files, decisions, verification, pm-review
+  - **Artifact templates**: Implementation agents must follow templates in `docs/templates/`:
+    - **Decisions artifact**: Must follow `docs/templates/decision-log.template.md` (includes Context, Decision, Alternatives Considered, Trade-offs, Consequences/Follow-ups, Links)
+    - Other templates: See `docs/templates/` for PM Review and other artifact templates
 - **Work is committed + pushed**:
   - the implementation agent has committed all changes and pushed them to the remote before declaring “ready for QA”
   - all commits for the ticket include the ticket ID in the commit subject (e.g. `feat(0010): ...`)
