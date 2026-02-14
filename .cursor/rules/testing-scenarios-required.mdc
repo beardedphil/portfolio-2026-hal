@@ -1,0 +1,55 @@
+---
+description: Require testing scenarios section when agents verify acceptance criteria
+alwaysApply: true
+---
+
+# Testing Scenarios Required
+
+**MANDATORY:** When any agent (Implementation, QA, or PM/Process Review) marks acceptance criteria as verified/passed, they **MUST** include a clearly labeled **"Testing scenarios used"** section that documents the concrete scenarios they actually ran.
+
+## Where scenarios must appear
+
+The **"Testing scenarios used"** section must appear in the following artifacts:
+
+1. **Implementation agent:** In the **Verification** artifact (`artifactType: "verification"`, title: `Verification for ticket <ticket-id>`)
+2. **QA agent:** In the **QA Report** (`artifactType: "qa-report"`, title: `QA report for ticket <ticket-id>`)
+3. **PM/Process review agent:** In the **PM Review** artifact (`artifactType: "pm-review"`, title: `PM Review for ticket <ticket-id>`) when applicable
+
+## Minimum content requirements
+
+The **"Testing scenarios used"** section must include:
+
+- **At least 1 happy-path scenario** — The primary success case that demonstrates the feature works as intended
+- **At least 2 edge/negative scenarios** — Relevant edge cases, error conditions, or boundary conditions that could cause failures
+- **Concrete, specific descriptions** — Each scenario must be 1–3 bullets and reference:
+  - The UI state/inputs used (e.g., "With project connected, selected Implementation Agent")
+  - The actions taken (e.g., "Sent message 'Implement ticket 0176'")
+  - The expected outcome (e.g., "Verified ticket moved to QA column")
+  - **No vague statements** like "tested it works" or "verified functionality"
+
+## Example format
+
+```markdown
+## Testing scenarios used
+
+### Happy path
+- **Scenario:** With project connected and Implementation Agent selected, sent message "Implement ticket 0176". Verified ticket moved from To-do to Doing column, then to QA column after completion.
+
+### Edge cases
+- **Scenario:** With no project connected, attempted to send message to Implementation Agent. Verified error message displayed: "Connect a project folder first."
+- **Scenario:** With project connected but invalid ticket ID "9999", sent message "Implement ticket 9999". Verified error handling: ticket not found message displayed, ticket did not move.
+```
+
+## When to include
+
+- **Implementation agent:** Include in Verification artifact when marking any acceptance criteria checkbox as verified
+- **QA agent:** Include in QA Report when performing code review and verification (even if manual UI steps are deferred to Human in the Loop)
+- **PM/Process review agent:** Include in PM Review artifact when reviewing implementation completeness and likelihood of success
+
+## Scope
+
+This requirement applies to all ticketed work where acceptance criteria are verified. The scenarios section provides human-verifiable evidence of what was actually tested, making it easier to:
+- Understand what was verified vs. what still needs manual testing
+- Identify gaps in test coverage
+- Reproduce issues if they arise
+- Audit the verification process
