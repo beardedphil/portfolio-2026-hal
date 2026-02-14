@@ -1168,6 +1168,54 @@ h1 {
   border-color: var(--kanban-primary);
 }
 
+/* Artifact navigation (0148) */
+.artifact-navigation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem;
+  border-top: 1px solid var(--kanban-border);
+  margin-top: 1rem;
+}
+.artifact-nav-button {
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--kanban-text);
+  background: var(--kanban-surface-alt);
+  border: 1px solid var(--kanban-border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s, border-color 0.2s;
+}
+.artifact-nav-button:hover:not(:disabled) {
+  background: var(--kanban-surface);
+  border-color: var(--kanban-primary);
+}
+.artifact-nav-button:focus {
+  outline: 2px solid var(--kanban-primary);
+  outline-offset: 2px;
+}
+.artifact-nav-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.artifact-nav-counter {
+  font-size: 0.9rem;
+  color: var(--kanban-text-secondary);
+  flex: 1;
+  text-align: center;
+}
+[data-theme="dark"] .artifact-nav-button {
+  background: var(--kanban-surface-alt);
+  border-color: var(--kanban-border);
+}
+[data-theme="dark"] .artifact-nav-button:hover:not(:disabled) {
+  background: var(--kanban-surface);
+  border-color: var(--kanban-primary);
+}
+
 /* Attachments section (0092) */
 .attachments-section {
   margin-top: 1.5rem;

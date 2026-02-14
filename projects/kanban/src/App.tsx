@@ -615,15 +615,21 @@ function MarkdownImage({
   )
 }
 
-/** Artifact report viewer modal (0082) */
+/** Artifact report viewer modal (0082) with Previous/Next navigation (0148) */
 function ArtifactReportViewer({
   open,
   onClose,
   artifact,
+  artifacts,
+  currentIndex,
+  onNavigate,
 }: {
   open: boolean
   onClose: () => void
   artifact: SupabaseAgentArtifactRow | null
+  artifacts: SupabaseAgentArtifactRow[]
+  currentIndex: number
+  onNavigate: (index: number) => void
 }) {
   const [imageViewerOpen, setImageViewerOpen] = useState(false)
   const [imageViewerSrc, setImageViewerSrc] = useState<string | null>(null)
@@ -767,6 +773,25 @@ function ArtifactReportViewer({
 
   const createdAt = new Date(artifact.created_at)
   const displayName = getAgentTypeDisplayName(artifact.agent_type)
+  
+  // Calculate navigation state (0148)
+  const sortedArtifacts = [...artifacts].sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+  )
+  const canGoPrevious = currentIndex > 0
+  const canGoNext = currentIndex < sortedArtifacts.length - 1
+  
+  const handlePrevious = useCallback(() => {
+    if (canGoPrevious) {
+      onNavigate(currentIndex - 1)
+    }
+  }, [canGoPrevious, currentIndex, onNavigate])
+  
+  const handleNext = useCallback(() => {
+    if (canGoNext) {
+      onNavigate(currentIndex + 1)
+    }
+  }, [canGoNext, currentIndex, onNavigate])
 
   return (
     <div
@@ -813,6 +838,32 @@ function ArtifactReportViewer({
             )}
           </div>
         </div>
+        {/* Previous/Next navigation buttons (0148) */}
+        {sortedArtifacts.length > 1 && (
+          <div className="artifact-navigation">
+            <button
+              type="button"
+              className="artifact-nav-button artifact-nav-previous"
+              onClick={handlePrevious}
+              disabled={!canGoPrevious}
+              aria-label="Previous artifact"
+            >
+              Previous
+            </button>
+            <span className="artifact-nav-counter">
+              {currentIndex + 1} of {sortedArtifacts.length}
+            </span>
+            <button
+              type="button"
+              className="artifact-nav-button artifact-nav-next"
+              onClick={handleNext}
+              disabled={!canGoNext}
+              aria-label="Next artifact"
+            >
+              Next
+            </button>
+          </div>
+        )}
       </div>
       <ImageViewerModal
         open={imageViewerOpen}
@@ -1240,9 +1291,9 @@ function ArtifactsSection({
     )
   }
 
-  // Sort all artifacts by created_at descending (most recent first)
+  // Sort all artifacts by created_at ascending (oldest first) - chronological order (0148)
   const sortedArtifacts = [...artifacts].sort(
-    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
   )
 
   return (
@@ -1381,23 +1432,14 @@ function AttachmentsSection({
   )
 }
 
-/** QA Info Section: displays feature branch and implementation artifacts when ticket is in QA column (0113) */
+/** QA Info Section: displays feature branch when ticket is in QA column (0113, 0148) */
 function QAInfoSection({
   bodyMd,
-  artifacts,
-  artifactsLoading,
-  onOpenArtifact,
 }: {
   bodyMd: string | null
-  artifacts: SupabaseAgentArtifactRow[]
-  artifactsLoading: boolean
-  onOpenArtifact: (artifact: SupabaseAgentArtifactRow) => void
 }) {
   const featureBranch = extractFeatureBranch(bodyMd)
   const mergeStatus = checkMergedToMain(bodyMd)
-  
-  // Filter to implementation artifacts only
-  const implementationArtifacts = artifacts.filter(a => a.agent_type === 'implementation')
   
   return (
     <div className="qa-info-section">
@@ -1423,38 +1465,6 @@ function QAInfoSection({
           </span>
         ) : (
           <span className="qa-merged-no">❌ No</span>
-        )}
-      </div>
-      
-      <div className="qa-info-field">
-        <strong>Implementation artifacts:</strong>
-        {artifactsLoading ? (
-          <p className="qa-artifacts-loading">Loading artifacts…</p>
-        ) : implementationArtifacts.length === 0 ? (
-          <p className="qa-artifacts-empty">No implementation artifacts found.</p>
-        ) : (
-          <ul className="qa-artifacts-list">
-            {implementationArtifacts
-              .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-              .map((artifact) => {
-                const displayName = artifact.title || getAgentTypeDisplayName(artifact.agent_type)
-                return (
-                  <li key={artifact.artifact_id} className="qa-artifacts-item">
-                    <button
-                      type="button"
-                      className="qa-artifacts-item-button"
-                      onClick={() => onOpenArtifact(artifact)}
-                      aria-label={`Open ${displayName}`}
-                    >
-                      <span className="qa-artifacts-item-title">{displayName}</span>
-                      <span className="qa-artifacts-item-meta">
-                        {new Date(artifact.created_at).toLocaleString()}
-                      </span>
-                    </button>
-                  </li>
-                )
-              })}
-          </ul>
         )}
       </div>
       
@@ -2230,6 +2240,7 @@ function App() {
   const [detailModalArtifactsLoading, setDetailModalArtifactsLoading] = useState(false)
   const [detailModalArtifactsStatus, setDetailModalArtifactsStatus] = useState<string | null>(null)
   const [artifactViewer, setArtifactViewer] = useState<SupabaseAgentArtifactRow | null>(null)
+  const [artifactViewerIndex, setArtifactViewerIndex] = useState<number>(0)
   
   // Ticket attachments (0092)
   const [detailModalAttachments, setDetailModalAttachments] = useState<TicketAttachment[]>([])
@@ -2866,12 +2877,32 @@ function App() {
   const handleCloseTicketDetail = useCallback(() => {
     setDetailModal(null)
     setArtifactViewer(null)
+    setArtifactViewerIndex(0)
   }, [])
   const handleRetryTicketDetail = useCallback(() => setDetailModalRetryTrigger((n) => n + 1), [])
   const handleOpenArtifact = useCallback((artifact: SupabaseAgentArtifactRow) => {
+    // Sort artifacts chronologically (oldest first) to find index (0148)
+    const sortedArtifacts = [...detailModalArtifacts].sort(
+      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    )
+    const index = sortedArtifacts.findIndex(a => a.artifact_id === artifact.artifact_id)
     setArtifactViewer(artifact)
+    setArtifactViewerIndex(index >= 0 ? index : 0)
+  }, [detailModalArtifacts])
+  const handleCloseArtifact = useCallback(() => {
+    setArtifactViewer(null)
+    setArtifactViewerIndex(0)
   }, [])
-  const handleCloseArtifact = useCallback(() => setArtifactViewer(null), [])
+  const handleNavigateArtifact = useCallback((index: number) => {
+    // Sort artifacts chronologically (oldest first) to get artifact at index (0148)
+    const sortedArtifacts = [...detailModalArtifacts].sort(
+      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    )
+    if (index >= 0 && index < sortedArtifacts.length) {
+      setArtifactViewer(sortedArtifacts[index])
+      setArtifactViewerIndex(index)
+    }
+  }, [detailModalArtifacts])
   
 
   // File system mode removed (0065): Supabase-only
@@ -4272,6 +4303,9 @@ ${notes || '(none provided)'}
         open={artifactViewer !== null}
         onClose={handleCloseArtifact}
         artifact={artifactViewer}
+        artifacts={detailModalArtifacts}
+        currentIndex={artifactViewerIndex}
+        onNavigate={handleNavigateArtifact}
       />
 
       {/* Active work row: shows tickets in Doing column (0145) - positioned above DndContext */}
