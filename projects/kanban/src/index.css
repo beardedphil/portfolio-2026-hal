@@ -47,8 +47,15 @@
   box-sizing: border-box;
 }
 
+html {
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   margin: 0;
+  height: 100%;
+  overflow: hidden;
   font-family: system-ui, -apple-system, sans-serif;
   font-size: 16px;
   line-height: 1.5;
@@ -58,7 +65,19 @@ body {
 
 #root {
   min-height: 100vh;
+  height: 100%;
   padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+/* When embedded (parent is constrained), reduce padding */
+body[data-embedded="true"] #root,
+#root[data-embedded="true"] {
+  padding: 1rem;
+  min-height: 0;
 }
 
 h1 {
@@ -311,6 +330,11 @@ h1 {
 /* Columns section */
 .columns-section {
   margin-bottom: 1.5rem;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 .add-column-btn {
   margin-bottom: 0.75rem;
@@ -378,9 +402,13 @@ h1 {
   flex-wrap: nowrap;
   gap: 0.75rem;
   overflow-x: auto;
+  overflow-y: hidden;
+  flex: 1;
+  min-height: 0;
 }
 .column-card {
   min-width: 180px;
+  max-width: 300px;
   padding: 0.6rem 0.75rem;
   background: var(--kanban-surface);
   border: 1px solid var(--kanban-border);
@@ -388,6 +416,8 @@ h1 {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  height: 100%;
+  min-height: 0;
 }
 .column-header {
   display: flex;
@@ -414,6 +444,9 @@ h1 {
   flex-direction: column;
   gap: 0.5rem;
   min-height: 2rem;
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 .column-cards-over {
   background: #e8f4fc;
