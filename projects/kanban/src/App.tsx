@@ -765,33 +765,87 @@ function ArtifactReportViewer({
   // Check if this is a git-diff artifact
   const isGitDiff = useMemo(() => {
     if (!artifact) return false
-    const normalizedTitle = artifact.title.toLowerCase().trim()
+    const normalizedTitle = artifact.title?.toLowerCase().trim() || ''
     return normalizedTitle.startsWith('git diff for ticket') || normalizedTitle.startsWith('git-diff for ticket')
   }, [artifact])
 
-  if (!open || !artifact) return null
+  // Early return if modal is not open
+  if (!open) return null
 
-  const createdAt = new Date(artifact.created_at)
-  const displayName = getAgentTypeDisplayName(artifact.agent_type)
+  // If artifact is null/undefined, show error message instead of blank screen
+  if (!artifact) {
+    return (
+      <div
+        className="ticket-detail-backdrop"
+        role="dialog"
+        aria-modal="true"
+        onClick={(e) => e.target === e.currentTarget && onClose()}
+        onKeyDown={handleKeyDown}
+      >
+        <div className="ticket-detail-modal" ref={modalRef}>
+          <div className="ticket-detail-header">
+            <h2 className="ticket-detail-title">Artifact Viewer</h2>
+            <button
+              type="button"
+              className="ticket-detail-close"
+              onClick={onClose}
+              ref={closeBtnRef}
+              aria-label="Close"
+            >
+              ×
+            </button>
+          </div>
+          <div className="ticket-detail-body-wrap">
+            <div className="ticket-detail-body">
+              <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
+                No artifact selected. Please select an artifact from the list.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Ensure artifact has required properties with fallbacks
+  const artifactTitle = artifact.title || 'Untitled Artifact'
+  const artifactBodyMd = artifact.body_md || ''
+  const artifactCreatedAt = artifact.created_at || new Date().toISOString()
+  const artifactAgentType = artifact.agent_type || 'unknown'
+
+  const createdAt = new Date(artifactCreatedAt)
+  const displayName = getAgentTypeDisplayName(artifactAgentType)
   
   // Calculate navigation state (0148)
-  const sortedArtifacts = [...artifacts].sort(
-    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-  )
-  const canGoPrevious = currentIndex > 0
-  const canGoNext = currentIndex < sortedArtifacts.length - 1
+  // Sort artifacts chronologically (oldest first)
+  const sortedArtifacts = useMemo(() => {
+    return [...artifacts].sort(
+      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    )
+  }, [artifacts])
+  
+  // Find the actual index of the current artifact in the sorted list
+  const actualIndex = useMemo(() => {
+    return sortedArtifacts.findIndex(a => a.artifact_id === artifact.artifact_id)
+  }, [sortedArtifacts, artifact.artifact_id])
+  
+  // Use actual index if found, otherwise fall back to currentIndex prop
+  const effectiveIndex = actualIndex >= 0 ? actualIndex : currentIndex
+  
+  const canGoPrevious = effectiveIndex > 0
+  const canGoNext = effectiveIndex < sortedArtifacts.length - 1
   
   const handlePrevious = useCallback(() => {
     if (canGoPrevious) {
-      onNavigate(currentIndex - 1)
+      onNavigate(effectiveIndex - 1)
     }
-  }, [canGoPrevious, currentIndex, onNavigate])
+  }, [canGoPrevious, effectiveIndex, onNavigate])
   
   const handleNext = useCallback(() => {
     if (canGoNext) {
-      onNavigate(currentIndex + 1)
+      onNavigate(effectiveIndex + 1)
     }
-  }, [canGoNext, currentIndex, onNavigate])
+  }, [canGoNext, effectiveIndex, onNavigate])
 
   return (
     <div
@@ -805,7 +859,7 @@ function ArtifactReportViewer({
       <div className="ticket-detail-modal" ref={modalRef}>
         <div className="ticket-detail-header">
           <h2 id="artifact-viewer-title" className="ticket-detail-title">
-            {artifact.title}
+            {artifactTitle}
           </h2>
           <button
             type="button"
@@ -823,11 +877,11 @@ function ArtifactReportViewer({
         </div>
         <div className="ticket-detail-body-wrap">
           <div className="ticket-detail-body">
-            {artifact.body_md && artifact.body_md.trim().length > 0 ? (
+            {artifactBodyMd && artifactBodyMd.trim().length > 0 ? (
               isGitDiff ? (
-                <GitDiffViewer diff={artifact.body_md} />
+                <GitDiffViewer diff={artifactBodyMd} />
               ) : (
-                <ReactMarkdown components={markdownComponents}>{artifact.body_md}</ReactMarkdown>
+                <ReactMarkdown components={markdownComponents}>{artifactBodyMd}</ReactMarkdown>
               )
             ) : (
               <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
@@ -851,7 +905,7 @@ function ArtifactReportViewer({
               Previous
             </button>
             <span className="artifact-nav-counter">
-              {currentIndex + 1} of {sortedArtifacts.length}
+              {effectiveIndex + 1} of {sortedArtifacts.length}
             </span>
             <button
               type="button"
