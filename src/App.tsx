@@ -324,6 +324,9 @@ function App() {
   const [githubRepoQuery, setGithubRepoQuery] = useState('')
   const [connectedGithubRepo, setConnectedGithubRepo] = useState<ConnectedGithubRepo | null>(null)
   const [githubConnectError, setGithubConnectError] = useState<string | null>(null)
+  const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false)
+  const disconnectConfirmButtonRef = useRef<HTMLButtonElement>(null)
+  const disconnectButtonRef = useRef<HTMLButtonElement>(null)
   /** Kanban data (HAL owns DB; fetches and passes to KanbanBoard). */
   const [kanbanTickets, setKanbanTickets] = useState<KanbanTicketRow[]>([])
   const [kanbanColumns, setKanbanColumns] = useState<KanbanColumnRow[]>([])
@@ -450,6 +453,27 @@ function App() {
       // ignore localStorage errors
     }
   }, [theme])
+
+  // Handle Esc key and focus management for disconnect confirmation modal (0142)
+  useEffect(() => {
+    if (!disconnectConfirmOpen) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        handleDisconnectCancel()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    // Focus the confirm button when modal opens
+    setTimeout(() => {
+      disconnectConfirmButtonRef.current?.focus()
+    }, 0)
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [disconnectConfirmOpen, handleDisconnectCancel])
 
   // Restore connected GitHub repo from localStorage on load (0119: fix repo display after refresh)
   // The repo state is restored for UI display; Kanban will receive the connection message when the iframe loads
@@ -2480,6 +2504,24 @@ function App() {
     // They will be restored when reconnecting to the same repo
   }, [])
 
+  const handleDisconnectClick = useCallback(() => {
+    setDisconnectConfirmOpen(true)
+  }, [])
+
+  const handleDisconnectConfirm = useCallback(() => {
+    setDisconnectConfirmOpen(false)
+    handleDisconnect()
+    // After disconnect, the Disconnect button will be replaced by Connect button, so no focus return needed
+  }, [handleDisconnect])
+
+  const handleDisconnectCancel = useCallback(() => {
+    setDisconnectConfirmOpen(false)
+    // Return focus to the Disconnect button
+    setTimeout(() => {
+      disconnectButtonRef.current?.focus()
+    }, 0)
+  }, [])
+
   const previousResponseIdInLastRequest =
     lastPmOutboundRequest != null &&
     typeof lastPmOutboundRequest === 'object' &&
@@ -2617,6 +2659,60 @@ function App() {
         </div>
       )}
 
+      {disconnectConfirmOpen && (
+        <div className="conversation-modal-overlay" onClick={handleDisconnectCancel}>
+          <div className="conversation-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-labelledby="disconnect-confirm-title" aria-modal="true">
+            <div className="conversation-modal-header">
+              <h3 id="disconnect-confirm-title">Disconnect this repository?</h3>
+              <button type="button" className="conversation-modal-close" onClick={handleDisconnectCancel} aria-label="Close confirmation">
+                ×
+              </button>
+            </div>
+            <div className="conversation-modal-content">
+              <div style={{ padding: '1.25rem' }}>
+                <p style={{ margin: '0 0 1.5rem 0', color: 'var(--hal-text)' }}>
+                  Are you sure you want to disconnect from this repository? You can reconnect later.
+                </p>
+                <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+                  <button
+                    type="button"
+                    onClick={handleDisconnectCancel}
+                    style={{
+                      padding: '0.5rem 1rem',
+                      borderRadius: '6px',
+                      border: '1px solid var(--hal-border)',
+                      background: 'var(--hal-surface)',
+                      color: 'var(--hal-text)',
+                      cursor: 'pointer',
+                      fontSize: '0.9rem',
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    ref={disconnectConfirmButtonRef}
+                    type="button"
+                    onClick={handleDisconnectConfirm}
+                    style={{
+                      padding: '0.5rem 1rem',
+                      borderRadius: '6px',
+                      border: '1px solid var(--hal-border)',
+                      background: 'var(--hal-danger, #dc3545)',
+                      color: 'white',
+                      cursor: 'pointer',
+                      fontSize: '0.9rem',
+                      fontWeight: 500,
+                    }}
+                  >
+                    Yes, disconnect
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <main className="hal-main">
         {/* Left column: Kanban board */}
         <section className="hal-kanban-region" aria-label="Kanban board">
@@ -2635,9 +2731,10 @@ function App() {
                     </span>
                   )}
                   <button
+                    ref={disconnectButtonRef}
                     type="button"
                     className="disconnect-btn"
-                    onClick={handleDisconnect}
+                    onClick={handleDisconnectClick}
                   >
                     Disconnect
                   </button>
