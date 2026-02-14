@@ -432,6 +432,8 @@ You have access to read-only tools to explore the repository. Use them to answer
 
 **Creating tickets:** When the user **explicitly** asks to create a ticket (e.g. "create a ticket", "create ticket for that", "create a new ticket for X"), you MUST call the create_ticket tool if it is available. Do NOT call create_ticket for short, non-actionable messages such as: "test", "ok", "hi", "hello", "thanks", "cool", "checking", "asdf", or similar—these are usually the user testing the UI, acknowledging, or typing casually. Do not infer a ticket-creation request from context alone (e.g. if the user sends "Test" while testing the chat UI, that does NOT mean create the chat UI ticket). Calling the tool is what actually creates the ticket—do not only write the ticket content in your message. Use create_ticket with a short title (without the ID prefix—the tool assigns the next repo-scoped ID and normalizes the Title line to "PREFIX-NNNN — ..."). Provide a full markdown body following the repo ticket template. Do not invent an ID—the tool assigns it. Do not write secrets or API keys into the ticket body. If create_ticket is not in your tool list, tell the user: "I don't have the create-ticket tool for this request. In the HAL app, connect the project folder (with VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in its .env), then try again. Check Diagnostics to confirm 'Create ticket (this request): Available'." After creating a ticket via the tool, report the exact ticket display ID (e.g. HAL-0079) and the returned filePath (Supabase-only).
 
+**Attaching images to tickets:** When the user uploads an image in chat and asks to attach it to a ticket (e.g. "Add this image to ticket HAL-0143", "Attach the image to ticket 0143"), use the attach_image_to_ticket tool. The image data is available from the images provided in the current conversation turn. Extract the image data (dataUrl, filename, mimeType) from the conversation context and call attach_image_to_ticket with the ticket ID and image information. The tool will create an image artifact for the ticket that appears in the ticket's Artifacts section. After successfully attaching, confirm the image has been added to the ticket's artifacts.
+
 **Moving a ticket to To Do:** When the user asks to move a ticket to To Do (e.g. "move this to To Do", "move ticket 0012 to To Do"), you MUST (1) fetch the ticket content with fetch_ticket_content (by ticket id), (2) evaluate readiness with evaluate_ticket_ready (pass the body_md from the fetch result). If the ticket is NOT ready, do NOT call kanban_move_ticket_to_todo; instead reply with a clear list of what is missing (use the missingItems from the evaluate_ticket_ready result). If the ticket IS ready, call kanban_move_ticket_to_todo with the ticket id. Then confirm in chat that the ticket was moved. The readiness checklist is in docs/process/ready-to-start-checklist.md (Goal, Human-verifiable deliverable, Acceptance criteria checkboxes, Constraints, Non-goals, no unresolved placeholders).
 
 **Preparing a ticket (Definition of Ready):** When the user asks to "prepare ticket X" or "get ticket X ready" (e.g. from "Prepare top ticket" button), you MUST (1) fetch the ticket content with fetch_ticket_content, (2) evaluate readiness with evaluate_ticket_ready. If the ticket is NOT ready, use update_ticket_body to fix formatting issues (normalize headings, convert bullets to checkboxes in Acceptance criteria if needed, ensure all required sections exist). After updating, re-evaluate with evaluate_ticket_ready. If the ticket IS ready (after fixes if needed), automatically call kanban_move_ticket_to_todo to move it to To Do. Then confirm in chat that the ticket is Ready-to-start and has been moved to To Do. If the ticket cannot be made ready (e.g. missing required content that cannot be auto-generated), clearly explain what is missing and that the ticket remains in Unassigned.
@@ -1662,6 +1664,77 @@ export async function runPmAgent(
       })
     })()
 
+  const attachImageToTicketTool =
+    hasSupabase &&
+    (() => {
+      return tool({
+        description:
+          'Attach an uploaded image to a ticket as an artifact. Use when the user asks to attach an image to a ticket (e.g. "Add this image to ticket HAL-0143"). The image must have been uploaded in the current conversation. Provide the ticket ID and image data from the conversation.',
+        parameters: z.object({
+          ticket_id: z.string().describe('Ticket ID (e.g. "HAL-0143", "0143", or "143").'),
+          image_data_url: z.string().describe('Base64 data URL of the image (data:image/... format).'),
+          image_filename: z.string().describe('Original filename of the image.'),
+          image_mime_type: z.string().describe('MIME type of the image (e.g. "image/png", "image/jpeg").'),
+        }),
+        execute: async (input: {
+          ticket_id: string
+          image_data_url: string
+          image_filename: string
+          image_mime_type: string
+        }) => {
+          type AttachResult =
+            | {
+                success: true
+                ticket_id: string
+                artifact_id: string
+                title: string
+              }
+            | { success: false; error: string }
+          let out: AttachResult
+          try {
+            const baseUrl = process.env.HAL_API_BASE_URL || 'https://portfolio-2026-hal.vercel.app'
+            const supabaseUrl = config.supabaseUrl?.trim() || ''
+            const supabaseAnonKey = config.supabaseAnonKey?.trim() || ''
+
+            // Create artifact body with image embedded as markdown
+            const bodyMd = `# Image: ${input.image_filename}\n\n![${input.image_filename}](${input.image_data_url})\n\n**Filename:** ${input.image_filename}\n**MIME Type:** ${input.image_mime_type}\n**Uploaded:** ${new Date().toISOString()}`
+
+            const response = await fetch(`${baseUrl}/api/artifacts/insert-implementation`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                ticketId: input.ticket_id,
+                artifactType: 'image',
+                title: `Image for ticket ${input.ticket_id}`,
+                body_md: bodyMd,
+                supabaseUrl,
+                supabaseAnonKey,
+              }),
+            })
+
+            const result = await response.json()
+            if (result.success) {
+              out = {
+                success: true,
+                ticket_id: input.ticket_id,
+                artifact_id: result.artifact_id,
+                title: `Image for ticket ${input.ticket_id}`,
+              }
+            } else {
+              out = { success: false, error: result.error || 'Failed to attach image to ticket' }
+            }
+          } catch (err) {
+            out = {
+              success: false,
+              error: err instanceof Error ? err.message : String(err),
+            }
+          }
+          toolCalls.push({ name: 'attach_image_to_ticket', input, output: out })
+          return out
+        },
+      })
+    })()
+
   const listAvailableReposTool =
     hasSupabase &&
     (() => {
@@ -2099,6 +2172,7 @@ export async function runPmAgent(
     ...(kanbanMoveTicketToTodoTool ? { kanban_move_ticket_to_todo: kanbanMoveTicketToTodoTool } : {}),
     ...(listTicketsByColumnTool ? { list_tickets_by_column: listTicketsByColumnTool } : {}),
     ...(moveTicketToColumnTool ? { move_ticket_to_column: moveTicketToColumnTool } : {}),
+    ...(attachImageToTicketTool ? { attach_image_to_ticket: attachImageToTicketTool } : {}),
     ...(listAvailableReposTool ? { list_available_repos: listAvailableReposTool } : {}),
     ...(kanbanMoveTicketToOtherRepoTodoTool
       ? { kanban_move_ticket_to_other_repo_todo: kanbanMoveTicketToOtherRepoTodoTool }
