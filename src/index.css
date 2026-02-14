@@ -2005,6 +2005,29 @@ body {
   font-style: italic;
 }
 
+.agent-instructions-empty {
+  padding: 3rem 2rem;
+  text-align: center;
+  background: var(--hal-surface-alt);
+  border: 1px solid var(--hal-border);
+  border-radius: 6px;
+  margin-top: 1rem;
+}
+
+.agent-instructions-empty-message {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--hal-text);
+  margin: 0 0 0.75rem 0;
+}
+
+.agent-instructions-empty-hint {
+  font-size: 0.9rem;
+  color: var(--hal-text-muted);
+  margin: 0;
+  line-height: 1.5;
+}
+
 .instruction-detail-header {
   display: flex;
   align-items: center;
