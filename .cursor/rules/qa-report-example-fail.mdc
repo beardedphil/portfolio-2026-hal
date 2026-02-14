@@ -1,0 +1,202 @@
+---
+description: Example QA report (FAIL) demonstrating correct template usage
+alwaysApply: false
+---
+
+# QA Report Example: FAIL
+
+This is a filled example of a QA report using the canonical template (`.cursor/rules/qa-report-template.mdc`) for a **FAIL** verdict. This demonstrates correct usage of the template when QA fails.
+
+---
+
+# QA Report for ticket 0199
+
+## Ticket & Deliverable
+
+**Goal**: Add a dark mode toggle button to the settings page that persists the user's preference.
+
+**Human-verifiable deliverable**: A non-technical user opens the app, navigates to Settings, sees a "Dark mode" toggle switch, clicks it, and observes the entire app UI changes from light to dark theme. The preference persists after page refresh.
+
+**Acceptance criteria**: 
+- [ ] Settings page displays a "Dark mode" toggle switch that is clearly visible and clickable
+- [ ] Clicking the toggle immediately changes the app theme from light to dark (or vice versa) with a smooth transition
+- [ ] The selected theme preference persists after page refresh (the toggle state matches the current theme on reload)
+
+## Verdict
+
+**FAIL**
+
+The implementation adds a dark mode toggle to the settings page, but the theme preference does not persist after page refresh. The toggle state resets to the default (light mode) on reload, even when dark mode was previously selected. Additionally, the theme transition is not smooth (instant change without animation). Two of three acceptance criteria are not met, requiring fixes before the ticket can pass QA.
+
+## Acceptance Criteria Verification
+
+### AC 1: "Settings page displays a "Dark mode" toggle switch that is clearly visible and clickable"
+- **Status:** Met
+- **Evidence:** 
+  - Settings page component: `src/pages/Settings.tsx:45-52`
+  - Toggle switch rendered: `<ToggleSwitch label="Dark mode" checked={isDarkMode} onChange={handleToggle} />`
+  - Toggle is visible and clickable in UI
+  - See Plan artifact for ticket 0199, section "UI Components"
+
+### AC 2: "Clicking the toggle immediately changes the app theme from light to dark (or vice versa) with a smooth transition"
+- **Status:** Not met
+- **Evidence:**
+  - Theme change handler: `src/pages/Settings.tsx:35-40 — handleToggle()` function
+  - Theme updates immediately but without smooth transition
+  - Code review shows no CSS transition or animation applied to theme change
+  - Expected: Smooth fade/transition effect (e.g., `transition: background-color 0.3s ease`)
+  - Actual: Instant theme change with no animation
+  - See Worklog artifact for ticket 0199, section "Implementation Details"
+
+### AC 3: "The selected theme preference persists after page refresh (the toggle state matches the current theme on reload)"
+- **Status:** Not met
+- **Evidence:**
+  - Theme persistence code: `src/utils/theme.ts:12-25 — saveThemePreference()` function
+  - Code attempts to save to localStorage but has a bug: `localStorage.setItem('theme', theme)` is called, but `theme` variable is undefined in the scope
+  - Theme loading code: `src/utils/theme.ts:28-35 — loadThemePreference()` function
+  - Theme loading reads from localStorage but returns `null` when key is missing, causing default (light) mode
+  - Reproduction: Select dark mode, refresh page, toggle resets to light mode
+  - See Git diff artifact for ticket 0199, lines 12-25 and 28-35
+
+## Test Matrix / Scenarios Executed
+
+### Code Review
+- [x] All required implementation artifacts present: Yes
+- [x] Changed Files artifact validation: Pass
+- [x] Code review performed: Yes
+- [x] Build verification (`npm run build:hal` or `tsc -b`): Pass
+- [x] TypeScript errors: None
+- [x] Linter errors: None
+
+### UI Verification
+- [x] Automated UI tests run: No (manual verification required)
+- [x] Manual verification steps executed: Yes
+- [x] Manual verification steps required (for Human in the Loop): Yes (see below)
+
+### Test Scenarios
+1. **Toggle visibility and clickability**: Pass
+   - **Steps:** Navigate to Settings page, locate "Dark mode" toggle
+   - **Expected:** Toggle is visible and clickable
+   - **Actual:** Toggle is visible and clickable ✅
+
+2. **Theme change on toggle click**: Pass (partial)
+   - **Steps:** Click the "Dark mode" toggle
+   - **Expected:** Theme changes from light to dark with smooth transition
+   - **Actual:** Theme changes from light to dark but instantly (no smooth transition) ⚠️
+
+3. **Theme persistence after refresh**: Fail
+   - **Steps:** Select dark mode, refresh page (F5 or Cmd+R)
+   - **Expected:** Theme remains dark, toggle shows dark mode selected
+   - **Actual:** Theme resets to light mode, toggle shows light mode selected ❌
+
+4. **Theme persistence across sessions**: Fail
+   - **Steps:** Select dark mode, close browser, reopen app
+   - **Expected:** Theme remains dark
+   - **Actual:** Theme resets to light mode ❌
+
+5. **Toggle state matches theme on load**: Fail
+   - **Steps:** Select dark mode, refresh page
+   - **Expected:** Toggle shows dark mode selected (checked)
+   - **Actual:** Toggle shows light mode selected (unchecked) ❌
+
+## Evidence
+
+### Implementation Artifacts Verified
+- [x] Plan artifact: Present
+- [x] Worklog artifact: Present
+- [x] Changed Files artifact: Present
+- [x] Decisions artifact: Present
+- [x] Verification artifact: Present
+- [x] PM Review artifact: Present
+- [x] Git diff artifact: Present
+- [x] Instructions Used artifact: Present
+
+### Code Evidence
+- **Files reviewed:** 
+  - `src/pages/Settings.tsx:35-52` (toggle handler and UI)
+  - `src/utils/theme.ts:12-25` (theme persistence - bug: `theme` variable undefined)
+  - `src/utils/theme.ts:28-35` (theme loading - returns null when key missing)
+  - `src/App.tsx:123-145` (theme context provider)
+- **Implementation quality:** Toggle UI is correctly implemented, but theme persistence has a bug and smooth transition is missing
+- **Code quality issues:** 
+  - Bug in `saveThemePreference()`: `theme` variable is undefined in scope (line 18)
+  - Missing error handling in `loadThemePreference()`: returns null instead of default value
+  - No CSS transition applied to theme change (instant change)
+
+### UI Evidence (if applicable)
+- **What was tested:** Manual UI verification of dark mode toggle functionality
+- **What was observed:** 
+  - Toggle is visible and clickable ✅
+  - Theme changes instantly (no smooth transition) ⚠️
+  - Theme does not persist after page refresh ❌
+  - Toggle state does not match theme on reload ❌
+- **Screenshots:** N/A (manual verification performed)
+
+### Build Evidence
+- **Build command:** `npm run build:hal`
+- **Build result:** Pass
+- **Errors:** None (TypeScript compilation succeeds, but runtime bug exists)
+
+## Repro Steps (for failures)
+
+### Failure Summary
+The dark mode toggle changes the theme when clicked, but the theme preference does not persist after page refresh. Additionally, the theme change is instant without a smooth transition.
+
+### Reproduction Steps
+1. Open the HAL app in a browser
+2. Navigate to Settings page (click "Settings" in navigation menu)
+3. Locate the "Dark mode" toggle switch
+4. Click the toggle to enable dark mode
+5. **Observe:** Theme changes from light to dark instantly (no smooth transition)
+6. Refresh the page (F5 or Cmd+R)
+7. **Observe:** Theme resets to light mode (preference not persisted)
+8. **Observe:** Toggle shows light mode selected (state does not match previous selection)
+
+### Expected vs Actual
+- **Expected:** 
+  - Theme changes with smooth transition (fade effect over ~0.3s)
+  - Theme preference persists after page refresh (dark mode remains selected)
+  - Toggle state matches current theme on reload (if dark was selected, toggle shows dark)
+- **Actual:** 
+  - Theme changes instantly (no transition)
+  - Theme preference does not persist (resets to light mode on refresh)
+  - Toggle state does not match previous selection (always shows light mode on reload)
+
+### Suspected Area
+- **Theme persistence bug:** `src/utils/theme.ts:18` — `localStorage.setItem('theme', theme)` where `theme` variable is undefined in scope
+- **Theme loading bug:** `src/utils/theme.ts:32` — `loadThemePreference()` returns `null` when localStorage key is missing, causing default (light) mode
+- **Missing transition:** No CSS transition applied to theme change in `src/App.tsx:123-145` (theme context provider) or global CSS
+
+### Additional Context
+- The bug in `saveThemePreference()` prevents the theme from being saved to localStorage
+- The `loadThemePreference()` function should return a default value ('light') instead of `null` when the key is missing
+- A CSS transition should be added to the theme change (e.g., `transition: background-color 0.3s ease, color 0.3s ease`)
+
+## Environment
+
+- **App version/branch:** `ticket/0199-implementation`
+- **Browser/Platform:** Chrome 120.0.6099.109
+- **OS:** macOS 14.2.1
+- **Node version:** Node.js 20.10.0
+- **Build environment:** Local
+- **Verification method:** Code review + UI verification
+
+## Notes / Risks
+
+### Notes
+- Toggle UI implementation is correct and functional
+- Theme change works in real-time (instant change)
+- Theme persistence logic exists but has a bug preventing it from working
+- Smooth transition is missing but is a minor UX issue compared to persistence bug
+
+### Risks
+- Users will lose their theme preference on every page refresh, causing frustration
+- The bug in `saveThemePreference()` may indicate broader scope issues with variable scoping
+- Missing error handling in `loadThemePreference()` could cause issues if localStorage is disabled or unavailable
+
+### Recommendations
+1. **Fix theme persistence bug:** Correct the `theme` variable scope in `saveThemePreference()` function (`src/utils/theme.ts:18`)
+2. **Fix theme loading:** Update `loadThemePreference()` to return a default value ('light') instead of `null` when key is missing
+3. **Add smooth transition:** Apply CSS transition to theme change (e.g., `transition: background-color 0.3s ease, color 0.3s ease`)
+4. **Add error handling:** Handle cases where localStorage is disabled or unavailable
+5. **Re-test:** After fixes, verify all three acceptance criteria are met before moving to Human in the Loop

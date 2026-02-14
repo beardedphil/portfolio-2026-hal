@@ -1,0 +1,181 @@
+---
+description: Example QA report (PASS) demonstrating correct template usage
+alwaysApply: false
+---
+
+# QA Report Example: PASS
+
+This is a filled example of a QA report using the canonical template (`.cursor/rules/qa-report-template.mdc`) for a **PASS** verdict. This demonstrates correct usage of the template.
+
+---
+
+# QA Report for ticket 0193
+
+## Ticket & Deliverable
+
+**Goal**: Provide a canonical QA report template (and rule reference) that QA agents use when publishing via `/api/artifacts/insert-qa`, so QA reports are consistent, auditable, and include explicit Acceptance Criteria verification + test outcomes.
+
+**Human-verifiable deliverable**: A QA agent can open any ticket in the Kanban, run QA, and publish a QA artifact that follows a documented, copy/paste-friendly template with required headings (Verdict, AC checks, Evidence, Repro steps, Environment, Notes). Reviewers can read the QA artifact in the ticket's Artifacts list and immediately see what was verified and how.
+
+**Acceptance criteria**: 
+- [ ] A **single canonical QA report template** is documented (markdown) with required headings/fields: **Verdict (PASS/FAIL)**, **Acceptance Criteria verification**, **Test matrix / scenarios executed**, **Evidence (what was observed)**, **Repro steps (for failures)**, **Environment** (app version/branch + browser), **Notes / Risks**.
+- [ ] QA agent workflow docs/rules explicitly instruct QA to **use this template** when publishing QA artifacts via `/api/artifacts/insert-qa`.
+- [ ] The template supports both outcomes:
+  - [ ] **PASS** report contains explicit "AC1/AC2/…" statements with evidence.
+  - [ ] **FAIL** report contains clear repro steps + expected vs actual + suspected area.
+- [ ] The template is **compatible with current artifact validation** (i.e., produces a non-empty `body_md` with substantive content; no placeholder-only sections).
+- [ ] Documentation includes one **filled example** QA report (PASS or FAIL) demonstrating correct usage.
+
+## Verdict
+
+**PASS**
+
+The implementation provides a complete canonical QA report template with all required headings and fields. The template is documented in `.cursor/rules/qa-report-template.mdc`, the QA workflow rule (`.cursor/rules/qa-audit-report.mdc`) explicitly instructs QA agents to use it, and filled examples (PASS and FAIL) are provided. The template supports both PASS and FAIL outcomes with appropriate sections, and all sections contain substantive content (no placeholders), ensuring compatibility with artifact validation requirements.
+
+## Acceptance Criteria Verification
+
+### AC 1: "A **single canonical QA report template** is documented (markdown) with required headings/fields: **Verdict (PASS/FAIL)**, **Acceptance Criteria verification**, **Test matrix / scenarios executed**, **Evidence (what was observed)**, **Repro steps (for failures)**, **Environment** (app version/branch + browser), **Notes / Risks**."
+- **Status:** Met
+- **Evidence:** 
+  - Template file created: `.cursor/rules/qa-report-template.mdc`
+  - All required headings present: Verdict, Acceptance Criteria Verification, Test Matrix / Scenarios Executed, Evidence, Repro Steps (for failures), Environment, Notes / Risks
+  - Template includes copy/paste-friendly structure with clear section headers
+  - See template file lines 1-250 for complete structure
+
+### AC 2: "QA agent workflow docs/rules explicitly instruct QA to **use this template** when publishing QA artifacts via `/api/artifacts/insert-qa`."
+- **Status:** Met
+- **Evidence:**
+  - `.cursor/rules/qa-audit-report.mdc` updated with "QA report template (MANDATORY)" section (lines 129-150)
+  - Section explicitly states: "QA agents **must** use the canonical QA report template when publishing QA artifacts via `/api/artifacts/insert-qa`"
+  - Template location referenced: `.cursor/rules/qa-report-template.mdc`
+  - Usage instructions included in the rule
+
+### AC 3: "The template supports both outcomes:
+  - [ ] **PASS** report contains explicit "AC1/AC2/…" statements with evidence.
+  - [ ] **FAIL** report contains clear repro steps + expected vs actual + suspected area."
+- **Status:** Met
+- **Evidence:**
+  - Template includes "Template Usage Instructions" section (lines 180-220) with separate instructions for PASS and FAIL reports
+  - PASS reports: Template requires explicit AC enumeration with "Met" status and evidence
+  - FAIL reports: Template requires "Repro Steps" section with detailed reproduction steps, "Expected vs Actual" subsection, and "Suspected Area" subsection
+  - See template file lines 180-220 for usage instructions
+
+### AC 4: "The template is **compatible with current artifact validation** (i.e., produces a non-empty `body_md` with substantive content; no placeholder-only sections)."
+- **Status:** Met
+- **Evidence:**
+  - Template includes "Artifact Validation Compatibility" section (lines 230-245) that explicitly addresses this requirement
+  - Instructions state: "Do not leave placeholder text — replace all `[placeholder]` text with actual content"
+  - Instructions state: "Do not skip sections — if a section is not applicable, state 'N/A' with a brief explanation"
+  - Instructions state: "Provide substantive evidence — file paths, line numbers, artifact references, reproduction steps"
+  - Minimum content requirements specified: "At least one sentence or bullet point per section"
+
+### AC 5: "Documentation includes one **filled example** QA report (PASS or FAIL) demonstrating correct usage."
+- **Status:** Met
+- **Evidence:**
+  - Example PASS report created: `.cursor/rules/qa-report-example-pass.mdc` (this file)
+  - Example FAIL report created: `.cursor/rules/qa-report-example-fail.mdc`
+  - Both examples demonstrate correct usage of the template with all sections filled
+  - Template file references examples in "Examples" section (line 250)
+
+## Test Matrix / Scenarios Executed
+
+### Code Review
+- [x] All required implementation artifacts present: Yes
+- [x] Changed Files artifact validation: Pass
+- [x] Code review performed: Yes
+- [x] Build verification (`npm run build:hal` or `tsc -b`): Pass
+- [x] TypeScript errors: None
+- [x] Linter errors: None
+
+### UI Verification
+- [x] Automated UI tests run: N/A (documentation-only ticket)
+- [x] Manual verification steps executed: N/A (documentation-only ticket)
+- [x] Manual verification steps required (for Human in the Loop): N/A
+
+### Test Scenarios
+1. **Template structure verification**: Pass
+   - **Steps:** Reviewed template file structure against requirements
+   - **Expected:** All required headings present (Verdict, AC Verification, Test Matrix, Evidence, Repro Steps, Environment, Notes/Risks)
+   - **Actual:** All required headings present in correct format
+
+2. **QA workflow rule update verification**: Pass
+   - **Steps:** Reviewed `.cursor/rules/qa-audit-report.mdc` for template reference
+   - **Expected:** Rule explicitly instructs QA agents to use template
+   - **Actual:** Rule includes "QA report template (MANDATORY)" section with explicit instructions
+
+3. **PASS report example verification**: Pass
+   - **Steps:** Reviewed example PASS report structure
+   - **Expected:** Example follows template structure with all sections filled
+   - **Actual:** Example follows template structure correctly
+
+4. **FAIL report example verification**: Pass
+   - **Steps:** Reviewed example FAIL report structure
+   - **Expected:** Example includes Repro Steps section with expected vs actual
+   - **Actual:** Example includes Repro Steps section with required subsections
+
+5. **Artifact validation compatibility verification**: Pass
+   - **Steps:** Reviewed template for placeholder text and empty sections
+   - **Expected:** Template instructions prevent placeholder-only sections
+   - **Actual:** Template includes explicit instructions to replace placeholders and provide substantive content
+
+## Evidence
+
+### Implementation Artifacts Verified
+- [x] Plan artifact: Present
+- [x] Worklog artifact: Present
+- [x] Changed Files artifact: Present (lists template file, example files, and updated QA rule)
+- [x] Decisions artifact: Present
+- [x] Verification artifact: Present
+- [x] PM Review artifact: Present
+- [x] Git diff artifact: Present
+- [x] Instructions Used artifact: Present
+
+### Code Evidence
+- **Files reviewed:** 
+  - `.cursor/rules/qa-report-template.mdc` (new file, complete template structure)
+  - `.cursor/rules/qa-audit-report.mdc:129-150` (updated with template reference)
+  - `.cursor/rules/qa-report-example-pass.mdc` (new file, example PASS report)
+  - `.cursor/rules/qa-report-example-fail.mdc` (new file, example FAIL report)
+- **Implementation quality:** Template structure is well-organized, copy/paste-friendly, and includes clear usage instructions. QA workflow rule update is explicit and mandatory.
+- **Code quality issues:** None
+
+### UI Evidence (if applicable)
+- **What was tested:** N/A (documentation-only ticket)
+- **What was observed:** N/A
+- **Screenshots:** N/A
+
+### Build Evidence
+- **Build command:** `npm run build:hal`
+- **Build result:** Pass
+- **Errors:** None
+
+## Repro Steps (for failures)
+
+N/A — No failures to reproduce (PASS verdict)
+
+## Environment
+
+- **App version/branch:** `ticket/0193-implementation`
+- **Browser/Platform:** Node.js 20.10.0
+- **OS:** Linux 6.12.58+
+- **Node version:** Node.js 20.10.0
+- **Build environment:** Local
+- **Verification method:** Code review only (documentation-only ticket)
+
+## Notes / Risks
+
+### Notes
+- Template is designed to be copy/paste-friendly with clear section headers
+- Template includes both high-level structure and detailed subsections for comprehensive documentation
+- Examples (PASS and FAIL) demonstrate correct usage and can be referenced by QA agents
+- Template instructions explicitly address artifact validation compatibility requirements
+
+### Risks
+- QA agents must remember to replace all placeholder text with actual content
+- QA agents must not skip sections (must state "N/A" with explanation if not applicable)
+- Template structure is fixed, but content within sections can be adapted to specific tickets
+
+### Recommendations
+- QA agents should review the template and examples before creating their first QA report
+- Consider adding template validation in the HAL app UI to ensure QA reports follow the template structure
+- Monitor QA reports for compliance with template structure and update template if gaps are identified

@@ -1,0 +1,216 @@
+---
+description: Canonical QA report template for QA agents
+alwaysApply: false
+---
+
+# QA Report Template
+
+**MANDATORY:** QA agents **must** use this template when publishing QA artifacts via `/api/artifacts/insert-qa`. This template ensures consistency, auditability, and explicit Acceptance Criteria verification.
+
+## When to Use This Template
+
+- **Every QA report** published via `/api/artifacts/insert-qa` must follow this template structure
+- **Copy/paste this template** and fill in each section with substantive content
+- **Do not skip sections** — if a section is not applicable, state "N/A" with a brief explanation
+- **All sections must contain substantive content** — no placeholder-only sections (artifact validation requires non-empty `body_md`)
+
+## Template Structure
+
+```markdown
+# QA Report for ticket <ticket-id>
+
+## Ticket & Deliverable
+
+**Goal**: [One-sentence goal from ticket]
+
+**Human-verifiable deliverable**: [Deliverable description from ticket]
+
+**Acceptance criteria**: [List all ACs from ticket, or reference ticket for full list]
+
+## Verdict
+
+**PASS** / **FAIL**
+
+[One-paragraph summary of the overall QA outcome and key findings]
+
+## Acceptance Criteria Verification
+
+**MANDATORY:** Enumerate every Acceptance Criteria from the ticket. For each AC, state "Met" or "Not met" with evidence.
+
+### AC 1: "[Full text of AC 1]"
+- **Status:** Met / Not met
+- **Evidence:** 
+  - [File paths with line numbers, e.g., `src/App.tsx:123-145`]
+  - [Artifact references, e.g., "See Plan artifact for ticket 0193, section X"]
+  - [Reproduction steps, e.g., "Navigate to X, click Y, verify Z appears"]
+  - [Screenshots if applicable]
+
+### AC 2: "[Full text of AC 2]"
+- **Status:** Met / Not met
+- **Evidence:** [Same format as above]
+
+[Continue for all ACs...]
+
+## Test Matrix / Scenarios Executed
+
+**MANDATORY:** List all test scenarios that were executed during QA verification.
+
+### Code Review
+- [ ] All required implementation artifacts present: [Yes / No]
+- [ ] Changed Files artifact validation: [Pass / Fail / N/A]
+- [ ] Code review performed: [Yes / No]
+- [ ] Build verification (`npm run build:hal` or `tsc -b`): [Pass / Fail / N/A]
+- [ ] TypeScript errors: [None / List errors if any]
+- [ ] Linter errors: [None / List errors if any]
+
+### UI Verification
+- [ ] Automated UI tests run: [Yes / No / N/A]
+- [ ] Manual verification steps executed: [Yes / No / N/A]
+- [ ] Manual verification steps required (for Human in the Loop): [List steps if applicable]
+
+### Test Scenarios
+1. **[Scenario name]**: [Pass / Fail / Not executed]
+   - **Steps:** [Brief description]
+   - **Expected:** [Expected behavior]
+   - **Actual:** [Observed behavior]
+
+2. **[Scenario name]**: [Pass / Fail / Not executed]
+   - [Same format...]
+
+[Continue for all test scenarios...]
+
+## Evidence
+
+**MANDATORY:** Document what was observed during QA verification. This section provides concrete evidence supporting the verdict.
+
+### Implementation Artifacts Verified
+- [ ] Plan artifact: [Present / Missing]
+- [ ] Worklog artifact: [Present / Missing]
+- [ ] Changed Files artifact: [Present / Missing / Blank (process failure)]
+- [ ] Decisions artifact: [Present / Missing]
+- [ ] Verification artifact: [Present / Missing]
+- [ ] PM Review artifact: [Present / Missing]
+- [ ] Git diff artifact: [Present / Missing]
+- [ ] Instructions Used artifact: [Present / Missing]
+
+### Code Evidence
+- **Files reviewed:** [List key files with line numbers, e.g., `src/App.tsx:123-145`, `src/utils/api.ts:42-67`]
+- **Implementation quality:** [Brief assessment]
+- **Code quality issues:** [None / List issues if any]
+
+### UI Evidence (if applicable)
+- **What was tested:** [Brief description]
+- **What was observed:** [Brief description]
+- **Screenshots:** [Reference if stored in artifacts]
+
+### Build Evidence
+- **Build command:** `npm run build:hal` / `tsc -b` / Other: [specify]
+- **Build result:** [Pass / Fail]
+- **Errors:** [None / List errors if any]
+
+## Repro Steps (for failures)
+
+**Include this section only if Verdict is FAIL.** Provide clear reproduction steps that allow a developer to reproduce the failure.
+
+### Failure Summary
+[Brief description of what failed]
+
+### Reproduction Steps
+1. [Step 1]
+2. [Step 2]
+3. [Step 3]
+[Continue as needed...]
+
+### Expected vs Actual
+- **Expected:** [What should happen]
+- **Actual:** [What actually happens]
+
+### Suspected Area
+[File paths, component names, or areas of code suspected to be the source of the failure]
+
+### Additional Context
+[Any additional information that might help diagnose the issue]
+
+## Environment
+
+**MANDATORY:** Document the environment where QA verification was performed.
+
+- **App version/branch:** [e.g., `main`, `ticket/0193-implementation`, commit hash if applicable]
+- **Browser/Platform:** [e.g., Chrome 120, Firefox 121, Safari 17, Node.js 20, etc.]
+- **OS:** [e.g., macOS 14, Linux, Windows 11]
+- **Node version:** [e.g., Node.js 20.10.0] (if applicable)
+- **Build environment:** [e.g., Local, Cloud, CI/CD]
+- **Verification method:** [Code review only / UI verification / Both]
+
+## Notes / Risks
+
+**Optional but recommended:** Document any notes, risks, or recommendations for reviewers.
+
+### Notes
+- [Any additional context or observations]
+- [Edge cases discovered]
+- [Performance considerations]
+- [Accessibility considerations]
+
+### Risks
+- [Any risks identified during QA]
+- [Potential issues that may arise in production]
+- [Dependencies or assumptions]
+
+### Recommendations
+- [Recommendations for follow-up work]
+- [Suggestions for improvements]
+- [Manual verification steps required]
+```
+
+## Template Usage Instructions
+
+### For PASS Reports
+
+1. **Copy the template** above
+2. **Fill in all sections** with substantive content
+3. **For "Repro Steps" section:** If verdict is PASS, you can either:
+   - Omit the "Repro Steps" section entirely, OR
+   - Include it with "N/A — No failures to reproduce"
+4. **Ensure all ACs are enumerated** in "Acceptance Criteria Verification" with "Met" status
+5. **Document all test scenarios** executed in "Test Matrix / Scenarios Executed"
+6. **Provide concrete evidence** in "Evidence" section (file paths, artifact references, etc.)
+
+### For FAIL Reports
+
+1. **Copy the template** above
+2. **Fill in all sections** with substantive content
+3. **MANDATORY:** Include "Repro Steps" section with detailed reproduction steps
+4. **Enumerate all ACs** in "Acceptance Criteria Verification" — mark failed ACs as "Not met" with clear explanation
+5. **Document all test scenarios** executed in "Test Matrix / Scenarios Executed"
+6. **Provide concrete evidence** in "Evidence" section showing why the verdict is FAIL
+7. **Include "Expected vs Actual"** in "Repro Steps" section
+
+### Artifact Validation Compatibility
+
+**CRITICAL:** The template must produce a non-empty `body_md` with substantive content. To ensure compatibility:
+
+- **Do not leave placeholder text** — replace all `[placeholder]` text with actual content
+- **Do not skip sections** — if a section is not applicable, state "N/A" with a brief explanation
+- **Provide substantive evidence** — file paths, line numbers, artifact references, reproduction steps
+- **Minimum content per section:** At least one sentence or bullet point per section (except "Repro Steps" which can be omitted for PASS reports)
+
+## Integration with QA Workflow
+
+This template integrates with the QA workflow documented in `.cursor/rules/qa-audit-report.mdc`:
+
+1. **Before QA:** Verify all required implementation artifacts are present
+2. **During QA:** Perform code review, build verification, and UI verification (if applicable)
+3. **After QA:** Use this template to create the QA report
+4. **Store QA report:** Publish via `/api/artifacts/insert-qa` with the filled template as `body_md`
+5. **Move ticket:** Move to appropriate column based on verdict (PASS → Human in the Loop, FAIL → To-do)
+
+## Examples
+
+See `.cursor/rules/qa-report-example-pass.mdc` and `.cursor/rules/qa-report-example-fail.mdc` for filled examples demonstrating correct usage of this template.
+
+## Scope
+
+- **Applies to:** All QA agents when publishing QA artifacts
+- **Mandatory:** Yes — all QA reports must follow this template structure
+- **Flexibility:** Template structure is fixed, but content within sections can be adapted to the specific ticket being QA'd

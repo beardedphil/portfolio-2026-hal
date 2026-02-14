@@ -126,20 +126,28 @@ QA RESULT: FAIL — 0076
 - **Agent type:** `qa`
 - **Title format:** `QA report for ticket <ticket-id>`
 
-## QA report structure
+## QA report template (MANDATORY)
 
-1. **Ticket & deliverable** — One-line goal, deliverable, and acceptance criteria from the ticket.
-2. **Missing Required Implementation Artifacts** (if applicable) — List of missing artifacts. If artifacts are missing, this section must be present and QA must fail.
-3. **Audit artifacts** — Confirm all required implementation artifacts are present in Supabase (plan, worklog, changed-files, decisions, verification, pm-review). Only include this section if all artifacts are present.
-   - **Changed Files artifact verification (MANDATORY):** Verify that the Changed Files artifact is non-empty and follows requirements:
-     - If files changed: Must list file paths with brief per-file descriptions (one line each)
-     - If no files changed: Must explicitly state "No files changed." followed by a brief reason (e.g., "Docs-only ticket handled via Supabase updates", "Investigation only", "Repro failed; no code changes made")
-     - If Changed Files artifact is blank, empty, or omitted: QA **MUST FAIL** — this is a process failure
-4. **Code review** — PASS/FAIL with brief evidence (e.g. table of requirement vs implementation; file and line refs if helpful). Only include if artifacts are present.
-5. **Build verification** — **MANDATORY:** Run `npm run build:hal` (or `tsc -b`) and verify it completes with zero TypeScript errors. If TypeScript errors exist, QA **MUST FAIL** immediately. Document the build result (PASS/FAIL) and any TypeScript errors found. Only include if artifacts are present.
-6. **UI verification** — What was run: automated and/or manual steps. If automated UI was not run (e.g. native dialogs, login, or pickers), state that and list the manual steps the user should run. Only include if artifacts are present.
-7. **AC Confirmation Checklist** — **MANDATORY:** Enumerate every Acceptance Criteria from the ticket. For each AC, state "Met" or "Not met" with evidence (artifact links, file paths, screenshots, or reproduction steps). If any AC is not met, QA **MUST FAIL**. See `.cursor/rules/ac-confirmation-checklist.mdc` for full requirements. Only include if artifacts are present.
-8. **Verdict** — Implementation complete? OK to merge? Any blocking manual verification? Must clearly state PASS or FAIL.
+**MANDATORY:** QA agents **must** use the canonical QA report template when publishing QA artifacts via `/api/artifacts/insert-qa`.
+
+- **Template location:** `.cursor/rules/qa-report-template.mdc`
+- **Usage:** Copy the template structure and fill in all sections with substantive content
+- **Do not skip sections** — if a section is not applicable, state "N/A" with a brief explanation
+- **All sections must contain substantive content** — no placeholder-only sections (artifact validation requires non-empty `body_md`)
+
+The template includes the following required sections:
+1. **Ticket & Deliverable** — Goal, deliverable, and acceptance criteria from the ticket
+2. **Verdict** — PASS/FAIL with summary
+3. **Acceptance Criteria Verification** — **MANDATORY:** Enumerate every AC with "Met"/"Not met" status and evidence
+4. **Test Matrix / Scenarios Executed** — All test scenarios executed during QA
+5. **Evidence** — What was observed (artifacts verified, code evidence, UI evidence, build evidence)
+6. **Repro Steps (for failures)** — Clear reproduction steps (only for FAIL verdicts)
+7. **Environment** — App version/branch, browser/platform, OS, Node version, build environment
+8. **Notes / Risks** — Optional but recommended: notes, risks, recommendations
+
+**See `.cursor/rules/qa-report-template.mdc` for the complete template structure and usage instructions.**
+
+**Examples:** See `.cursor/rules/qa-report-example-pass.mdc` and `.cursor/rules/qa-report-example-fail.mdc` for filled examples demonstrating correct usage.
 
 ## Storing QA report
 
