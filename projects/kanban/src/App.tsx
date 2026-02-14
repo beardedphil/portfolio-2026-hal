@@ -754,7 +754,18 @@ function ArtifactReportViewer({
         <div className="ticket-detail-body-wrap">
           <div className="ticket-detail-body">
             {artifact.body_md && artifact.body_md.trim().length > 0 ? (
-              <ReactMarkdown components={markdownComponents}>{artifact.body_md}</ReactMarkdown>
+              <>
+                {/* Debug: show raw markdown */}
+                {process.env.NODE_ENV === 'development' && (
+                  <details style={{ marginBottom: '1rem', fontSize: '0.8rem' }}>
+                    <summary>Debug: Raw markdown (first 200 chars)</summary>
+                    <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                      {artifact.body_md.substring(0, 200)}...
+                    </pre>
+                  </details>
+                )}
+                <ReactMarkdown components={markdownComponents}>{artifact.body_md}</ReactMarkdown>
+              </>
             ) : (
               <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
                 No output produced. This artifact was created but contains no content.
