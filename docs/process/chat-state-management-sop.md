@@ -1,445 +1,583 @@
 # Chat state management SOP (disconnect/reconnect)
 
-**Purpose:** This SOP defines how agents must handle chat state during disconnect/reconnect scenarios to prevent duplicate messages, duplicate artifacts, blank "shell" artifacts, and ensure consistent state recovery.
+This SOP defines how agents must handle chat state during disconnect/reconnect scenarios to prevent duplicate messages, duplicate artifacts, blank "shell" artifacts, and state inconsistencies.
 
 ## Authoritative sources of truth
 
-### Conversation state
+### Primary source: Supabase
 
-**Primary source of truth:** `hal_conversation_messages` table in Supabase
-- **Location:** `src/App.tsx:616-820` — `loadConversationsForProject()` function
-- Messages are stored with `project_id`, `agent` (conversation ID), `sequence` (message ID), `role`, `content`, `created_at`
-- Conversation IDs follow format: `{agent-role}-{instanceNumber}` (e.g., `project-manager-1`, `implementation-agent-2`)
+**Supabase is the authoritative source of truth** for all persistent chat state:
 
-**Secondary source (fallback):** `localStorage` (`hal-chat-conversations-{projectName}`)
-- **Location:** `src/App.tsx:226-255` — `loadConversationsFromStorage()` function
-- Used for immediate UI display on reconnect before Supabase loads
-- **Ephemeral:** Supabase data always takes precedence when available
+1. **Conversations and messages** (`hal_conversation_messages` table)
+   - **Fields**: `project_id`, `agent` (conversation ID), `role`, `content`, `sequence`, `created_at`, `images`
+   - **Key**: Messages are identified by `(project_id, agent, sequence)` tuple
+   - **Usage**: Always rehydrate conversation history from this table on reconnect
+   - **Constraint**: Sequence numbers must be monotonically increasing per conversation
 
-**Ephemeral (do not rely on):**
-- In-memory React state (`conversations` Map in `src/App.tsx`)
-- Browser session state
-- Client-side message IDs that haven't been persisted
+2. **Conversation summaries** (`hal_conversation_summaries` table)
+   - **Fields**: `project_id`, `agent`, `summary_text`, `through_sequence`, `updated_at`
+   - **Usage**: Provides bounded context for older messages; updated by HAL when needed
 
-### Ticket and artifact state
+3. **Artifacts** (`agent_artifacts` table)
+   - **Fields**: `artifact_id`, `ticket_pk`, `repo_full_name`, `agent_type`, `artifact_type`, `title`, `body_md`, `created_at`, `updated_at`
+   - **Key**: Artifacts are identified by canonical identifier: `(ticket_pk, agent_type, artifact_type)`
+   - **Usage**: Always check for existing artifacts before inserting; use idempotency keys if available
+   - **Note**: Artifact types are extracted from titles (e.g., "Plan for ticket 0121" → `plan`)
 
-**Primary source of truth:** Supabase tables
-- **Tickets:** `tickets` table (via HAL API `/api/tickets/get`)
-- **Artifacts:** `agent_artifacts` table (via HAL API `/api/artifacts/get`)
-- **Location:** HAL API endpoints in `api/tickets/get.ts` and `api/artifacts/get.ts`
+4. **Tickets** (`tickets` table)
+   - **Fields**: `pk`, `ticket_number`, `display_id`, `repo_full_name`, `body_md`, `column_id`, `position`, etc.
+   - **Key**: Tickets are identified by `ticket_number` (repo-scoped) or `id` (legacy)
+   - **Usage**: Always re-fetch ticket content from Supabase; never rely on in-memory state
 
-**Ephemeral (do not rely on):**
-- In-memory ticket content from previous session
-- Cached artifact content
-- Local file system state (tickets are Supabase-only)
+5. **Kanban columns** (`kanban_columns` table)
+   - **Fields**: `id`, `title`, `position`, etc.
+   - **Usage**: Re-fetch column structure on reconnect
 
-### Message deduplication
+### Secondary source: localStorage (fallback only)
 
-**Message IDs are authoritative:** Messages are deduplicated by `sequence` (message ID) within each conversation
-- **Location:** `src/App.tsx:1642-1647` — `addMessage()` function checks for existing message ID
-- **Database constraint:** `hal_conversation_messages` table has unique constraint on `(project_id, agent, sequence)`
-- **Client-side check:** Before adding a message, check if `msg.id === nextId` already exists in conversation
+**localStorage is a fallback/backup**, not an authoritative source:
 
-### Artifact deduplication
+- **Purpose**: Provide immediate UI state restoration when Supabase is unavailable or slow
+- **Storage key format**: `hal-chat-conversations-<projectName>`
+- **When to use**: 
+  - Load from localStorage first (synchronously) to show conversations immediately after reconnect
+  - Then load from Supabase asynchronously and merge/overwrite with Supabase data (Supabase takes precedence)
+- **When NOT to use**: Never use localStorage as the source of truth when Supabase is available
 
-**Artifacts are deduplicated by canonical ID:**
-- **Location:** `api/artifacts/insert-implementation.ts:200-300` and `api/artifacts/insert-qa.ts:200-300`
-- **Canonical ID:** `(ticket_pk, agent_type, artifact_type, canonical_title)`
-- **Strategy:** Find existing artifacts by canonical ID, delete duplicates, then update or insert
-- **Validation:** Artifacts must pass `hasSubstantiveContent()` check` (minimum 50 chars for implementation, 100 chars for QA)
-- **Location:** `api/artifacts/_validation.ts:11-87`
+**CRITICAL**: Supabase data **always overwrites** localStorage data. localStorage is only for immediate UI feedback.
+
+### Ephemeral state (must be rebuilt)
+
+The following state is **ephemeral** and must be reset on disconnect/reconnect:
+
+1. **In-memory conversation transcripts** - Rebuild from `hal_conversation_messages`
+2. **In-memory ticket cache** - Rebuild from `tickets` table
+3. **In-memory artifact cache** - Rebuild from `agent_artifacts` table
+4. **UI state** (React state, component state) - Rebuild from Supabase queries
+5. **Tool call results** - Rebuild from artifacts/messages if needed
+6. **Context pack summaries** - Rebuild from `hal_conversation_summaries` and recent messages
+7. **Session-specific state** (must be reset):
+   - `pmLastResponseId` (OpenAI Responses API continuity) — reset on disconnect and when connecting to a project
+   - `implAgentTicketId`, `qaAgentTicketId` (current ticket context) — reset on disconnect
+   - `autoMoveDiagnostics` (diagnostic messages) — reset on disconnect
+   - `cursorRunAgentType` (current agent run type) — reset on disconnect
+   - `orphanedCompletionSummary` (temporary completion state) — reset on disconnect
+   - `messageIdRef.current`, `pmMaxSequenceRef.current` (local sequence counters) — reset on disconnect
+   - `agentSequenceRefs.current` (per-conversation sequence tracking) — reset on disconnect
+
+**Rationale**: These are session-specific and should not persist across disconnects. Each reconnect starts a fresh session.
+
+**CRITICAL**: Never assume in-memory state persists across disconnects. Always re-fetch from Supabase.
 
 ## Reconnect checklist
 
-When an agent reconnects (page refresh, network reconnect, or session restore), follow these steps **in order**:
+When an agent reconnects after a disconnect (network failure, process restart, session timeout, etc.), follow this checklist **in order**:
 
-### 1. Rehydrate conversation list and active conversation from database
-
-**MANDATORY:** Always load conversations from Supabase first, then merge with localStorage fallback.
+### 1. Rehydrate conversation list and active conversation from the database
 
 **Steps:**
-1. **Load from localStorage (synchronously)** — `src/App.tsx:628-642`
-   - Call `loadConversationsFromStorage(projectName)` to get immediate UI state
-   - Ensure PM conversation exists (create empty if missing)
-   - Set conversations state immediately for fast UI render
 
-2. **Load from Supabase (asynchronously)** — `src/App.tsx:649-820`
-   - Query `hal_conversation_messages` table filtered by `project_id`
-   - Group messages by `agent` (conversation ID)
-   - Load most recent `MESSAGES_PER_PAGE` messages per conversation (pagination)
-   - Build `Conversation` objects with messages sorted by `sequence`
+1. **Load from localStorage first** (synchronously, for immediate UI feedback):
+   ```typescript
+   const loadResult = loadConversationsFromStorage(projectName)
+   const restoredConversations = loadResult.conversations || new Map<string, Conversation>()
+   // Ensure PM conversation exists even if no messages were loaded
+   const pmConvId = getConversationId('project-manager', 1)
+   if (!restoredConversations.has(pmConvId)) {
+     restoredConversations.set(pmConvId, {
+       id: pmConvId,
+       agentRole: 'project-manager',
+       instanceNumber: 1,
+       messages: [],
+       createdAt: new Date(),
+     })
+   }
+   setConversations(restoredConversations) // Show immediately
+   ```
 
-3. **Merge conversations** — `src/App.tsx:797-817`
-   - Start with localStorage conversations (ensures all conversations visible)
-   - Overwrite with Supabase data (Supabase takes precedence)
-   - Ensure PM conversation exists even if no messages loaded
+2. **Load from Supabase asynchronously** (authoritative source):
+   - Query `hal_conversation_messages` for the current `(project_id, agent)` pair
+   - Order by `sequence` ASC to reconstruct message order
+   - Load ALL conversations from Supabase (not just PM)
+   - Load only the most recent MESSAGES_PER_PAGE messages per conversation for initial load
+   - Group messages by agent (conversation ID format: "agent-role-instanceNumber")
+   - Merge/overwrite localStorage data with Supabase data (Supabase takes precedence)
+   - Identify the active conversation by checking the most recent `sequence` value
+   - Load conversation summary from `hal_conversation_summaries` if available (for context pack)
 
-4. **Restore selected conversation** — `src/App.tsx:912-928`
-   - Read `hal-selected-conversation-{projectName}` from localStorage
-   - Set `selectedConversationId` if conversation exists in loaded conversations
+   ```typescript
+   if (url && key) {
+     const supabase = getSupabaseClient(url, key)
+     // Load ALL conversations from Supabase (not just PM)
+     // Load only the most recent MESSAGES_PER_PAGE messages per conversation for initial load
+     // Group messages by agent (conversation ID format: "agent-role-instanceNumber")
+     // Merge/overwrite localStorage data with Supabase data (Supabase takes precedence)
+   }
+   ```
 
-**Code locations:**
-- `src/App.tsx:616-820` — `loadConversationsForProject()` function
-- `src/App.tsx:226-255` — `loadConversationsFromStorage()` function
-- `src/App.tsx:912-928` — Restore selected conversation effect
+   **Example query pattern:**
+   ```sql
+   SELECT * FROM hal_conversation_messages
+   WHERE project_id = $1 AND agent = $2
+   ORDER BY sequence ASC;
+   ```
+
+3. **Update sequence tracking**:
+   - For each conversation, set `agentSequenceRefs.current.set(convId, maxSequence)` based on loaded messages
+   - Update `pmMaxSequenceRef.current` for PM conversation (backward compatibility)
+
+**Critical**: Supabase data **always overwrites** localStorage data. localStorage is only for immediate UI feedback.
 
 ### 2. Re-fetch ticket content and artifacts from Supabase
 
-**MANDATORY:** Never rely on in-memory state for tickets or artifacts. Always fetch fresh data from Supabase.
+**Do not rely on in-memory state** for tickets or artifacts. Always re-fetch from Supabase:
 
-**Steps:**
-1. **Fetch ticket content** — Use HAL API endpoint:
-   ```javascript
-   const baseUrl = (await readFile('.hal/api-base-url', 'utf8')).trim()
-   const res = await fetch(`${baseUrl}/api/tickets/get`, {
-     method: 'POST',
-     headers: { 'Content-Type': 'application/json' },
-     body: JSON.stringify({ ticketId: 'HAL-0177' }),
-   })
-   const result = await res.json()
-   if (!result.success) throw new Error(result.error)
-   // Use result.ticket for ticket content
-   ```
+- [ ] **Re-fetch ticket content** using HAL API endpoint `/api/tickets/get` or direct Supabase query
+  - Do not rely on ticket content stored in conversation messages
+  - Do not use in-memory ticket cache
 
-2. **Fetch artifacts** — Use HAL API endpoint:
-   ```javascript
-   const res = await fetch(`${baseUrl}/api/artifacts/get`, {
-     method: 'POST',
-     headers: { 'Content-Type': 'application/json' },
-     body: JSON.stringify({ ticketId: 'HAL-0177' }),
-   })
-   const result = await res.json()
-   if (!result.success) throw new Error(result.error)
-   // Use result.artifacts for artifact list
-   ```
+- [ ] **Re-fetch all artifacts** for the ticket using HAL API endpoint `/api/artifacts/get` or direct Supabase query
+  - Query `agent_artifacts` table filtered by `ticket_id`
+  - Do not rely on artifact content stored in conversation messages
 
-3. **Do not cache:** Always fetch fresh data when starting work on a ticket, even if you "remember" the content from a previous session.
+- [ ] **Verify artifact completeness** - Check that all expected artifacts exist (plan, worklog, changed-files, decisions, verification, pm-review, qa-report if applicable)
 
-**Code locations:**
-- `api/tickets/get.ts` — Ticket content endpoint
-- `api/artifacts/get.ts` — Artifact list endpoint
-- See `.cursor/rules/agent-instructions.mdc` for API usage examples
+**Example API call:**
+```javascript
+const baseUrl = (await readFile('.hal/api-base-url', 'utf8')).trim()
+const ticketRes = await fetch(`${baseUrl}/api/tickets/get`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ ticketId: '0177' }),
+})
+const result = await ticketRes.json()
+if (result.success) {
+  // Use result.ticket for current ticket state
+}
 
-### 3. De-dupe on insert: messages, artifacts, and tool-call results (idempotency requirements)
+const artifactsRes = await fetch(`${baseUrl}/api/artifacts/get`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ ticketId: '0177' }),
+})
+const artifactsResult = await artifactsRes.json()
+if (result.success) {
+  // Use result.artifacts for current artifact state
+}
+```
 
-**MANDATORY:** All insert operations must be idempotent. Re-running the same operation should not create duplicates.
+**Rationale**: Tickets and artifacts may have been updated by other agents or users during the disconnect. In-memory state is stale and unreliable.
+
+### 3. De-dupe on insert: messages, artifacts, and tool-call results
+
+**Idempotency requirements:**
 
 #### Messages
 
-**Deduplication strategy:**
-- **Database constraint:** Unique constraint on `(project_id, agent, sequence)` in `hal_conversation_messages`
-- **Client-side check:** Before adding message, check if message ID already exists — `src/App.tsx:1642-1647`
-- **Sequence tracking:** Track max sequence per conversation in `agentSequenceRefs.current` — `src/App.tsx:1430-1460`
-- **Insert only new:** Only insert messages where `sequence > currentMaxSeq` — `src/App.tsx:1433`
+- [ ] **Check for duplicate message IDs** before inserting:
+  ```typescript
+  // Deduplication: Check if a message with the same ID already exists
+  const existingMessageIndex = conv.messages.findIndex(msg => msg.id === nextId)
+  if (existingMessageIndex >= 0) {
+    // Message with this ID already exists, skip adding duplicate
+    return next
+  }
+  ```
 
-**If duplicate detected:**
-- Skip insert (message already exists)
-- Log warning if unexpected duplicate
-- Continue with next message
+- [ ] **Use sequence numbers** to prevent duplicates:
+  - Before inserting a new message, check if a message with the same `(project_id, agent, sequence)` already exists
+  - If inserting a message, calculate the next `sequence` value by querying `MAX(sequence) + 1` for the `(project_id, agent)` pair
+  - Messages are inserted with `sequence: msg.id` where `msg.id` is a monotonically increasing integer
+  - Supabase table should have a unique constraint on `(project_id, agent, sequence)` if possible
+  - Client tracks `agentSequenceRefs.current.get(convId)` to know the last saved sequence
+  - Use database constraints (unique index on `(project_id, agent, sequence)`) to prevent duplicates
+  - Handle unique constraint violations gracefully (treat as "already exists")
 
-**Code locations:**
-- `src/App.tsx:1642-1647` — Client-side message deduplication
-- `src/App.tsx:1430-1460` — Sequence tracking and insert filtering
-- Database schema: `hal_conversation_messages` unique constraint
+- [ ] **On reconnect**: Only insert messages with `sequence > currentMaxSeq` (where `currentMaxSeq` is the max sequence loaded from Supabase)
 
 #### Artifacts
 
-**Deduplication strategy:**
-- **Canonical ID:** `(ticket_pk, agent_type, artifact_type, canonical_title)` — `api/artifacts/_shared.ts`
-- **Find existing:** Query artifacts by canonical ID before insert — `api/artifacts/insert-implementation.ts:200-250`
-- **Delete duplicates:** Remove all artifacts with same canonical ID except one — `api/artifacts/insert-implementation.ts:280-295`
-- **Update or insert:** If existing artifact found, update it; otherwise insert new — `api/artifacts/insert-implementation.ts:300-370`
+- [ ] **Use canonical identifier matching** (not exact title matching):
+  - Before inserting an artifact, query `agent_artifacts` for existing artifacts with the same canonical identifier
+  - Artifacts are identified by `(ticket_pk, agent_type, artifact_type)`
+  - Artifact type is extracted from title (e.g., "Plan for ticket 0121" → `plan`)
+  - See `api/artifacts/_shared.ts` for `findArtifactsByCanonicalId()` implementation
 
-**If duplicate detected:**
-- Delete all duplicate artifacts (keep only one)
-- Update existing artifact with new content (append if needed)
-- Log cleanup count in response
+- [ ] **Find existing artifacts before insert**:
+  ```typescript
+  const { artifacts: existingArtifacts } = await findArtifactsByCanonicalId(
+    supabase,
+    ticket.pk,
+    'implementation', // or 'qa'
+    artifactType
+  )
+  ```
 
-**Code locations:**
-- `api/artifacts/insert-implementation.ts:200-400` — Implementation artifact deduplication
-- `api/artifacts/insert-qa.ts:200-400` — QA artifact deduplication
-- `api/artifacts/_shared.ts` — Canonical ID functions
-- `api/artifacts/_validation.ts` — Content validation
+- [ ] **Update existing artifact** instead of inserting duplicate:
+  - If an artifact exists, **update** it rather than inserting a duplicate
+  - Use HAL API endpoints which handle deduplication automatically (`/api/artifacts/insert-implementation`, `/api/artifacts/insert-qa`)
+  - Check API response `action` field: `"inserted"` vs `"updated"` to confirm behavior
+  - Delete empty/placeholder artifacts before updating
+  - Delete duplicate artifacts (same canonical identifier, different titles)
+
+- [ ] **Handle race conditions**:
+  - If insert fails with duplicate key error (`23505`), find and update the existing artifact
+  - Verify insert/update by reading back the artifact
+
+**Example artifact deduplication:**
+```javascript
+// HAL API handles deduplication automatically
+const res = await fetch(`${baseUrl}/api/artifacts/insert-implementation`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    ticketId: '0177',
+    artifactType: 'plan',
+    title: 'Plan for ticket 0177',
+    body_md: '...',
+  }),
+})
+const result = await res.json()
+// result.action will be 'inserted' or 'updated'
+```
 
 #### Tool-call results
 
-**Deduplication strategy:**
-- **Ticket moves:** Idempotent by design (moving to same column is no-op)
-- **Ticket updates:** Overwrite existing `body_md` (idempotent)
-- **Artifact inserts:** Use artifact deduplication (see above)
-
-**If duplicate detected:**
-- For ticket moves: No-op if already in target column
-- For ticket updates: Overwrite existing content
-- For artifacts: Use artifact deduplication strategy
+- [ ] **Tool calls are ephemeral** and should not be persisted to Supabase
+- [ ] **If tool calls produce artifacts or messages**, ensure idempotency
+- [ ] **Use deterministic identifiers** (e.g., `ticket_id + artifact_type + title`) for deduplication
+- [ ] **Store tool call results in artifacts** rather than recreating them on reconnect
 
 ### 4. Guardrails to prevent creating blank "shell" artifacts
 
-**MANDATORY:** All artifacts must pass content validation before insert. Reject empty or placeholder-only artifacts.
+**Minimum content validation before insert:**
 
-**Validation requirements:**
-- **Minimum length:** 50 characters for implementation artifacts, 100 characters for QA artifacts — `api/artifacts/_validation.ts:17-22, 99-105`
-- **Substantive content:** Must contain actual content, not just headings or placeholders — `api/artifacts/_validation.ts:24-87`
-- **Placeholder detection:** Reject patterns like `(No files changed)`, `(none)`, `TODO`, `TBD` — `api/artifacts/_validation.ts:26-41`
+- [ ] **Validate artifact body** before inserting:
+  ```typescript
+  // Use validation function appropriate for artifact type
+  const contentValidation = hasSubstantiveContent(body_md, title) // or hasSubstantiveQAContent for QA
+  if (!contentValidation.valid) {
+    return { success: false, error: contentValidation.reason }
+  }
+  ```
 
-**Validation checks:**
-1. **Empty check:** Reject if `body_md` is empty or whitespace-only
-2. **Length check:** Reject if trimmed length < 50 chars (implementation) or < 100 chars (QA)
-3. **Placeholder check:** Reject if content matches placeholder patterns
-4. **Heading-only check:** Reject if content is only headings with no body text
-5. **Type-specific checks:** Special validation for "Changed Files" and "Verification" artifacts
+- [ ] **Validation requirements**:
+  - **Title**: Must be non-empty, meaningful (not placeholder like `<title>`)
+  - **Body**: Must contain substantial content (minimum length threshold, e.g., 100 characters for plan/worklog, 50 for decisions)
+  - **Body must have minimum length** (typically > 100 characters, but type-specific)
+  - **Body must contain substantive content** (not just whitespace, headers, or boilerplate)
+  - **Artifact type**: Must match allowed values (plan, worklog, changed-files, decisions, verification, pm-review, qa-report)
+  - **Ticket ID**: Must be valid and exist in `tickets` table
 
-**If validation fails:**
-- **Reject insert:** Return 400 error with validation reason
-- **Do not create artifact:** Never insert empty/placeholder artifacts
-- **Log error:** Include validation failure reason in response
+- [ ] **Never insert placeholder artifacts**:
+  - Do not insert artifacts with placeholder text like `<AC 1>`, `<what we want to achieve>`, `<fill this in later>`
+  - Do not insert artifacts with only headers and no content
+  - Do not insert artifacts with empty sections (e.g., "## Plan\n\n" with no plan content)
 
-**Code locations:**
-- `api/artifacts/_validation.ts:11-87` — `hasSubstantiveContent()` function
-- `api/artifacts/_validation.ts:93-117` — `hasSubstantiveQAContent()` function
-- `api/artifacts/insert-implementation.ts:100-120` — Validation before insert
-- `api/artifacts/insert-qa.ts:100-120` — Validation before insert
+- [ ] **Complete artifacts before insert**:
+  - Ensure all required sections are filled (e.g., plan must have actual plan content, not just "## Plan\n\n")
+  - If an artifact is incomplete, wait until it's complete before inserting
+  - Use draft/scratch space (in-memory or temporary files) until artifact is ready
+
+- [ ] **Clean up empty artifacts**:
+  - Before updating an existing artifact, check if it has substantive content
+  - Delete empty/placeholder artifacts automatically
+  - Log cleanup actions for auditability
+
+- [ ] **Verify after insert**:
+  - After inserting or updating an artifact, read it back from Supabase
+  - Verify the persisted `body_md` length matches expectations
+  - Log verification results
+
+**Example validation** (from `api/artifacts/_validation.ts`):
+- Rejects artifacts with only title, whitespace, or placeholder text
+- Accepts artifacts with structured content (sections, tables, lists, code blocks)
+- Type-specific validation for QA reports (allows structured reports with sections/tables)
 
 ## Failure-mode guidance
 
-### What to do if duplicates are detected
+### Duplicate messages detected
 
-#### Duplicate messages
+**Symptom**: Multiple messages with the same `(project_id, agent, sequence)` appear in conversation.
 
-**Detection:**
-- Database unique constraint violation on `(project_id, agent, sequence)`
-- Client-side check finds existing message with same ID
+**Response**:
+1. **Do not insert duplicate messages** - Check for existing message before insert
+2. **Handle unique constraint violations** - If database throws unique constraint error, treat as "message already exists" and continue
+3. **Log the duplicate detection** - Record that a duplicate was prevented (for debugging)
+4. **Continue normal operation** - Do not fail or retry; the duplicate was prevented
+5. **Client-side deduplication** (check `existingMessageIndex`) prevents UI duplicates
 
-**Response:**
-1. **Skip insert:** Do not insert duplicate message
-2. **Log warning:** Log duplicate detection for debugging
-3. **Continue:** Proceed with next message or operation
-4. **No user impact:** Duplicate messages are silently skipped (user doesn't see duplicates)
+**Example handling:**
+```javascript
+try {
+  await insertMessage({ project_id, agent, sequence, role, content })
+} catch (error) {
+  if (error.code === '23505') { // PostgreSQL unique_violation
+    // Message already exists, continue
+    console.log('Message already exists, skipping insert')
+  } else {
+    throw error
+  }
+}
+```
 
-**Code locations:**
-- `src/App.tsx:1642-1647` — Client-side duplicate check
-- Database constraint prevents duplicates at insert time
+### Artifact insert retried
 
-#### Duplicate artifacts
+**Symptom**: Network failure or timeout during artifact insert, agent retries the insert.
 
-**Detection:**
-- Query finds multiple artifacts with same canonical ID
-- Insert fails with duplicate key error (race condition)
+**Response**:
+1. **Use HAL API endpoints** - They handle idempotency automatically (same `(ticket_id, artifact_type, title)` updates existing artifact)
+2. **Check API response** - If `action: "updated"`, the artifact already existed and was updated (this is correct behavior)
+3. **Do not treat "updated" as error** - An update is the expected behavior when retrying
+4. **Verify artifact content** - After insert/update, re-fetch the artifact to confirm it has the correct content
+5. **Handle race conditions**:
+   - If insert fails with duplicate key error (`23505`), find the existing artifact and update it
+   - Return success with `action: 'updated'` and `race_condition_handled: true`
+6. **Retry logic**:
+   - Artifact insertion endpoints should handle one retry automatically (find and update on duplicate key error)
+   - Do not implement exponential backoff or multiple retries (single retry is sufficient)
+   - Log retry attempts for debugging
+7. **Idempotency**:
+   - Artifact insertion should be idempotent: calling it multiple times with the same content should result in the same final state
+   - Use canonical identifier matching to ensure idempotency
 
-**Response:**
-1. **Delete duplicates:** Remove all artifacts with same canonical ID except one — `api/artifacts/insert-implementation.ts:280-295`
-2. **Update existing:** If existing artifact found, update it with new content (append if needed)
-3. **Log cleanup:** Include `cleaned_up_duplicates` count in response
-4. **Retry insert:** If insert failed due to race condition, find and update existing artifact
+**Example:**
+```javascript
+const res = await fetch(`${baseUrl}/api/artifacts/insert-implementation`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ ticketId, artifactType, title, body_md }),
+})
+const result = await res.json()
+if (result.success) {
+  if (result.action === 'updated') {
+    // This is expected on retry - artifact was updated, not duplicated
+    console.log('Artifact updated (idempotent retry)')
+  }
+}
+```
 
-**Code locations:**
-- `api/artifacts/insert-implementation.ts:280-400` — Duplicate cleanup and retry logic
-- `api/artifacts/insert-qa.ts:280-400` — Duplicate cleanup and retry logic
+### Network flaps cause replays
 
-#### Blank artifacts detected
+**Symptom**: Network connectivity issues cause the same tool call or message to be sent multiple times.
 
-**Detection:**
-- Validation fails before insert (empty, too short, or placeholder-only)
-- Query finds existing artifacts with empty/placeholder content
+**Response**:
+1. **Idempotent operations** - All inserts (messages, artifacts, ticket moves) must be idempotent
+2. **Use sequence numbers for messages** - Calculate sequence from database state, not from in-memory counter
+3. **Use deterministic identifiers** - For artifacts, use `(ticket_id, artifact_type, title)` as the natural key
+4. **Check-before-insert pattern** - Always query for existing records before inserting
+5. **Handle race conditions** - Use database constraints (unique indexes) as the final guard against duplicates
+6. **Message replays**:
+   - Sequence numbers prevent duplicate message insertion
+   - Client tracks `agentSequenceRefs.current.get(convId)` to know the last saved sequence
+   - Only insert messages with `sequence > currentMaxSeq`
+7. **Artifact replays**:
+   - Canonical identifier matching ensures updates instead of duplicates
+   - Empty artifacts are cleaned up automatically
+   - Verification after insert ensures persistence
+8. **State reconciliation**:
+   - On reconnect, always re-fetch from Supabase (authoritative source)
+   - Supabase data overwrites localStorage data
+   - Sequence tracking ensures no gaps or duplicates
+9. **UI state**:
+   - If network flaps cause UI to show stale state, reconnect will refresh from Supabase
+   - localStorage is only for immediate UI feedback, not source of truth
 
-**Response:**
-1. **Reject insert:** Return 400 error with validation reason — `api/artifacts/_validation.ts:11-87`
-2. **Delete blank artifacts:** During duplicate cleanup, delete empty/placeholder artifacts — `api/artifacts/insert-implementation.ts:251-261`
-3. **Log cleanup:** Include `cleaned_up_duplicates` count in response
-4. **Require valid content:** Agent must provide substantive content before retry
+**Example sequence calculation:**
+```javascript
+// Always calculate sequence from database, not memory
+const maxSequence = await query(
+  'SELECT MAX(sequence) FROM hal_conversation_messages WHERE project_id = $1 AND agent = $2',
+  [project_id, agent]
+)
+const nextSequence = (maxSequence?.max || -1) + 1
+```
 
-**Code locations:**
-- `api/artifacts/_validation.ts:11-87` — Validation functions
-- `api/artifacts/insert-implementation.ts:251-261` — Blank artifact cleanup
-- `api/artifacts/insert-qa.ts:251-261` — Blank artifact cleanup
+### Partial artifact insert (blank "shell" created)
 
-### What to do if artifact insert is retried
+**Symptom**: An artifact was inserted but contains only headers/placeholders, not actual content.
 
-**Retry scenarios:**
-- Network error during insert
-- Race condition (another process inserted same artifact)
-- Transient database error
+**Response**:
+1. **Update the artifact immediately** - Re-fetch the artifact, add the missing content, and update it
+2. **Do not create a new artifact** - Update the existing one (use HAL API which handles updates)
+3. **Validate before future inserts** - Ensure validation passes before any artifact insert
+4. **Log the correction** - Record that a blank artifact was detected and corrected
 
-**Retry strategy:**
-1. **Check for existing:** Query for existing artifact by canonical ID — `api/artifacts/insert-implementation.ts:380-420`
-2. **Update if exists:** If found, update existing artifact instead of inserting new
-3. **Insert if missing:** If not found, retry insert
-4. **Handle duplicate key:** If insert fails with duplicate key error, treat as race condition and update existing
+**Example:**
+```javascript
+// Detect blank artifact
+const artifact = await fetchArtifact(artifact_id)
+if (isBlankArtifact(artifact)) {
+  // Update with complete content
+  await fetch(`${baseUrl}/api/artifacts/insert-implementation`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ticketId,
+      artifactType,
+      title,
+      body_md: completeContent, // Full content, not placeholder
+    }),
+  })
+}
+```
 
-**Code locations:**
-- `api/artifacts/insert-implementation.ts:380-420` — Race condition handling
-- `api/artifacts/insert-qa.ts:380-420` — Race condition handling
+### Conversation state mismatch
 
-### What to do if network flaps cause replays
+**Symptom**: In-memory conversation state doesn't match database state (messages missing, out of order, etc.).
 
-**Scenario:** Network disconnects and reconnects, causing message/artifact inserts to be retried multiple times.
-
-**Protection mechanisms:**
-1. **Message sequence tracking:** Only insert messages with `sequence > currentMaxSeq` — `src/App.tsx:1433`
-2. **Database constraints:** Unique constraints prevent duplicate inserts at database level
-3. **Idempotent operations:** All insert operations are idempotent (safe to retry)
-
-**Response:**
-1. **Trust database constraints:** Database will reject duplicate inserts
-2. **Track sequences:** Client tracks max sequence per conversation to avoid re-inserting old messages
-3. **Deduplicate artifacts:** Artifact deduplication handles retries gracefully
-4. **No user impact:** Replays are handled automatically by idempotency
-
-**Code locations:**
-- `src/App.tsx:1430-1460` — Sequence tracking prevents replay
-- Database unique constraints prevent duplicates
-- `api/artifacts/insert-implementation.ts:200-400` — Artifact deduplication handles retries
+**Response**:
+1. **Discard in-memory state** - Never trust in-memory state after a disconnect
+2. **Re-fetch from database** - Always rebuild conversation from `hal_conversation_messages`
+3. **Verify sequence continuity** - Check that `sequence` values are consecutive (0, 1, 2, ...) with no gaps
+4. **Handle gaps gracefully** - If sequence gaps exist, they may indicate deleted messages; continue with next available sequence
 
 ## Verification procedure
 
-**Purpose:** Verify that the SOP is being followed and that reconnect scenarios work correctly without creating duplicates or blank artifacts.
+A human can follow this procedure in the HAL UI to verify that agents are following this SOP:
 
-### Step 1: Simulate disconnect/reconnect
+### Prerequisites
 
-1. **Open HAL app** in browser (e.g., `http://localhost:5173`)
-2. **Connect to a project** (select a repo/folder)
-3. **Start a conversation** with an agent (PM, Implementation, or QA)
-4. **Send a few messages** to create conversation history
-5. **Create an artifact** (e.g., implementation agent creates a plan artifact)
-6. **Disconnect:**
-   - Option A: Close browser tab, then reopen and reconnect
-   - Option B: Disconnect GitHub (click "Disconnect GitHub" button), then reconnect
-   - Option C: Clear browser cache/localStorage (simulate fresh session), then reconnect
-7. **Reconnect** to the same project
+1. **Connect a project folder** in HAL (provides Supabase credentials)
+2. **Have an active conversation** with an agent (PM, Implementation, or QA)
+3. **Have a ticket** in the kanban that the agent is working on
 
-### Step 2: Verify conversation state recovery
+### Test steps
 
-**Expected behavior:**
-- ✅ Conversation list appears immediately (from localStorage)
-- ✅ All conversations are visible (PM, Implementation, QA instances)
-- ✅ Active conversation shows all previous messages (no duplicates)
-- ✅ Selected conversation is restored (if you had one open before disconnect)
-- ✅ Messages load from Supabase (may take a moment to load from DB)
+#### Test 1: Reconnect and verify no duplicate messages
 
-**Check for issues:**
-- ❌ Duplicate messages in conversation (same message ID appears twice)
-- ❌ Missing conversations (conversations that existed before disconnect are gone)
-- ❌ Blank conversation (conversation exists but has no messages when it should)
-- ❌ Wrong conversation selected (different conversation is open than before disconnect)
+1. **Setup**:
+   - Connect to a project in HAL
+   - Send a few messages in PM chat (e.g., "Hello", "Create a ticket for testing")
+   - Wait for responses
 
-**How to verify:**
-1. Open browser DevTools → Console
-2. Check for error messages about duplicate inserts or failed loads
-3. Manually count messages in a conversation (should match pre-disconnect count)
-4. Check `localStorage` for `hal-chat-conversations-{projectName}` (should contain conversation data)
+2. **Disconnect**:
+   - Click "Disconnect" button
+   - Verify conversations are cleared from UI (placeholder shown)
 
-### Step 3: Verify artifact state recovery
+3. **Reconnect**:
+   - Click "Connect Project Folder" and select the same project
+   - Wait for conversations to load
 
-**Expected behavior:**
-- ✅ All artifacts for a ticket are visible in ticket's Artifacts section
-- ✅ No duplicate artifacts (same artifact type appears only once)
-- ✅ No blank artifacts (artifacts have substantive content, not just placeholders)
-- ✅ Artifact content is complete (not truncated or missing)
+4. **Verify**:
+   - Open PM chat
+   - Check that messages appear exactly once (no duplicates)
+   - Check that message order is correct (oldest to newest)
+   - Check that sequence numbers are continuous (no gaps)
 
-**Check for issues:**
-- ❌ Duplicate artifacts (same artifact type appears multiple times)
-- ❌ Blank artifacts (artifact exists but `body_md` is empty or placeholder-only)
-- ❌ Missing artifacts (artifacts that existed before disconnect are gone)
+#### Test 2: Reconnect and verify no duplicate artifacts
 
-**How to verify:**
-1. Open a ticket that had artifacts before disconnect
-2. Navigate to ticket's "Artifacts" section
-3. Count artifacts by type (should be unique per type)
-4. Open each artifact and verify it has substantive content (not empty, not just "TODO" or "(none)")
-5. Check Supabase `agent_artifacts` table directly:
-   ```sql
-   SELECT artifact_id, ticket_pk, agent_type, artifact_type, title, 
-          LENGTH(body_md) as body_length, created_at
-   FROM agent_artifacts
-   WHERE ticket_pk = 'HAL-0177'
-   ORDER BY created_at;
-   ```
-6. Verify no duplicate `(ticket_pk, agent_type, artifact_type, canonical_title)` combinations
+1. **Setup**:
+   - Connect to a project
+   - Have an agent create an artifact (e.g., "Create a ticket" → PM creates ticket → Implementation agent creates plan artifact)
+   - Note the artifact title and content
 
-### Step 4: Verify idempotency
+2. **Disconnect and reconnect**:
+   - Disconnect from project
+   - Reconnect to the same project
 
-**Test:** Re-run the same operation multiple times (simulate retry/network flap).
+3. **Verify**:
+   - Open the ticket in Kanban
+   - Check that artifacts appear exactly once (no duplicates)
+   - Check that artifact content matches what was created before disconnect
+   - Check that artifact titles are canonical (e.g., "Plan for ticket 0177", not "Plan for ticket HAL-0177")
 
-**Expected behavior:**
-- ✅ Inserting the same message twice creates only one message
-- ✅ Inserting the same artifact twice creates/updates only one artifact
-- ✅ Moving a ticket to the same column is a no-op (no error)
-- ✅ Updating a ticket with the same content is idempotent (no error)
+#### Test 3: Verify no blank artifacts
 
-**How to verify:**
-1. **Message idempotency:**
-   - Send a message in chat
-   - Refresh page (reconnect)
-   - Verify message appears only once (not duplicated)
-2. **Artifact idempotency:**
-   - Create an artifact (e.g., plan artifact)
-   - Call artifact insert API again with same content
-   - Verify only one artifact exists (duplicate was cleaned up or updated)
-3. **Ticket move idempotency:**
-   - Move ticket to "QA" column
-   - Move ticket to "QA" column again (same column)
-   - Verify no error and ticket remains in "QA" column
+1. **Setup**:
+   - Connect to a project
+   - Trigger an agent to create an artifact (e.g., "Implement ticket 0177")
 
-### Step 5: Verify validation prevents blank artifacts
+2. **Monitor**:
+   - Watch the agent's tool calls in the chat
+   - If agent attempts to insert an artifact with empty/placeholder content, it should be rejected with validation error
 
-**Test:** Attempt to create an artifact with empty or placeholder content.
+3. **Verify**:
+   - After agent completes, check ticket artifacts in Kanban
+   - Verify all artifacts have substantive content (not just titles or placeholders)
+   - Verify no empty "shell" artifacts exist
 
-**Expected behavior:**
-- ✅ Insert is rejected with 400 error
-- ✅ Error message explains validation failure (e.g., "Artifact body is too short")
-- ✅ No artifact is created in database
-- ✅ Blank artifacts are cleaned up if they exist
+#### Test 4: Verify Supabase is authoritative source
 
-**How to verify:**
-1. Call artifact insert API with empty `body_md`:
-   ```javascript
-   const res = await fetch(`${baseUrl}/api/artifacts/insert-implementation`, {
-     method: 'POST',
-     headers: { 'Content-Type': 'application/json' },
-     body: JSON.stringify({
-       ticketId: 'HAL-0177',
-       artifactType: 'plan',
-       title: 'Plan for ticket HAL-0177',
-       body_md: '', // Empty content
-     }),
-   })
-   const result = await res.json()
-   // Should return: { success: false, error: "body_md must be a non-empty string..." }
-   ```
-2. Verify no artifact was created in `agent_artifacts` table
-3. Try with placeholder content (e.g., `body_md: "(none)"` or `body_md: "TODO"`)
-4. Verify insert is rejected with validation error
+1. **Setup**:
+   - Connect to project A, send messages
+   - Disconnect
+   - Manually modify Supabase `hal_conversation_messages` table (add a test message with high sequence number)
 
-### Step 6: Check logs for errors
+2. **Reconnect**:
+   - Reconnect to project A
+   - Wait for conversations to load
 
-**Check browser console and server logs for:**
-- ❌ Duplicate key errors (should be handled gracefully)
-- ❌ Failed message inserts (should retry or skip)
-- ❌ Failed artifact inserts (should return validation error, not create blank artifact)
-- ❌ Conversation load failures (should fall back to localStorage)
+3. **Verify**:
+   - Check that the manually added message appears in the chat
+   - This confirms Supabase data overwrites localStorage data
 
-**Expected logs (normal operation):**
-- `[HAL] Loading conversations from localStorage...`
-- `[HAL] Loading conversations from Supabase...`
-- `[insert-implementation] Artifact creation request: ticketId=...`
-- `[insert-implementation] Inserting new artifact...` or `[insert-implementation] Appending to artifact...`
+#### Test 5: Verify ticket/artifact re-fetch on reconnect
 
-**Error logs (investigate if seen):**
-- `[HAL] Failed to save messages for conversation...` (should fall back to localStorage)
-- `[insert-implementation] Insert failed: duplicate key` (should be handled by retry logic)
-- `[insert-implementation] Validation failed: ...` (expected for blank artifacts, should reject)
+1. **Setup**:
+   - Connect to project, have agent work on a ticket
+   - Disconnect
+   - Manually update ticket body or artifacts in Supabase
+
+2. **Reconnect and agent work**:
+   - Reconnect to project
+   - Have agent continue work on the same ticket (e.g., "Continue work on ticket 0177")
+
+3. **Verify**:
+   - Agent should see the updated ticket/artifact content (not stale in-memory state)
+   - Check agent's tool calls: they should fetch from Supabase via HAL API, not use cached state
+
+### Expected results
+
+- ✅ **All messages preserved** - No messages lost after reconnect
+- ✅ **No duplicate messages** - Each message appears exactly once
+- ✅ **No duplicate artifacts** - Each artifact type appears once per ticket
+- ✅ **No blank artifacts** - All artifacts have substantial content (not just headers/placeholders)
+- ✅ **State consistency** - Conversation, tickets, and artifacts match database state
+- ✅ **Graceful continuation** - Agent continues work seamlessly after reconnect
+
+### Failure indicators
+
+- ❌ **Messages missing** - Some messages from before reconnect are gone
+- ❌ **Duplicate messages** - Same message appears multiple times in conversation
+- ❌ **Duplicate artifacts** - Multiple artifacts with same `(ticket_id, artifact_type, title)`
+- ❌ **Blank artifacts** - Artifacts exist but contain only headers/placeholders
+- ❌ **State mismatch** - Conversation shows different content than database
+- ❌ **Agent restarts** - Agent loses context and starts over after reconnect
+
+### Reporting issues
+
+If any failure indicators are observed:
+
+1. **Check Supabase directly** - Query `hal_conversation_messages` and `agent_artifacts` tables to verify database state
+2. **Check agent logs** - Review agent execution logs for errors during reconnect
+3. **Document the issue** - Create a bugfix ticket describing the failure mode
+4. **Reference this SOP** - Note which checklist item or failure mode was not followed
 
 ## Summary
 
-**Key principles:**
-1. **Supabase is authoritative** — Always load from database, never rely on in-memory state
-2. **Idempotency is mandatory** — All inserts must be safe to retry
-3. **Validation prevents blanks** — Reject empty/placeholder artifacts before insert
-4. **Deduplication is automatic** — Database constraints and client-side checks prevent duplicates
-5. **localStorage is fallback** — Used for immediate UI, but Supabase takes precedence
+**Key principles**:
+1. **Supabase is authoritative** - Always re-fetch from database, never trust in-memory state
+2. **localStorage is fallback only** - Use for immediate UI feedback, but Supabase always overwrites
+3. **Idempotency everywhere** - All inserts must be safe to retry (check-before-insert, use natural keys)
+4. **Validate before insert** - Never insert blank/placeholder artifacts
+5. **Handle failures gracefully** - Duplicate prevention is expected behavior, not an error
 
-**When in doubt:**
-- **Fetch fresh data** from Supabase (don't trust cached state)
-- **Check for existing** before inserting (messages, artifacts, etc.)
-- **Validate content** before inserting artifacts (reject empty/placeholder)
-- **Trust database constraints** (they prevent duplicates at the source)
+**When in doubt**: Re-fetch from Supabase and check for existing records before inserting anything.
+
+## Implementation references
+
+- **Message persistence**: `src/App.tsx` lines 1409-1487 (conversation persistence effect)
+- **Message deduplication**: `src/App.tsx` lines 1642-1645 (client-side dedup)
+- **Artifact insertion**: `api/artifacts/insert-implementation.ts`, `api/artifacts/insert-qa.ts`
+- **Artifact validation**: `api/artifacts/_validation.ts` (content validation)
+- **Artifact canonical matching**: `api/artifacts/_shared.ts` (canonical identifier matching)
+- **localStorage helpers**: `src/App.tsx` lines 148-200 (conversation storage helpers)
+- **Reconnect flow**: `src/App.tsx` lines 626-950 (project connection and conversation restoration)
+
+## Related tickets
+
+- **HAL-0097**: Fix empty PM chat after reconnect (localStorage persistence)
+- **HAL-0121**: Prevent blank/placeholder artifacts (validation before insert)
+- **HAL-0124**: Save all conversations to Supabase (not just PM)
+- **HAL-0153**: Prevent duplicate messages (client-side deduplication)
