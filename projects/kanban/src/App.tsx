@@ -631,6 +631,11 @@ function ArtifactReportViewer({
   currentIndex: number
   onNavigate: (index: number) => void
 }) {
+  // Early return if modal is not open (before hooks - this is OK)
+  if (!open) return null
+
+  // ALL HOOKS MUST BE CALLED BEFORE ANY OTHER EARLY RETURNS
+  // This fixes React error #310 (hooks called conditionally)
   const [imageViewerOpen, setImageViewerOpen] = useState(false)
   const [imageViewerSrc, setImageViewerSrc] = useState<string | null>(null)
   const [imageViewerAlt, setImageViewerAlt] = useState<string>('')
@@ -769,90 +774,7 @@ function ArtifactReportViewer({
     return normalizedTitle.startsWith('git diff for ticket') || normalizedTitle.startsWith('git-diff for ticket')
   }, [artifact])
 
-  // Early return if modal is not open
-  if (!open) return null
-
-  // If artifact is null/undefined, show error message instead of blank screen
-  if (!artifact) {
-    return (
-      <div
-        className="ticket-detail-backdrop"
-        role="dialog"
-        aria-modal="true"
-        onClick={(e) => e.target === e.currentTarget && onClose()}
-        onKeyDown={handleKeyDown}
-      >
-        <div className="ticket-detail-modal" ref={modalRef}>
-          <div className="ticket-detail-header">
-            <h2 className="ticket-detail-title">Artifact Viewer</h2>
-            <button
-              type="button"
-              className="ticket-detail-close"
-              onClick={onClose}
-              ref={closeBtnRef}
-              aria-label="Close"
-            >
-              ×
-            </button>
-          </div>
-          <div className="ticket-detail-body-wrap">
-            <div className="ticket-detail-body">
-              <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
-                No artifact selected. Please select an artifact from the list.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // Ensure artifact has required properties with fallbacks
-  // Double-check artifact is valid (defensive programming for 0148)
-  if (!artifact || !artifact.artifact_id) {
-    console.error('ArtifactReportViewer: Invalid artifact received', artifact)
-    return (
-      <div
-        className="ticket-detail-backdrop"
-        role="dialog"
-        aria-modal="true"
-        onClick={(e) => e.target === e.currentTarget && onClose()}
-        onKeyDown={handleKeyDown}
-      >
-        <div className="ticket-detail-modal" ref={modalRef}>
-          <div className="ticket-detail-header">
-            <h2 className="ticket-detail-title">Artifact Viewer</h2>
-            <button
-              type="button"
-              className="ticket-detail-close"
-              onClick={onClose}
-              ref={closeBtnRef}
-              aria-label="Close"
-            >
-              ×
-            </button>
-          </div>
-          <div className="ticket-detail-body-wrap">
-            <div className="ticket-detail-body">
-              <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
-                Invalid artifact data. Please try selecting the artifact again.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    )
-  }
-  
-  const artifactTitle = artifact.title || 'Untitled Artifact'
-  const artifactBodyMd = artifact.body_md || ''
-  const artifactCreatedAt = artifact.created_at || new Date().toISOString()
-  const artifactAgentType = artifact.agent_type || 'unknown'
-
-  const createdAt = new Date(artifactCreatedAt)
-  const displayName = getAgentTypeDisplayName(artifactAgentType)
-  
-  // Calculate navigation state (0148)
+  // Calculate navigation state (0148) - must be called before any early returns
   // Sort artifacts chronologically (oldest first)
   // If artifacts array is empty but we have an artifact, use it as the only item
   const sortedArtifacts = useMemo(() => {
@@ -895,6 +817,17 @@ function ArtifactReportViewer({
     }
   }, [canGoNext, effectiveIndex, onNavigate])
 
+  // Handle invalid artifacts in render logic (not early returns after hooks)
+  // This ensures hooks are always called in the same order
+  const isValidArtifact = artifact && artifact.artifact_id
+  const artifactTitle = isValidArtifact ? (artifact.title || 'Untitled Artifact') : 'Artifact Viewer'
+  const artifactBodyMd = isValidArtifact ? (artifact.body_md || '') : ''
+  const artifactCreatedAt = isValidArtifact ? (artifact.created_at || new Date().toISOString()) : new Date().toISOString()
+  const artifactAgentType = isValidArtifact ? (artifact.agent_type || 'unknown') : 'unknown'
+
+  const createdAt = new Date(artifactCreatedAt)
+  const displayName = isValidArtifact ? getAgentTypeDisplayName(artifactAgentType) : 'Unknown'
+
   return (
     <div
       className="ticket-detail-backdrop"
@@ -926,6 +859,18 @@ function ArtifactReportViewer({
         <div className="ticket-detail-body-wrap">
           <div className="ticket-detail-body">
             {(() => {
+              // Handle invalid artifacts (no early returns after hooks)
+              if (!isValidArtifact) {
+                console.error('ArtifactReportViewer: Invalid artifact received', artifact)
+                return (
+                  <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
+                    {!artifact 
+                      ? 'No artifact selected. Please select an artifact from the list.'
+                      : 'Invalid artifact data. Please try selecting the artifact again.'}
+                  </p>
+                )
+              }
+              
               // Ensure we have valid content to render
               if (!artifactBodyMd || typeof artifactBodyMd !== 'string') {
                 return (
