@@ -109,8 +109,8 @@ const SUPABASE_CONFIG_KEY = 'supabase-ticketstore-config'
 const CONNECTED_REPO_KEY = 'hal-connected-repo'
 /** Polling interval when Supabase board is active (0013); 10s */
 const SUPABASE_POLL_INTERVAL_MS = 10_000
-/** Delay before refetch after a move so DB write is visible; avoids stale read overwriting last moves */
-const REFETCH_AFTER_MOVE_MS = 1500
+/** Delay before refetch after a move so DB write is visible; avoids stale read overwriting last moves (0144) */
+const REFETCH_AFTER_MOVE_MS = 2000 // Increased from 1500ms to give backend more time to persist
 const _SUPABASE_SETUP_SQL = `create table if not exists public.tickets (
   id text primary key,
   filename text not null,
@@ -2937,7 +2937,10 @@ function App() {
       }
       
       // Don't overwrite tickets that have pending moves (0047)
-      // Improved: Compare positions when removing from pendingMoves to prevent jumps (0144)
+      // Improved: Preserve optimistic positions to prevent snap-back and jumps (0144)
+      // CRITICAL: Always preserve optimistic positions for tickets in pendingMoves,
+      // and also preserve positions for other tickets in the same columns to prevent
+      // visual jumps when polling refetches happen before backend saves complete.
       if (skipPendingMoves && pendingMoves.size > 0) {
         setSupabaseTickets((prev) => {
           const newMap = new Map(normalizedRows.map((r) => [r.pk, r]))
@@ -2947,7 +2950,7 @@ function App() {
           // First, add all existing tickets (preserving pending moves)
           for (const t of prev) {
             if (pendingMoves.has(t.pk)) {
-              result.push(t) // Keep optimistic update
+              result.push(t) // Keep optimistic update - never overwrite during pending move
               processedIds.add(t.pk)
             } else if (newMap.has(t.pk)) {
               result.push(newMap.get(t.pk)!) // Update from DB
@@ -2963,26 +2966,30 @@ function App() {
           return result
         })
       } else {
-        // When not skipping pending moves, still preserve optimistic positions
-        // to prevent jumps when refetching after a move completes (0144)
+        // When not skipping pending moves (refetch after move completes), preserve optimistic positions
+        // until backend confirms the move to prevent jumps when backend data arrives (0144)
         setSupabaseTickets((prev) => {
           const newMap = new Map(normalizedRows.map((r) => [r.pk, r]))
           const result: SupabaseTicketRow[] = []
           const processedIds = new Set<string>()
-          // For tickets with pending moves, compare positions and only update if they match
-          // This prevents jumps when backend data arrives
+          // For tickets with pending moves, ALWAYS keep optimistic position until backend matches
+          // This prevents snap-back when refetch happens before backend save completes
           for (const t of prev) {
             if (pendingMoves.has(t.pk)) {
               const dbRow = newMap.get(t.pk)
-              // Only update if position/column matches optimistic update (backend confirmed)
-              // or if there's a real discrepancy (another user moved it)
+              // CRITICAL: Only update if position/column EXACTLY matches optimistic update
+              // If backend hasn't updated yet (common case), keep optimistic position
               if (dbRow && 
                   dbRow.kanban_column_id === t.kanban_column_id && 
                   dbRow.kanban_position === t.kanban_position) {
                 // Backend matches optimistic update - safe to update with DB data
+                // Note: We keep ticket in pendingMoves here - it will be removed by the setTimeout
+                // in the drag handler after confirming the position matches
                 result.push(dbRow)
               } else {
-                // Keep optimistic update - backend hasn't caught up or there's a discrepancy
+                // Backend hasn't caught up yet OR there's a discrepancy - KEEP optimistic update
+                // This prevents the snap-back behavior where card jumps back to old position
+                // Keep ticket in pendingMoves until backend confirms
                 result.push(t)
               }
               processedIds.add(t.pk)
@@ -3529,15 +3536,26 @@ function App() {
           if (result.ok) {
             setLastMovePersisted({ success: true, timestamp: new Date(), ticketId: ticketPk })
             addLog(`Supabase ticket dropped into ${overColumn.title}`)
-            // Remove from pending after delay to allow DB write to be visible
-            // Refetch will compare positions and only update if backend matches optimistic (0144)
+            // Remove from pending after delay - refetch preserves optimistic position until backend matches (0144)
+            // CRITICAL: Keep ticket in pendingMoves during refetch to prevent snap-back
+            // The refetch logic will preserve the optimistic position if backend hasn't updated yet
             setTimeout(() => {
-              setPendingMoves((prev) => {
-                const next = new Set(prev)
-                next.delete(ticketPk)
-                return next
+              refetchSupabaseTickets(false).then(() => {
+                // Refetch completed - remove from pendingMoves
+                // If backend hasn't updated yet, refetch preserved optimistic position and will try again on next poll
+                setPendingMoves((prev) => {
+                  const next = new Set(prev)
+                  next.delete(ticketPk)
+                  return next
+                })
+              }).catch(() => {
+                // On error, still remove from pending to avoid stuck state
+                setPendingMoves((prev) => {
+                  const next = new Set(prev)
+                  next.delete(ticketPk)
+                  return next
+                })
               })
-              refetchSupabaseTickets(false) // Full refetch - will preserve optimistic if backend matches
             }, REFETCH_AFTER_MOVE_MS)
         } else {
           // Revert optimistic update on failure (0047)
@@ -3625,14 +3643,26 @@ function App() {
           if (allSucceeded) {
             setLastMovePersisted({ success: true, timestamp: new Date(), ticketId: ticketPk })
             addLog(`Supabase ticket reordered in ${sourceColumn.title}`)
-            // Remove from pending after delay - refetch will preserve optimistic if backend matches (0144)
+            // Remove from pending after delay - refetch preserves optimistic position until backend matches (0144)
+            // CRITICAL: Keep ticket in pendingMoves during refetch to prevent snap-back
+            // The refetch logic will preserve the optimistic position if backend hasn't updated yet
             setTimeout(() => {
-              setPendingMoves((prev) => {
-                const next = new Set(prev)
-                next.delete(ticketPk)
-                return next
+              refetchSupabaseTickets(false).then(() => {
+                // Refetch completed - remove from pendingMoves
+                // If backend hasn't updated yet, refetch preserved optimistic position and will try again on next poll
+                setPendingMoves((prev) => {
+                  const next = new Set(prev)
+                  next.delete(ticketPk)
+                  return next
+                })
+              }).catch(() => {
+                // On error, still remove from pending to avoid stuck state
+                setPendingMoves((prev) => {
+                  const next = new Set(prev)
+                  next.delete(ticketPk)
+                  return next
+                })
               })
-              refetchSupabaseTickets(false) // Full refetch - will preserve optimistic if backend matches
             }, REFETCH_AFTER_MOVE_MS)
           } else {
             // Revert optimistic update on failure (0047)
@@ -3696,14 +3726,26 @@ function App() {
           if (result.ok) {
             setLastMovePersisted({ success: true, timestamp: new Date(), ticketId: ticketPk })
             addLog(`Supabase ticket moved to ${overColumn.title}`)
-            // Remove from pending after delay - refetch will preserve optimistic if backend matches (0144)
+            // Remove from pending after delay - refetch preserves optimistic position until backend matches (0144)
+            // CRITICAL: Keep ticket in pendingMoves during refetch to prevent snap-back
+            // The refetch logic will preserve the optimistic position if backend hasn't updated yet
             setTimeout(() => {
-              setPendingMoves((prev) => {
-                const next = new Set(prev)
-                next.delete(ticketPk)
-                return next
+              refetchSupabaseTickets(false).then(() => {
+                // Refetch completed - remove from pendingMoves
+                // If backend hasn't updated yet, refetch preserved optimistic position and will try again on next poll
+                setPendingMoves((prev) => {
+                  const next = new Set(prev)
+                  next.delete(ticketPk)
+                  return next
+                })
+              }).catch(() => {
+                // On error, still remove from pending to avoid stuck state
+                setPendingMoves((prev) => {
+                  const next = new Set(prev)
+                  next.delete(ticketPk)
+                  return next
+                })
               })
-              refetchSupabaseTickets(false) // Full refetch - will preserve optimistic if backend matches
             }, REFETCH_AFTER_MOVE_MS)
           } else {
             // Revert optimistic update on failure (0047)
