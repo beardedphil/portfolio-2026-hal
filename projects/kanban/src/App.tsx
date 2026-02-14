@@ -694,30 +694,28 @@ function ArtifactReportViewer({
     const imageClickHandler = handleImageClick
     
     const ImageComponent = (props: any) => {
-      // ReactMarkdown v10 passes props in different formats depending on version
-      // Try multiple ways to extract src and alt
-      const src = props.src || props.node?.properties?.src || (props.node?.url) || null
-      const alt = props.alt || props.node?.properties?.alt || (props.node?.alt) || props.node?.title || null
+      // ReactMarkdown v10 passes node-based props
+      // The image URL is in props.node.properties.src or props.node.url
+      const node = props.node
+      const src = node?.properties?.src || node?.url || props.src || null
+      const alt = node?.properties?.alt || node?.alt || props.alt || null
       
-      // Log ALL props to see what we're getting
-      console.log('[ImageComponent] CALLED!', {
-        src: src?.substring?.(0, 100) || 'NULL',
-        alt: alt || 'NULL',
-        propsKeys: Object.keys(props),
-        hasNode: !!props.node,
-        nodeKeys: props.node ? Object.keys(props.node) : [],
-        nodeUrl: props.node?.url?.substring?.(0, 100),
-        nodeProperties: props.node?.properties,
+      console.log('[ImageComponent] Props structure:', {
+        hasNode: !!node,
+        nodeType: node?.type,
+        nodeUrl: node?.url?.substring?.(0, 100),
+        nodeProperties: node?.properties,
+        directSrc: props.src,
+        extractedSrc: src?.substring?.(0, 100),
       })
       
       if (!src) {
-        console.error('[ImageComponent] No src found! Full props:', JSON.stringify(props, null, 2).substring(0, 500))
-        // Return a visible error component
+        console.error('[ImageComponent] No src found in any location')
         return (
           <div style={{ border: '2px solid red', padding: '1rem', backgroundColor: '#ffebee' }}>
             <p style={{ margin: 0, fontWeight: 'bold' }}>ERROR: ImageComponent called but no src found</p>
             <pre style={{ fontSize: '0.8rem', overflow: 'auto', maxHeight: '200px' }}>
-              {JSON.stringify(props, null, 2).substring(0, 1000)}
+              Node: {node ? JSON.stringify(node, null, 2).substring(0, 500) : 'null'}
             </pre>
           </div>
         )
