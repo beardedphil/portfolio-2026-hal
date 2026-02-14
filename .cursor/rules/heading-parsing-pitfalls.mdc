@@ -1,217 +1,274 @@
 ---
-description: Common heading parsing pitfalls and how to avoid them when creating tickets and documents
+description: Guidance on avoiding common heading parsing pitfalls in tickets and documents
 alwaysApply: true
 ---
 
 # Heading parsing pitfalls (and how to avoid them)
 
-When creating tickets, documents, or any markdown content that HAL needs to parse, you must use headings correctly. Incorrect heading formatting can cause parsing failures, making content unreadable or causing validation errors.
+When writing tickets, artifacts, or any markdown documents that HAL needs to parse, proper heading structure is critical. HAL's parsers rely on exact heading formats to extract sections correctly. This guide covers common pitfalls and how to avoid them.
 
-## Pitfall 1: Inconsistent heading levels
+## Pitfall 1: Inconsistent heading levels (skipping levels)
 
-**Problem:** Skipping heading levels (e.g., going from `#` to `###` without `##`) or mixing heading levels inconsistently.
+**Problem:** Skipping heading levels (e.g., using `#` then `###` without `##`) creates an inconsistent document structure that can confuse parsers.
 
-**Example (BAD):**
+**Bad example:**
 ```markdown
 # Ticket
 
 ### Goal (one sentence)
-This is wrong because we skipped ##
+This is the goal.
+
+### Acceptance criteria (UI-only)
+- [ ] Criterion 1
 ```
 
-**Fix:** Use consistent heading levels. For tickets, all main sections should be `##` (level 2).
+**Fix:** Use consistent heading levels. Start with `#` for the top-level title, then use `##` for major sections.
 
-**Example (GOOD):**
+**Good example:**
 ```markdown
-## Ticket
+# Ticket
 
 ## Goal (one sentence)
-This is correct - consistent ## level
-```
-
-## Pitfall 2: Ambiguous "pseudo-headings" instead of real markdown headings
-
-**Problem:** Using bold text or colons to create headings instead of proper markdown heading syntax.
-
-**Example (BAD):**
-```markdown
-**Goal:** This is not a real heading
-**Acceptance criteria:** This won't be parsed correctly
-```
-
-**Fix:** Use proper markdown heading syntax with `#` characters.
-
-**Example (GOOD):**
-```markdown
-## Goal (one sentence)
-This is a real heading that HAL can parse
+This is the goal.
 
 ## Acceptance criteria (UI-only)
-This will be correctly identified as a section
+- [ ] Criterion 1
 ```
+
+**Recommendation:** For tickets, always use `##` for required sections (Goal, Human-verifiable deliverable, Acceptance criteria, Constraints, Non-goals). Never skip from `#` directly to `###` or deeper.
+
+## Pitfall 2: Ambiguous "pseudo-headings" (bold lines or colons instead of markdown headings)
+
+**Problem:** Using bold text (`**Section Name**`) or text with colons (`Section Name:`) instead of proper markdown headings (`## Section Name`) makes it impossible for parsers to reliably extract sections.
+
+**Bad example:**
+```markdown
+**Goal (one sentence)**
+This is the goal.
+
+**Acceptance criteria (UI-only):**
+- [ ] Criterion 1
+```
+
+**Fix:** Always use proper markdown headings (`##`) for section titles.
+
+**Good example:**
+```markdown
+## Goal (one sentence)
+This is the goal.
+
+## Acceptance criteria (UI-only)
+- [ ] Criterion 1
+```
+
+**Recommendation:** If you want a section title, use a heading. Bold text and colons are for emphasis within content, not for structural section markers.
 
 ## Pitfall 3: Required ticket headings don't match canonical text exactly
 
-**Problem:** Ticket headings must match the exact canonical text (case-sensitive). Variations like "Goals" instead of "Goal (one sentence)" will fail validation.
+**Problem:** HAL's parsers use exact case-sensitive matching for required ticket sections. Even small variations (capitalization, spacing, punctuation) will cause sections to be missed.
 
-**Example (BAD):**
+**Bad examples:**
 ```markdown
-## Goal
-## Human-verifiable deliverable
-## Acceptance Criteria
+## goal (one sentence)          # lowercase 'g'
+## Goal (One Sentence)          # capital 'S'
+## Goal(one sentence)          # missing space
+## Goal (one sentence):         # extra colon
+## Acceptance Criteria (UI-only) # capital 'C'
+## Acceptance criteria          # missing "(UI-only)"
 ```
 
-**Fix:** Use the exact canonical heading text as specified in the ticket template.
+**Fix:** Use the exact canonical text for required sections, exactly as documented.
 
-**Example (GOOD):**
+**Good example:**
 ```markdown
 ## Goal (one sentence)
+This is the goal.
+
 ## Human-verifiable deliverable (UI-only)
+A human will see X in the UI.
+
 ## Acceptance criteria (UI-only)
+- [ ] Criterion 1
+- [ ] Criterion 2
+
+## Constraints
+Constraint text here.
+
+## Non-goals
+Non-goal text here.
 ```
 
-**Required canonical headings for tickets:**
+**Canonical required section titles:**
 - `## Goal (one sentence)`
 - `## Human-verifiable deliverable (UI-only)`
 - `## Acceptance criteria (UI-only)`
 - `## Constraints`
 - `## Non-goals`
 
+**Recommendation:** Copy-paste the exact section titles from the ticket template. Do not modify capitalization, spacing, or punctuation.
+
 ## Pitfall 4: Duplicating the same top-level heading multiple times
 
-**Problem:** Having multiple `# Ticket` or other top-level headings in the same document, which confuses parsers.
+**Problem:** Having multiple `# Ticket` headings (or any duplicate top-level heading) in the same document creates ambiguity about which section is the "real" one.
 
-**Example (BAD):**
+**Bad example:**
 ```markdown
 # Ticket
-Content here...
+
+- **ID**: 0010
+- **Title**: Example ticket
+
+## Goal (one sentence)
+Goal text.
 
 # Ticket
-More content here... (duplicate!)
+
+- **ID**: 0011
+- **Title**: Another ticket
 ```
 
-**Fix:** Use each heading level only once at the top level, or use different heading levels for subsections.
+**Fix:** Each document should have exactly one top-level heading (`#`). If you need to reference multiple tickets, use a different structure.
 
-**Example (GOOD):**
+**Good example:**
 ```markdown
-## Ticket
-Content here...
+# Ticket
 
-## Additional Information
-More content here... (different heading)
+- **ID**: 0010
+- **Title**: Example ticket
+
+## Goal (one sentence)
+Goal text.
 ```
+
+**Recommendation:** If you're working with multiple tickets, create separate files or use a different document structure. Never duplicate the same `#` heading within one document.
 
 ## Pitfall 5: Using bullets instead of checkboxes for Acceptance Criteria
 
-**Problem:** Acceptance criteria must use checkbox syntax `- [ ]` not bullet points `- `, so HAL can track completion status.
+**Problem:** The Acceptance criteria section must use checkbox syntax (`- [ ]`) for HAL to recognize and parse criteria correctly. Regular bullets (`- `) or other list formats won't work.
 
-**Example (BAD):**
+**Bad example:**
 ```markdown
 ## Acceptance criteria (UI-only)
 
-- Feature works correctly
-- UI looks good
-- Tests pass
+- Criterion 1
+- Criterion 2
+* Criterion 3
 ```
 
-**Fix:** Use checkbox syntax `- [ ]` for all acceptance criteria items.
+**Fix:** Always use checkbox syntax (`- [ ]`) for acceptance criteria items.
 
-**Example (GOOD):**
+**Good example:**
 ```markdown
 ## Acceptance criteria (UI-only)
 
-- [ ] Feature works correctly
-- [ ] UI looks good
-- [ ] Tests pass
+- [ ] Criterion 1
+- [ ] Criterion 2
+- [ ] Criterion 3
 ```
 
-## Copy/paste examples
+**Recommendation:** When writing acceptance criteria, always use `- [ ]` (dash, space, square brackets with space inside, space, then text). This format is required for HAL's parsers to extract criteria correctly.
+
+## Copy-paste examples
 
 ### Good: Minimal ticket skeleton (passes Definition of Ready)
 
 ```markdown
-## Ticket
+# Ticket
 
-- **ID**: HAL-0181
-- **Title**: HAL-0181 — Add heading parsing pitfalls section
+- **ID**: 0010
+- **Title**: Example feature
 - **Owner**: Implementation agent
 - **Type**: Feature
 - **Priority**: P1
 
 ## Goal (one sentence)
-
-Add an explicit "Heading parsing pitfalls (and how to avoid them)" section to the agent instruction docs so agents consistently produce headings that HAL can parse and render correctly.
+Add a button that shows a confirmation dialog when clicked.
 
 ## Human-verifiable deliverable (UI-only)
-
-In the HAL app, the **agent instructions UI** includes a clearly labeled section titled **"Heading parsing pitfalls (and how to avoid them)"** that lists concrete dos/don'ts and copy‑pasteable examples.
+A human will see a new "Confirm" button in the settings page. When clicked, a dialog appears asking "Are you sure?" with "Yes" and "No" buttons.
 
 ## Acceptance criteria (UI-only)
 
-- [ ] Agent instruction docs include a new section titled **"Heading parsing pitfalls (and how to avoid them)"**.
-- [ ] The section includes at least **5 concrete pitfalls** with **recommended fixes**.
-- [ ] The section includes at least **2 copy/paste examples**.
+- [ ] A "Confirm" button appears in the settings page
+- [ ] Clicking the button shows a dialog with "Are you sure?" text
+- [ ] The dialog has "Yes" and "No" buttons
+- [ ] Clicking "No" closes the dialog without changes
+- [ ] Clicking "Yes" closes the dialog and shows a success message
 
 ## Constraints
 
-- Keep this task as small as possible while still producing a **human-verifiable** UI change.
-- Verification must require **no external tools** (no terminal, no devtools, no console).
+- Keep the dialog styling consistent with existing dialogs
+- Use the existing dialog component library
 
 ## Non-goals
 
-- Changing existing heading parsing logic
-- Adding new validation rules
+- Persisting confirmation state across page reloads
+- Customizing dialog text per button instance
 ```
 
-### Bad: Common failure mode (with corrections)
+### Bad: Common failure modes and corrections
 
-**BAD Example:**
+**Bad example (multiple issues):**
 ```markdown
 # Ticket
 
-**Goal:** Add heading parsing section
+**Goal (one sentence):**
+Add a button.
 
-**Acceptance Criteria:**
-- Feature works
-- UI looks good
+### Acceptance Criteria
+- Criterion 1
+- Criterion 2
 
-### Constraints
-Keep it simple
+# Ticket
+
+- **ID**: 0011
 ```
 
-**Problems:**
-1. Using `#` instead of `##` for main sections
-2. Using bold pseudo-headings instead of real markdown headings
-3. Heading text doesn't match canonical format ("Goal" instead of "Goal (one sentence)")
-4. Using `###` (level 3) when should use `##` (level 2)
-5. Using bullets `-` instead of checkboxes `- [ ]` for acceptance criteria
+**Issues:**
+1. Using bold text instead of `##` heading for Goal
+2. Skipping from `#` to `###` (inconsistent heading levels)
+3. Wrong capitalization: "Acceptance Criteria" instead of "Acceptance criteria"
+4. Missing "(UI-only)" suffix
+5. Using bullets (`-`) instead of checkboxes (`- [ ]`)
+6. Duplicate `# Ticket` heading
 
-**CORRECTED Version:**
+**Corrected version:**
 ```markdown
-## Ticket
+# Ticket
 
-- **ID**: HAL-0181
-- **Title**: HAL-0181 — Add heading parsing pitfalls section
+- **ID**: 0011
+- **Title**: Example feature
+- **Owner**: Implementation agent
+- **Type**: Feature
+- **Priority**: P1
 
 ## Goal (one sentence)
+Add a button.
 
-Add an explicit "Heading parsing pitfalls (and how to avoid them)" section to the agent instruction docs.
+## Human-verifiable deliverable (UI-only)
+A human will see a new button in the UI.
 
 ## Acceptance criteria (UI-only)
 
-- [ ] Feature works
-- [ ] UI looks good
+- [ ] Criterion 1
+- [ ] Criterion 2
 
 ## Constraints
 
-Keep it simple
+- Keep changes minimal
+
+## Non-goals
+
+- No additional features
 ```
 
-## Summary
+## Summary checklist
 
-- Always use `##` (level 2) for main ticket sections
-- Use proper markdown heading syntax (`## Heading`) not bold text
-- Match canonical heading text exactly (case-sensitive)
-- Don't duplicate top-level headings
-- Use checkboxes `- [ ]` not bullets `- ` for acceptance criteria
-- Follow the ticket template structure exactly
+Before submitting a ticket or document, verify:
+
+- [ ] All section headings use proper markdown syntax (`##`, not bold text or colons)
+- [ ] Heading levels are consistent (no skipping from `#` to `###`)
+- [ ] Required ticket sections use exact canonical titles (case-sensitive, exact spacing and punctuation)
+- [ ] Only one top-level heading (`#`) exists in the document
+- [ ] Acceptance criteria use checkbox syntax (`- [ ]`) not bullets (`-`)
+- [ ] All required sections are present with correct headings
