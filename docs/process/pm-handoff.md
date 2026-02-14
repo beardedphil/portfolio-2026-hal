@@ -14,6 +14,37 @@ This file is for future PM agents working in this repo.
 - Unassigned → To-do → Doing → QA → Human in the Loop → Done
 - Will Not Implement: for tickets that will not be implemented.
 
+## Peer Review / Definition of Ready Check (0180)
+
+Before a ticket can be moved from **Unassigned** to **To Do**, it must pass a **Peer Review / DoR (Definition of Ready) check**. This lightweight validation ensures tickets are properly formatted and meet minimum requirements:
+
+- **Required sections present:**
+  - `## Goal (one sentence)`
+  - `## Human-verifiable deliverable (UI-only)`
+  - `## Acceptance criteria (UI-only)`
+
+- **Acceptance criteria format:** Must use checkbox format (`- [ ]`) not plain bullets (`-`)
+
+- **No unresolved placeholders:** No `<...>`, `TODO`, `FIXME`, `XXX`, or bracket placeholders
+
+- **Sections have content:** Required sections must not be empty
+
+**How to use:**
+1. Open any ticket in **Unassigned** or **To Do** column
+2. Click **"Run Peer Review / DoR Check"** button in the ticket detail view
+3. Review the PASS/FAIL result and specific issues (if any)
+4. Fix issues before attempting to move ticket to To Do
+5. The **"Prepare top ticket"** button will automatically check peer review and prevent moving to To Do if the check fails
+
+**When peer review FAILs:**
+- Ticket cannot be moved to To Do via PM automation
+- "Prepare top ticket" button will show an error and prevent the action
+- Issues are listed with clickable links to help fix them
+
+**When peer review PASSes:**
+- Ticket is eligible to be moved to To Do
+- PM automation can proceed normally
+
 ## Common gotchas we hit
 
 - **HAL “connect folder” expectations**:
