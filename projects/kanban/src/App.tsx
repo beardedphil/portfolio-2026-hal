@@ -2181,6 +2181,20 @@ function TicketDetailModal({
         <div className="ticket-detail-meta">
           <span className="ticket-detail-id">ID: {ticketId}</span>
           {priority != null && <span className="ticket-detail-priority">Priority: {priority}</span>}
+          {detailModalFailureCounts && (
+            <>
+              {detailModalFailureCounts.qa > 0 && (
+                <span className="ticket-detail-failure-count" style={{ color: detailModalFailureCounts.qa >= 3 ? '#d32f2f' : '#f57c00' }}>
+                  QA fails: {detailModalFailureCounts.qa}
+                </span>
+              )}
+              {detailModalFailureCounts.hitl > 0 && (
+                <span className="ticket-detail-failure-count" style={{ color: detailModalFailureCounts.hitl >= 3 ? '#d32f2f' : '#f57c00' }}>
+                  HITL fails: {detailModalFailureCounts.hitl}
+                </span>
+              )}
+            </>
+          )}
         </div>
         <div className="ticket-detail-body-wrap">
           {loading && <p className="ticket-detail-loading">Loading…</p>}
@@ -2293,12 +2307,14 @@ function SortableCard({
   onOpenDetail,
   activeWorkAgentType,
   isSaving = false,
+  supabaseTickets = [],
 }: {
   card: Card
   columnId: string
   onOpenDetail?: (cardId: string) => void
   activeWorkAgentType?: 'Implementation' | 'QA' | null
   isSaving?: boolean
+  supabaseTickets?: Array<{ pk: string; [key: string]: any }>
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
@@ -2349,6 +2365,28 @@ function SortableCard({
           )}
         </button>
       </div>
+      {/* Failure count indicators (0195) */}
+      {(() => {
+        const ticket = supabaseTickets.find(t => t.pk === card.id)
+        if (!ticket) return null
+        const qaFails = (ticket as any).qa_fail_count ?? 0
+        const hitlFails = (ticket as any).hitl_fail_count ?? 0
+        if (qaFails === 0 && hitlFails === 0) return null
+        return (
+          <div style={{ fontSize: '0.75rem', color: '#666', marginTop: '4px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {qaFails > 0 && (
+              <span title={`QA failures: ${qaFails}`} style={{ padding: '2px 6px', background: '#fee', borderRadius: '3px' }}>
+                QA fails: {qaFails}
+              </span>
+            )}
+            {hitlFails > 0 && (
+              <span title={`Human-in-the-Loop failures: ${hitlFails}`} style={{ padding: '2px 6px', background: '#fee', borderRadius: '3px' }}>
+                HITL fails: {hitlFails}
+              </span>
+            )}
+          </div>
+        )
+      })()}
       {showAgentBadge && (
         <span className="ticket-card-agent-badge" title={badgeTitle}>
           {badgeText}
@@ -2642,6 +2680,7 @@ function SortableColumn({
                 onOpenDetail={onOpenDetail}
                 activeWorkAgentType={activeWorkAgentType}
                 isSaving={pendingMoves.has(cardId)}
+                supabaseTickets={supabaseTickets}
               />
             )
           })}
@@ -2816,6 +2855,7 @@ function App() {
   // Ticket attachments (0092)
   const [detailModalAttachments, setDetailModalAttachments] = useState<TicketAttachment[]>([])
   const [detailModalAttachmentsLoading, setDetailModalAttachmentsLoading] = useState(false)
+  const [detailModalFailureCounts, setDetailModalFailureCounts] = useState<{ qa: number; hitl: number } | null>(null)
   
   // Board data: library mode (halCtx) = HAL passes data down; else = we fetch from Supabase (iframe/standalone)
   const sourceTickets = halCtx?.tickets ?? supabaseTickets
@@ -3253,6 +3293,7 @@ function App() {
       setDetailModalArtifactsStatus(null)
       setDetailModalAttachments([])
       setDetailModalAttachmentsLoading(false)
+      setDetailModalFailureCounts(null)
       return
     }
     const { ticketId } = detailModal
@@ -3332,6 +3373,34 @@ function App() {
           })
           .finally(() => setDetailModalArtifactsLoading(false))
       }
+      
+      // Fetch failure counts in library mode (0195)
+      const url = halCtx.supabaseUrl?.trim()
+      const key = halCtx.supabaseAnonKey?.trim()
+      if (url && key) {
+        fetch('/api/tickets/check-failure-escalation', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ticketPk: ticketId,
+            supabaseUrl: url,
+            supabaseAnonKey: key,
+          }),
+        })
+          .then((r) => r.json())
+          .then((result: { success?: boolean; qa_fail_count?: number; hitl_fail_count?: number }) => {
+            if (result.success) {
+              setDetailModalFailureCounts({
+                qa: result.qa_fail_count ?? 0,
+                hitl: result.hitl_fail_count ?? 0,
+              })
+            }
+          })
+          .catch(() => {
+            // Silently fail - failure counts are optional
+            setDetailModalFailureCounts(null)
+          })
+      }
       return
     }
     if (supabaseBoardActive) {
@@ -3385,16 +3454,45 @@ function App() {
           setDetailModalAttachments([])
           setDetailModalAttachmentsLoading(false)
         })
+        
+        // Fetch failure counts (0195)
+        const url = supabaseProjectUrl.trim()
+        const key = supabaseAnonKey.trim()
+        if (url && key) {
+          fetch('/api/tickets/check-failure-escalation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ticketPk: ticketId,
+              supabaseUrl: url,
+              supabaseAnonKey: key,
+            }),
+          })
+            .then((r) => r.json())
+            .then((result: { success?: boolean; qa_fail_count?: number; hitl_fail_count?: number }) => {
+              if (result.success) {
+                setDetailModalFailureCounts({
+                  qa: result.qa_fail_count ?? 0,
+                  hitl: result.hitl_fail_count ?? 0,
+                })
+              }
+            })
+            .catch(() => {
+              // Silently fail - failure counts are optional
+              setDetailModalFailureCounts(null)
+            })
+        }
       } else {
         setDetailModalBody('')
         setDetailModalArtifacts([])
         setDetailModalArtifactsLoading(false)
         setDetailModalArtifactsStatus(null)
-        setDetailModalAttachments([])
-        setDetailModalAttachmentsLoading(false)
-      }
-      setDetailModalError(null)
-      setDetailModalLoading(false)
+      setDetailModalAttachments([])
+      setDetailModalAttachmentsLoading(false)
+      setDetailModalFailureCounts(null)
+    }
+    setDetailModalError(null)
+    setDetailModalLoading(false)
     } else {
       // Supabase not connected: show error
       setDetailModalError('Supabase not connected. Connect project folder to view ticket details.')
@@ -5138,6 +5236,31 @@ QA RESULT: FAIL — ${displayId}
                         refreshDetailModalArtifacts()
                       }, 500)
                     }
+                    
+                    // Check for escalation to Process Review (0195)
+                    // Trigger escalation check asynchronously (don't block the response)
+                    setTimeout(async () => {
+                      try {
+                        const escalationResponse = await fetch('/api/tickets/check-failure-escalation', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            ticketPk: ticket.pk,
+                            failureType: 'hitl',
+                          }),
+                        })
+                        const escalationResult = await escalationResponse.json()
+                        if (escalationResult.success && escalationResult.escalated) {
+                          addLog(`Ticket ${displayId} escalated to Process Review (${escalationResult.hitl_fail_count} HITL failures)`)
+                          if (escalationResult.suggestion_tickets && escalationResult.suggestion_tickets.length > 0) {
+                            addLog(`Created ${escalationResult.suggestion_tickets.length} suggestion ticket(s): ${escalationResult.suggestion_tickets.join(', ')}`)
+                          }
+                        }
+                      } catch (err) {
+                        // Log but don't fail - escalation check is best effort
+                        console.warn(`[HITL validation] Escalation check error: ${err instanceof Error ? err.message : String(err)}`)
+                      }
+                    }, 200)
                   }
                 } catch (err) {
                   console.error('Error creating QA artifact:', err)

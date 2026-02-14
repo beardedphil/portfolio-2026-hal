@@ -353,6 +353,23 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         '/api/artifacts/insert-qa',
         'stored'
       )
+
+      // Check if this is a FAIL outcome and trigger escalation check (0195)
+      const isFailOutcome = /QA RESULT:\s*FAIL\s*—/i.test(body_md)
+      if (isFailOutcome) {
+        // Trigger escalation check asynchronously (don't block the response)
+        // Import and call the escalation check function directly
+        setTimeout(async () => {
+          try {
+            const { checkFailureEscalation } = await import('../tickets/_failure-escalation')
+            await checkFailureEscalation(supabase, ticket.pk, 'qa')
+          } catch (err) {
+            // Log but don't fail - escalation check is best effort
+            console.warn(`[insert-qa] Escalation check error: ${err instanceof Error ? err.message : String(err)}`)
+          }
+        }, 100)
+      }
+
       json(res, 200, {
         success: true,
         artifact_id: targetArtifactId,
@@ -466,6 +483,23 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       '/api/artifacts/insert-qa',
       'stored'
     )
+
+      // Check if this is a FAIL outcome and trigger escalation check (0195)
+      const isFailOutcome = /QA RESULT:\s*FAIL\s*—/i.test(body_md)
+      if (isFailOutcome) {
+        // Trigger escalation check asynchronously (don't block the response)
+        // Import and call the escalation check function directly
+        setTimeout(async () => {
+          try {
+            const { checkFailureEscalation } = await import('../tickets/_failure-escalation')
+            await checkFailureEscalation(supabase, ticket.pk, 'qa')
+          } catch (err) {
+            // Log but don't fail - escalation check is best effort
+            console.warn(`[insert-qa] Escalation check error: ${err instanceof Error ? err.message : String(err)}`)
+          }
+        }, 100)
+      }
+
     json(res, 200, {
       success: true,
       artifact_id: inserted.artifact_id,

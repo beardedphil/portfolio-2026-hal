@@ -1743,7 +1743,35 @@ function App() {
         .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, status, created_at, updated_at')
         .eq('repo_full_name', connectedProject)
 
-      setKanbanTickets((ticketRows ?? []) as KanbanTicketRow[])
+      // Fetch failure counts for each ticket (0195)
+      const ticketsWithFailureCounts = await Promise.all(
+        (ticketRows ?? []).map(async (ticket) => {
+          try {
+            const response = await fetch('/api/tickets/failure-counts', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                ticketPk: ticket.pk,
+                supabaseUrl: url,
+                supabaseAnonKey: key,
+              }),
+            })
+            const result = await response.json()
+            if (result.success) {
+              return {
+                ...ticket,
+                qa_fail_count: result.qaFailCount,
+                hitl_fail_count: result.hitlFailCount,
+              } as KanbanTicketRow & { qa_fail_count?: number; hitl_fail_count?: number }
+            }
+          } catch (err) {
+            console.warn('Failed to fetch failure counts for ticket', ticket.pk, err)
+          }
+          return ticket as KanbanTicketRow & { qa_fail_count?: number; hitl_fail_count?: number }
+        })
+      )
+
+      setKanbanTickets(ticketsWithFailureCounts as KanbanTicketRow[])
       const canonicalColumnOrder = [
         'col-unassigned',
         'col-todo',
