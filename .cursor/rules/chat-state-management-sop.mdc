@@ -1,0 +1,335 @@
+---
+description: Chat state management SOP for disconnect/reconnect scenarios
+alwaysApply: true
+---
+
+# Chat state management SOP (disconnect/reconnect)
+
+This SOP defines how agents must handle chat state during disconnect/reconnect scenarios to ensure data integrity, avoid duplicates, and prevent blank artifacts.
+
+## Authoritative sources of truth
+
+**CRITICAL:** Agents must understand which data sources are authoritative and which are ephemeral.
+
+### Authoritative (persistent, source of truth)
+
+1. **Supabase database tables:**
+   - `hal_conversation_messages` — All conversation messages (authoritative)
+   - `hal_conversation_summaries` — Conversation summaries (authoritative)
+   - `agent_artifacts` — All agent artifacts (authoritative)
+   - `tickets` — Ticket content and metadata (authoritative)
+   - `agent_runs` — Agent execution history (authoritative)
+
+2. **Git repository state:**
+   - Current branch, commit history, file changes (authoritative)
+   - Git state is the source of truth for code changes
+
+### Ephemeral (not authoritative, may be stale)
+
+1. **Client UI state (in-memory):**
+   - React component state (`conversations`, `messages`, `selectedConversationId`)
+   - Agent status indicators (`implAgentRunStatus`, `implAgentProgress`)
+   - UI-only state that may be lost on page refresh
+
+2. **localStorage (fallback only):**
+   - `hal-chat-conversations-<project>` — Used for immediate UI display after reconnect
+   - `hal-impl-agent-status` — Agent status cache
+   - **Important:** localStorage is a fallback for UX only. Supabase is always authoritative.
+
+3. **In-memory agent state:**
+   - Variables, refs, and state that exist only during agent execution
+   - Tool call results cached in memory
+   - Any state not persisted to Supabase
+
+**Rule:** On reconnect, agents must **always re-fetch from Supabase** rather than relying on in-memory or localStorage state.
+
+## Reconnect checklist
+
+When an agent reconnects after a disconnect (page refresh, network interruption, or new agent session), follow this checklist in order:
+
+### 1. Rehydrate conversation list and active conversation from database
+
+**Steps:**
+1. Load conversations from Supabase `hal_conversation_messages` table:
+   - Query by `project_id` (repository full name)
+   - Group messages by `agent` field (conversation ID format: `agent-role-instanceNumber`)
+   - Order messages by `sequence` number (ascending)
+   - Load most recent messages per conversation (pagination: `MESSAGES_PER_PAGE`)
+
+2. Merge with localStorage (if available) for immediate UI display:
+   - Load from localStorage first (synchronous) for instant UI feedback
+   - Then load from Supabase (asynchronous) and overwrite localStorage data
+   - **Supabase data takes precedence** over localStorage
+
+3. Ensure PM conversation exists:
+   - If no PM conversation exists, create empty conversation with ID `project-manager-1`
+   - This prevents empty PM chat after reconnect
+
+4. Update sequence tracking:
+   - Track max `sequence` number per conversation
+   - Use this to prevent duplicate message insertion
+
+**Code reference:** See `loadConversationsForProject` in `src/App.tsx` (lines 616-825)
+
+### 2. Re-fetch ticket content and artifacts from Supabase
+
+**Steps:**
+1. **Never rely on in-memory ticket state.** Always fetch fresh ticket data:
+   - Use HAL API endpoint: `POST /api/tickets/get` with `{ ticketId: "<ticket-id>" }`
+   - Or query Supabase `tickets` table directly if API unavailable
+
+2. **Re-fetch all artifacts for the ticket:**
+   - Use HAL API endpoint: `POST /api/artifacts/get` with `{ ticketId: "<ticket-id>" }`
+   - Filter by `agent_type` if needed
+   - Verify required artifacts exist before proceeding with work
+
+3. **Re-fetch agent run history:**
+   - Query `agent_runs` table if needed for context
+   - Do not assume previous runs are still in memory
+
+**Rule:** If you cannot fetch ticket/artifact data from Supabase, **do not proceed** with work that depends on that data. Fail gracefully and report the error.
+
+### 3. De-dupe on insert: messages, artifacts, and tool-call results (idempotency requirements)
+
+**CRITICAL:** All insert operations must be idempotent to handle network retries, reconnects, and race conditions.
+
+#### Messages (`hal_conversation_messages`)
+
+**De-duplication strategy:**
+1. **Use sequence numbers:** Before inserting, query max `sequence` for the conversation:
+   ```javascript
+   const { data: maxRow } = await supabase
+     .from('hal_conversation_messages')
+     .select('sequence')
+     .eq('project_id', projectId)
+     .eq('agent', agentId)
+     .order('sequence', { ascending: false })
+     .limit(1)
+     .maybeSingle()
+   const nextSeq = ((maxRow?.sequence ?? -1) as number) + 1
+   ```
+
+2. **Check for duplicate content:** Before inserting, verify the message doesn't already exist:
+   - Check if a message with the same `content`, `agent`, `role`, and `project_id` exists within the last N messages
+   - If duplicate found, skip insertion
+
+3. **Handle duplicate key errors:** If insert fails with duplicate key error (`code: '23505'`):
+   - Query for the existing message
+   - Update it if needed, or skip if identical
+
+**Code reference:** See `vite.config.ts` lines 1888-1906 for sequence-based insertion
+
+#### Artifacts (`agent_artifacts`)
+
+**De-duplication strategy:**
+1. **Query existing artifacts by title:** Before inserting, find all artifacts with the same `title` and `ticket_pk`:
+   ```javascript
+   const { data: existingArtifacts } = await supabase
+     .from('agent_artifacts')
+     .select('artifact_id, body_md, created_at')
+     .eq('ticket_pk', ticketPk)
+     .eq('title', title)
+     .order('created_at', { ascending: false })
+   ```
+
+2. **Delete empty/placeholder artifacts:** Remove any artifacts that are empty or contain only placeholder text (see "Guardrails" below)
+
+3. **Update existing artifact:** If a non-empty artifact exists, update it instead of inserting:
+   - Prefer the most recent artifact with content
+   - Update `body_md` and `updated_at` fields
+
+4. **Insert only if no existing artifact:** If no artifact exists (or all were deleted), insert new one
+
+5. **Handle race conditions:** If insert fails with duplicate key error:
+   - Query for the newly created artifact (another process may have inserted it)
+   - Update it with the current content
+
+**Code reference:** See `insertAgentArtifact` in `vite.config.ts` (lines 38-164)
+
+#### Tool-call results
+
+**De-duplication strategy:**
+1. **Store tool calls with unique identifiers:** Include request ID, timestamp, or hash in tool call metadata
+2. **Check before re-executing:** If a tool call was already executed (check by identifier), return cached result instead of re-executing
+3. **Idempotent operations:** Design tool calls to be idempotent (e.g., `upsert` instead of `insert`)
+
+### 4. Guardrails to prevent creating blank "shell" artifacts
+
+**CRITICAL:** Agents must validate artifact content before insertion to prevent blank or placeholder-only artifacts.
+
+#### Validation requirements
+
+**Before inserting any artifact:**
+1. **Check for substantive content:**
+   - Minimum length: 50 characters (100 for QA reports)
+   - Must contain actual content, not just a title/heading
+   - Must not be empty or whitespace-only
+
+2. **Check for placeholder patterns:**
+   - Reject artifacts containing only: `TODO`, `TBD`, `placeholder`, `coming soon`
+   - Reject artifacts with patterns like: `(No files changed in this PR)`, `(none)`
+   - Reject artifacts that are just headings with no content
+
+3. **Type-specific validation:**
+   - **Changed Files artifacts:** Must list actual file changes (not just "## Changed Files" heading)
+   - **Verification artifacts:** Must contain actual verification steps (not just checkboxes)
+   - **QA reports:** Must contain at least 100 characters of substantive content
+
+4. **If validation fails:**
+   - **Do not insert the artifact**
+   - Log a warning: `Skipping ${agentType} artifact "${title}" for ticket ${ticketPk}: ${validation.reason}`
+   - Continue with other work (do not fail the entire operation)
+
+**Code reference:** See `api/artifacts/_validation.ts` for validation functions:
+- `hasSubstantiveContent()` — General artifact validation
+- `hasSubstantiveQAContent()` — QA report validation
+- `isEmptyOrPlaceholder()` — Empty/placeholder detection
+
+**Example:**
+```javascript
+const { hasSubstantiveContent } = await import('./api/artifacts/_validation')
+const validation = hasSubstantiveContent(body_md, title)
+if (!validation.valid) {
+  console.warn(`Skipping artifact "${title}": ${validation.reason}`)
+  return // Do not insert
+}
+```
+
+## Failure-mode guidance
+
+### What to do if duplicates are detected
+
+**Scenario:** Agent detects duplicate messages or artifacts after reconnect.
+
+**Actions:**
+1. **Do not panic or fail the operation.** Duplicates are expected during reconnects.
+2. **Clean up duplicates:**
+   - For artifacts: Use HAL API endpoint `POST /api/artifacts/cleanup-duplicates` with `{ ticketId: "<ticket-id>" }`
+   - For messages: Query and identify duplicates by `content`, `agent`, `role`, `sequence`, then delete the older duplicate(s)
+3. **Continue with work:** After cleanup, proceed with normal operations
+4. **Log the cleanup:** Record that duplicates were detected and cleaned up
+
+### What to do if artifact insert is retried
+
+**Scenario:** Network failure causes artifact insert to be retried, potentially creating duplicates.
+
+**Actions:**
+1. **Use idempotent insertion logic:** Always query for existing artifacts before inserting (see "De-dupe on insert" above)
+2. **Handle duplicate key errors:** If insert fails with `code: '23505'` (duplicate key):
+   - Query for the existing artifact
+   - Update it with the current content (if different)
+   - Log that a duplicate was detected and handled
+3. **Do not retry indefinitely:** Limit retries to 3-5 attempts with exponential backoff
+4. **Validate before retry:** Re-validate content before each retry attempt
+
+### What to do if network flaps cause replays
+
+**Scenario:** Network instability causes the same operation to be executed multiple times.
+
+**Actions:**
+1. **Use sequence numbers for messages:** Always increment sequence numbers atomically
+2. **Use upsert patterns:** Prefer `upsert` over `insert` where possible
+3. **Check before insert:** Always query for existing records before inserting
+4. **Use unique constraints:** Rely on database unique constraints to prevent duplicates
+5. **Handle errors gracefully:** If duplicate key error occurs, treat it as success (the operation already completed)
+
+### What to do if Supabase is unavailable
+
+**Scenario:** Cannot connect to Supabase during reconnect.
+
+**Actions:**
+1. **Use localStorage fallback:** Load conversations from localStorage for immediate UI display
+2. **Queue operations:** Store pending inserts/updates in localStorage or in-memory queue
+3. **Retry when available:** When Supabase becomes available, replay queued operations
+4. **Validate before replay:** Re-validate all queued operations before replaying (check for duplicates)
+5. **Log errors:** Record that Supabase was unavailable and operations were queued
+
+## Verification procedure
+
+A human can follow these steps in the HAL UI to verify the SOP is being followed:
+
+### Test 1: Reconnect and verify no duplicate messages
+
+**Steps:**
+1. Open HAL app and connect to a repository
+2. Start a conversation with an agent (e.g., PM agent)
+3. Send 2-3 messages in the conversation
+4. **Disconnect:** Close the browser tab or refresh the page
+5. **Reconnect:** Reopen the app and reconnect to the same repository
+6. **Verify:**
+   - All previous messages are visible
+   - No duplicate messages appear
+   - Message order is correct (chronological by sequence)
+   - New messages can be sent and appear correctly
+
+**Expected result:** All messages appear exactly once, in correct order.
+
+### Test 2: Reconnect and verify no duplicate artifacts
+
+**Steps:**
+1. Open HAL app and connect to a repository
+2. Trigger an agent operation that creates artifacts (e.g., implementation agent completing a ticket)
+3. Wait for artifacts to be created (check in ticket view)
+4. **Disconnect:** Close the browser tab or refresh the page
+5. **Reconnect:** Reopen the app and reconnect to the same repository
+6. **Verify:**
+   - Open the ticket that had artifacts
+   - Check that each artifact appears exactly once
+   - Verify artifact content is complete (not blank/placeholder)
+   - Check that artifact timestamps are reasonable
+
+**Expected result:** Each artifact appears exactly once with complete content.
+
+### Test 3: Verify blank artifact prevention
+
+**Steps:**
+1. Open HAL app and connect to a repository
+2. Trigger an agent operation that would create an artifact
+3. **Simulate failure:** Interrupt the agent before it completes (e.g., disconnect during artifact creation)
+4. **Reconnect:** Reopen the app
+5. **Verify:**
+   - Check the ticket for artifacts
+   - Verify no blank/placeholder artifacts exist
+   - If an artifact exists, verify it has substantive content (not just a title)
+
+**Expected result:** No blank or placeholder-only artifacts are created.
+
+### Test 4: Verify ticket/artifact re-fetch on reconnect
+
+**Steps:**
+1. Open HAL app and connect to a repository
+2. Note the current state of a ticket (title, description, artifacts)
+3. **Modify externally:** In another browser tab or via API, update the ticket or add an artifact
+4. **Reconnect:** In the first tab, refresh the page
+5. **Verify:**
+   - The ticket shows the updated content
+   - New artifacts are visible
+   - Changes made externally are reflected in the UI
+
+**Expected result:** UI reflects the current state from Supabase, not stale in-memory state.
+
+### Test 5: Verify sequence number handling
+
+**Steps:**
+1. Open HAL app and connect to a repository
+2. Send multiple messages in a conversation
+2. **Disconnect:** Close the browser tab
+3. **Reconnect:** Reopen the app
+4. **Send new message:** Send another message in the same conversation
+5. **Verify:**
+   - New message appears after previous messages (correct sequence)
+   - No sequence gaps or duplicates
+   - Messages are ordered correctly
+
+**Expected result:** Sequence numbers are maintained correctly across reconnects.
+
+## Summary
+
+**Key principles:**
+1. **Supabase is authoritative** — Always re-fetch from Supabase on reconnect
+2. **Idempotency is required** — All inserts must handle duplicates gracefully
+3. **Validation before insert** — Never insert blank/placeholder artifacts
+4. **Sequence numbers matter** — Use sequence numbers to maintain message order
+5. **Fail gracefully** — If Supabase is unavailable, use fallbacks but queue operations for replay
+
+**When in doubt:** Re-fetch from Supabase rather than relying on in-memory or localStorage state.
