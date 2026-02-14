@@ -433,6 +433,74 @@ body {
   font-weight: 600;
 }
 
+/* Chat collapse button (0160) */
+.chat-collapse-btn {
+  padding: 0.4rem 0.6rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  background: transparent;
+  color: var(--hal-text);
+  border: 1px solid var(--hal-border);
+  border-radius: 4px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  transition: background-color 0.2s, border-color 0.2s;
+}
+
+.chat-collapse-btn:hover {
+  background: var(--hal-surface-alt);
+  border-color: var(--hal-border-muted);
+}
+
+.chat-collapse-btn:focus-visible {
+  outline: 2px solid var(--hal-primary);
+  outline-offset: 2px;
+}
+
+/* Chat restore button (0160) - floating button when chat is collapsed */
+.chat-restore-btn {
+  position: fixed;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 0.75rem 0.5rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  background: var(--hal-primary);
+  color: #fff;
+  border: none;
+  border-radius: 8px 0 0 8px;
+  font-weight: 500;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  z-index: 100;
+  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.15);
+  transition: background-color 0.2s, transform 0.2s;
+  min-width: 48px;
+}
+
+.chat-restore-btn:hover {
+  background: var(--hal-primary-hover);
+  transform: translateY(-50%) translateX(-2px);
+}
+
+.chat-restore-btn:focus-visible {
+  outline: 2px solid var(--hal-primary);
+  outline-offset: 2px;
+}
+
+.chat-restore-label {
+  font-size: 0.75rem;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+}
+
 .agent-selector {
   display: flex;
   align-items: center;
@@ -1530,6 +1598,27 @@ body {
 
   .message {
     max-width: 95%;
+  }
+
+  /* Chat restore button on mobile (0160) */
+  .chat-restore-btn {
+    position: fixed;
+    right: 0;
+    top: auto;
+    bottom: 1rem;
+    transform: none;
+    border-radius: 8px;
+    min-width: 56px;
+    padding: 0.5rem;
+  }
+
+  .chat-restore-btn:hover {
+    transform: translateY(-2px);
+  }
+
+  .chat-restore-label {
+    writing-mode: horizontal-tb;
+    text-orientation: mixed;
   }
 
   .conversation-list {
