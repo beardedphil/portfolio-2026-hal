@@ -188,12 +188,6 @@ export function AgentInstructionsViewer({
 
 
   function getInstructionsForAgent(agent: AgentType): InstructionFile[] {
-    // Use pre-loaded scoped instructions if available
-    if (instructionsByAgent[agent]) {
-      return instructionsByAgent[agent]
-    }
-    
-    // Fallback to filtering all instructions
     if (agent === 'all') {
       return instructions.filter(inst => inst.alwaysApply || inst.agentTypes.includes('all'))
     }
@@ -472,8 +466,9 @@ ${alwaysApply ? 'alwaysApply: true' : ''}
                   <div className="agent-list">
                     {(['all', 'project-manager', 'implementation-agent', 'qa-agent', 'process-review-agent'] as AgentType[]).map((agent) => {
                       const agentInstructions = getInstructionsForAgent(agent)
-                      const allCount = instructionsByAgent['all']?.length || instructions.length
-                      const isScoped = agent !== 'all' && instructionsByAgent[agent]
+                      const allInstructions = getInstructionsForAgent('all')
+                      const allCount = allInstructions.length
+                      const isScoped = agent !== 'all'
                       const showScoping = isScoped && agentInstructions.length !== allCount
                       
                       return (
@@ -540,8 +535,7 @@ ${alwaysApply ? 'alwaysApply: true' : ''}
                 })
                 
                 // Get scoping metadata for this agent type
-                const metadata = scopingMetadata[selectedAgent] || {}
-                const allAgentInstructions = instructionsByAgent['all'] || []
+                const allAgentInstructions = getInstructionsForAgent('all')
                 const currentAgentInstructions = getInstructionsForAgent(selectedAgent)
                 const excludedCount = selectedAgent !== 'all' 
                   ? (allAgentInstructions.length - currentAgentInstructions.length)
@@ -579,21 +573,6 @@ ${alwaysApply ? 'alwaysApply: true' : ''}
                           )}
                           <li>Includes: shared/global instructions (applies to all) + agent-specific instructions</li>
                         </ul>
-                        {metadata.excludedTopics && metadata.excludedTopics.length > 0 && (
-                          <details style={{ marginTop: '0.5rem' }}>
-                            <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>
-                              Excluded topics ({metadata.excludedTopics.length})
-                            </summary>
-                            <ul style={{ margin: '0.5rem 0 0 1.5rem', fontSize: '0.85rem' }}>
-                              {metadata.excludedTopics.slice(0, 10).map((topicId: string) => (
-                                <li key={topicId}><code>{topicId}</code></li>
-                              ))}
-                              {metadata.excludedTopics.length > 10 && (
-                                <li>... and {metadata.excludedTopics.length - 10} more</li>
-                              )}
-                            </ul>
-                          </details>
-                        )}
                       </div>
                     )}
                     
