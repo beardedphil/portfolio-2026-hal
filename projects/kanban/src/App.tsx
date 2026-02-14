@@ -1869,7 +1869,7 @@ function SortableCard({
           )}
         </button>
       </div>
-      {showAgentBadge && agentName && (
+      {showAgentBadge && (
         <span className="ticket-card-agent-badge" title={badgeTitle}>
           {badgeText}
         </span>
@@ -1891,6 +1891,7 @@ function SortableColumn({
   refetchSupabaseTickets,
   agentRunsByTicketPk = {},
   pendingMoves = new Set(),
+  fetchActiveAgentRuns,
 }: {
   col: Column
   cards: Record<string, Card>
@@ -1904,6 +1905,7 @@ function SortableColumn({
   refetchSupabaseTickets?: (skipPendingMoves?: boolean) => Promise<boolean>
   agentRunsByTicketPk?: Record<string, SupabaseAgentRunRow>
   pendingMoves?: Set<string>
+  fetchActiveAgentRuns?: () => Promise<void>
 }) {
   const halCtx = useContext(HalKanbanContext)
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
@@ -2002,7 +2004,14 @@ function SortableColumn({
             kanban_moved_at: movedAt,
           })
           if (result.ok) {
-            setTimeout(() => refetchSupabaseTickets(false), 500)
+            setTimeout(() => {
+              refetchSupabaseTickets(false).then(() => {
+                // Refetch agent runs since ticket moved to Doing (0135)
+                if (fetchActiveAgentRuns) {
+                  fetchActiveAgentRuns()
+                }
+              })
+            }, 500)
           }
         }
       }
@@ -3151,7 +3160,10 @@ function App() {
               if (result.ok) {
                 // Refetch after a short delay to ensure DB write is visible
                 setTimeout(() => {
-                  refetchSupabaseTickets(false)
+                  refetchSupabaseTickets(false).then(() => {
+                    // Refetch agent runs since ticket moved from Doing to QA (0135)
+                    fetchActiveAgentRuns()
+                  })
                 }, 500)
               }
             }
@@ -3548,6 +3560,10 @@ function App() {
                   next.delete(ticketPk)
                   return next
                 })
+                // Refetch agent runs if ticket moved to/from Doing column (0135)
+                if (overColumn.id === 'col-doing' || ticket?.kanban_column_id === 'col-doing') {
+                  fetchActiveAgentRuns()
+                }
               }).catch(() => {
                 // On error, still remove from pending to avoid stuck state
                 setPendingMoves((prev) => {
@@ -3565,7 +3581,12 @@ function App() {
             next.delete(ticketPk)
             return next
           })
-          refetchSupabaseTickets(false) // Full refetch to restore correct state
+          refetchSupabaseTickets(false).then(() => {
+            // Refetch agent runs if ticket was in Doing column (0135)
+            if (ticket?.kanban_column_id === 'col-doing' || overColumn.id === 'col-doing') {
+              fetchActiveAgentRuns()
+            }
+          }) // Full refetch to restore correct state
           addLog(`Supabase update failed: ${result.error}`)
         }
         return
@@ -3729,6 +3750,7 @@ function App() {
             // Remove from pending after delay - refetch preserves optimistic position until backend matches (0144)
             // CRITICAL: Keep ticket in pendingMoves during refetch to prevent snap-back
             // The refetch logic will preserve the optimistic position if backend hasn't updated yet
+            const sourceTicket = supabaseTickets.find((t) => t.pk === ticketPk)
             setTimeout(() => {
               refetchSupabaseTickets(false).then(() => {
                 // Refetch completed - remove from pendingMoves
@@ -3738,6 +3760,10 @@ function App() {
                   next.delete(ticketPk)
                   return next
                 })
+                // Refetch agent runs if ticket moved to/from Doing column (0135)
+                if (overColumn.id === 'col-doing' || sourceTicket?.kanban_column_id === 'col-doing') {
+                  fetchActiveAgentRuns()
+                }
               }).catch(() => {
                 // On error, still remove from pending to avoid stuck state
                 setPendingMoves((prev) => {
@@ -3755,7 +3781,13 @@ function App() {
               next.delete(ticketPk)
               return next
             })
-            refetchSupabaseTickets(false) // Full refetch to restore correct state
+            const sourceTicket = supabaseTickets.find((t) => t.pk === ticketPk)
+            refetchSupabaseTickets(false).then(() => {
+              // Refetch agent runs if ticket was in Doing column (0135)
+              if (sourceTicket?.kanban_column_id === 'col-doing' || overColumn.id === 'col-doing') {
+                fetchActiveAgentRuns()
+              }
+            }) // Full refetch to restore correct state
             addLog(`Supabase ticket move failed: ${result.error}`)
           }
         }
@@ -4322,6 +4354,7 @@ ${notes || '(none provided)'}
                   refetchSupabaseTickets={refetchSupabaseTickets}
                   agentRunsByTicketPk={displayAgentRunsByTicketPk}
                   pendingMoves={pendingMoves}
+                  fetchActiveAgentRuns={fetchActiveAgentRuns}
                 />
               ))}
             </div>
