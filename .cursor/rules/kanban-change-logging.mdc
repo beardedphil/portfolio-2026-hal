@@ -1,0 +1,218 @@
+---
+description: Mandatory workflow for logging all Kanban moves and reorders performed by agents
+alwaysApply: true
+---
+
+# Kanban Change Logging (Mandatory for All Agents)
+
+**MANDATORY:** Any agent that moves or reorders a ticket on the Kanban board **must** immediately log the change in a durable, human-readable location associated with the ticket.
+
+## When Logging Is Required
+
+Logging is required for **any** Kanban change performed by an agent:
+
+- **Column move**: Moving a ticket from one column to another (e.g., "To Do" → "Doing")
+- **Position reorder**: Reordering tickets within the same column (e.g., moving ticket from position 2 to position 0)
+
+**Note:** Logging is required even if the move/reorder is part of a larger workflow (e.g., moving a ticket to "QA" after implementation completes).
+
+## Log Format (Copy/Paste Template)
+
+Every log entry must include the following fields in this exact format:
+
+```markdown
+## Kanban Change Log
+
+### [YYYY-MM-DD HH:MM:SS UTC] — [Agent Type] — Ticket [Ticket ID]
+
+**Change Type:** [Column Move / Position Reorder]
+
+**Ticket ID(s) Affected:** [Ticket ID, e.g., "0192" or "HAL-0192"]
+
+**From Column:** [Source column name or ID, e.g., "To Do" or "col-todo"]
+
+**To Column:** [Target column name or ID, e.g., "Doing" or "col-doing"]
+
+**Old Position:** [Previous position in column, e.g., "2" or "N/A" if column move]
+
+**New Position:** [New position in column, e.g., "0" or "N/A" if column move]
+
+**Reason:** [Brief explanation of why the change was made, e.g., "DoR passed, ready for implementation" or "QA completed, moving to Human in the Loop"]
+```
+
+### Example: Column Move
+
+```markdown
+## Kanban Change Log
+
+### [2026-02-14 15:30:45 UTC] — Implementation Agent — Ticket 0192
+
+**Change Type:** Column Move
+
+**Ticket ID(s) Affected:** 0192
+
+**From Column:** Unassigned
+
+**To Column:** To Do
+
+**Old Position:** N/A
+
+**New Position:** 0
+
+**Reason:** DoR passed, ready for implementation
+```
+
+### Example: Position Reorder
+
+```markdown
+## Kanban Change Log
+
+### [2026-02-14 16:15:22 UTC] — Implementation Agent — Ticket 0192
+
+**Change Type:** Position Reorder
+
+**Ticket ID(s) Affected:** 0192
+
+**From Column:** To Do
+
+**To Column:** To Do
+
+**Old Position:** 2
+
+**New Position:** 0
+
+**Reason:** Prioritizing this ticket above others in To Do column
+```
+
+### Example: Multiple Tickets (Bulk Reorder)
+
+```markdown
+## Kanban Change Log
+
+### [2026-02-14 17:00:10 UTC] — QA Agent — Tickets 0190, 0191, 0192
+
+**Change Type:** Position Reorder
+
+**Ticket ID(s) Affected:** 0190, 0191, 0192
+
+**From Column:** QA
+
+**To Column:** QA
+
+**Old Position:** 0190: 0, 0191: 1, 0192: 2
+
+**New Position:** 0190: 2, 0191: 0, 0192: 1
+
+**Reason:** Reordering QA queue based on priority and dependencies
+```
+
+## Where to Store the Log
+
+### Primary Method: Ticket Body Section
+
+**Preferred:** Append the log entry to a "Kanban Change Log" section in the ticket body.
+
+1. **Fetch current ticket body:**
+   ```javascript
+   const baseUrl = (await readFile('.hal/api-base-url', 'utf8')).trim()
+   const res = await fetch(`${baseUrl}/api/tickets/get`, {
+     method: 'POST',
+     headers: { 'Content-Type': 'application/json' },
+     body: JSON.stringify({ ticketId: '0192' }),
+   })
+   const result = await res.json()
+   const currentBody = result.success ? (result.ticket.body_md || '') : ''
+   ```
+
+2. **Append log entry:**
+   - If ticket body already contains a "## Kanban Change Log" section, append the new entry to that section.
+   - If no "Kanban Change Log" section exists, add it at the end of the ticket body.
+
+3. **Update ticket body:**
+   ```javascript
+   await fetch(`${baseUrl}/api/tickets/update`, {
+     method: 'POST',
+     headers: { 'Content-Type': 'application/json' },
+     body: JSON.stringify({
+       ticketId: '0192',
+       body_md: updatedBodyWithLog,
+     }),
+   })
+   ```
+
+**Why ticket body:** The log is immediately visible in the ticket UI when viewing ticket details, making it human-verifiable without additional navigation.
+
+### Fallback Method: Required Artifact
+
+**If ticket body update fails** (API error, network failure, timeout, or tool limitations):
+
+1. **Create a "Kanban Change Log" artifact** using the implementation artifact endpoint:
+   ```javascript
+   await fetch(`${baseUrl}/api/artifacts/insert-implementation`, {
+     method: 'POST',
+     headers: { 'Content-Type': 'application/json' },
+     body: JSON.stringify({
+       ticketId: '0192',
+       artifactType: 'decisions', // or 'worklog' if more appropriate
+       title: 'Kanban Change Log — [YYYY-MM-DD HH:MM:SS UTC]',
+       body_md: logEntryMarkdown,
+     }),
+   })
+   ```
+
+2. **Document the fallback in your worklog:** If you had to use the artifact fallback, note this in your worklog artifact with the reason (e.g., "Ticket body update API returned 500 error, logged change via artifact instead").
+
+**Why artifact fallback:** Artifacts are stored in Supabase and visible in the ticket's artifacts panel, ensuring the log is still human-verifiable even if body update fails.
+
+## What to Do When Logging Fails Completely
+
+If **both** methods fail (ticket body update fails AND artifact creation fails):
+
+1. **Do NOT perform the move/reorder** if logging cannot be completed.
+   - **Exception:** If the move is part of a critical workflow (e.g., moving to "Human in the Loop" after QA), you may proceed, but you **must**:
+     - Document the failure in your worklog artifact
+     - Create a follow-up ticket to manually add the missing log entry
+     - Include in the follow-up ticket: ticket ID, timestamp of move, from/to columns, positions, and reason
+
+2. **Open a follow-up ticket** (next sequential ID) with:
+   - **Title:** "Add missing Kanban change log for ticket [ID]"
+   - **Body:** Include all required log fields (timestamp, agent type, ticket ID, from→to column, old→new position, reason)
+   - **Priority:** P1 (auditability requirement)
+
+3. **Document in worklog:** Note that the move was performed but logging failed, and a follow-up ticket was created.
+
+## Workflow Steps (Copy/Paste Checklist)
+
+When performing a Kanban move or reorder:
+
+- [ ] **Before move:** Note current column and position (if applicable)
+- [ ] **Perform move:** Call `/api/tickets/move` or use `onMoveTicket`/`onReorderColumn` callback
+- [ ] **Immediately after move:** Fetch current ticket body
+- [ ] **Append log entry:** Add formatted log entry to "Kanban Change Log" section
+- [ ] **Update ticket body:** Call `/api/tickets/update` with updated body
+- [ ] **If body update fails:** Create "Kanban Change Log" artifact as fallback
+- [ ] **If both fail:** Document in worklog, create follow-up ticket, proceed only if critical workflow
+
+## Verification
+
+A human can verify the log exists by:
+
+1. **Opening the ticket** in the Kanban UI
+2. **Viewing ticket details** (click ticket card)
+3. **Scrolling to "Kanban Change Log" section** in ticket body (or checking artifacts panel if fallback was used)
+4. **Reading the log entry** to confirm it includes all required fields
+
+## Scope
+
+- **Applies to:** All agent types (Implementation, QA, PM, Process Review, etc.)
+- **Applies to:** Both column moves and position reorders
+- **Applies to:** Single ticket moves and bulk reorders
+- **Does not apply to:** Human-initiated moves (only agent-performed moves require logging)
+
+## Integration with Existing Workflows
+
+This logging requirement integrates with:
+
+- **Agent Supabase API Paradigm** (`.cursor/rules/agent-supabase-api-paradigm.mdc`): Use HAL API endpoints for all ticket operations
+- **Code Citation Requirements** (`.cursor/rules/code-citation-requirements.mdc`): When documenting moves in worklogs, cite specific code locations
+- **State Management Change Documentation** (`.cursor/rules/state-management-change-documentation.mdc`): Kanban moves are state changes that must be documented
