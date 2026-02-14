@@ -1186,7 +1186,7 @@ function ArtifactsSection({
   loading,
   onOpenArtifact,
   statusMessage = null,
-  onRefresh = undefined,
+  onRefresh: _onRefresh = undefined,
   refreshing = false,
   columnId = null,
 }: {
@@ -1198,7 +1198,6 @@ function ArtifactsSection({
   refreshing?: boolean
   columnId?: string | null
 }) {
-  const showRefresh = typeof onRefresh === 'function'
   const isLoading = loading || refreshing
 
   // Detect missing expected artifacts for implementation tickets in QA or later columns (0137)
@@ -1239,11 +1238,6 @@ function ArtifactsSection({
         <h3 className="artifacts-section-title">Artifacts</h3>
         <p className="artifacts-loading">Loading artifacts…</p>
         {statusMessage && <p className="artifacts-status" role="status">{statusMessage}</p>}
-        {showRefresh && (
-          <button type="button" className="artifacts-refresh-btn" onClick={onRefresh} disabled>
-            Refresh artifacts
-          </button>
-        )}
       </div>
     )
   }
@@ -1254,11 +1248,6 @@ function ArtifactsSection({
         <h3 className="artifacts-section-title">Artifacts</h3>
         <p className="artifacts-empty">No artifacts available for this ticket.</p>
         {statusMessage && <p className="artifacts-status" role="status">{statusMessage}</p>}
-        {showRefresh && (
-          <button type="button" className="artifacts-refresh-btn" onClick={onRefresh}>
-            Refresh artifacts
-          </button>
-        )}
       </div>
     )
   }
@@ -1292,11 +1281,6 @@ function ArtifactsSection({
         </div>
       )}
 
-      {showRefresh && (
-        <button type="button" className="artifacts-refresh-btn" onClick={onRefresh}>
-          Refresh artifacts
-        </button>
-      )}
       <ul className="artifacts-list">
         {sortedArtifacts.map((artifact) => {
           // Use artifact title directly, or fall back to agent type display name
