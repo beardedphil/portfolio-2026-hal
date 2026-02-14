@@ -76,13 +76,24 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       sourceTicketId?: string
       sourceTicketPk?: string
       suggestions?: string[]
+      suggestion?: string // Single suggestion (0167)
+      justification?: string // Optional justification for single suggestion (0167)
+      reviewId?: string // Process Review ID for idempotency (0167)
       supabaseUrl?: string
       supabaseAnonKey?: string
     }
 
     const sourceTicketPk = typeof body.sourceTicketPk === 'string' ? body.sourceTicketPk.trim() : undefined
     const sourceTicketId = typeof body.sourceTicketId === 'string' ? body.sourceTicketId.trim() : undefined
-    const suggestions = Array.isArray(body.suggestions) ? body.suggestions.filter((s) => typeof s === 'string' && s.trim()) : []
+    const reviewId = typeof body.reviewId === 'string' ? body.reviewId.trim() : undefined
+    
+    // Support both single suggestion and multiple suggestions (backward compatibility)
+    let suggestions: string[] = []
+    if (typeof body.suggestion === 'string' && body.suggestion.trim()) {
+      suggestions = [body.suggestion.trim()]
+    } else if (Array.isArray(body.suggestions)) {
+      suggestions = body.suggestions.filter((s) => typeof s === 'string' && s.trim())
+    }
 
     // Use credentials from request body if provided, otherwise fall back to server environment variables
     const supabaseUrl =
@@ -131,6 +142,37 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const repoFullName = sourceTicket.repo_full_name || 'legacy/unknown'
     const prefix = repoHintPrefix(repoFullName)
 
+    // Idempotency check: if reviewId is provided, check for existing tickets created from this review (0167)
+    if (reviewId && suggestions.length > 0) {
+      const suggestionText = suggestions[0] // For single suggestion mode
+      const suggestionHash = crypto.createHash('sha256').update(suggestionText).digest('hex').slice(0, 16)
+      
+      // Check for existing tickets with same reviewId + suggestion hash in linkage section
+      // Fetch all tickets from this repo and check body_md content (Supabase doesn't support complex text search)
+      const { data: allTickets } = await supabase
+        .from('tickets')
+        .select('pk, id, display_id, body_md')
+        .eq('repo_full_name', repoFullName)
+      
+      if (allTickets) {
+        const existingTicket = allTickets.find((t) => {
+          const bodyMd = t.body_md || ''
+          return bodyMd.includes(`**review_id**: ${reviewId}`) && bodyMd.includes(`**suggestion_hash**: ${suggestionHash}`)
+        })
+        
+        if (existingTicket) {
+          json(res, 200, {
+            success: true,
+            ticketId: existingTicket.display_id || existingTicket.id,
+            id: existingTicket.id,
+            pk: existingTicket.pk,
+            skipped: true, // Indicates this was a duplicate and was skipped
+          })
+          return
+        }
+      }
+    }
+
     // Determine next ticket number (repo-scoped)
     let startNum = 1
     try {
@@ -149,11 +191,27 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       // Fallback to 1 if query fails
     }
 
-    // Generate ticket content from suggestions
-    const suggestionsText = suggestions.map((s, i) => `- ${s}`).join('\n')
+    // Generate ticket content from suggestion(s)
+    // For single suggestion mode, create focused ticket; for multiple, use list format
     const sourceRef = sourceTicket.display_id || sourceTicket.id
-    const title = `Improve agent instructions based on ${sourceRef} Process Review`
-    const bodyMd = `# Ticket
+    const isSingleSuggestion = suggestions.length === 1
+    const suggestionText = suggestions[0] || ''
+    const justification = typeof body.justification === 'string' ? body.justification.trim() : undefined
+    
+    // Generate suggestion hash for idempotency tracking (0167)
+    const suggestionHash = suggestionText ? crypto.createHash('sha256').update(suggestionText).digest('hex').slice(0, 16) : ''
+    
+    const title = isSingleSuggestion
+      ? suggestionText.slice(0, 80) + (suggestionText.length > 80 ? '...' : '')
+      : `Improve agent instructions based on ${sourceRef} Process Review`
+    // Build linkage section with review tracking (0167)
+    let linkageSection = `- **Proposed from**: ${sourceRef} — Process Review`
+    if (reviewId && suggestionHash) {
+      linkageSection += `\n- **review_id**: ${reviewId}\n- **suggestion_hash**: ${suggestionHash}`
+    }
+    
+    const bodyMd = isSingleSuggestion
+      ? `# Ticket
 
 - **ID**: (auto-assigned)
 - **Title**: (auto-assigned)
@@ -163,7 +221,47 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
 ## Linkage (for tracking)
 
-- **Proposed from**: ${sourceRef} — Process Review
+${linkageSection}
+
+## Goal (one sentence)
+
+${suggestionText}
+
+## Human-verifiable deliverable (UI-only)
+
+Updated agent rules, templates, or process documentation that implements this improvement.
+
+## Acceptance criteria (UI-only)
+
+- [ ] Agent instructions/rules updated to address this suggestion
+- [ ] Changes are documented and tested
+- [ ] Process improvements are reflected in relevant documentation
+
+## Constraints
+
+- Keep changes focused on agent instructions and process, not implementation code
+- Ensure changes are backward compatible where possible
+
+## Non-goals
+
+- Implementation code changes
+- Feature additions unrelated to process improvement
+
+${justification ? `## Justification\n\n${justification}\n` : ''}## Implementation notes (optional)
+
+This ticket was automatically created from Process Review suggestion for ticket ${sourceRef}. Review the suggestion above and implement the appropriate improvements to agent instructions, rules, or process documentation.
+`
+      : `# Ticket
+
+- **ID**: (auto-assigned)
+- **Title**: (auto-assigned)
+- **Owner**: Implementation agent
+- **Type**: Process
+- **Priority**: P2
+
+## Linkage (for tracking)
+
+${linkageSection}
 
 ## Goal (one sentence)
 
@@ -191,7 +289,7 @@ Updated agent rules, templates, or process documentation that addresses the sugg
 
 ## Suggested improvements
 
-${suggestionsText}
+${suggestions.map((s) => `- ${s}`).join('\n')}
 
 ## Implementation notes (optional)
 

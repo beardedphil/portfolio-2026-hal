@@ -2807,6 +2807,10 @@ function App() {
     async (data: { ticketPk: string; ticketId?: string }) => {
       if (!data.ticketPk) return
       
+      // Move ticket to Active Work (col-doing) when Process Review starts (0167)
+      const doingCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-doing').length
+      await handleKanbanMoveTicket(data.ticketPk, 'col-doing', doingCount)
+      
       // Get or create Process Review conversation
       const convId = getOrCreateConversation('process-review-agent')
       setSelectedChatTarget('process-review-agent')
@@ -2856,17 +2860,86 @@ function App() {
           return
         }
 
-        // Success
+        // Success - Process Review completed
+        const suggestionCount = result.suggestions?.length || 0
+        const reviewId = result.reviewId || null
+        
+        // Automatically create one ticket per suggestion (0167)
+        let ticketsCreated = 0
+        let ticketsSkipped = 0
+        const ticketCreationErrors: string[] = []
+        
+        if (suggestionCount > 0 && result.suggestions) {
+          addProgress('Creating tickets from suggestions...')
+          
+          for (let i = 0; i < result.suggestions.length; i++) {
+            const suggestion = result.suggestions[i] as { text: string; justification: string }
+            try {
+              const createResponse = await fetch('/api/tickets/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  sourceTicketPk: data.ticketPk,
+                  sourceTicketId: data.ticketId,
+                  suggestion: suggestion.text,
+                  justification: suggestion.justification,
+                  reviewId: reviewId,
+                  supabaseUrl: supabaseUrl ?? (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? undefined,
+                  supabaseAnonKey: supabaseAnonKey ?? (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? undefined,
+                }),
+              })
+              
+              const createResult = await createResponse.json()
+              
+              if (createResult.success) {
+                if (createResult.skipped) {
+                  ticketsSkipped++
+                  addMessage(convId, 'process-review-agent', `[Ticket] Skipped duplicate: ${createResult.ticketId || 'unknown'}`)
+                } else {
+                  ticketsCreated++
+                  addMessage(convId, 'process-review-agent', `[Ticket] Created: ${createResult.ticketId || 'unknown'}`)
+                }
+              } else {
+                ticketCreationErrors.push(`Suggestion ${i + 1}: ${createResult.error || 'Unknown error'}`)
+                addMessage(convId, 'process-review-agent', `[Ticket] ❌ Failed to create ticket for suggestion ${i + 1}: ${createResult.error || 'Unknown error'}`)
+              }
+            } catch (createErr) {
+              const errorMsg = createErr instanceof Error ? createErr.message : String(createErr)
+              ticketCreationErrors.push(`Suggestion ${i + 1}: ${errorMsg}`)
+              addMessage(convId, 'process-review-agent', `[Ticket] ❌ Failed to create ticket for suggestion ${i + 1}: ${errorMsg}`)
+            }
+          }
+        }
+        
+        // Determine final status based on ticket creation results (0167)
+        if (ticketCreationErrors.length > 0) {
+          // Some tickets failed - show error state but don't move to Done
+          setProcessReviewStatus('failed')
+          setProcessReviewAgentRunStatus('failed')
+          const errorMsg = `Ticket creation failed for ${ticketCreationErrors.length} suggestion(s). Created: ${ticketsCreated}, Skipped: ${ticketsSkipped}, Failed: ${ticketCreationErrors.length}`
+          setProcessReviewMessage(errorMsg)
+          setProcessReviewAgentError(errorMsg + '\n\nErrors:\n' + ticketCreationErrors.join('\n'))
+          addMessage(convId, 'process-review-agent', `[Process Review] ⚠️ Completed with errors: ${errorMsg}`)
+          
+          // Don't reset status - keep it visible so user can see the error
+          return
+        }
+        
+        // All tickets created successfully - move to Done (0167)
         setProcessReviewStatus('completed')
         setProcessReviewAgentRunStatus('completed')
-        const suggestionCount = result.suggestions?.length || 0
-        const successMsg = `Process Review completed for ticket ${ticketDisplayId}. ${suggestionCount} suggestion${suggestionCount !== 1 ? 's' : ''} generated.`
+        const successMsg = `Process Review completed for ticket ${ticketDisplayId}. ${suggestionCount} suggestion${suggestionCount !== 1 ? 's' : ''} generated. Created ${ticketsCreated} ticket${ticketsCreated !== 1 ? 's' : ''}${ticketsSkipped > 0 ? `, skipped ${ticketsSkipped} duplicate${ticketsSkipped !== 1 ? 's' : ''}` : ''}.`
         setProcessReviewMessage(successMsg)
         addMessage(convId, 'process-review-agent', `[Process Review] ✅ ${successMsg}`)
         
         if (suggestionCount > 0) {
           addMessage(convId, 'process-review-agent', `\n**Suggestions generated:**\n${result.suggestions.map((s: { text: string; justification: string }, idx: number) => `${idx + 1}. ${s.text}\n   *${s.justification}*`).join('\n\n')}`)
         }
+        
+        // Move Process Review ticket to Done after successful completion (0167)
+        const doneCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-done').length
+        await handleKanbanMoveTicket(data.ticketPk, 'col-done', doneCount)
+        addMessage(convId, 'process-review-agent', `[Process Review] Moved ticket to Done column.`)
 
         // Reset after 5 seconds (Kanban banner only)
         setTimeout(() => {
@@ -2883,7 +2956,7 @@ function App() {
         addMessage(convId, 'process-review-agent', `[Process Review] ❌ Failed: ${errorMsg}`)
       }
     },
-    [supabaseUrl, supabaseAnonKey, getOrCreateConversation, formatTicketId, addMessage]
+    [supabaseUrl, supabaseAnonKey, getOrCreateConversation, formatTicketId, addMessage, kanbanTickets, handleKanbanMoveTicket]
   )
 
   const handleImageSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
