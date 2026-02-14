@@ -35,7 +35,7 @@ Create a new file at `docs/tickets/<task-id>-<short-title>.md` using this templa
 
 ## UI verification checklist (required when the ticket affects UI)
 
-**Note:** This checklist is **required for tickets that affect UI** and **skippable for non-UI tickets** (e.g., backend-only, documentation, build/config changes).
+**Note:** This checklist is **required for UI-impacting tickets** and **skippable for non-UI tickets** (e.g., backend-only, documentation, build/config changes).
 
 - [ ] I can see the relevant UI element(s) without using devtools/console.
 - [ ] Primary interaction works (click/type/submit) and produces the expected on-screen change.
