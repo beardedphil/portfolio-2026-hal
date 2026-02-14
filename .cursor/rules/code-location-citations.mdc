@@ -1,0 +1,55 @@
+---
+description: Require agents to cite specific file paths and line numbers/symbols when referencing where functionality is implemented
+alwaysApply: true
+---
+
+# Code Location Citations
+
+When an agent references "where something is implemented" or claims where key functionality exists, they **must** cite concrete code locations that reviewers can verify quickly.
+
+## Required Citation Format
+
+**Minimum acceptable citation formats:**
+
+- **File path with line range:** `src/foo.ts:42-61`
+- **File path with function/class name:** `src/foo.ts — function bar()`
+- **File path with symbol:** `src/foo.ts — class MyComponent`
+- **File path with route/component ID:** `src/routes.ts — route id: "dashboard"`
+
+**Examples:**
+- ✅ `src/components/Button.tsx:15-23` (line range)
+- ✅ `src/utils/api.ts — function fetchUser()` (symbol name)
+- ✅ `src/routes.ts:42 — route id: "settings"` (route identifier)
+- ✅ `src/App.tsx — component App` (component name)
+- ❌ `src/components/Button.tsx` (missing line/symbol)
+- ❌ `the Button component` (no file path)
+
+## When Citations Are Required
+
+Citations are **mandatory** in these contexts:
+
+1. **Implementation summaries/worklogs** — When describing what was implemented or where changes were made
+2. **QA reports** — When reviewing code and referencing where functionality exists
+3. **PM guidance** — When answering "where is X implemented?" or similar questions
+
+## Exceptions: Unreliable Line Numbers
+
+If line numbers are unreliable or unstable (e.g., generated code, minified bundles, auto-generated files), cite the **nearest stable anchor** instead:
+
+- **Symbol name** (exported function, class, constant)
+- **Route ID** or **component name**
+- **Export identifier**
+- **File path** (always required, even when line numbers aren't)
+
+**Examples of stable anchors:**
+- `src/generated/api.ts — export function createUser()` (generated file, use symbol)
+- `dist/bundle.js — function handleClick()` (minified, use symbol)
+- `src/routes.ts — route id: "dashboard"` (route identifier)
+
+**Always include the file path** even when using stable anchors instead of line numbers.
+
+## Scope
+
+- Applies to **all agents** (implementation, QA, PM) when referencing code locations
+- Citations must be **human-verifiable** — a reviewer should be able to open the file and find the referenced location
+- When in doubt, provide **more specific citations** (line numbers + symbol names) rather than less
