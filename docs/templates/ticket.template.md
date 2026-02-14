@@ -270,7 +270,7 @@ When working on chat-related features or fixes, verify chat persistence across d
 Create `docs/audit/<task-id>-<short-title>/` containing:
 - `plan.md`
 - `worklog.md`
-- `changed-files.md`
+- `changed-files.md` (**MANDATORY:** Must be non-empty. If no files changed, explicitly state "No files changed." with explanation.)
 - `decisions.md`
 - `verification.md` (UI-only)
 
