@@ -22,6 +22,9 @@ When the repo contains **`.hal/api-base-url`**, read that file for the HAL base 
 | `update_ticket_body` | POST | `/api/tickets/update` | `{ ticketId, body_md }` |
 | `move_ticket_column` | POST | `/api/tickets/move` | `{ ticketId, columnId }` |
 | `get_ticket_content` | POST | `/api/tickets/get` | `{ ticketId }` |
+| `get_instructions` | POST | `/api/instructions/get` | `{ repoFullName?, agentType?, includeBasic?, includeSituational? }` |
+| `get_instruction_topic` | POST | `/api/instructions/get-topic` | `{ topicId, repoFullName? }` |
+| `get_instruction_index` | POST | `/api/instructions/get-index` | `{ repoFullName? }` |
 
 **Example (store plan artifact):**
 ```javascript
