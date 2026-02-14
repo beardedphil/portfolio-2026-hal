@@ -6,6 +6,14 @@ Create `docs/audit/<task-id>-<short-title>/pm-review.md` after an implementation
 
 - <what changed>
 
+## Key Decisions (2–6 bullets)
+
+- <decision 1: why approach A over B, tradeoffs, risks>
+- <decision 2: design choice affecting maintainability>
+- <decision 3: performance/scalability consideration>
+- <decision 4: integration decision>
+- <decision 5–6: additional important decisions>
+
 ## Likelihood of success
 
 **Score (0–100%)**: <number>%
