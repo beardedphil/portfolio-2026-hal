@@ -84,3 +84,32 @@ Create `docs/audit/<task-id>-<short-title>/` containing:
 - `changed-files.md`
 - `decisions.md`
 - `verification.md` (UI-only)
+
+## Standard Verification Checklists
+
+When implementing chat-related features or changes that might affect chat persistence, include the following checklist in your `verification.md`:
+
+### Chat persistence after disconnect/reconnect
+
+**Purpose**: Verify that chat functionality is not regressed by changes (reference: HAL-0097).
+
+**Steps**:
+1. **Start a chat**: Connect to a repository and start a conversation with any agent (e.g., send a message to Project Manager, start an Implementation Agent conversation).
+2. **Disconnect/reconnect**: Click "Disconnect" button, then reconnect to the same repository (or refresh the page if testing page refresh).
+3. **Verify thread and messages remain visible**: After reconnecting, verify that:
+   - The same chat thread is visible in the chat preview stack
+   - The conversation history (all previous messages) is still visible when you open the chat
+   - The thread ID is unchanged (same thread, not a new one)
+   - The message count is unchanged (no messages lost)
+4. **Send a new message after reconnect**: Send a new message in the reconnected chat.
+5. **Verify no duplicates/blank messages appear**: Confirm that:
+   - No duplicate messages appear in the conversation
+   - No empty/blank message shells appear
+   - The new message appears correctly in the conversation flow
+
+**Expected UI results**:
+- Same thread ID visible (or same chat preview persists)
+- Message count unchanged from before disconnect
+- All previous messages remain visible
+- New messages after reconnect appear correctly
+- No empty message shells or duplicate messages
