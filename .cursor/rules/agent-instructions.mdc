@@ -111,12 +111,25 @@ The `/api/tickets/move` endpoint accepts multiple ticket ID formats for flexibil
 
 The API automatically handles these formats by trying multiple lookup strategies, so you can use whichever format is most convenient. The API will find the ticket regardless of format and use the ticket's primary key (pk) for the update to ensure reliability.
 
+**AC Confirmation Checklist (MANDATORY):**
+
+Before moving the ticket to Ready for QA, you **MUST** complete the AC Confirmation Checklist. See `.cursor/rules/ac-confirmation-checklist.mdc` for full requirements.
+
+**Summary of AC Confirmation Checklist:**
+1. Enumerate every Acceptance Criteria from the ticket
+2. For each AC, state "Met" or "Not met" with evidence (artifact links, file paths, screenshots, or reproduction steps)
+3. If any AC is not met: Do not move ticket to Ready for QA; update plan or create follow-up ticket instead
+4. Include the AC confirmation checklist in your final summary message and in the "Verification for ticket <ticket-id>" artifact
+
+**CRITICAL:** You **MUST NOT** move a ticket to Ready for QA if any AC is not met (unless explicitly documented that the AC is intentionally not being met with justification).
+
 **When to move:**
 - After all code changes are committed and pushed
 - After all required artifacts are stored (if applicable)
+- **After completing the AC Confirmation Checklist confirms all ACs are met**
 - Before sending the final "implementation complete" summary message
 
-**CRITICAL:** Do not send a completion summary or "done" message without first moving the ticket to Ready for QA. The ticket move is part of the completion workflow, not an optional step.
+**CRITICAL:** Do not send a completion summary or "done" message without first completing the AC Confirmation Checklist and moving the ticket to Ready for QA. Both steps are part of the completion workflow, not optional.
 
 **Available column IDs:**
 - `col-unassigned` - Unassigned

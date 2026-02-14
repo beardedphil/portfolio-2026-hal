@@ -114,7 +114,8 @@ QA RESULT: FAIL — 0076
 4. **Code review** — PASS/FAIL with brief evidence (e.g. table of requirement vs implementation; file and line refs if helpful). Only include if artifacts are present.
 5. **Build verification** — **MANDATORY:** Run `npm run build:hal` (or `tsc -b`) and verify it completes with zero TypeScript errors. If TypeScript errors exist, QA **MUST FAIL** immediately. Document the build result (PASS/FAIL) and any TypeScript errors found. Only include if artifacts are present.
 6. **UI verification** — What was run: automated and/or manual steps. If automated UI was not run (e.g. native dialogs, login, or pickers), state that and list the manual steps the user should run. Only include if artifacts are present.
-7. **Verdict** — Implementation complete? OK to merge? Any blocking manual verification? Must clearly state PASS or FAIL.
+7. **AC Confirmation Checklist** — **MANDATORY:** Enumerate every Acceptance Criteria from the ticket. For each AC, state "Met" or "Not met" with evidence (artifact links, file paths, screenshots, or reproduction steps). If any AC is not met, QA **MUST FAIL**. See `.cursor/rules/ac-confirmation-checklist.mdc` for full requirements. Only include if artifacts are present.
+8. **Verdict** — Implementation complete? OK to merge? Any blocking manual verification? Must clearly state PASS or FAIL.
 
 ## Storing QA report
 
@@ -156,34 +157,36 @@ When the verdict is **PASS (OK to merge)**, QA must **complete the full workflow
 
 **If you are verifying from the feature branch** (normal workflow):
 
-1. **Store QA report in Supabase** — Make an HTTP POST request to `${baseUrl}/api/artifacts/insert-qa`:
+1. **Complete AC Confirmation Checklist** — **MANDATORY:** Before proceeding, complete the AC Confirmation Checklist. Enumerate every Acceptance Criteria from the ticket, state "Met" or "Not met" for each with evidence. If any AC is not met, QA **MUST FAIL** and you must not proceed to step 2. See `.cursor/rules/ac-confirmation-checklist.mdc` for full requirements.
+2. **Store QA report in Supabase** — Make an HTTP POST request to `${baseUrl}/api/artifacts/insert-qa`. The QA report must include the AC Confirmation Checklist:
    ```bash
    curl -X POST ${baseUrl}/api/artifacts/insert-qa \
      -H "Content-Type: application/json" \
      -d '{"ticketId":"0076","title":"QA report for ticket 0076","body_md":"<markdown>"}'
    ```
-2. **Update ticket body** (optional) — If needed, make an HTTP POST request to `${baseUrl}/api/tickets/update`:
+3. **Update ticket body** (optional) — If needed, make an HTTP POST request to `${baseUrl}/api/tickets/update`:
    ```bash
    curl -X POST ${baseUrl}/api/tickets/update \
      -H "Content-Type: application/json" \
      -d '{"ticketId":"0076","body_md":"<updated markdown>"}'
    ```
-3. **Move ticket to Human in the Loop** — Make an HTTP POST request to `${baseUrl}/api/tickets/move`:
+4. **Move ticket to Human in the Loop** — Make an HTTP POST request to `${baseUrl}/api/tickets/move`:
    ```bash
    curl -X POST ${baseUrl}/api/tickets/move \
      -H "Content-Type: application/json" \
      -d '{"ticketId":"0076","columnId":"col-human-in-the-loop"}'
    ```
-4. **Merge to main** — checkout `main`, merge the feature branch, push `main`.
-5. **Delete the feature branch** — local and remote (see `delete-branch-after-merge.mdc`).
-6. **Then** give your summary to the user. **The final message must include:** `QA RESULT: PASS — <ticket-id>` (see "Completion message format requirement" above).
+5. **Merge to main** — checkout `main`, merge the feature branch, push `main`.
+6. **Delete the feature branch** — local and remote (see `delete-branch-after-merge.mdc`).
+7. **Then** give your summary to the user. **The final message must include the AC Confirmation Checklist and:** `QA RESULT: PASS — <ticket-id>` (see "Completion message format requirement" above).
 
 **If you are verifying from `main`** (implementation was merged to main for QA access):
 
-1. **Store QA report in Supabase** — Make an HTTP POST request to `${baseUrl}/api/artifacts/insert-qa`. Include a note in the report that verification was performed against `main`.
-2. **Update ticket body** (optional) — If needed, make an HTTP POST request to `${baseUrl}/api/tickets/update` to note that verification was performed against `main`.
-3. **Move ticket to Human in the Loop** — Make an HTTP POST request to `${baseUrl}/api/tickets/move`.
-4. **Then** give your summary to the user. **The final message must include:** `QA RESULT: PASS — <ticket-id>` (see "Completion message format requirement" above).
+1. **Complete AC Confirmation Checklist** — **MANDATORY:** Before proceeding, complete the AC Confirmation Checklist. Enumerate every Acceptance Criteria from the ticket, state "Met" or "Not met" for each with evidence. If any AC is not met, QA **MUST FAIL** and you must not proceed to step 2. See `.cursor/rules/ac-confirmation-checklist.mdc` for full requirements.
+2. **Store QA report in Supabase** — Make an HTTP POST request to `${baseUrl}/api/artifacts/insert-qa`. The QA report must include the AC Confirmation Checklist. Include a note in the report that verification was performed against `main`.
+3. **Update ticket body** (optional) — If needed, make an HTTP POST request to `${baseUrl}/api/tickets/update` to note that verification was performed against `main`.
+4. **Move ticket to Human in the Loop** — Make an HTTP POST request to `${baseUrl}/api/tickets/move`.
+5. **Then** give your summary to the user. **The final message must include the AC Confirmation Checklist and:** `QA RESULT: PASS — <ticket-id>` (see "Completion message format requirement" above).
 
 Do not give a summary with "next steps" or "run these commands" — QA performs the merge (or confirms main) and branch deletion where applicable. The user receives the completed result.
 
@@ -191,20 +194,21 @@ Do not give a summary with "next steps" or "run these commands" — QA performs 
 - **If verdict is FAIL:** Do not merge. Store the QA report in Supabase, then **YOU MUST move the ticket to the top of To-do** (`col-todo` column) via HAL API. **This is MANDATORY** - failing to move the ticket to To-do means the QA workflow is incomplete. Summarize findings and recommend a bugfix ticket (see `bugfix-tracking.mdc`). **The final message must include:** `QA RESULT: FAIL — <ticket-id>` (see "Completion message format requirement" above).
   
   **FAIL workflow:**
-  1. **Store QA report in Supabase** — Make an HTTP POST request to `${baseUrl}/api/artifacts/insert-qa`:
+  1. **Complete AC Confirmation Checklist** — **MANDATORY:** Complete the AC Confirmation Checklist even when QA fails. Enumerate every Acceptance Criteria from the ticket, state "Met" or "Not met" for each with evidence. This helps identify which ACs were not met. See `.cursor/rules/ac-confirmation-checklist.mdc` for full requirements.
+  2. **Store QA report in Supabase** — Make an HTTP POST request to `${baseUrl}/api/artifacts/insert-qa`. The QA report must include the AC Confirmation Checklist showing which ACs were not met:
      ```bash
      curl -X POST ${baseUrl}/api/artifacts/insert-qa \
        -H "Content-Type: application/json" \
        -d '{"ticketId":"0076","title":"QA report for ticket 0076","body_md":"<markdown>"}'
      ```
-  2. **Move ticket to To-do** — **REQUIRED**: You MUST make an HTTP POST request to `${baseUrl}/api/tickets/move`. The ticket MUST be moved to `col-todo` when QA fails. This is not optional:
+  3. **Move ticket to To-do** — **REQUIRED**: You MUST make an HTTP POST request to `${baseUrl}/api/tickets/move`. The ticket MUST be moved to `col-todo` when QA fails. This is not optional:
      ```bash
      curl -X POST ${baseUrl}/api/tickets/move \
        -H "Content-Type: application/json" \
        -d '{"ticketId":"0076","columnId":"col-todo"}'
      ```
      **Note:** The goal is to move failed tickets to the **top** of the To-do column for priority handling. The current move API (`/api/tickets/move`) appends tickets to the end of the column. If the API is enhanced in the future to support position parameters, use position 0 or a negative value to place at the top. For now, moving to `col-todo` satisfies the requirement even if it's at the end initially.
-  3. **Then** give your summary to the user. **The final message must include:** `QA RESULT: FAIL — <ticket-id>`.
+  4. **Then** give your summary to the user. **The final message must include the AC Confirmation Checklist and:** `QA RESULT: FAIL — <ticket-id>`.
 
 ## HAL API Calls
 
