@@ -25,6 +25,14 @@ Create `docs/audit/<task-id>-<short-title>/pm-review.md` after an implementation
 2. **<...>** — <...>
 3. **<...>** — <...>
 
+## Testing scenarios used (when applicable)
+
+If this PM review verifies acceptance criteria, include a "Testing scenarios used" section with:
+- At least 1 happy-path scenario (concrete, references UI state/inputs)
+- At least 2 edge/negative scenarios relevant to the ticket (concrete, references UI state/inputs)
+- Each scenario is 1–3 bullets and references the UI state/inputs used (no vague "tested it works")
+- See `.cursor/rules/testing-scenarios-requirement.mdc` for full requirements and examples
+
 ## Audit completeness check
 
 - **Artifacts present**: prompt / plan / worklog / changed-files / decisions / verification / pm-review

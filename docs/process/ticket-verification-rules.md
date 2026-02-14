@@ -30,6 +30,11 @@ This document defines how we decide a ticket is **properly completed**.
 - **Acceptance criteria satisfied**:
   - each checkbox in the ticket maps to one or more explicit steps in the verification artifact
   - verification includes clear **pass/fail observations**
+  - when agents mark acceptance criteria as verified/passed, they must include a **"Testing scenarios used"** section (see `.cursor/rules/testing-scenarios-requirement.mdc`):
+    - Implementation agent: in the Verification artifact
+    - QA agent: in the QA Report
+    - PM/Process review (when applicable): in the review artifact/notes
+    - Minimum content: at least 1 happy-path scenario and at least 2 edge/negative scenarios, each concrete and referencing UI state/inputs
 - **In-app diagnostics updated as needed**:
   - if something can fail, the app should provide enough in-app visibility to understand “what happened” without the console
 

@@ -1,0 +1,66 @@
+---
+description: Require Testing scenarios used section when agents verify acceptance criteria
+alwaysApply: true
+---
+
+# Testing Scenarios Requirement
+
+When any agent (implementation, QA, or PM) marks acceptance criteria as verified/passed, they **must** include a **"Testing scenarios used"** section listing the concrete scenarios they actually ran.
+
+## Where Testing Scenarios Must Appear
+
+### Implementation Agent
+- **Location:** In the **Verification** artifact (`artifactType: "verification"`, title: `Verification for ticket <ticket-id>`)
+- **When:** When the implementation agent creates the Verification artifact and marks acceptance criteria as verified
+- **Storage:** Stored in Supabase via HAL API endpoint `/api/artifacts/insert-implementation`
+
+### QA Agent
+- **Location:** In the **QA Report** (`artifactType: "qa"`, title: `QA report for ticket <ticket-id>`)
+- **When:** When the QA agent performs verification and creates the QA report
+- **Storage:** Stored in Supabase via HAL API endpoint `/api/artifacts/insert-qa`
+
+### PM/Process Review Agent
+- **Location:** In the **PM Review** artifact (`artifactType: "pm-review"`, title: `PM Review for ticket <ticket-id>`) when applicable
+- **When:** When the PM agent performs process review and verifies acceptance criteria
+- **Storage:** Stored in Supabase via HAL API endpoint `/api/artifacts/insert-implementation` (for PM review artifacts)
+
+## Minimum Content Requirements
+
+The **"Testing scenarios used"** section must include:
+
+1. **At least 1 happy-path scenario**
+   - Describes the primary success case
+   - References specific UI state/inputs used
+   - Concrete and verifiable (not vague like "tested it works")
+
+2. **At least 2 edge/negative scenarios** relevant to the ticket
+   - Describes error cases, boundary conditions, or negative paths
+   - References specific UI state/inputs used
+   - Concrete and verifiable
+
+3. **Each scenario format:**
+   - 1–3 bullets per scenario
+   - References the UI state/inputs used (e.g., "Clicked button X with form field Y empty", "Opened dialog with invalid data")
+   - No vague statements like "tested it works" or "verified functionality"
+
+## Example Format
+
+```markdown
+## Testing scenarios used
+
+### Happy path
+- **Scenario 1:** Created new ticket via PM chat with complete body content (no placeholders), verified ticket appeared in Unassigned column within 10 seconds
+- **Scenario 2:** Updated existing ticket body with valid content, verified changes reflected in Kanban board after refresh
+
+### Edge cases
+- **Scenario 1:** Attempted to create ticket with unresolved placeholder `<AC 1>` in body, verified error message appeared in chat and no ticket was created
+- **Scenario 2:** Attempted to update ticket with empty body, verified validation error appeared and ticket body remained unchanged
+- **Scenario 3:** Created ticket with very long body content (5000+ characters), verified ticket displayed correctly in Kanban card preview
+```
+
+## Scope
+
+- Applies to all agents when they claim acceptance criteria are verified/passed
+- The scenarios section must be clearly labeled as **"Testing scenarios used"**
+- Scenarios must correspond to the ticket's acceptance criteria
+- If a ticket has no testable acceptance criteria, state that explicitly in the scenarios section
