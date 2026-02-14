@@ -5,7 +5,7 @@ alwaysApply: true
 
 # Conditional Rendering Review
 
-**MANDATORY:** Before implementing or changing any conditional rendering in UI components, agents **must** complete the conditional rendering review checklist and document their decisions in their Plan or Decisions artifact.
+**MANDATORY:** Before implementing or changing any conditional rendering in UI components, agents **MUST** perform an explicit conditional rendering review to ensure UI conditional-rendering decisions are consistently justified against the ticket's Goal and the app's product intent. This prevents accidental feature removal/hiding and UX regressions.
 
 ## What is "Conditional Rendering"?
 
@@ -29,11 +29,11 @@ This requirement applies to **all agents** when implementing or modifying condit
 - **QA agents** — Must verify that conditional rendering decisions are properly documented and test the visible behavior
 - **Project Manager agents** — Must ensure conditional rendering decisions align with product intent
 
-**CRITICAL:** The conditional rendering review must be completed **before** implementing conditional rendering changes. Do not add or modify conditional rendering without completing this checklist.
+**CRITICAL:** The conditional rendering review must be completed **before** implementing conditional rendering changes. Do not add, modify, or remove conditional rendering without completing this checklist.
 
 ## Conditional Rendering Review Checklist
 
-**MANDATORY:** Before implementing or changing any conditional rendering, agents **must** complete this checklist and document the results in their Plan or Decisions artifact.
+**MANDATORY:** When an implementation agent adds, modifies, or removes conditional rendering in UI components, they **must** complete the following checklist and document it in their **Plan or Decisions artifact** (stored in Supabase).
 
 ### Copy/Paste Checklist Template
 
@@ -42,30 +42,43 @@ This requirement applies to **all agents** when implementing or modifying condit
 
 **Conditional rendering changes made:** [Yes / No]
 
-If Yes, complete the following for each conditional rendering decision:
+If Yes, complete the following for each conditional rendering change:
 
-### Condition Details
-- [ ] **What condition controls the rendering?** [Describe the condition, e.g., "user.isPremium", "featureFlags.newDashboard", "isLoading"]
-- [ ] **Why does this condition exist?** [Explain the business/product reason, e.g., "Premium feature gating per ticket goal", "Prevent UI flicker during data fetch"]
-- [ ] **What user segment/state does this affect?** [Specify affected users, e.g., "Non-premium users", "Users with incomplete profiles", "All users during initial load"]
+### What Condition Exists
+- [ ] Condition description: [Describe the condition, e.g., "Show button only when user is logged in"]
+- [ ] Code location: [Cite specific file path and line numbers, per `.cursor/rules/code-location-citations.mdc`]
+- [ ] Condition logic: [Brief description of the condition check, e.g., `{isLoggedIn && <Button />}`]
+
+### Why This Condition Exists
+- [ ] Justification: [Explain why this conditional rendering is necessary - what problem does it solve?]
+- [ ] Alignment with ticket Goal: [How does this condition align with the ticket's Goal?]
+- [ ] Alignment with product intent: [How does this condition align with the app's product intent?]
+
+### What User Segment/State It Affects
+- [ ] User segments affected: [List which user segments see/hide the element, e.g., "Logged-in users see button; logged-out users do not"]
+- [ ] Application states affected: [List which application states trigger the condition, e.g., "When `isLoading === false` and `hasData === true`"]
+- [ ] Edge cases: [Describe any edge cases or boundary conditions, e.g., "What happens when user logs out while viewing this screen?"]
 
 ### Expected Visible Behavior
-- [ ] **What is the expected visible behavior when condition is TRUE?** [Describe what users see, e.g., "User sees 'Upgrade to Premium' button in header"]
-- [ ] **What is the expected visible behavior when condition is FALSE?** [Describe what users see, e.g., "User sees standard header without upgrade button, or sees fallback message 'Feature available for premium users'"]
+- [ ] When condition is true: [Describe what the user sees, e.g., "User sees a 'Save' button in the header"]
+- [ ] When condition is false: [Describe what the user sees, e.g., "User sees no button, or sees a fallback message 'Please log in to save'"]
+- [ ] Transitions: [Describe any transitions or animations, if applicable]
 
 ### Silent Removal Guardrail
-- [ ] **Does this condition hide a feature that previously existed?** [Yes / No]
-- [ ] **If Yes, should the feature be removed permanently or temporarily hidden?** [Removed / Hidden / N/A]
-- [ ] **Justification for removal/hiding:** [Explain why this aligns with ticket goal and product intent, or note if this is a regression]
+- [ ] Does this condition hide a feature? [Yes / No]
+- [ ] If Yes:
+  - [ ] Should the feature be removed permanently? [Yes / No / N/A]
+  - [ ] Should the feature be temporarily hidden? [Yes / No / N/A]
+  - [ ] Decision documented: [State the decision and reasoning, e.g., "Feature is temporarily hidden for logged-out users; it will be shown when they log in. This is intentional per ticket Goal."]
+  - [ ] Risk assessment: [Assess risk of accidental feature removal, e.g., "Low risk - feature is only hidden for logged-out users, not removed from codebase"]
 
 ### UI-Only Verification Step
-- [ ] **Verification steps:** [Provide at least one UI-only verification step that a human can perform without tools, e.g., "In the running app, visit the Settings page as a non-premium user and confirm the 'Upgrade' button is visible; visit as a premium user and confirm the button is hidden"]
-
-### Code Locations
-[Cite specific file paths and line numbers where conditional rendering was implemented, per `.cursor/rules/code-location-citations.mdc`]
+- [ ] Verification steps: [Provide at least one UI-only verification step that a human can follow without terminal access, e.g., "In the running app, visit the Settings page and confirm: (1) When logged in, the 'Save Preferences' button is visible; (2) When logged out, the button is hidden; (3) After logging in, the button appears without page refresh"]
 ```
 
 ## Example: Acceptable Conditional Rendering Documentation
+
+Here are examples of acceptable conditional rendering notes that demonstrate compliance:
 
 ### Example 1: Feature Visibility Based on User Role
 
@@ -74,27 +87,43 @@ If Yes, complete the following for each conditional rendering decision:
 
 **Conditional rendering changes made:** Yes
 
-### Condition Details
-- **What condition controls the rendering?** `user.role === 'admin'`
-- **Why does this condition exist?** The "Admin Settings" section should only be visible to users with admin role. This is required by the ticket goal to restrict sensitive configuration options to authorized users only.
-- **What user segment/state does this affect?** Admin users see the "Admin Settings" section; non-admin users do not see it (feature is hidden, not removed).
+### What Condition Exists
+- **Condition description:** Show "Admin Settings" section only when user has admin role
+- **Code location:** `src/pages/Settings.tsx:45-52`
+- **Condition logic:** `{user.role === 'admin' && <AdminSettings />}`
+
+### Why This Condition Exists
+- **Justification:** The "Admin Settings" section should only be visible to users with admin role. This is required by the ticket goal to restrict sensitive configuration options to authorized users only.
+- **Alignment with ticket Goal:** Ticket Goal states "Add admin-only settings section for system configuration" - this condition ensures the section is only visible to admins.
+- **Alignment with product intent:** Product intent is to show role-appropriate UI. Admin users need access to system configuration; regular users do not.
+
+### What User Segment/State It Affects
+- **User segments affected:** 
+  - Admin users: See the "Admin Settings" section
+  - Non-admin users: Do not see the "Admin Settings" section
+- **Application states affected:** 
+  - When `user.role === 'admin'`: Section is visible
+  - When `user.role !== 'admin'`: Section is hidden
+- **Edge cases:** 
+  - If user's role changes from admin to regular user while viewing Settings page, section should disappear
+  - If user logs out and logs back in as a different user, section visibility should update based on new user's role
 
 ### Expected Visible Behavior
-- **When condition is TRUE (admin user):** The "Admin Settings" section is visible in the Settings page, containing controls for system configuration.
-- **When condition is FALSE (non-admin user):** The "Admin Settings" section is not rendered at all (no empty space or placeholder). No fallback content is shown when the section is hidden.
+- **When condition is true (admin user):** The "Admin Settings" section is visible in the Settings page, containing controls for system configuration.
+- **When condition is false (non-admin user):** The "Admin Settings" section is not rendered at all (no empty space or placeholder). No fallback content is shown when the section is hidden.
+- **Transitions:** Section appears/disappears immediately on role change (no animation)
 
 ### Silent Removal Guardrail
-- **Does this condition hide a feature that previously existed?** No — this is a new feature being conditionally shown.
-- **If Yes, should the feature be removed permanently or temporarily hidden?** N/A
-- **Justification:** The Admin Settings feature remains in the codebase and is accessible to admin users. It is conditionally rendered based on user role, not removed. This aligns with product intent to show role-appropriate UI.
+- **Does this condition hide a feature?** Yes - it hides the "Admin Settings" section for non-admin users
+- **Should the feature be removed permanently?** No
+- **Should the feature be temporarily hidden?** Yes
+- **Decision documented:** The "Admin Settings" section is temporarily hidden for non-admin users. This is intentional and correct behavior - only admin users should see system configuration options. The feature is not removed from the codebase; it is conditionally rendered based on user role.
+- **Risk assessment:** Low risk - this is intentional product behavior, not accidental feature removal. The section is still available to admin users.
 
 ### UI-Only Verification Step
 - **Verification steps:** 
   1. In the running app, navigate to the Settings page. When logged in as an admin user, confirm the "Admin Settings" section is visible at the bottom of the page with configuration controls.
   2. Log out and log in as a regular user, navigate to the Settings page, and confirm the "Admin Settings" section is not visible and the page ends after the "User Preferences" section.
-
-### Code Locations
-- `src/pages/Settings.tsx:45-52` — Conditional rendering of AdminSettings component based on `user.role === 'admin'`
 ```
 
 ### Example 2: Empty State Handling
@@ -104,27 +133,41 @@ If Yes, complete the following for each conditional rendering decision:
 
 **Conditional rendering changes made:** Yes
 
-### Condition Details
-- **What condition controls the rendering?** `tickets.length === 0`
-- **Why does this condition exist?** The ticket list should display an empty state message when no tickets exist, rather than showing a blank area. This improves UX by providing clear feedback to users.
-- **What user segment/state does this affect?** All users: when the tickets list is empty (no tickets exist), see the empty state message; when tickets exist, see the ticket list.
+### What Condition Exists
+- **Condition description:** Show empty state message when ticket list is empty
+- **Code location:** `src/components/TicketList.tsx:23-35`
+- **Condition logic:** `{tickets.length === 0 ? <EmptyState /> : <TicketGrid tickets={tickets} />}`
+
+### Why This Condition Exists
+- **Justification:** The ticket list should display an empty state message when no tickets exist, rather than showing a blank area. This improves UX by providing clear feedback to users.
+- **Alignment with ticket Goal:** Ticket Goal states "Improve user experience when no tickets are available" - this condition ensures users see helpful messaging instead of a blank screen.
+- **Alignment with product intent:** Product intent is to guide users and provide clear feedback. An empty state message helps users understand what to do next.
+
+### What User Segment/State It Affects
+- **User segments affected:** All users: when the tickets list is empty (no tickets exist), see the empty state message; when tickets exist, see the ticket list.
+- **Application states affected:** 
+  - When `tickets.length === 0`: Empty state component is rendered
+  - When `tickets.length > 0`: Ticket grid is rendered
+- **Edge cases:** 
+  - If tickets are deleted and list becomes empty, empty state should appear
+  - If tickets are loaded asynchronously, empty state should show during initial load if no tickets exist
 
 ### Expected Visible Behavior
-- **When condition is TRUE (no tickets):** Display the empty state component with message "No tickets found. Create your first ticket to get started." and a "Create Ticket" button.
-- **When condition is FALSE (tickets exist):** Display the ticket list with all tickets rendered. No transition animation between states (instant switch).
+- **When condition is true (no tickets):** Display the empty state component with message "No tickets found. Create your first ticket to get started." and a "Create Ticket" button.
+- **When condition is false (tickets exist):** Display the ticket list with all tickets rendered. No transition animation between states (instant switch).
+- **Transitions:** Instant switch between empty state and ticket list (no animation)
 
 ### Silent Removal Guardrail
-- **Does this condition hide a feature that previously existed?** No — this is adding a feature, not removing one.
-- **If Yes, should the feature be removed permanently or temporarily hidden?** N/A
-- **Justification:** The empty state is a new feature being added. The ticket list feature itself is not being removed or hidden.
+- **Does this condition hide a feature?** No - this is adding a feature (empty state), not removing one
+- **Should the feature be removed permanently?** N/A
+- **Should the feature be temporarily hidden?** N/A
+- **Decision documented:** The empty state is a new feature being added. The ticket list feature itself is not being removed or hidden.
+- **Risk assessment:** No risk - this is adding functionality, not removing it.
 
 ### UI-Only Verification Step
 - **Verification steps:** 
   1. In the running app, navigate to the Tickets page. When no tickets exist, confirm the empty state message "No tickets found. Create your first ticket to get started." is displayed with a "Create Ticket" button.
   2. Create a ticket, then confirm the ticket list appears and the empty state is no longer visible.
-
-### Code Locations
-- `src/components/TicketList.tsx:23-35` — Conditional rendering: `{tickets.length === 0 ? <EmptyState /> : <TicketGrid tickets={tickets} />}`
 ```
 
 ### Example 3: Feature Flag Conditional Rendering
@@ -134,37 +177,54 @@ If Yes, complete the following for each conditional rendering decision:
 
 **Conditional rendering changes made:** Yes
 
-### Condition Details
-- **What condition controls the rendering?** `user.betaFeaturesEnabled === true`
-- **Why does this condition exist?** The "Beta Features" section should only be visible when the beta features flag is enabled. This allows gradual rollout of new features without exposing them to all users.
-- **What user segment/state does this affect?** Users with beta features enabled see the "Beta Features" section; users with beta features disabled do not see it.
+### What Condition Exists
+- **Condition description:** Show "Beta Features" section only when user has beta features enabled
+- **Code location:** `src/pages/Settings.tsx:78-85`
+- **Condition logic:** `{user.betaFeaturesEnabled && <BetaFeaturesSection />}`
+
+### Why This Condition Exists
+- **Justification:** The "Beta Features" section should only be visible when the beta features flag is enabled. This allows gradual rollout of new features without exposing them to all users.
+- **Alignment with ticket Goal:** Ticket Goal states "Add beta features section for users with beta access" - this condition ensures the section is only visible to users with the flag enabled.
+- **Alignment with product intent:** Product intent is to gradually roll out new features. Beta features are temporarily hidden from users who don't have the flag enabled, allowing controlled testing.
+
+### What User Segment/State It Affects
+- **User segments affected:** 
+  - Users with beta features enabled: See the "Beta Features" section
+  - Users with beta features disabled: Do not see the "Beta Features" section
+- **Application states affected:** 
+  - When `user.betaFeaturesEnabled === true`: Section is visible
+  - When `user.betaFeaturesEnabled === false`: Section is hidden
+- **Edge cases:** 
+  - If user's beta flag is toggled while viewing Settings page, section should appear/disappear
+  - If beta features are disabled globally, section should not appear for any user
 
 ### Expected Visible Behavior
-- **When condition is TRUE (beta enabled):** The "Beta Features" section is visible in the Settings page.
-- **When condition is FALSE (beta disabled):** The "Beta Features" section is not rendered. No visual indication that a section is hidden (seamless UI).
+- **When condition is true (beta enabled):** The "Beta Features" section is visible in the Settings page.
+- **When condition is false (beta disabled):** The "Beta Features" section is not rendered. No visual indication that a section is hidden (seamless UI).
+- **Transitions:** Section appears/disappears immediately on flag change (no animation)
 
 ### Silent Removal Guardrail
-- **Does this condition hide a feature that previously existed?** No — this is a new feature being conditionally shown.
-- **If Yes, should the feature be removed permanently or temporarily hidden?** N/A
-- **Justification:** Beta features are temporarily hidden from users who don't have the flag enabled. The feature code remains in the codebase and can be enabled per-user. This aligns with product intent for gradual feature rollout.
+- **Does this condition hide a feature?** Yes - it hides the "Beta Features" section for users without the flag
+- **Should the feature be removed permanently?** No
+- **Should the feature be temporarily hidden?** Yes
+- **Decision documented:** Beta features are temporarily hidden from users who don't have the flag enabled. The feature code remains in the codebase and can be enabled per-user. This aligns with product intent for gradual feature rollout.
+- **Risk assessment:** Low risk - this is intentional product behavior for feature rollout. The feature is not removed; it's conditionally rendered based on user flag.
 
 ### UI-Only Verification Step
 - **Verification steps:** 
   1. In the running app, navigate to the Settings page. When the user has beta features enabled (check user profile or feature flag), confirm the "Beta Features" section appears between "User Preferences" and "Account Settings".
   2. When beta features are disabled, confirm the "Beta Features" section is not visible and the page flows directly from "User Preferences" to "Account Settings".
-
-### Code Locations
-- `src/pages/Settings.tsx:78-85` — Conditional rendering: `{user.betaFeaturesEnabled && <BetaFeaturesSection />}`
 ```
 
 ## Integration with Existing Workflows
 
 ### Plan or Decisions Artifact
 
-The conditional rendering review checklist must be included in the **Plan artifact** (for planned conditional rendering) or **Decisions artifact** (for conditional rendering decisions made during implementation), stored in Supabase:
-- **Artifact type:** `plan` or `decisions`
-- **Title format:** `Plan for ticket <ticket-id>` or `Decisions for ticket <ticket-id>`
-- **Storage:** Via HAL API endpoint `/api/artifacts/insert-implementation` with appropriate `artifactType`
+The conditional rendering review checklist must be included in either:
+- **Plan artifact** (stored in Supabase with `artifactType: "plan"`, title: `Plan for ticket <ticket-id>`)
+- **Decisions artifact** (stored in Supabase with `artifactType: "decisions"`, title: `Decisions for ticket <ticket-id>`)
+
+**Storage:** Via HAL API endpoint `/api/artifacts/insert-implementation` with the appropriate `artifactType`.
 
 ### QA Review Requirements
 
@@ -173,7 +233,7 @@ The conditional rendering review checklist must be included in the **Plan artifa
 1. **Verify the Plan or Decisions artifact includes the conditional rendering review checklist** — If conditional rendering changes were made but the checklist is missing or incomplete, QA **MUST FAIL** the ticket.
 
 2. **Verify the documented behavior matches the ticket goal** — QA should confirm:
-   - The "Why does this condition exist?" aligns with the ticket's Goal
+   - The "Why This Condition Exists" aligns with the ticket's Goal
    - The expected visible behavior matches the ticket's Human-verifiable deliverable
    - Any feature hiding/removal is intentional and justified
 
@@ -185,7 +245,6 @@ The conditional rendering review checklist must be included in the **Plan artifa
    - Conditional rendering changes were properly documented (or "No conditional rendering changes" if none were made)
    - The documented behavior matches code review findings
    - UI verification confirms the documented behavior
-   - Any concerns about accidental feature removal or UX regressions
 
 ### QA Report Template Addition
 
@@ -212,13 +271,15 @@ QA agents must verify conditional rendering documentation as part of their stand
 
 ## Scope
 
-- Applies to **all agents** (implementation, QA, PM) when conditional rendering is involved
-- Applies to **all conditional rendering** in UI components (React, Vue, or other framework conditionals like `{condition && <Component />}`, `v-if`, `*ngIf`, etc.)
-- Applies when **adding**, **modifying**, or **removing** conditional rendering logic
-- Must be completed **before** claiming implementation is complete
-- The checklist must be **human-verifiable** — a reviewer can open the Plan or Decisions artifact and immediately see the conditional rendering decisions and their justification
-- When in doubt, **document the decision** — it's better to over-document than to accidentally hide or remove features without justification
-- This requirement helps prevent:
+- **Applies to:** Implementation agents, QA agents, PM agents
+- **Applies when:** Before implementing or changing any conditional rendering in UI components
+- **Applies to:** All conditional rendering in UI components (React, Vue, or other framework conditionals like `{condition && <Component />}`, `v-if`, `*ngIf`, etc.)
+- **Applies when:** Adding, modifying, or removing conditional rendering logic
+- **Mandatory:** Yes - this is a required step, not optional
+- **Must be completed:** Before claiming implementation is complete
+- **The checklist must be human-verifiable** — a reviewer can open the Plan or Decisions artifact and immediately see the conditional rendering decisions and their justification
+- **When in doubt, document the decision** — it's better to over-document than to accidentally hide or remove features without justification
+- **This requirement helps prevent:**
   - Accidental feature removal (hiding features that should remain visible)
   - UX regressions (changing visible behavior without product justification)
   - Silent breaking changes (removing functionality without explicit decision)
