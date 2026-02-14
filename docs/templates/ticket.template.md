@@ -33,6 +33,16 @@ Create a new file at `docs/tickets/<task-id>-<short-title>.md` using this templa
 - [ ] <AC 2>
 - [ ] <AC 3>
 
+## UI verification checklist (required when the ticket affects UI)
+
+**Note:** This checklist is **required for UI-impacting tickets** and **skippable for non-UI tickets**.
+
+- [ ] I can see the relevant UI element(s) without using devtools/console.
+- [ ] Primary interaction works (click/type/submit) and produces the expected on-screen change.
+- [ ] Empty/loading/error state is visible and not broken (if applicable to this UI).
+- [ ] No obvious broken layout: element isn't off-screen/overlapped/behind an overlay unintentionally.
+- [ ] A quick refresh/reload does not break the UI behavior (if applicable).
+
 ## Constraints
 
 - Keep this task as small as possible while still producing a **human-verifiable** UI change.
