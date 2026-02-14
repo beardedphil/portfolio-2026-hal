@@ -694,21 +694,33 @@ function ArtifactReportViewer({
     const imageClickHandler = handleImageClick
     
     const ImageComponent = (props: any) => {
-      // ReactMarkdown v10 passes props directly as HTML attributes
+      // ReactMarkdown v10 passes props in different formats depending on version
+      // Try multiple ways to extract src and alt
+      const src = props.src || props.node?.properties?.src || (props.node?.url) || null
+      const alt = props.alt || props.node?.properties?.alt || (props.node?.alt) || props.node?.title || null
+      
       // Log ALL props to see what we're getting
-      console.log('[ImageComponent] CALLED with props:', {
-        src: props.src?.substring?.(0, 100),
-        alt: props.alt,
-        allKeys: Object.keys(props),
-        node: props.node ? 'present' : 'missing',
-        children: props.children,
+      console.log('[ImageComponent] CALLED!', {
+        src: src?.substring?.(0, 100) || 'NULL',
+        alt: alt || 'NULL',
+        propsKeys: Object.keys(props),
+        hasNode: !!props.node,
+        nodeKeys: props.node ? Object.keys(props.node) : [],
+        nodeUrl: props.node?.url?.substring?.(0, 100),
+        nodeProperties: props.node?.properties,
       })
       
-      const src = props.src
-      const alt = props.alt
-      
       if (!src) {
-        console.warn('[ImageComponent] No src in props. Full props:', props)
+        console.error('[ImageComponent] No src found! Full props:', JSON.stringify(props, null, 2).substring(0, 500))
+        // Return a visible error component
+        return (
+          <div style={{ border: '2px solid red', padding: '1rem', backgroundColor: '#ffebee' }}>
+            <p style={{ margin: 0, fontWeight: 'bold' }}>ERROR: ImageComponent called but no src found</p>
+            <pre style={{ fontSize: '0.8rem', overflow: 'auto', maxHeight: '200px' }}>
+              {JSON.stringify(props, null, 2).substring(0, 1000)}
+            </pre>
+          </div>
+        )
       }
       
       return (
