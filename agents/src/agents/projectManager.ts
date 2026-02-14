@@ -753,6 +753,39 @@ export async function runPmAgent(
                   }
                 }
                 if (!insertError) {
+                  // Store attachments if present (0092)
+                  if (config.images && config.images.length > 0) {
+                    try {
+                      // Fetch the ticket_pk for the newly created ticket
+                      const ticketQuery = repoFullName !== 'legacy/unknown' && candidateNum
+                        ? supabase.from('tickets').select('pk').eq('repo_full_name', repoFullName).eq('ticket_number', candidateNum).single()
+                        : supabase.from('tickets').select('pk').eq('id', id).single()
+                      const ticketResult = await ticketQuery
+                      if (ticketResult.data && (ticketResult.data as any).pk) {
+                        const ticketPk = (ticketResult.data as any).pk
+                        // Store each attachment
+                        const attachments = config.images.map((img) => ({
+                          ticket_pk: ticketPk,
+                          ticket_id: id,
+                          filename: img.filename,
+                          mime_type: img.mimeType,
+                          data_url: img.dataUrl,
+                          file_size: img.dataUrl.length, // Approximate size (base64 encoded)
+                        }))
+                        const { error: attachError } = await supabase.from('ticket_attachments').insert(attachments)
+                        if (attachError) {
+                          console.warn(`[create_ticket] Failed to store attachments: ${attachError.message}`)
+                          // Don't fail ticket creation if attachment storage fails
+                        }
+                      } else {
+                        console.warn(`[create_ticket] Could not fetch ticket pk for attachment storage`)
+                      }
+                    } catch (attachErr) {
+                      console.warn(`[create_ticket] Error storing attachments: ${attachErr instanceof Error ? attachErr.message : String(attachErr)}`)
+                      // Don't fail ticket creation if attachment storage fails
+                    }
+                  }
+                  
                   // Auto-fix: normalize and re-evaluate (0095)
                   let finalBodyMd = normalizedBodyMd
                   let readiness = evaluateTicketReady(finalBodyMd)

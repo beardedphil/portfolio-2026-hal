@@ -1014,6 +1014,113 @@ h1 {
   border-color: var(--kanban-primary);
 }
 
+/* Attachments section (0092) */
+.attachments-section {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--kanban-border);
+}
+.attachments-section-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem 0;
+  color: var(--kanban-text);
+}
+.attachments-loading {
+  margin: 0.5rem 0;
+  color: var(--kanban-text-muted);
+  font-style: italic;
+  font-size: 0.9rem;
+}
+.attachments-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.attachments-item {
+  margin: 0 0 0.75rem 0;
+  padding: 0.75rem;
+  background: var(--kanban-surface-alt);
+  border: 1px solid var(--kanban-border);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.attachments-item:last-child {
+  margin-bottom: 0;
+}
+.attachments-item-content {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  min-width: 0;
+}
+.attachments-thumbnail {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--kanban-border);
+  flex-shrink: 0;
+}
+.attachments-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+  flex: 1;
+}
+.attachments-item-filename {
+  font-weight: 500;
+  color: var(--kanban-text);
+  font-size: 0.95rem;
+  word-break: break-word;
+}
+.attachments-item-meta {
+  font-size: 0.85rem;
+  color: var(--kanban-text-muted);
+}
+.attachments-item-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+.attachments-action-button {
+  padding: 0.375rem 0.75rem;
+  font-size: 0.875rem;
+  background: var(--kanban-primary);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.attachments-action-button:hover {
+  background: var(--kanban-primary-hover);
+}
+.attachments-action-button:focus {
+  outline: none;
+}
+.attachments-action-button:focus-visible {
+  outline: 2px solid var(--kanban-primary);
+  outline-offset: 2px;
+}
+
+/* Dark theme adjustments for attachments */
+[data-theme="dark"] .attachments-item {
+  background: var(--kanban-surface-alt);
+  border-color: var(--kanban-border);
+}
+[data-theme="dark"] .attachments-action-button {
+  background: var(--kanban-primary);
+}
+[data-theme="dark"] .attachments-action-button:hover {
+  background: var(--kanban-primary-hover);
+}
+
 .column-work-button {
   align-self: flex-start;
   padding: 0.25rem 0.5rem;

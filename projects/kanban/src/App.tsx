@@ -92,6 +92,18 @@ type SupabaseAgentRunRow = {
   updated_at: string
 }
 
+/** Supabase ticket_attachments table row (0092) */
+type TicketAttachment = {
+  pk: string
+  ticket_pk: string
+  ticket_id: string
+  filename: string
+  mime_type: string
+  data_url: string
+  file_size: number | null
+  created_at: string
+}
+
 const SUPABASE_CONFIG_KEY = 'supabase-ticketstore-config'
 const CONNECTED_REPO_KEY = 'hal-connected-repo'
 /** Polling interval when Supabase board is active (0013); 10s */
@@ -107,6 +119,19 @@ const _SUPABASE_SETUP_SQL = `create table if not exists public.tickets (
   kanban_position int null,
   kanban_moved_at timestamptz null,
   updated_at timestamptz not null default now()
+);`
+
+/** ticket_attachments table (0092): stores file attachments for tickets */
+const _SUPABASE_TICKET_ATTACHMENTS_SETUP_SQL = `create table if not exists public.ticket_attachments (
+  pk uuid primary key default gen_random_uuid(),
+  ticket_pk text not null,
+  ticket_id text not null,
+  filename text not null,
+  mime_type text not null,
+  data_url text not null,
+  file_size int,
+  created_at timestamptz not null default now(),
+  constraint fk_ticket foreign key (ticket_id) references public.tickets(id) on delete cascade
 );`
 
 /** kanban_columns table (0020); run in Supabase SQL editor if missing */
@@ -981,6 +1006,178 @@ function ArtifactsSection({
   )
 }
 
+/** Attachments Section: displays file attachments for tickets (0092) */
+function AttachmentsSection({
+  attachments,
+  loading,
+}: {
+  attachments: TicketAttachment[]
+  loading: boolean
+}) {
+  if (loading) {
+    return (
+      <div className="attachments-section">
+        <h3 className="attachments-section-title">Attachments</h3>
+        <p className="attachments-loading">Loading attachments…</p>
+      </div>
+    )
+  }
+
+  if (attachments.length === 0) {
+    return null // Don't show empty section
+  }
+
+  const handleDownload = (attachment: TicketAttachment) => {
+    // Create a temporary anchor element to trigger download
+    const link = document.createElement('a')
+    link.href = attachment.data_url
+    link.download = attachment.filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
+  const handleView = (attachment: TicketAttachment) => {
+    // Open in new tab for viewing
+    window.open(attachment.data_url, '_blank')
+  }
+
+  const isImage = (mimeType: string) => mimeType.startsWith('image/')
+
+  return (
+    <div className="attachments-section">
+      <h3 className="attachments-section-title">Attachments</h3>
+      <ul className="attachments-list">
+        {attachments.map((attachment) => (
+          <li key={attachment.pk} className="attachments-item">
+            <div className="attachments-item-content">
+              {isImage(attachment.mime_type) && (
+                <img
+                  src={attachment.data_url}
+                  alt={attachment.filename}
+                  className="attachments-thumbnail"
+                />
+              )}
+              <div className="attachments-item-info">
+                <span className="attachments-item-filename">{attachment.filename}</span>
+                <span className="attachments-item-meta">
+                  {attachment.mime_type}
+                  {attachment.file_size && ` • ${Math.round(attachment.file_size / 1024)} KB`}
+                </span>
+              </div>
+            </div>
+            <div className="attachments-item-actions">
+              {isImage(attachment.mime_type) && (
+                <button
+                  type="button"
+                  className="attachments-action-button"
+                  onClick={() => handleView(attachment)}
+                  aria-label={`View ${attachment.filename}`}
+                >
+                  View
+                </button>
+              )}
+              <button
+                type="button"
+                className="attachments-action-button"
+                onClick={() => handleDownload(attachment)}
+                aria-label={`Download ${attachment.filename}`}
+              >
+                Download
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+/** QA Info Section: displays feature branch and implementation artifacts when ticket is in QA column (0113) */
+function QAInfoSection({
+  bodyMd,
+  artifacts,
+  artifactsLoading,
+  onOpenArtifact,
+}: {
+  bodyMd: string | null
+  artifacts: SupabaseAgentArtifactRow[]
+  artifactsLoading: boolean
+  onOpenArtifact: (artifact: SupabaseAgentArtifactRow) => void
+}) {
+  const featureBranch = extractFeatureBranch(bodyMd)
+  const mergeStatus = checkMergedToMain(bodyMd)
+  
+  // Filter to implementation artifacts only
+  const implementationArtifacts = artifacts.filter(a => a.agent_type === 'implementation')
+  
+  return (
+    <div className="qa-info-section">
+      <h3 className="qa-info-section-title">QA Information</h3>
+      
+      <div className="qa-info-field">
+        <strong>Feature branch:</strong>{' '}
+        {featureBranch ? (
+          <code className="qa-branch-name">{featureBranch}</code>
+        ) : (
+          <span className="qa-missing">Not specified</span>
+        )}
+      </div>
+      
+      <div className="qa-info-field">
+        <strong>Merged to main:</strong>{' '}
+        {mergeStatus.merged ? (
+          <span className="qa-merged-yes">
+            ✅ Yes
+            {mergeStatus.timestamp && (
+              <span className="qa-merged-timestamp"> ({mergeStatus.timestamp})</span>
+            )}
+          </span>
+        ) : (
+          <span className="qa-merged-no">❌ No</span>
+        )}
+      </div>
+      
+      <div className="qa-info-field">
+        <strong>Implementation artifacts:</strong>
+        {artifactsLoading ? (
+          <p className="qa-artifacts-loading">Loading artifacts…</p>
+        ) : implementationArtifacts.length === 0 ? (
+          <p className="qa-artifacts-empty">No implementation artifacts found.</p>
+        ) : (
+          <ul className="qa-artifacts-list">
+            {implementationArtifacts
+              .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+              .map((artifact) => {
+                const displayName = artifact.title || getAgentTypeDisplayName(artifact.agent_type)
+                return (
+                  <li key={artifact.artifact_id} className="qa-artifacts-item">
+                    <button
+                      type="button"
+                      className="qa-artifacts-item-button"
+                      onClick={() => onOpenArtifact(artifact)}
+                      aria-label={`Open ${displayName}`}
+                    >
+                      <span className="qa-artifacts-item-title">{displayName}</span>
+                      <span className="qa-artifacts-item-meta">
+                        {new Date(artifact.created_at).toLocaleString()}
+                      </span>
+                    </button>
+                  </li>
+                )
+              })}
+          </ul>
+        )}
+      </div>
+      
+      {!mergeStatus.merged && (
+        <div className="qa-workflow-warning" role="alert">
+          <strong>Warning:</strong> This ticket must be merged to main before it can be moved to Human in the Loop.
+        </div>
+      )}
+    </div>
+  )
+}
 /** Ticket detail modal (0033): title, metadata, markdown body, close/escape/backdrop, scroll lock, focus trap */
 function TicketDetailModal({
   open,
@@ -1002,6 +1199,8 @@ function TicketDetailModal({
   supabaseUrl,
   supabaseKey,
   onTicketUpdate: _onTicketUpdate,
+  attachments,
+  attachmentsLoading,
 }: {
   open: boolean
   onClose: () => void
@@ -1022,6 +1221,8 @@ function TicketDetailModal({
   supabaseUrl: string
   supabaseKey: string
   onTicketUpdate: () => void
+  attachments: TicketAttachment[]
+  attachmentsLoading: boolean
 }) {
   const [validationSteps, setValidationSteps] = useState('')
   const [validationNotes, setValidationNotes] = useState('')
@@ -1230,6 +1431,10 @@ function TicketDetailModal({
                 onRefresh={onRefreshArtifacts}
                 refreshing={false}
                 columnId={columnId}
+              />
+              <AttachmentsSection
+                attachments={attachments}
+                loading={attachmentsLoading}
               />
               {showValidationSection && (
                 <>
@@ -1712,11 +1917,14 @@ function App() {
   const [detailModalArtifactsStatus, setDetailModalArtifactsStatus] = useState<string | null>(null)
   const [artifactViewer, setArtifactViewer] = useState<SupabaseAgentArtifactRow | null>(null)
   
+  // Ticket attachments (0092)
+  const [detailModalAttachments, setDetailModalAttachments] = useState<TicketAttachment[]>([])
+  const [detailModalAttachmentsLoading, setDetailModalAttachmentsLoading] = useState(false)
+  
   // Board data: library mode (halCtx) = HAL passes data down; else = we fetch from Supabase (iframe/standalone)
   const sourceTickets = halCtx?.tickets ?? supabaseTickets
   const sourceColumnsRows = halCtx?.columns ?? supabaseColumnsRows
   const supabaseBoardActive = !!halCtx || supabaseConnectionStatus === 'connected'
-
   const { columns: supabaseColumns, unknownColumnTicketIds: supabaseUnknownColumnTicketIds } = useMemo(() => {
     if (!supabaseBoardActive || sourceColumnsRows.length === 0) {
       return { columns: EMPTY_KANBAN_COLUMNS, unknownColumnTicketIds: [] as string[] }
@@ -2013,6 +2221,32 @@ function App() {
     [supabaseProjectUrl, supabaseAnonKey]
   )
 
+  /** Fetch ticket attachments (0092) */
+  const fetchTicketAttachments = useCallback(
+    async (ticketId: string): Promise<TicketAttachment[]> => {
+      const url = supabaseProjectUrl.trim()
+      const key = supabaseAnonKey.trim()
+      if (!url || !key) return []
+      try {
+        const client = createClient(url, key)
+        const { data, error } = await client
+          .from('ticket_attachments')
+          .select('pk, ticket_pk, ticket_id, filename, mime_type, data_url, file_size, created_at')
+          .eq('ticket_id', ticketId)
+          .order('created_at', { ascending: false })
+        if (error) {
+          console.warn('Failed to fetch ticket attachments:', error)
+          return []
+        }
+        return (data ?? []) as TicketAttachment[]
+      } catch (e) {
+        console.warn('Failed to fetch ticket attachments:', e)
+        return []
+      }
+    },
+    [supabaseProjectUrl, supabaseAnonKey]
+  )
+
   /** Fetch active agent runs for tickets in Doing column (0114) */
   const fetchActiveAgentRuns = useCallback(async () => {
     const url = supabaseProjectUrl.trim()
@@ -2061,6 +2295,8 @@ function App() {
       setDetailModalArtifacts([])
       setDetailModalArtifactsLoading(false)
       setDetailModalArtifactsStatus(null)
+      setDetailModalAttachments([])
+      setDetailModalAttachmentsLoading(false)
       return
     }
     const { ticketId } = detailModal
@@ -2173,11 +2409,23 @@ function App() {
           setDetailModalArtifactsStatus(`Error: ${e instanceof Error ? e.message : String(e)}`)
           setDetailModalArtifactsLoading(false)
         })
+        
+        // Fetch attachments (0092)
+        setDetailModalAttachmentsLoading(true)
+        fetchTicketAttachments(row.id).then((attachments) => {
+          setDetailModalAttachments(attachments)
+          setDetailModalAttachmentsLoading(false)
+        }).catch(() => {
+          setDetailModalAttachments([])
+          setDetailModalAttachmentsLoading(false)
+        })
       } else {
         setDetailModalBody('')
         setDetailModalArtifacts([])
         setDetailModalArtifactsLoading(false)
         setDetailModalArtifactsStatus(null)
+        setDetailModalAttachments([])
+        setDetailModalAttachmentsLoading(false)
       }
       setDetailModalError(null)
       setDetailModalLoading(false)
@@ -2189,8 +2437,10 @@ function App() {
       setDetailModalArtifacts([])
       setDetailModalArtifactsLoading(false)
       setDetailModalArtifactsStatus(null)
+      setDetailModalAttachments([])
+      setDetailModalAttachmentsLoading(false)
     }
-  }, [detailModal, halCtx, sourceTickets, supabaseBoardActive, supabaseTickets, supabaseProjectUrl, supabaseAnonKey, detailModalRetryTrigger, addLog, fetchTicketArtifacts])
+  }, [detailModal, halCtx, sourceTickets, supabaseBoardActive, supabaseTickets, supabaseProjectUrl, supabaseAnonKey, detailModalRetryTrigger, addLog, fetchTicketArtifacts, fetchTicketAttachments])
 
   /** Re-run artifact fetch for the currently open ticket (library or Supabase mode). */
   const refreshDetailModalArtifacts = useCallback(() => {
@@ -3413,6 +3663,8 @@ function App() {
           columnId={detailModal.columnId}
           supabaseUrl={supabaseProjectUrl || ''}
           supabaseKey={supabaseAnonKey || ''}
+          attachments={detailModalAttachments}
+          attachmentsLoading={detailModalAttachmentsLoading}
           onValidationPass={async (ticketPk: string) => {
             // Always use HAL's callbacks - HAL handles all database operations
             if (!halCtx) {
