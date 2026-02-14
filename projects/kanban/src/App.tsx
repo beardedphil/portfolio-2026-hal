@@ -3026,18 +3026,29 @@ function App() {
       // Don't overwrite tickets that have pending moves (0047)
       // Improved: Preserve optimistic positions to prevent snap-back and jumps (0144)
       // CRITICAL: Always preserve optimistic positions for tickets in pendingMoves,
-      // and also preserve positions for other tickets in the same columns to prevent
-      // visual jumps when polling refetches happen before backend saves complete.
+      // but check if backend has confirmed during polling refetches and remove from pendingMoves if confirmed
       if (skipPendingMoves && pendingMoves.size > 0) {
         setSupabaseTickets((prev) => {
           const newMap = new Map(normalizedRows.map((r) => [r.pk, r]))
-          // Preserve optimistic updates for pending moves, update others from DB
+          // Preserve optimistic updates for pending moves, but check if backend confirmed
           const result: SupabaseTicketRow[] = []
           const processedIds = new Set<string>()
-          // First, add all existing tickets (preserving pending moves)
+          const confirmedMoves = new Set<string>()
+          // First, add all existing tickets (preserving pending moves, but checking for backend confirmation)
           for (const t of prev) {
             if (pendingMoves.has(t.pk)) {
-              result.push(t) // Keep optimistic update - never overwrite during pending move
+              const dbRow = newMap.get(t.pk)
+              // Check if backend position matches optimistic position (backend confirmed)
+              if (dbRow && 
+                  dbRow.kanban_column_id === t.kanban_column_id && 
+                  dbRow.kanban_position === t.kanban_position) {
+                // Backend confirmed - update with DB data and mark for removal from pendingMoves
+                result.push(dbRow)
+                confirmedMoves.add(t.pk)
+              } else {
+                // Backend hasn't confirmed yet - keep optimistic update
+                result.push(t)
+              }
               processedIds.add(t.pk)
             } else if (newMap.has(t.pk)) {
               result.push(newMap.get(t.pk)!) // Update from DB
@@ -3049,6 +3060,16 @@ function App() {
             if (!processedIds.has(row.pk)) {
               result.push(row)
             }
+          }
+          // Remove confirmed moves from pendingMoves
+          if (confirmedMoves.size > 0) {
+            setPendingMoves((prevPending) => {
+              const next = new Set(prevPending)
+              for (const pk of confirmedMoves) {
+                next.delete(pk)
+              }
+              return next
+            })
           }
           return result
         })
@@ -3626,17 +3647,31 @@ function App() {
           if (result.ok) {
             setLastMovePersisted({ success: true, timestamp: new Date(), ticketId: ticketPk })
             addLog(`Supabase ticket dropped into ${overColumn.title}`)
+            // Store expected optimistic position to verify backend confirmation (0144)
+            const expectedColumnId = overColumn.id
+            const expectedPosition = overIndex
             // Remove from pending after delay - refetch preserves optimistic position until backend matches (0144)
-            // CRITICAL: Keep ticket in pendingMoves during refetch to prevent snap-back
-            // The refetch logic will preserve the optimistic position if backend hasn't updated yet
+            // CRITICAL: Only remove from pendingMoves when backend position actually matches optimistic position
+            // This prevents snap-back when polling refetch happens before backend confirms
             setTimeout(() => {
               refetchSupabaseTickets(false).then(() => {
-                // Refetch completed - remove from pendingMoves
-                // If backend hasn't updated yet, refetch preserved optimistic position and will try again on next poll
-                setPendingMoves((prev) => {
-                  const next = new Set(prev)
-                  next.delete(ticketPk)
-                  return next
+                // After refetch, check if backend position matches optimistic position
+                // Only remove from pendingMoves if backend has confirmed the move
+                setSupabaseTickets((currentTickets) => {
+                  const currentTicket = currentTickets.find((t) => t.pk === ticketPk)
+                  // If backend position matches optimistic position, backend has confirmed
+                  if (currentTicket && 
+                      currentTicket.kanban_column_id === expectedColumnId && 
+                      currentTicket.kanban_position === expectedPosition) {
+                    // Backend confirmed - safe to remove from pendingMoves
+                    setPendingMoves((prev) => {
+                      const next = new Set(prev)
+                      next.delete(ticketPk)
+                      return next
+                    })
+                  }
+                  // If backend hasn't confirmed yet, keep in pendingMoves (will be checked on next poll)
+                  return currentTickets
                 })
                 // Refetch agent runs if ticket moved to/from Doing column (0135)
                 if (overColumn.id === 'col-doing' || ticket?.kanban_column_id === 'col-doing') {
@@ -3742,17 +3777,31 @@ function App() {
           if (allSucceeded) {
             setLastMovePersisted({ success: true, timestamp: new Date(), ticketId: ticketPk })
             addLog(`Supabase ticket reordered in ${sourceColumn.title}`)
+            // Store expected optimistic position to verify backend confirmation (0144)
+            const expectedColumnId = sourceColumn.id
+            const expectedPosition = overIndex
             // Remove from pending after delay - refetch preserves optimistic position until backend matches (0144)
-            // CRITICAL: Keep ticket in pendingMoves during refetch to prevent snap-back
-            // The refetch logic will preserve the optimistic position if backend hasn't updated yet
+            // CRITICAL: Only remove from pendingMoves when backend position actually matches optimistic position
+            // This prevents snap-back when polling refetch happens before backend confirms
             setTimeout(() => {
               refetchSupabaseTickets(false).then(() => {
-                // Refetch completed - remove from pendingMoves
-                // If backend hasn't updated yet, refetch preserved optimistic position and will try again on next poll
-                setPendingMoves((prev) => {
-                  const next = new Set(prev)
-                  next.delete(ticketPk)
-                  return next
+                // After refetch, check if backend position matches optimistic position
+                // Only remove from pendingMoves if backend has confirmed the move
+                setSupabaseTickets((currentTickets) => {
+                  const currentTicket = currentTickets.find((t) => t.pk === ticketPk)
+                  // If backend position matches optimistic position, backend has confirmed
+                  if (currentTicket && 
+                      currentTicket.kanban_column_id === expectedColumnId && 
+                      currentTicket.kanban_position === expectedPosition) {
+                    // Backend confirmed - safe to remove from pendingMoves
+                    setPendingMoves((prev) => {
+                      const next = new Set(prev)
+                      next.delete(ticketPk)
+                      return next
+                    })
+                  }
+                  // If backend hasn't confirmed yet, keep in pendingMoves (will be checked on next poll)
+                  return currentTickets
                 })
               }).catch(() => {
                 // On error, still remove from pending to avoid stuck state
@@ -3825,18 +3874,32 @@ function App() {
           if (result.ok) {
             setLastMovePersisted({ success: true, timestamp: new Date(), ticketId: ticketPk })
             addLog(`Supabase ticket moved to ${overColumn.title}`)
+            // Store expected optimistic position to verify backend confirmation (0144)
+            const expectedColumnId = overColumn.id
+            const expectedPosition = overIndex
             // Remove from pending after delay - refetch preserves optimistic position until backend matches (0144)
-            // CRITICAL: Keep ticket in pendingMoves during refetch to prevent snap-back
-            // The refetch logic will preserve the optimistic position if backend hasn't updated yet
+            // CRITICAL: Only remove from pendingMoves when backend position actually matches optimistic position
+            // This prevents snap-back when polling refetch happens before backend confirms
             const sourceTicket = supabaseTickets.find((t) => t.pk === ticketPk)
             setTimeout(() => {
               refetchSupabaseTickets(false).then(() => {
-                // Refetch completed - remove from pendingMoves
-                // If backend hasn't updated yet, refetch preserved optimistic position and will try again on next poll
-                setPendingMoves((prev) => {
-                  const next = new Set(prev)
-                  next.delete(ticketPk)
-                  return next
+                // After refetch, check if backend position matches optimistic position
+                // Only remove from pendingMoves if backend has confirmed the move
+                setSupabaseTickets((currentTickets) => {
+                  const currentTicket = currentTickets.find((t) => t.pk === ticketPk)
+                  // If backend position matches optimistic position, backend has confirmed
+                  if (currentTicket && 
+                      currentTicket.kanban_column_id === expectedColumnId && 
+                      currentTicket.kanban_position === expectedPosition) {
+                    // Backend confirmed - safe to remove from pendingMoves
+                    setPendingMoves((prev) => {
+                      const next = new Set(prev)
+                      next.delete(ticketPk)
+                      return next
+                    })
+                  }
+                  // If backend hasn't confirmed yet, keep in pendingMoves (will be checked on next poll)
+                  return currentTickets
                 })
                 // Refetch agent runs if ticket moved to/from Doing column (0135)
                 if (overColumn.id === 'col-doing' || sourceTicket?.kanban_column_id === 'col-doing') {
