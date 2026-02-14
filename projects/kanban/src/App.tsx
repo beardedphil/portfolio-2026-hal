@@ -808,6 +808,42 @@ function ArtifactReportViewer({
   }
 
   // Ensure artifact has required properties with fallbacks
+  // Double-check artifact is valid (defensive programming for 0148)
+  if (!artifact || !artifact.artifact_id) {
+    console.error('ArtifactReportViewer: Invalid artifact received', artifact)
+    return (
+      <div
+        className="ticket-detail-backdrop"
+        role="dialog"
+        aria-modal="true"
+        onClick={(e) => e.target === e.currentTarget && onClose()}
+        onKeyDown={handleKeyDown}
+      >
+        <div className="ticket-detail-modal" ref={modalRef}>
+          <div className="ticket-detail-header">
+            <h2 className="ticket-detail-title">Artifact Viewer</h2>
+            <button
+              type="button"
+              className="ticket-detail-close"
+              onClick={onClose}
+              ref={closeBtnRef}
+              aria-label="Close"
+            >
+              ×
+            </button>
+          </div>
+          <div className="ticket-detail-body-wrap">
+            <div className="ticket-detail-body">
+              <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
+                Invalid artifact data. Please try selecting the artifact again.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+  
   const artifactTitle = artifact.title || 'Untitled Artifact'
   const artifactBodyMd = artifact.body_md || ''
   const artifactCreatedAt = artifact.created_at || new Date().toISOString()
@@ -818,19 +854,25 @@ function ArtifactReportViewer({
   
   // Calculate navigation state (0148)
   // Sort artifacts chronologically (oldest first)
+  // If artifacts array is empty but we have an artifact, use it as the only item
   const sortedArtifacts = useMemo(() => {
+    if (artifacts.length === 0 && artifact) {
+      // Fallback: if artifacts array is empty but we have an artifact, use it
+      return [artifact]
+    }
     return [...artifacts].sort(
-      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      (a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
     )
-  }, [artifacts])
+  }, [artifacts, artifact])
   
   // Find the actual index of the current artifact in the sorted list
   const actualIndex = useMemo(() => {
+    if (!artifact || !artifact.artifact_id) return -1
     return sortedArtifacts.findIndex(a => a.artifact_id === artifact.artifact_id)
-  }, [sortedArtifacts, artifact.artifact_id])
+  }, [sortedArtifacts, artifact])
   
-  // Use actual index if found, otherwise fall back to currentIndex prop
-  const effectiveIndex = actualIndex >= 0 ? actualIndex : currentIndex
+  // Use actual index if found, otherwise fall back to currentIndex prop, or 0 if artifact is in the list
+  const effectiveIndex = actualIndex >= 0 ? actualIndex : (artifact && sortedArtifacts.length > 0 ? 0 : currentIndex)
   
   const canGoPrevious = effectiveIndex > 0
   const canGoNext = effectiveIndex < sortedArtifacts.length - 1
@@ -2936,11 +2978,24 @@ function App() {
   }, [])
   const handleRetryTicketDetail = useCallback(() => setDetailModalRetryTrigger((n) => n + 1), [])
   const handleOpenArtifact = useCallback((artifact: SupabaseAgentArtifactRow) => {
+    // Ensure artifact is valid and has required properties
+    if (!artifact || !artifact.artifact_id) {
+      console.error('Invalid artifact passed to handleOpenArtifact:', artifact)
+      return
+    }
+    
     // Sort artifacts chronologically (oldest first) to find index (0148)
-    const sortedArtifacts = [...detailModalArtifacts].sort(
-      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    // Use detailModalArtifacts if available, otherwise artifact might be from props
+    const artifactsToSearch = detailModalArtifacts.length > 0 
+      ? detailModalArtifacts 
+      : [artifact] // Fallback to the artifact itself if list is empty
+    
+    const sortedArtifacts = [...artifactsToSearch].sort(
+      (a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
     )
     const index = sortedArtifacts.findIndex(a => a.artifact_id === artifact.artifact_id)
+    
+    // Always set the artifact (it's valid since it came from the list)
     setArtifactViewer(artifact)
     setArtifactViewerIndex(index >= 0 ? index : 0)
   }, [detailModalArtifacts])
@@ -2950,12 +3005,22 @@ function App() {
   }, [])
   const handleNavigateArtifact = useCallback((index: number) => {
     // Sort artifacts chronologically (oldest first) to get artifact at index (0148)
+    if (detailModalArtifacts.length === 0) {
+      console.warn('Cannot navigate: detailModalArtifacts is empty')
+      return
+    }
+    
     const sortedArtifacts = [...detailModalArtifacts].sort(
-      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      (a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
     )
     if (index >= 0 && index < sortedArtifacts.length) {
-      setArtifactViewer(sortedArtifacts[index])
-      setArtifactViewerIndex(index)
+      const targetArtifact = sortedArtifacts[index]
+      if (targetArtifact && targetArtifact.artifact_id) {
+        setArtifactViewer(targetArtifact)
+        setArtifactViewerIndex(index)
+      } else {
+        console.error('Invalid artifact at index', index, targetArtifact)
+      }
     }
   }, [detailModalArtifacts])
   
