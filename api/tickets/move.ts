@@ -134,7 +134,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     // - "172" (numeric id)
     // - "0172" (numeric id with leading zeros)
     // - "HAL-0172" (display_id format)
-    let ticketFetch: any = null
+    let ticketFetch: { data: any; error: any } | null = null
     
     if (ticketPk) {
       ticketFetch = await supabase.from('tickets').select('pk, repo_full_name, kanban_column_id, kanban_position').eq('pk', ticketPk).maybeSingle()
@@ -143,12 +143,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       ticketFetch = await supabase.from('tickets').select('pk, repo_full_name, kanban_column_id, kanban_position').eq('id', ticketId).maybeSingle()
       
       // Strategy 2: If not found, try by display_id (e.g., "HAL-0172")
-      if (ticketFetch.error || !ticketFetch.data) {
+      if (ticketFetch && (ticketFetch.error || !ticketFetch.data)) {
         ticketFetch = await supabase.from('tickets').select('pk, repo_full_name, kanban_column_id, kanban_position').eq('display_id', ticketId).maybeSingle()
       }
       
       // Strategy 3: If ticketId looks like display_id (e.g., "HAL-0172"), extract numeric part and try by id
-      if ((ticketFetch.error || !ticketFetch.data) && /^[A-Z]+-/.test(ticketId)) {
+      if (ticketFetch && (ticketFetch.error || !ticketFetch.data) && /^[A-Z]+-/.test(ticketId)) {
         const numericPart = ticketId.replace(/^[A-Z]+-/, '')
         // Remove leading zeros to get the actual id value (e.g., "0172" -> "172")
         const idValue = numericPart.replace(/^0+/, '') || numericPart
@@ -158,7 +158,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       }
       
       // Strategy 4: If ticketId is numeric with leading zeros (e.g., "0172"), try without leading zeros
-      if ((ticketFetch.error || !ticketFetch.data) && /^\d+$/.test(ticketId) && ticketId.startsWith('0')) {
+      if (ticketFetch && (ticketFetch.error || !ticketFetch.data) && /^\d+$/.test(ticketId) && ticketId.startsWith('0')) {
         const withoutLeadingZeros = ticketId.replace(/^0+/, '') || ticketId
         if (withoutLeadingZeros !== ticketId) {
           ticketFetch = await supabase.from('tickets').select('pk, repo_full_name, kanban_column_id, kanban_position').eq('id', withoutLeadingZeros).maybeSingle()
@@ -166,10 +166,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       }
     }
 
-    if (ticketFetch.error || !ticketFetch.data) {
+    if (!ticketFetch || ticketFetch.error || !ticketFetch.data) {
       json(res, 200, {
         success: false,
-        error: `Ticket ${ticketId || ticketPk} not found.`,
+        error: `Ticket ${ticketId || ticketPk} not found.${ticketFetch?.error ? ` Error: ${ticketFetch.error.message}` : ''}`,
       })
       return
     }
@@ -218,18 +218,27 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     // Determine target position
     let targetPosition: number
 
+    // Ensure columnId is defined before using it
+    if (!columnId) {
+      json(res, 400, {
+        success: false,
+        error: 'Column ID is required but was not resolved.',
+      })
+      return
+    }
+
     // Fetch all tickets in target column (for position calculation)
     const ticketsInColumnQuery = repoFullName
       ? supabase
           .from('tickets')
           .select('pk, kanban_position')
-          .eq('kanban_column_id', columnId!)
+          .eq('kanban_column_id', columnId)
           .eq('repo_full_name', repoFullName)
           .order('kanban_position', { ascending: true })
       : supabase
           .from('tickets')
           .select('pk, kanban_position')
-          .eq('kanban_column_id', columnId!)
+          .eq('kanban_column_id', columnId)
           .order('kanban_position', { ascending: true })
 
     const { data: ticketsInColumn, error: fetchErr } = await ticketsInColumnQuery
@@ -324,6 +333,17 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       columnName: columnName || undefined,
     })
   } catch (err) {
-    json(res, 500, { success: false, error: err instanceof Error ? err.message : String(err) })
+    console.error('[api/tickets/move] Error:', err)
+    const errorMessage = err instanceof Error ? err.message : String(err)
+    const errorStack = err instanceof Error ? err.stack : undefined
+    json(res, 500, { 
+      success: false, 
+      error: errorMessage,
+      stack: errorStack,
+      details: err instanceof Error ? {
+        name: err.name,
+        message: err.message,
+      } : undefined
+    })
   }
 }
