@@ -2940,7 +2940,6 @@ function App() {
         
         // Determine final status based on results
         const hasErrors = creationErrors.length > 0
-        const allSkipped = skippedCount === suggestionCount && createdCount === 0
         const allSucceeded = createdCount > 0 && creationErrors.length === 0
         
         if (hasErrors && !allSucceeded) {

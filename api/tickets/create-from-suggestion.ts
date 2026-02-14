@@ -237,11 +237,12 @@ This ticket was automatically created from Process Review suggestion for ticket 
       const id = String(candidateNum)
       const filename = `${String(candidateNum).padStart(4, '0')}-${slugFromTitle(title)}.md`
       const now = new Date().toISOString()
+      const ticketPk = crypto.randomUUID()
 
       try {
         // Try new schema first (repo-scoped)
         const insert = await supabase.from('tickets').insert({
-          pk: crypto.randomUUID(),
+          pk: ticketPk,
           repo_full_name: repoFullName,
           ticket_number: candidateNum,
           display_id: displayId,
@@ -259,7 +260,7 @@ This ticket was automatically created from Process Review suggestion for ticket 
             success: true,
             ticketId: displayId,
             id,
-            pk: insert.data?.[0]?.pk || crypto.randomUUID(),
+            pk: ticketPk,
           })
           return
         }
