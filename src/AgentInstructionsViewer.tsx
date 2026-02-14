@@ -91,38 +91,49 @@ export function AgentInstructionsViewer({
           throw new Error('Supabase not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env')
         }
 
-        const supabase = getSupabaseClient(url, key)
+        // Use HAL API endpoint to load instructions (supports agent type scoping)
+        const baseUrl = window.location.origin
+        const instructionsResponse = await fetch(`${baseUrl}/api/instructions/get`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            repoFullName,
+            includeBasic: true,
+            includeSituational: true,
+            // Don't filter by agent type here - load all, then filter by selected agent
+          }),
+        })
 
-        // Load instructions
-        const { data: instructionsData, error: instructionsError } = await supabase
-          .from('agent_instructions')
-          .select('*')
-          .eq('repo_full_name', repoFullName)
-          .order('filename')
-
-        if (instructionsError) {
-          throw new Error(`Failed to load instructions: ${instructionsError.message}`)
+        if (!instructionsResponse.ok) {
+          throw new Error(`Failed to load instructions: ${instructionsResponse.statusText}`)
         }
 
-        // Load instruction index
-        const { data: indexData, error: indexError } = await supabase
-          .from('agent_instruction_index')
-          .select('index_data')
-          .eq('repo_full_name', repoFullName)
-          .single()
+        const instructionsResult = await instructionsResponse.json()
+        if (!instructionsResult.success) {
+          throw new Error(instructionsResult.error || 'Failed to load instructions')
+        }
 
-        // Convert Supabase rows to InstructionFile format
-        const loadedInstructions: InstructionFile[] = (instructionsData || []).map((row: any) => ({
+        // Load instruction index (also via API)
+        const indexResponse = await fetch(`${baseUrl}/api/instructions/get-index`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            repoFullName,
+          }),
+        })
+
+        // Convert API response to InstructionFile format
+        const loadedInstructions: InstructionFile[] = (instructionsResult.instructions || []).map((row: any) => ({
           path: row.filename,
           name: row.title || row.filename.replace('.mdc', '').replace(/-/g, ' '),
           description: row.description || 'No description',
-          alwaysApply: row.always_apply || false,
-          content: row.content_body || row.content_md, // Use body if available, fallback to full content
-          agentTypes: row.agent_types || [],
-          topicId: row.topic_id,
-          isBasic: row.is_basic || false,
-          isSituational: row.is_situational || false,
-          topicMetadata: row.topic_metadata,
+          alwaysApply: row.alwaysApply || false,
+          content: row.contentBody || row.contentMd, // Use body if available, fallback to full content
+          agentTypes: row.agentTypes || [],
+          topicId: row.topicId,
+          isBasic: row.isBasic || false,
+          isSituational: row.isSituational || false,
+          topicMetadata: row.topicMetadata,
         }))
 
         setInstructions(loadedInstructions)
@@ -131,11 +142,14 @@ export function AgentInstructionsViewer({
         setBasicInstructions(loadedInstructions.filter(inst => inst.isBasic))
         setSituationalInstructions(loadedInstructions.filter(inst => inst.isSituational))
 
-        // Set index
-        if (indexData && !indexError) {
-          setInstructionIndex(indexData.index_data)
-        } else if (!indexError) {
-          // Index doesn't exist yet, derive from instructions
+        // Set index from API response
+        if (indexResponse.ok) {
+          const indexResult = await indexResponse.json()
+          if (indexResult.success && indexResult.index) {
+            setInstructionIndex(indexResult.index)
+          }
+        } else {
+          // Fallback: derive index from instructions
           const derivedIndex = {
             basic: loadedInstructions.filter(inst => inst.isBasic).map(inst => inst.topicId || inst.path.replace('.mdc', '')),
             situational: {},
@@ -174,6 +188,12 @@ export function AgentInstructionsViewer({
 
 
   function getInstructionsForAgent(agent: AgentType): InstructionFile[] {
+    // Use pre-loaded scoped instructions if available
+    if (instructionsByAgent[agent]) {
+      return instructionsByAgent[agent]
+    }
+    
+    // Fallback to filtering all instructions
     if (agent === 'all') {
       return instructions.filter(inst => inst.alwaysApply || inst.agentTypes.includes('all'))
     }
@@ -438,18 +458,58 @@ ${alwaysApply ? 'alwaysApply: true' : ''}
               {viewState === 'agents' && (
                 <div className="agent-instructions-agents">
                   <h4>Select an agent to view instructions:</h4>
+                  <div className="agent-scoping-info" style={{ 
+                    padding: '8px 12px', 
+                    marginBottom: '16px', 
+                    backgroundColor: '#f5f5f5', 
+                    border: '1px solid #ddd', 
+                    borderRadius: '4px',
+                    fontSize: '14px'
+                  }}>
+                    <strong>Agent Type Scoping:</strong> Each agent type receives only the instructions relevant to them. 
+                    Instructions marked as "shared/global" (applies to all) are included for every agent type.
+                  </div>
                   <div className="agent-list">
                     {(['all', 'project-manager', 'implementation-agent', 'qa-agent', 'process-review-agent'] as AgentType[]).map((agent) => {
                       const agentInstructions = getInstructionsForAgent(agent)
+                      const allCount = instructionsByAgent['all']?.length || instructions.length
+                      const isScoped = agent !== 'all' && instructionsByAgent[agent]
+                      const showScoping = isScoped && agentInstructions.length !== allCount
+                      
                       return (
                         <button
                           key={agent}
                           type="button"
                           className="agent-item"
                           onClick={() => handleAgentClick(agent)}
+                          title={showScoping ? `Scoped: ${agentInstructions.length} of ${allCount} total instructions` : undefined}
                         >
-                          <div className="agent-item-name">{getAgentLabel(agent)}</div>
-                          <div className="agent-item-count">{agentInstructions.length} instruction{agentInstructions.length !== 1 ? 's' : ''}</div>
+                          <div className="agent-item-name">
+                            {getAgentLabel(agent)}
+                            {showScoping && (
+                              <span style={{ 
+                                fontSize: '0.75rem', 
+                                color: '#666', 
+                                marginLeft: '0.5rem',
+                                fontWeight: 'normal'
+                              }}>
+                                (scoped)
+                              </span>
+                            )}
+                          </div>
+                          <div className="agent-item-count">
+                            {agentInstructions.length} instruction{agentInstructions.length !== 1 ? 's' : ''}
+                            {showScoping && (
+                              <span style={{ 
+                                fontSize: '0.75rem', 
+                                color: '#999', 
+                                display: 'block',
+                                marginTop: '0.25rem'
+                              }}>
+                                of {allCount} total
+                              </span>
+                            )}
+                          </div>
                         </button>
                       )
                     })}
@@ -479,9 +539,63 @@ ${alwaysApply ? 'alwaysApply: true' : ''}
                   return instructionIndex?.topics?.[topicId] !== undefined || inst.isSituational
                 })
                 
+                // Get scoping metadata for this agent type
+                const metadata = scopingMetadata[selectedAgent] || {}
+                const allAgentInstructions = instructionsByAgent['all'] || []
+                const currentAgentInstructions = getInstructionsForAgent(selectedAgent)
+                const excludedCount = selectedAgent !== 'all' 
+                  ? (allAgentInstructions.length - currentAgentInstructions.length)
+                  : 0
+
                 return (
                   <div className="agent-instructions-list">
                     <h4>{getAgentLabel(selectedAgent)} Instructions</h4>
+                    <div className="agent-scoping-notice" style={{ 
+                      padding: '8px 12px', 
+                      marginBottom: '16px', 
+                      backgroundColor: '#e3f2fd', 
+                      border: '1px solid #90caf9', 
+                      borderRadius: '4px',
+                      fontSize: '14px'
+                    }}>
+                      <strong>Agent Type Scoping Active:</strong> Showing only instructions applicable to <strong>{getAgentLabel(selectedAgent)}</strong>. 
+                      {selectedAgent !== 'all' && ' Instructions marked as "shared/global" are included for all agent types.'}
+                    </div>
+                    
+                    {/* Show scoping metadata */}
+                    {selectedAgent !== 'all' && (
+                      <div className="agent-scoping-info" style={{ 
+                        marginBottom: '1rem', 
+                        padding: '0.75rem', 
+                        backgroundColor: '#f0f0f0', 
+                        borderRadius: '4px',
+                        fontSize: '0.9rem'
+                      }}>
+                        <strong>Agent Type Scoping:</strong>
+                        <ul style={{ margin: '0.5rem 0 0 1.5rem', padding: 0 }}>
+                          <li>This agent type receives <strong>{currentAgentInstructions.length} instructions</strong></li>
+                          {excludedCount > 0 && (
+                            <li><strong>{excludedCount} instructions</strong> are excluded (outside this agent's scope)</li>
+                          )}
+                          <li>Includes: shared/global instructions (applies to all) + agent-specific instructions</li>
+                        </ul>
+                        {metadata.excludedTopics && metadata.excludedTopics.length > 0 && (
+                          <details style={{ marginTop: '0.5rem' }}>
+                            <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>
+                              Excluded topics ({metadata.excludedTopics.length})
+                            </summary>
+                            <ul style={{ margin: '0.5rem 0 0 1.5rem', fontSize: '0.85rem' }}>
+                              {metadata.excludedTopics.slice(0, 10).map((topicId: string) => (
+                                <li key={topicId}><code>{topicId}</code></li>
+                              ))}
+                              {metadata.excludedTopics.length > 10 && (
+                                <li>... and {metadata.excludedTopics.length - 10} more</li>
+                              )}
+                            </ul>
+                          </details>
+                        )}
+                      </div>
+                    )}
                     
                     {/* Show empty state if no instructions found */}
                     {basic.length === 0 && situational.length === 0 ? (

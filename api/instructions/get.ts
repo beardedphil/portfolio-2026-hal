@@ -107,7 +107,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     // Filter by agent type if specified - enforce scoping
     let filteredInstructions = instructions || []
+    let outOfScopeCount = 0
+    
     if (agentType) {
+      const beforeFilter = filteredInstructions.length
       filteredInstructions = filteredInstructions.filter((inst: any) => {
         const agentTypes = inst.agent_types || []
         // Include if:
@@ -120,6 +123,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           agentTypes.includes(agentType)
         )
       })
+      outOfScopeCount = beforeFilter - filteredInstructions.length
     }
 
     // Format response
@@ -145,6 +149,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       count: formatted.length,
       repoFullName,
       agentType: agentType || 'all',
+      metadata: {
+        totalAvailable: (instructions || []).length,
+        filteredCount: formatted.length,
+        outOfScopeCount,
+        scopingApplied: !!agentType,
+        accessedAt: new Date().toISOString(),
+      },
     })
   } catch (err) {
     json(res, 500, {

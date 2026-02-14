@@ -119,20 +119,29 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     const topicMeta = data.topic_metadata || {}
+    const instructionAgentTypes = data.agent_types || []
     
     // Check if this topic is in-scope for the requesting agent (if agentType provided)
-    
+    let hasAccess = true
+    let accessReason = 'no-agent-type-specified'
     let isOutOfScope = false
+    
     if (requestingAgentType) {
-      const agentTypes = data.agent_types || []
-      isOutOfScope = !(
+      // Check if instruction applies to this agent type
+      hasAccess = 
         data.always_apply ||
-        agentTypes.includes('all') ||
-        agentTypes.includes(requestingAgentType)
-      )
+        instructionAgentTypes.includes('all') ||
+        instructionAgentTypes.includes(requestingAgentType)
+      
+      isOutOfScope = !hasAccess
+      
+      accessReason = hasAccess 
+        ? (data.always_apply ? 'always-apply' : instructionAgentTypes.includes('all') ? 'shared-global' : 'agent-type-match')
+        : 'out-of-scope'
     }
 
-    json(res, 200, {
+    // Build response with access metadata
+    const response: any = {
       success: true,
       topicId: data.topic_id,
       title: topicMeta.title || data.title || data.topic_id,
@@ -141,19 +150,24 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       contentMd: data.content_md,
       contentBody: data.content_body,
       alwaysApply: data.always_apply,
-      agentTypes: data.agent_types || [],
+      agentTypes: instructionAgentTypes,
       isBasic: data.is_basic,
       isSituational: data.is_situational,
       topicMetadata: data.topic_metadata,
-      // Metadata about scope access
       accessMetadata: {
-        requestedByAgentType: requestingAgentType || null,
-        isOutOfScope: isOutOfScope,
+        requestingAgentType: requestingAgentType || null,
+        hasAccess,
+        isOutOfScope,
+        accessReason,
+        instructionAgentTypes,
         scopeNote: isOutOfScope 
           ? `This topic is not in the default scope for agent type "${requestingAgentType}". It was accessed via explicit topicId request.`
           : null,
+        accessedAt: new Date().toISOString(),
       },
-    })
+    }
+
+    json(res, 200, response)
   } catch (err) {
     json(res, 500, {
       success: false,
