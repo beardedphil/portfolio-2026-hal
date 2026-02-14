@@ -61,7 +61,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const ticketId = typeof body.ticketId === 'string' ? body.ticketId.trim() : undefined
     const artifactType = typeof body.artifactType === 'string' ? body.artifactType.trim() : undefined
     const title = typeof body.title === 'string' ? body.title.trim() : undefined
-    const body_md = typeof body.body_md === 'string' ? body.body_md : (body.body_md !== undefined && body.body_md !== null ? String(body.body_md) : undefined)
+    // Preserve body_md exactly as received - don't trim or modify it (0197)
+    // Convert to string if needed, but preserve all content including leading/trailing whitespace
+    const body_md = typeof body.body_md === 'string' 
+      ? body.body_md 
+      : (body.body_md !== undefined && body.body_md !== null 
+          ? String(body.body_md) 
+          : undefined)
 
     // Log artifact creation request for tracing
     console.log(`[insert-implementation] Artifact creation request: ticketId=${ticketId}, artifactType=${artifactType}, title="${title}", body_md type=${typeof body.body_md}, body_md length=${body_md?.length ?? 'undefined'}`)
@@ -382,7 +388,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     if (insertError) {
       // Handle race condition: if duplicate key error, try to find and update the existing artifact
-      if (insertError.message.includes('duplicate') || insertError.code === '23505') {
+      // Also handle other database constraint errors that might indicate a duplicate (0197)
+      if (insertError.message.includes('duplicate') || insertError.code === '23505' || insertError.message.includes('unique constraint')) {
         console.log(`[insert-implementation] Race condition detected: duplicate key error, attempting to find and update existing artifact`)
         // Try to find by canonical identifier instead of exact title match
         const { artifacts: raceArtifacts, error: raceFindError } = await findArtifactsByCanonicalId(
@@ -393,8 +400,36 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         )
         
         if (!raceFindError && raceArtifacts && raceArtifacts.length > 0) {
-          // Use the most recent artifact
-          const targetArtifact = raceArtifacts[0]
+          // Separate artifacts with content from empty ones (0197: prevent duplicate shell artifacts)
+          const raceArtifactsWithContent = raceArtifacts.filter(a => {
+            const body = a.body_md || ''
+            const validation = hasSubstantiveContent(body, canonicalTitle)
+            return validation.valid
+          })
+          
+          // Prefer artifacts with content, but use any artifact if none have content
+          const targetArtifact = raceArtifactsWithContent.length > 0 
+            ? raceArtifactsWithContent[0] 
+            : raceArtifacts[0]
+          
+          // Delete other empty artifacts to prevent duplicate shells (0197)
+          const otherEmptyArtifacts = raceArtifacts
+            .filter(a => a.artifact_id !== targetArtifact.artifact_id)
+            .filter(a => {
+              const body = a.body_md || ''
+              const validation = hasSubstantiveContent(body, canonicalTitle)
+              return !validation.valid
+            })
+            .map(a => a.artifact_id)
+          
+          if (otherEmptyArtifacts.length > 0) {
+            await supabase
+              .from('agent_artifacts')
+              .delete()
+              .in('artifact_id', otherEmptyArtifacts)
+            // Log but don't fail if deletion fails
+          }
+          
           const { error: updateError } = await supabase
             .from('agent_artifacts')
             .update({ 
@@ -418,7 +453,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
               success: true,
               artifact_id: targetArtifact.artifact_id,
               action: 'updated',
-              cleaned_up_duplicates: emptyArtifactIds.length,
+              cleaned_up_duplicates: emptyArtifactIds.length + otherEmptyArtifacts.length,
               race_condition_handled: true,
             })
             return
