@@ -334,6 +334,8 @@ function App() {
   const [kanbanAgentRunsByTicketPk, setKanbanAgentRunsByTicketPk] = useState<Record<string, KanbanAgentRunRow>>({})
   /** Realtime connection status for Kanban board (0140). */
   const [kanbanRealtimeStatus, setKanbanRealtimeStatus] = useState<'connected' | 'disconnected' | 'polling'>('disconnected')
+  /** Error message for ticket move operations (0155). */
+  const [kanbanMoveError, setKanbanMoveError] = useState<string | null>(null)
   /** Timestamp of last realtime update to prevent polling from overwriting recent updates (0140). */
   const lastRealtimeUpdateRef = useRef<number>(0)
   /** Track subscription status for realtime channels (0140). */
@@ -1607,29 +1609,91 @@ function App() {
     async (ticketPk: string, columnId: string, position?: number) => {
       const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
       const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
-      if (!url || !key) return
-      const supabase = getSupabaseClient(url, key)
-      await supabase
-        .from('tickets')
-        .update({
-          kanban_column_id: columnId,
-          kanban_position: position ?? 0,
-          kanban_moved_at: new Date().toISOString(),
-        })
-        .eq('pk', ticketPk)
-      
-      // Clear Process Review banner when moving a ticket to Process Review column
-      // (unless it's the ticket currently being reviewed)
-      if (columnId === 'col-process-review' && processReviewTicketPk !== ticketPk) {
-        setProcessReviewStatus('idle')
-        setProcessReviewMessage(null)
-        // Don't clear processReviewTicketPk if a review is running for a different ticket
-        // (let it finish and auto-clear after 5 seconds)
+      if (!url || !key) {
+        setKanbanMoveError('Cannot move ticket: Supabase credentials not configured')
+        setTimeout(() => setKanbanMoveError(null), 5000)
+        return
       }
-      
-      await fetchKanbanData()
+
+      // Find the ticket to get its current state for optimistic update
+      const ticket = kanbanTickets.find((t) => t.pk === ticketPk)
+      if (!ticket) {
+        setKanbanMoveError('Cannot move ticket: Ticket not found')
+        setTimeout(() => setKanbanMoveError(null), 5000)
+        return
+      }
+
+      // Store original state for rollback on error
+      const originalColumnId = ticket.kanban_column_id
+      const originalPosition = ticket.kanban_position
+      const movedAt = new Date().toISOString()
+
+      // Optimistically update UI immediately (0155)
+      setKanbanTickets((prev) => {
+        const updated = prev.map((t) =>
+          t.pk === ticketPk
+            ? {
+                ...t,
+                kanban_column_id: columnId,
+                kanban_position: position ?? 0,
+                kanban_moved_at: movedAt,
+              }
+            : t
+        )
+        return updated.sort((a, b) => (a.ticket_number ?? 0) - (b.ticket_number ?? 0))
+      })
+      setKanbanMoveError(null) // Clear any previous error
+
+      try {
+        const supabase = getSupabaseClient(url, key)
+        const { error } = await supabase
+          .from('tickets')
+          .update({
+            kanban_column_id: columnId,
+            kanban_position: position ?? 0,
+            kanban_moved_at: movedAt,
+          })
+          .eq('pk', ticketPk)
+
+        if (error) {
+          throw error
+        }
+
+        // Clear Process Review banner when moving a ticket to Process Review column
+        // (unless it's the ticket currently being reviewed)
+        if (columnId === 'col-process-review' && processReviewTicketPk !== ticketPk) {
+          setProcessReviewStatus('idle')
+          setProcessReviewMessage(null)
+          // Don't clear processReviewTicketPk if a review is running for a different ticket
+          // (let it finish and auto-clear after 5 seconds)
+        }
+
+        // Refresh data to ensure consistency (realtime will also update, but this ensures sync)
+        // Use skipIfRecentRealtime to avoid overwriting realtime updates (0140)
+        await fetchKanbanData(true)
+      } catch (err) {
+        // Revert optimistic update on error (0155)
+        setKanbanTickets((prev) => {
+          const reverted = prev.map((t) =>
+            t.pk === ticketPk
+              ? {
+                  ...t,
+                  kanban_column_id: originalColumnId,
+                  kanban_position: originalPosition,
+                  kanban_moved_at: ticket.kanban_moved_at,
+                }
+              : t
+          )
+          return reverted.sort((a, b) => (a.ticket_number ?? 0) - (b.ticket_number ?? 0))
+        })
+
+        // Show user-visible error (0155)
+        const errorMsg = err instanceof Error ? err.message : String(err)
+        setKanbanMoveError(`Failed to move ticket: ${errorMsg}`)
+        setTimeout(() => setKanbanMoveError(null), 8000) // Auto-clear after 8 seconds
+      }
     },
-    [supabaseUrl, supabaseAnonKey, fetchKanbanData, processReviewTicketPk]
+    [supabaseUrl, supabaseAnonKey, fetchKanbanData, processReviewTicketPk, kanbanTickets]
   )
 
   const handleKanbanReorderColumn = useCallback(
@@ -3209,6 +3273,52 @@ function App() {
           </div>
           {/* Kanban board (HAL owns data; passes tickets/columns and callbacks). Cast props so fetchArtifactsForTicket is accepted when package types are older (e.g. Vercel cache). */}
           <div className={`kanban-frame-container ${openChatTarget ? 'kanban-frame-hidden' : 'kanban-frame-visible'}`}>
+            {/* Ticket move error message (0155) */}
+            {kanbanMoveError && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '8px',
+                  left: '8px',
+                  right: connectedProject ? '120px' : '8px',
+                  padding: '8px 12px',
+                  borderRadius: '4px',
+                  fontSize: '13px',
+                  fontWeight: '500',
+                  zIndex: 1001,
+                  backgroundColor: '#ef4444',
+                  color: 'white',
+                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                }}
+              >
+                <span>⚠️</span>
+                <span>{kanbanMoveError}</span>
+                <button
+                  onClick={() => setKanbanMoveError(null)}
+                  style={{
+                    marginLeft: 'auto',
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'white',
+                    cursor: 'pointer',
+                    fontSize: '18px',
+                    lineHeight: '1',
+                    padding: '0',
+                    width: '20px',
+                    height: '20px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  aria-label="Dismiss error"
+                >
+                  ×
+                </button>
+              </div>
+            )}
             {/* Realtime connection status indicator (0140) */}
             {connectedProject && (
               <div
