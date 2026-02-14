@@ -530,11 +530,21 @@ function MarkdownImage({
   
   // Handle image load error
   const handleError = useCallback(() => {
+    console.warn('[MarkdownImage] Image failed to load:', imageSrc)
     setImageError(true)
-  }, [])
+  }, [imageSrc])
+
+  // Debug: log what we received
+  useEffect(() => {
+    if (imageSrc) {
+      console.log('[MarkdownImage] Rendering image:', { src: imageSrc?.substring(0, 50) + '...', alt, hasSrc: !!imageSrc })
+    } else {
+      console.warn('[MarkdownImage] No src provided:', { src, alt, props: Object.keys(props) })
+    }
+  }, [imageSrc, alt, src])
 
   // If image failed to load, show fallback
-  if (imageError || !imageSrc) {
+  if (imageError) {
     return (
       <div
         style={{
@@ -553,6 +563,26 @@ function MarkdownImage({
     )
   }
 
+  // If no src, show fallback
+  if (!imageSrc) {
+    return (
+      <div
+        style={{
+          padding: '1rem',
+          border: '1px solid var(--kanban-border)',
+          borderRadius: '4px',
+          backgroundColor: 'var(--kanban-surface-alt)',
+          color: 'var(--kanban-text-muted)',
+          textAlign: 'center',
+        }}
+      >
+        <p style={{ margin: 0 }}>
+          No image source provided: {alt || artifactTitle || 'Unknown image'}
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div style={{ margin: '1rem 0', textAlign: 'center' }}>
       <img
@@ -561,6 +591,7 @@ function MarkdownImage({
         alt={alt || artifactTitle || 'Image'}
         onClick={() => onImageClick(imageSrc, alt || artifactTitle || 'Image')}
         onError={handleError}
+        onLoad={() => console.log('[MarkdownImage] Image loaded successfully:', imageSrc?.substring(0, 50) + '...')}
         style={{
           maxWidth: '100%',
           height: 'auto',
@@ -654,15 +685,31 @@ function ArtifactReportViewer({
   }, [artifact])
 
   // Custom image component for ReactMarkdown (0158)
-  const markdownComponents: Components = useMemo(() => ({
-    img: (props) => (
-      <MarkdownImage
-        {...props}
-        artifactTitle={artifact?.title}
-        onImageClick={handleImageClick}
-      />
-    ),
-  }), [artifact?.title, handleImageClick])
+  const markdownComponents: Components = useMemo(() => {
+    const ImageComponent = (props: any) => {
+      // ReactMarkdown v10 passes props directly
+      // Log to debug what we're receiving
+      console.log('[ImageComponent] Received props:', { 
+        hasSrc: !!props.src, 
+        src: props.src?.substring?.(0, 50) + '...',
+        alt: props.alt,
+        keys: Object.keys(props)
+      })
+      
+      return (
+        <MarkdownImage
+          src={props.src}
+          alt={props.alt}
+          artifactTitle={artifact?.title}
+          onImageClick={handleImageClick}
+        />
+      )
+    }
+    
+    return {
+      img: ImageComponent,
+    }
+  }, [artifact?.title, handleImageClick])
 
   if (!open || !artifact) return null
 
