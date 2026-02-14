@@ -3,6 +3,7 @@ import { getSupabaseClient } from './lib/supabase'
 import * as Kanban from 'portfolio-2026-kanban'
 import type { KanbanTicketRow, KanbanColumnRow, KanbanAgentRunRow, KanbanBoardProps } from 'portfolio-2026-kanban'
 import 'portfolio-2026-kanban/style.css'
+import { AgentInstructionsViewer } from './AgentInstructionsViewer'
 
 const KanbanBoard = Kanban.default
 const _kanbanBuild = (Kanban as unknown as { KANBAN_BUILD?: string }).KANBAN_BUILD
@@ -329,6 +330,7 @@ function App() {
   const [connectedGithubRepo, setConnectedGithubRepo] = useState<ConnectedGithubRepo | null>(null)
   const [githubConnectError, setGithubConnectError] = useState<string | null>(null)
   const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false)
+  const [agentInstructionsOpen, setAgentInstructionsOpen] = useState(false)
   const disconnectConfirmButtonRef = useRef<HTMLButtonElement>(null)
   const disconnectButtonRef = useRef<HTMLButtonElement>(null)
   /** Kanban data (HAL owns DB; fetches and passes to KanbanBoard). */
@@ -3163,6 +3165,15 @@ function App() {
           >
             {theme === 'light' ? '🌙' : '☀️'} {theme === 'light' ? 'Dark' : 'Light'}
           </button>
+          <button
+            type="button"
+            className="agent-instructions-btn"
+            onClick={() => setAgentInstructionsOpen(true)}
+            aria-label="View agent instructions"
+            title="View agent instructions"
+          >
+            Agent Instructions
+          </button>
         </div>
       </header>
 
@@ -4446,6 +4457,14 @@ function App() {
           </button>
         )}
       </main>
+
+      <AgentInstructionsViewer 
+        isOpen={agentInstructionsOpen} 
+        onClose={() => setAgentInstructionsOpen(false)}
+        supabaseUrl={supabaseUrl}
+        supabaseAnonKey={supabaseAnonKey}
+        repoFullName={connectedGithubRepo?.fullName || 'beardedphil/portfolio-2026-hal'}
+      />
     </div>
   )
 }
