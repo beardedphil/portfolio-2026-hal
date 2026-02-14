@@ -3421,8 +3421,15 @@ function App() {
   // When connected repo changes or we connect to Supabase with a repo already set, refetch tickets (0079). Skip when library mode (HAL owns data).
   useEffect(() => {
     if (halCtx || !supabaseBoardActive || !supabaseProjectUrl?.trim() || !supabaseAnonKey?.trim()) return
-    refetchSupabaseTickets(false)
-  }, [halCtx, connectedRepoFullName, supabaseBoardActive, refetchSupabaseTickets])
+    refetchSupabaseTickets(false).then((result) => {
+      // Fetch agent runs with fresh tickets to ensure accurate badges (0135)
+      if (result.freshTickets && fetchActiveAgentRuns) {
+        fetchActiveAgentRuns(result.freshTickets)
+      } else if (fetchActiveAgentRuns) {
+        fetchActiveAgentRuns()
+      }
+    })
+  }, [halCtx, connectedRepoFullName, supabaseBoardActive, refetchSupabaseTickets, fetchActiveAgentRuns])
 
   // Keep ref in sync with supabaseTickets state (0135) - ensures fetchActiveAgentRuns always reads latest tickets
   useEffect(() => {
@@ -3433,17 +3440,26 @@ function App() {
   useEffect(() => {
     if (halCtx || !supabaseBoardActive) return
     const id = setInterval(() => {
-      refetchSupabaseTickets(true)
-      fetchActiveAgentRuns()
+      refetchSupabaseTickets(true).then((result) => {
+        // Pass fresh tickets to fetchActiveAgentRuns to ensure accurate badges (0135)
+        if (result.freshTickets) {
+          fetchActiveAgentRuns(result.freshTickets)
+        } else {
+          fetchActiveAgentRuns()
+        }
+      })
     }, SUPABASE_POLL_INTERVAL_MS)
     return () => clearInterval(id)
   }, [halCtx, supabaseBoardActive, refetchSupabaseTickets, fetchActiveAgentRuns])
 
-  // Fetch agent runs when tickets change or board becomes active (0114). Skip when library mode (HAL passes agentRunsByTicketPk).
+  // Fetch agent runs when board becomes active (0114). Skip when library mode (HAL passes agentRunsByTicketPk).
+  // NOTE: We don't depend on supabaseTickets here to avoid stale data issues (0135).
+  // Instead, fetchActiveAgentRuns is called explicitly after refetches with fresh tickets.
   useEffect(() => {
     if (halCtx || !supabaseBoardActive || !connectedRepoFullName) return
+    // Only fetch on initial mount or when repo/board becomes active, not on every ticket change
     fetchActiveAgentRuns()
-  }, [halCtx, supabaseBoardActive, connectedRepoFullName, supabaseTickets, fetchActiveAgentRuns])
+  }, [halCtx, supabaseBoardActive, connectedRepoFullName, fetchActiveAgentRuns])
 
   // Log "Initialized default columns" when we seed kanban_columns (0020)
   useEffect(() => {
@@ -3780,6 +3796,19 @@ function App() {
         const movedAt = new Date().toISOString()
         // Optimistic update (0047)
         setPendingMoves((prev) => new Set(prev).add(ticketPk))
+        // Immediately update agent runs state when ticket moves to/from Doing (0135)
+        // This prevents stale badges from showing during the async refetch
+        const wasInDoing = ticket?.kanban_column_id === 'col-doing'
+        const isMovingToDoing = overColumn.id === 'col-doing'
+        if (wasInDoing && !isMovingToDoing) {
+          // Ticket moving out of Doing - immediately clear its agent run
+          setAgentRunsByTicketPk((prev) => {
+            const next = { ...prev }
+            delete next[ticketPk]
+            return next
+          })
+        }
+        
         setSupabaseTickets((prev) =>
           prev.map((t) =>
             t.pk === ticketPk
@@ -4026,6 +4055,21 @@ function App() {
           
           const movedAt = new Date().toISOString()
           const ticketPk = String(active.id)
+          const sourceTicket = supabaseTickets.find((t) => t.pk === ticketPk)
+          
+          // Immediately update agent runs state when ticket moves to/from Doing (0135)
+          // This prevents stale badges from showing during the async refetch
+          const wasInDoing = sourceTicket?.kanban_column_id === 'col-doing'
+          const isMovingToDoing = overColumn.id === 'col-doing'
+          if (wasInDoing && !isMovingToDoing) {
+            // Ticket moving out of Doing - immediately clear its agent run
+            setAgentRunsByTicketPk((prev) => {
+              const next = { ...prev }
+              delete next[ticketPk]
+              return next
+            })
+          }
+          
           // Optimistic update (0047)
           setPendingMoves((prev) => new Set(prev).add(ticketPk))
           setSupabaseTickets((prev) =>
