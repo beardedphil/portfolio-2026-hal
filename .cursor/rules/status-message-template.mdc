@@ -188,6 +188,14 @@ Status: Working on the ticket. I've done some things and will do more things nex
 **Links:** `.cursor/rules/status-message-template.mdc`
 ```
 
+## State Values
+
+Use these exact state values:
+- `Starting` — Just beginning work
+- `In progress` — Actively working, making progress
+- `Blocked` — Waiting on input, dependency, or resolution
+- `Done` — Work complete, ready for next step (QA, merge, etc.)
+
 ## Scope
 
 - Applies to **all agents** (implementation, QA, PM, Process Review) when posting progress updates
