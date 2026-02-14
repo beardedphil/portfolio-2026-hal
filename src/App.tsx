@@ -1881,13 +1881,13 @@ function App() {
         if (r.ticket_pk) byPk[r.ticket_pk] = r
       }
       setKanbanAgentRunsByTicketPk(byPk)
-      runUnassignedCheck(url, key, connectedProject).catch(() => {})
+      // Removed automatic unassigned check (0161) - now only runs via explicit user action
     } catch {
       setKanbanTickets([])
       setKanbanColumns([])
       setKanbanAgentRunsByTicketPk({})
     }
-  }, [supabaseUrl, supabaseAnonKey, connectedProject, runUnassignedCheck, kanbanRealtimeStatus])
+  }, [supabaseUrl, supabaseAnonKey, connectedProject, kanbanRealtimeStatus])
 
   useEffect(() => {
     fetchKanbanData()
@@ -3380,6 +3380,20 @@ function App() {
                       Repo: {connectedGithubRepo.fullName}
                     </span>
                   )}
+                  <button
+                    type="button"
+                    className="check-unassigned-btn"
+                    onClick={() => {
+                      const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
+                      const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
+                      if (url && key && connectedProject) {
+                        runUnassignedCheck(url, key, connectedProject).catch(() => {})
+                      }
+                    }}
+                    title="Check Unassigned tickets"
+                  >
+                    Check Unassigned
+                  </button>
                   <button
                     ref={disconnectButtonRef}
                     type="button"
