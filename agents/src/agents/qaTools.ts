@@ -76,11 +76,11 @@ export function createQaTools(config: QaToolsConfig): Record<string, any> {
   // Insert/update implementation artifacts
   tools.insert_implementation_artifact = tool({
     description:
-      'Insert or update an implementation artifact for a ticket in Supabase. Can insert multiple artifacts (plan, worklog, changed-files, decisions, verification, pm-review).',
+      'Insert or update an implementation artifact for a ticket in Supabase. Can insert multiple artifacts (plan, worklog, changed-files, decisions, verification, pm-review, git-diff, instructions-used).',
     parameters: z.object({
       ticket_id: z.string().describe('Ticket ID (e.g. "0076")'),
       artifact_type: z
-        .enum(['plan', 'worklog', 'changed-files', 'decisions', 'verification', 'pm-review'])
+        .enum(['plan', 'worklog', 'changed-files', 'decisions', 'verification', 'pm-review', 'git-diff', 'instructions-used'])
         .describe('Type of artifact to insert'),
       title: z.string().describe('Artifact title'),
       body_md: z.string().describe('Full markdown content of the artifact'),
