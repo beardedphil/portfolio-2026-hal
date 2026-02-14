@@ -586,65 +586,67 @@ function ArtifactReportViewer({
   }, [artifact])
 
   // Custom image component for ReactMarkdown (0158)
-  const MarkdownImage = useCallback(({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement> & { src?: string; alt?: string }) => {
-    const [imageError, setImageError] = useState(false)
-    const imageSrc = src || null
-    
-    // Handle image load error
-    const handleError = useCallback(() => {
-      setImageError(true)
-    }, [])
+  const markdownComponents: Components = useMemo(() => {
+    const MarkdownImage = ({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement> & { src?: string; alt?: string }) => {
+      const [imageError, setImageError] = useState(false)
+      const imageSrc = src || null
+      
+      // Handle image load error
+      const handleError = () => {
+        setImageError(true)
+      }
 
-    // If image failed to load, show fallback
-    if (imageError || !imageSrc) {
+      // If image failed to load, show fallback
+      if (imageError || !imageSrc) {
+        return (
+          <div
+            style={{
+              padding: '1rem',
+              border: '1px solid var(--kanban-border)',
+              borderRadius: '4px',
+              backgroundColor: 'var(--kanban-surface-alt)',
+              color: 'var(--kanban-text-muted)',
+              textAlign: 'center',
+            }}
+          >
+            <p style={{ margin: 0 }}>
+              Unable to display image: {alt || artifact?.title || 'Unknown image'}
+            </p>
+          </div>
+        )
+      }
+
       return (
-        <div
-          style={{
-            padding: '1rem',
-            border: '1px solid var(--kanban-border)',
-            borderRadius: '4px',
-            backgroundColor: 'var(--kanban-surface-alt)',
-            color: 'var(--kanban-text-muted)',
-            textAlign: 'center',
-          }}
-        >
-          <p style={{ margin: 0 }}>
-            Unable to display image: {alt || artifact?.title || 'Unknown image'}
-          </p>
+        <div style={{ margin: '1rem 0', textAlign: 'center' }}>
+          <img
+            {...props}
+            src={imageSrc}
+            alt={alt || artifact?.title || 'Image'}
+            onClick={() => handleImageClick(imageSrc, alt || artifact?.title || 'Image')}
+            onError={handleError}
+            style={{
+              maxWidth: '100%',
+              height: 'auto',
+              cursor: 'pointer',
+              borderRadius: '4px',
+              border: '1px solid var(--kanban-border)',
+              boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+            }}
+            title="Click to view full size"
+          />
+          {alt && (
+            <p style={{ marginTop: '0.5rem', fontSize: '0.9rem', color: 'var(--kanban-text-muted)', fontStyle: 'italic' }}>
+              {alt}
+            </p>
+          )}
         </div>
       )
     }
-
-    return (
-      <div style={{ margin: '1rem 0', textAlign: 'center' }}>
-        <img
-          {...props}
-          src={imageSrc}
-          alt={alt || artifact?.title || 'Image'}
-          onClick={() => handleImageClick(imageSrc, alt || artifact?.title || 'Image')}
-          onError={handleError}
-          style={{
-            maxWidth: '100%',
-            height: 'auto',
-            cursor: 'pointer',
-            borderRadius: '4px',
-            border: '1px solid var(--kanban-border)',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-          }}
-          title="Click to view full size"
-        />
-        {alt && (
-          <p style={{ marginTop: '0.5rem', fontSize: '0.9rem', color: 'var(--kanban-text-muted)', fontStyle: 'italic' }}>
-            {alt}
-          </p>
-        )}
-      </div>
-    )
+    
+    return {
+      img: MarkdownImage,
+    }
   }, [artifact, handleImageClick])
-
-  const markdownComponents: Components = useMemo(() => ({
-    img: MarkdownImage,
-  }), [MarkdownImage])
 
   if (!open || !artifact) return null
 
