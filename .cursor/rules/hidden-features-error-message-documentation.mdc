@@ -1,0 +1,118 @@
+---
+description: Document error message changes for hidden/locked/feature-flagged capabilities
+alwaysApply: true
+---
+
+# Hidden Features: Error-Message Changes Must Be Documented
+
+**Applies to:** All agent types (PM, Implementation, QA)
+
+## Scope
+
+This guideline applies whenever an agent changes an **error message** (or any user-facing text) that is shown for a **hidden, locked, or feature-flagged capability**. This includes:
+
+- Feature flags (conditional rendering based on feature flags)
+- Permission-gated UI (access control, role-based visibility)
+- "Coming soon" or "Not available" messages
+- Conditional rendering that hides/shows features
+- Any error or informational message related to unavailable features
+
+## Why This Matters
+
+Error messages for hidden features can be misinterpreted as product decisions. Future agents reviewing code may see a message like "This feature is not available" and assume it's intentional product behavior, when in fact it may have been changed for technical reasons (bugfix, copy improvement, etc.). Without documentation, agents cannot distinguish between:
+
+- **Product decisions** (intentional UX design)
+- **Technical changes** (bugfixes, refactoring, copy improvements)
+- **Temporary states** (feature flags that will be removed)
+
+## Required Documentation
+
+When changing any error message related to hidden features, you **must** document:
+
+### 1. Previous and New Wording/Behavior
+
+- **Previous wording/behavior:** Copy/paste the exact string(s) that were shown before
+- **New wording/behavior:** Copy/paste the exact string(s) that are shown now
+- Include the full message text, not just a summary
+
+**Example:**
+```
+Previous: "This feature is not available in your plan"
+New: "This feature requires a Pro subscription"
+```
+
+### 2. Location
+
+- **File path:** Exact file path where the message lives
+- **Component/context:** Component name, function name, or other context that identifies where in the codebase the message appears
+
+**Example:**
+```
+Location: `src/components/FeatureGate.tsx`, line 45, in the `FeatureGate` component's error message prop
+```
+
+### 3. Reason for Change
+
+Clearly state why the change was made. Common reasons:
+- **Bugfix:** Fixing incorrect or misleading text
+- **Product decision:** Intentional UX change based on product requirements
+- **Copy tweak:** Improving clarity, tone, or user experience
+- **Technical refactor:** Message changed as part of code restructuring
+
+**Example:**
+```
+Reason: Copy tweak - the previous message was unclear about what plan level is required. The new message explicitly mentions "Pro subscription" to reduce support inquiries.
+```
+
+### 4. Knock-on UX Impact
+
+Document any side effects or changes to user experience:
+- Does the user see a different message type? (e.g., toast vs inline error)
+- Is any UI element removed or added? (e.g., support link removed, button added)
+- Does the message appear in a different location?
+- Is the timing or trigger different?
+
+**Example:**
+```
+UX Impact: The message now appears as a toast notification instead of an inline error. The "Contact support" link was removed from the message.
+```
+
+## Where to Document
+
+Documentation must be placed in **one of** the following locations (choose the most appropriate based on context):
+
+1. **Ticket body "Implementation notes" section** — For changes made during implementation
+2. **Implementation "Decisions" artifact** — For implementation decisions that affect error messages
+3. **QA report "Notes" section** — For changes discovered or made during QA
+
+**Important:** The documentation must contain **enough detail** that a future agent can reconstruct the intent and context without reading git history. Include all four required elements (previous/new wording, location, reason, UX impact) in the chosen location.
+
+## Example Documentation
+
+**In Implementation "Decisions" artifact:**
+
+```markdown
+## Error Message Change: Feature Gate Message
+
+**Previous wording:**
+"This feature is not available in your plan"
+
+**New wording:**
+"This feature requires a Pro subscription"
+
+**Location:**
+`src/components/FeatureGate.tsx`, line 45, in the `FeatureGate` component's `errorMessage` prop
+
+**Reason:**
+Copy tweak - the previous message was unclear about what plan level is required. The new message explicitly mentions "Pro subscription" to reduce support inquiries.
+
+**UX Impact:**
+The message now appears as a toast notification instead of an inline error. The "Contact support" link was removed from the message.
+```
+
+## Verification
+
+To verify this guideline is being followed:
+1. Open the rule file: `.cursor/rules/hidden-features-error-message-documentation.mdc`
+2. Confirm the guideline is present and unambiguous
+3. Check that recent tickets/changes involving hidden feature error messages include the required documentation
