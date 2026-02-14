@@ -196,6 +196,8 @@ body {
   gap: 0;
   min-height: 0;
   position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 /* Left column: Kanban */
@@ -206,7 +208,7 @@ body {
   min-width: 280px;
   min-height: 400px;
   background: var(--hal-surface);
-  overflow-y: auto;
+  overflow: visible;
   overflow-x: hidden;
 }
 
@@ -358,7 +360,8 @@ body {
   position: relative;
   min-height: 0;
   min-width: 0;
-  overflow-y: auto;
+  overflow: visible;
+  overflow-y: visible;
   overflow-x: hidden;
   display: flex;
   flex-direction: column;

@@ -74,11 +74,23 @@ body {
   overflow-x: hidden;
 }
 
-/* When embedded (parent is constrained), reduce padding */
+/* When embedded (parent is constrained), reduce padding and remove scroll container */
 body[data-embedded="true"] #root,
 #root[data-embedded="true"] {
   padding: 1rem;
   min-height: 0;
+  overflow: visible;
+  overflow-y: visible;
+  overflow-x: hidden;
+}
+
+/* When embedded in HAL's kanban-frame-container, remove scroll container so parent handles scrolling */
+.kanban-frame-container #root {
+  overflow: visible !important;
+  overflow-y: visible !important;
+  overflow-x: hidden !important;
+  height: auto !important;
+  min-height: 0 !important;
 }
 
 h1 {
