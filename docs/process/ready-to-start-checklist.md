@@ -70,6 +70,14 @@ A ticket is **ready to start** when it can be moved from **Unassigned** into **T
 - [ ] <AC 2: download works>
 ```
 
+### When to run this check
+
+- **Before starting work** on any ticket (implementation, QA, or other agents)
+- **Before moving a ticket** from Unassigned to To Do or Doing
+- **Before claiming a ticket is "Ready"** in any communication
+
+If any step fails, the ticket is **NOT Ready**. Do not proceed with work until the ticket is fixed.
+
 ## Checklist (all must pass)
 
 1. **Goal present** — The ticket has a "Goal (one sentence)" section with a non-empty, meaningful sentence (not a placeholder like `<what we want to achieve>`).
@@ -81,42 +89,6 @@ A ticket is **ready to start** when it can be moved from **Unassigned** into **T
 4. **Constraints + Non-goals present** — The ticket has both "Constraints" and "Non-goals" sections with at least one bullet or line each (not empty and not only placeholders).
 
 5. **No obvious placeholders** — The ticket body does not contain unresolved template placeholders such as `<AC 1>`, `<task-id>`, `<short title>`, `<what we want to achieve>`, or similar angle-bracket placeholders that indicate "fill this in later."
-
-## Definition of Ready — Self-check (run before starting work)
-
-**Every agent must run this explicit checklist before claiming a ticket is Ready or moving it into execution columns (To Do, Doing).** This ensures formatting issues are caught early and consistently.
-
-### Step-by-step self-check
-
-1. **Confirm Goal section exists** — Verify the ticket has a "Goal (one sentence)" section with a non-empty, meaningful sentence. Reject if missing or contains placeholders like `<what we want to achieve>`.
-
-2. **Confirm Human-verifiable deliverable section exists** — Verify the ticket has a "Human-verifiable deliverable (UI-only)" section with a concrete description. Reject if missing or contains placeholders like `<Describe exactly...>`.
-
-3. **Confirm Acceptance criteria section exists and uses checkboxes** — Verify the ticket has an "Acceptance criteria (UI-only)" section. **CRITICAL:** Each item must use `- [ ]` checkbox format (not plain bullets like `-` or `*`). Each item must be UI-verifiable (testable by a human in the UI without external tools). Reject if:
-   - Section is missing
-   - Items use plain bullets instead of checkboxes
-   - Items are not UI-verifiable
-
-4. **Confirm Constraints section exists** — Verify the ticket has a "Constraints" section with at least one bullet or line. Reject if missing or empty.
-
-5. **Confirm Non-goals section exists** — Verify the ticket has a "Non-goals" section with at least one bullet or line. Reject if missing or empty.
-
-6. **Confirm no unresolved placeholders** — Scan the entire ticket body for unresolved placeholders. Reject if you find any of:
-   - Angle-bracket placeholders: `<AC 1>`, `<task-id>`, `<short title>`, `<what we want to achieve>`, `<Describe exactly...>`, etc.
-   - Text placeholders: "TBD", "(auto-assigned)", "(fill in later)", etc.
-   - Empty sections that should contain content
-
-### Good example: Acceptance criteria format
-
-```markdown
-## Acceptance criteria (UI-only)
-
-- [ ] User can click the "Save" button and see a success message appear at the top of the page
-- [ ] After saving, the form fields are cleared and ready for new input
-- [ ] If validation fails, error messages appear below each invalid field
-```
-
-**Note:** Each item uses `- [ ]` (checkbox), not `-` (plain bullet). Each item describes a UI-verifiable outcome.
 
 ## Reference
 
