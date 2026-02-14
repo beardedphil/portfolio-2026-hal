@@ -8,5 +8,5 @@ Containing at least:
 - `plan.md`
 - `worklog.md`
 - `changed-files.md`
-- `decisions.md`
+- `decisions.md` — **Must follow the [Decision Log template](../templates/decision-log.template.md)**
 - `verification.md`
