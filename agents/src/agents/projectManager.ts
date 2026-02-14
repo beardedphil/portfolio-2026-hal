@@ -440,7 +440,9 @@ You have access to read-only tools to explore the repository. Use them to answer
 
 **Listing tickets by column:** When the user asks to see tickets in a specific Kanban column (e.g. "list tickets in QA column", "what tickets are in QA", "show me tickets in the QA column"), use list_tickets_by_column with the appropriate column_id (e.g. "col-qa" for QA, "col-todo" for To Do, "col-unassigned" for Unassigned, "col-human-in-the-loop" for Human in the Loop). Format the results clearly in your reply, showing ticket ID and title for each ticket. This helps you see which tickets are currently in a given column so you can update other tickets without asking the user for IDs.
 
-**Moving tickets to named columns:** When the user asks to move a ticket to a column by name (e.g. "move HAL-0121 to Ready to Do", "put ticket 0121 in QA", "move this to Human in the Loop"), use move_ticket_to_column with the ticket_id and column_name. You can also specify position: "top" (move to top of column), "bottom" (move to bottom, default), or a number (0-based index, e.g. 0 for first position, 1 for second). The tool automatically resolves column names to column IDs. After moving, confirm the ticket appears in the specified column and position in the Kanban UI.
+**Moving tickets to named columns:** When the user asks to move a ticket to a column by name (e.g. "move HAL-0121 to Ready to Do", "put ticket 0121 in QA", "move this to Human in the Loop"), use move_ticket_to_column with the ticket_id and column_name. You can also specify position: "top" (move to top of column), "bottom" (move to bottom, default), or a number (0-based index, e.g. 0 for first position, 1 for second). The tool automatically resolves column names to column IDs. After moving, confirm the ticket appears in the specified column and position in the Kanban UI. The Kanban UI will reflect changes without requiring a hard refresh (it polls for updates).
+
+**Inspecting tickets:** When the user asks to "inspect", "summarize", or "review" a ticket (especially to diagnose duplicates or blank artifacts), use inspect_ticket. This tool provides a comprehensive summary including full ticket content and a detailed list of artifacts with name/type, snippet/length, timestamps, and blank detection. The artifact_summary field makes it easy to identify duplicates or blank artifacts. For general ticket content fetching, use fetch_ticket_content instead.
 
 **Moving tickets to other repositories:** When the user asks to move a ticket to another repository's To Do column (e.g. "Move ticket HAL-0012 to owner/other-repo To Do"), use kanban_move_ticket_to_other_repo_todo with the ticket_id and target_repo_full_name. This tool works from any Kanban column (not only Unassigned). The ticket will be moved to the target repository and placed in its To Do column, and the ticket's display_id will be updated to match the target repo's prefix. If the target repo does not exist or the user lacks access, the tool will return a clear error message. If the ticket ID is invalid or not found, the tool will return a clear error message. After a successful move, confirm in chat the target repository and that the ticket is now in To Do.
 
@@ -464,6 +466,57 @@ function isUniqueViolation(err: { code?: string; message?: string } | null): boo
   if (err.code === '23505') return true
   const msg = (err.message ?? '').toLowerCase()
   return msg.includes('duplicate key') || msg.includes('unique constraint')
+}
+
+/** Generate artifact summary with name/type, snippet/length, timestamps, and blank detection. */
+function generateArtifactSummary(artifacts: Array<{
+  artifact_id: string
+  agent_type: string
+  title: string
+  body_md: string | null
+  created_at: string
+  updated_at?: string | null
+}>): Array<{
+  artifact_id: string
+  agent_type: string
+  title: string
+  is_blank: boolean
+  content_length: number
+  snippet: string
+  created_at: string
+  updated_at: string
+}> {
+  return artifacts.map((artifact) => {
+    const body_md = artifact.body_md || ''
+    const contentLength = body_md.length
+    const isBlank = !body_md || body_md.trim().length === 0 || body_md.trim().length < 30
+    
+    // Extract snippet (first 200 chars, word-boundary aware)
+    let snippet = ''
+    if (body_md) {
+      const withoutHeadings = body_md.replace(/^#{1,6}\s+.*$/gm, '').trim()
+      if (withoutHeadings) {
+        const rawSnippet = withoutHeadings.substring(0, 200)
+        const lastSpace = rawSnippet.lastIndexOf(' ')
+        snippet = lastSpace > 150 && lastSpace < 200
+          ? rawSnippet.substring(0, lastSpace) + '...'
+          : rawSnippet.length < withoutHeadings.length
+          ? rawSnippet + '...'
+          : rawSnippet
+      }
+    }
+
+    return {
+      artifact_id: artifact.artifact_id,
+      agent_type: artifact.agent_type,
+      title: artifact.title,
+      is_blank: isBlank,
+      content_length: contentLength,
+      snippet: snippet,
+      created_at: artifact.created_at,
+      updated_at: artifact.updated_at || artifact.created_at,
+    }
+  })
 }
 /** Cap on character count for "recent conversation" so long technical messages don't dominate. (~3k tokens) */
 const CONVERSATION_RECENT_MAX_CHARS = 12_000
@@ -1306,6 +1359,16 @@ export async function runPmAgent(
                   created_at: string
                   updated_at?: string | null
                 }>
+                artifact_summary?: Array<{
+                  artifact_id: string
+                  agent_type: string
+                  title: string
+                  is_blank: boolean
+                  content_length: number
+                  snippet: string
+                  created_at: string
+                  updated_at: string
+                }>
                 artifacts_error?: string
                 // Forward-compatible: include full ticket record
                 ticket?: Record<string, any>
@@ -1362,6 +1425,7 @@ export async function runPmAgent(
                   body_md: (row as any).body_md ?? '',
                   kanban_column_id: (row as any).kanban_column_id ?? null,
                   artifacts: artifacts,
+                  artifact_summary: generateArtifactSummary(artifacts),
                   ...(artifactsError ? { artifacts_error: artifactsError } : {}),
                   ticket: row, // Full ticket record for forward compatibility
                 }
@@ -1405,6 +1469,7 @@ export async function runPmAgent(
                     body_md: (legacyRow as any).body_md ?? '',
                     kanban_column_id: (legacyRow as any).kanban_column_id ?? null,
                     artifacts: artifacts,
+                    artifact_summary: generateArtifactSummary(artifacts),
                     ...(artifactsError ? { artifacts_error: artifactsError } : {}),
                     ticket: legacyRow, // Full ticket record for forward compatibility
                   }
@@ -1465,6 +1530,96 @@ export async function runPmAgent(
             }
           }
           toolCalls.push({ name: 'fetch_ticket_content', input, output: out })
+          return out
+        },
+      })
+    })()
+
+  const inspectTicketTool =
+    hasSupabase &&
+    (() => {
+      return tool({
+        description:
+          'Inspect a ticket and provide a comprehensive summary including full ticket content and a detailed list of artifacts with name/type, snippet/length, timestamps, and blank detection. Use this when the user asks to "inspect", "summarize", or "review" a ticket, especially to diagnose duplicates or blank artifacts. Returns artifact_summary with diagnostic information for each artifact.',
+        parameters: z.object({
+          ticket_id: z
+            .string()
+            .describe('Ticket reference (e.g. "HAL-0012", "0012", or "12").'),
+        }),
+        execute: async (input: { ticket_id: string }) => {
+          type InspectResult =
+            | {
+                success: true
+                ticket: Record<string, any>
+                body_md: string
+                artifacts: Array<{
+                  artifact_id: string
+                  ticket_pk: string
+                  repo_full_name?: string | null
+                  agent_type: string
+                  title: string
+                  body_md: string | null
+                  created_at: string
+                  updated_at?: string | null
+                }>
+                artifact_summary: Array<{
+                  artifact_id: string
+                  agent_type: string
+                  title: string
+                  is_blank: boolean
+                  content_length: number
+                  snippet: string
+                  created_at: string
+                  updated_at: string
+                }>
+                artifacts_error?: string
+              }
+            | { success: false; error: string }
+          let out: InspectResult
+          try {
+            const baseUrl = process.env.HAL_API_BASE_URL || 'https://portfolio-2026-hal.vercel.app'
+            const supabaseUrl = config.supabaseUrl?.trim() || ''
+            const supabaseAnonKey = config.supabaseAnonKey?.trim() || ''
+
+            if (!supabaseUrl || !supabaseAnonKey) {
+              out = {
+                success: false,
+                error: 'Supabase credentials required. Provide supabaseUrl and supabaseAnonKey in config.',
+              }
+              toolCalls.push({ name: 'inspect_ticket', input, output: out })
+              return out
+            }
+
+            const response = await fetch(`${baseUrl}/api/tickets/get`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                ticketId: input.ticket_id,
+                supabaseUrl,
+                supabaseAnonKey,
+              }),
+            })
+
+            const result = await response.json()
+            if (result.success) {
+              out = {
+                success: true,
+                ticket: result.ticket || {},
+                body_md: result.body_md || '',
+                artifacts: result.artifacts || [],
+                artifact_summary: result.artifact_summary || [],
+                ...(result.artifacts_error ? { artifacts_error: result.artifacts_error } : {}),
+              }
+            } else {
+              out = { success: false, error: result.error || 'Failed to fetch ticket' }
+            }
+          } catch (err) {
+            out = {
+              success: false,
+              error: err instanceof Error ? err.message : String(err),
+            }
+          }
+          toolCalls.push({ name: 'inspect_ticket', input, output: out })
           return out
         },
       })
@@ -3012,6 +3167,7 @@ export async function runPmAgent(
     search_files: searchFilesTool,
     ...(createTicketTool ? { create_ticket: createTicketTool } : {}),
     ...(fetchTicketContentTool ? { fetch_ticket_content: fetchTicketContentTool } : {}),
+    ...(inspectTicketTool ? { inspect_ticket: inspectTicketTool } : {}),
     ...(attachImageToTicketTool ? { attach_image_to_ticket: attachImageToTicketTool } : {}),
     evaluate_ticket_ready: evaluateTicketReadyTool,
     ...(updateTicketBodyTool ? { update_ticket_body: updateTicketBodyTool } : {}),
