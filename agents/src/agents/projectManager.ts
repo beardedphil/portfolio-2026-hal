@@ -516,9 +516,109 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
     sections.push('## User message\n\n' + userMessage)
   }
 
-  sections.push('## Repo rules (from .cursor/rules/)')
+  sections.push('## Repo rules (from Supabase)')
   try {
-    // Load instruction index to determine basic vs situational
+    // Try to load from Supabase first
+    if (config.supabaseUrl && config.supabaseAnonKey && config.projectId) {
+      const supabase = createClient(config.supabaseUrl.trim(), config.supabaseAnonKey.trim())
+      const repoFullName = config.repoFullName || config.projectId
+
+      // Load instruction index
+      const { data: indexData, error: indexError } = await supabase
+        .from('agent_instruction_index')
+        .select('index_data')
+        .eq('repo_full_name', repoFullName)
+        .single()
+
+      let instructionIndex: {
+        basic?: string[]
+        situational?: Record<string, string[]>
+        topics?: Record<string, { title: string; description: string; agentTypes: string[]; keywords?: string[] }>
+      } = {}
+
+      if (indexData && !indexError) {
+        instructionIndex = indexData.index_data
+      }
+
+      // Load basic instructions
+      const { data: basicInstructions, error: basicError } = await supabase
+        .from('agent_instructions')
+        .select('*')
+        .eq('repo_full_name', repoFullName)
+        .eq('is_basic', true)
+        .order('filename')
+
+      if (!basicError && basicInstructions && basicInstructions.length > 0) {
+        sections.push('### Basic instructions (always active)\n')
+        for (const inst of basicInstructions) {
+          sections.push(`#### ${inst.filename}\n\n${inst.content_md}\n`)
+        }
+      }
+
+      // List available situational instruction topics
+      const { data: situationalInstructions, error: situationalError } = await supabase
+        .from('agent_instructions')
+        .select('*')
+        .eq('repo_full_name', repoFullName)
+        .eq('is_situational', true)
+        .order('filename')
+
+      if (!situationalError && situationalInstructions && situationalInstructions.length > 0) {
+        sections.push('\n### Available instruction topics (request on-demand)\n')
+        sections.push('When you encounter a scenario that requires detailed instructions, you can request specific instruction sets using the `get_instruction_set` tool. Available topics:\n')
+        
+        const topicsByAgent: Record<string, Array<{ id: string; title: string; description: string }>> = {}
+        for (const inst of situationalInstructions) {
+          const topicMeta = inst.topic_metadata || {}
+          const agentTypes = topicMeta.agentTypes || inst.agent_types || ['all']
+          for (const agentType of agentTypes) {
+            if (!topicsByAgent[agentType]) topicsByAgent[agentType] = []
+            topicsByAgent[agentType].push({
+              id: inst.topic_id,
+              title: topicMeta.title || inst.title || inst.filename.replace('.mdc', ''),
+              description: topicMeta.description || inst.description || 'No description',
+            })
+          }
+        }
+
+        // Show topics for current agent type (PM agent)
+        const pmTopics = [
+          ...(topicsByAgent['project-manager'] || []),
+          ...(topicsByAgent['all'] || []),
+        ]
+        
+        if (pmTopics.length > 0) {
+          sections.push('**Topics available for Project Manager:**\n')
+          for (const topic of pmTopics) {
+            sections.push(`- **${topic.title}** (ID: \`${topic.id}\`): ${topic.description}`)
+          }
+        }
+
+        // Also show topics for other agent types for awareness
+        const otherAgentTypes = ['implementation-agent', 'qa-agent'].filter(at => at !== 'project-manager')
+        for (const agentType of otherAgentTypes) {
+          const topics = [
+            ...(topicsByAgent[agentType] || []),
+            ...(topicsByAgent['all'] || []),
+          ]
+          if (topics.length > 0) {
+            sections.push(`\n**Topics available for ${agentType.replace('-', ' ')}:**`)
+            for (const topic of topics) {
+              sections.push(`- **${topic.title}** (ID: \`${topic.id}\`): ${topic.description}`)
+            }
+          }
+        }
+
+        sections.push('\n**To request an instruction set:** Use the `get_instruction_set` tool with the topic ID (e.g., `get_instruction_set({ topicId: "auditability-and-traceability" })`).')
+      }
+
+      // If we successfully loaded from Supabase, skip filesystem fallback
+      if (!basicError && !situationalError) {
+        return
+      }
+    }
+
+    // Fallback to filesystem if Supabase not available or failed
     const indexPath = path.join(rulesPath, '.instructions-index.json')
     let instructionIndex: {
       basic?: string[]
@@ -2310,10 +2410,43 @@ export async function runPmAgent(
       topicId: z.string().describe('Instruction topic ID (e.g., "auditability-and-traceability", "qa-audit-report", "done-means-pushed")'),
     }),
     execute: async (input) => {
-      const rulesDir = config.rulesDir ?? '.cursor/rules'
-      const rulesPath = path.resolve(config.repoRoot, rulesDir)
-      
       try {
+        // Try Supabase first
+        if (config.supabaseUrl && config.supabaseAnonKey && config.projectId) {
+          const supabase = createClient(config.supabaseUrl.trim(), config.supabaseAnonKey.trim())
+          const repoFullName = config.repoFullName || config.projectId
+
+          const { data, error } = await supabase
+            .from('agent_instructions')
+            .select('*')
+            .eq('repo_full_name', repoFullName)
+            .eq('topic_id', input.topicId)
+            .single()
+
+          if (!error && data) {
+            const topicMeta = data.topic_metadata || {}
+            const result = {
+              topicId: input.topicId,
+              title: topicMeta.title || data.title || input.topicId,
+              description: topicMeta.description || data.description || 'No description',
+              content: data.content_md || data.content_body || '',
+            }
+            toolCalls.push({ name: 'get_instruction_set', input, output: result })
+            return result
+          }
+
+          if (error && error.code !== 'PGRST116') {
+            // PGRST116 is "not found", other errors are real problems
+            return { 
+              error: `Error loading instruction from Supabase: ${error.message}` 
+            }
+          }
+        }
+
+        // Fallback to filesystem
+        const rulesDir = config.rulesDir ?? '.cursor/rules'
+        const rulesPath = path.resolve(config.repoRoot, rulesDir)
+        
         // Load instruction index
         const indexPath = path.join(rulesPath, '.instructions-index.json')
         let instructionIndex: {

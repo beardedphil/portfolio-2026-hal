@@ -4458,7 +4458,13 @@ function App() {
         )}
       </main>
 
-      <AgentInstructionsViewer isOpen={agentInstructionsOpen} onClose={() => setAgentInstructionsOpen(false)} />
+      <AgentInstructionsViewer 
+        isOpen={agentInstructionsOpen} 
+        onClose={() => setAgentInstructionsOpen(false)}
+        supabaseUrl={supabaseUrl}
+        supabaseAnonKey={supabaseAnonKey}
+        repoFullName={connectedGithubRepo?.fullName || 'beardedphil/portfolio-2026-hal'}
+      />
     </div>
   )
 }

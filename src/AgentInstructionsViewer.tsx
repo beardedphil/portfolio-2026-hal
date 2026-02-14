@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { getSupabaseClient } from './lib/supabase'
 
 type InstructionFile = {
   path: string
@@ -25,9 +26,18 @@ type ViewState = 'agents' | 'agent-instructions' | 'instruction-detail'
 interface AgentInstructionsViewerProps {
   isOpen: boolean
   onClose: () => void
+  supabaseUrl?: string | null
+  supabaseAnonKey?: string | null
+  repoFullName?: string
 }
 
-export function AgentInstructionsViewer({ isOpen, onClose }: AgentInstructionsViewerProps) {
+export function AgentInstructionsViewer({ 
+  isOpen, 
+  onClose, 
+  supabaseUrl, 
+  supabaseAnonKey,
+  repoFullName = 'beardedphil/portfolio-2026-hal'
+}: AgentInstructionsViewerProps) {
   const [instructions, setInstructions] = useState<InstructionFile[]>([])
   const [basicInstructions, setBasicInstructions] = useState<InstructionFile[]>([])
   const [situationalInstructions, setSituationalInstructions] = useState<InstructionFile[]>([])
@@ -46,29 +56,9 @@ export function AgentInstructionsViewer({ isOpen, onClose }: AgentInstructionsVi
   const [editedContent, setEditedContent] = useState<string>('')
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle')
   const [saveError, setSaveError] = useState<string | null>(null)
-  const [rulesDirectoryHandle, setRulesDirectoryHandle] = useState<FileSystemDirectoryHandle | null>(null)
 
-  // Request access to .cursor/rules directory for editing
-  useEffect(() => {
-    if (!isOpen) return
 
-    async function requestDirectoryAccess() {
-      try {
-        // Check if File System Access API is available
-        if (typeof window.showDirectoryPicker === 'function') {
-          // Try to get existing permission or request it
-          // For now, we'll request it when user clicks edit
-          // Store this in state so we can use it later
-        }
-      } catch (err) {
-        console.warn('File System Access API not available:', err)
-      }
-    }
-
-    requestDirectoryAccess()
-  }, [isOpen])
-
-  // Load instruction files from bundled JSON
+  // Load instruction files from Supabase
   useEffect(() => {
     if (!isOpen) return
 
@@ -77,39 +67,100 @@ export function AgentInstructionsViewer({ isOpen, onClose }: AgentInstructionsVi
       setError(null)
 
       try {
-        // Load from bundled JSON file created at build time
-        const response = await fetch('/agent-instructions.json')
-        
-        if (!response.ok) {
-          throw new Error(`Failed to load instructions: ${response.status} ${response.statusText}`)
+        const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
+        const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
+
+        if (!url || !key) {
+          // Fallback to bundled JSON if Supabase not configured
+          try {
+            const response = await fetch('/agent-instructions.json')
+            if (response.ok) {
+              const data = await response.json()
+              if (data.instructions && Array.isArray(data.instructions)) {
+                setInstructions(data.instructions)
+                if (data.index) setInstructionIndex(data.index)
+                if (data.basic) setBasicInstructions(data.basic)
+                if (data.situational) setSituationalInstructions(data.situational)
+                setLoading(false)
+                return
+              }
+            }
+          } catch {
+            // Continue to error
+          }
+          throw new Error('Supabase not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env')
         }
 
-        const data = await response.json()
-        if (data.instructions && Array.isArray(data.instructions)) {
-          setInstructions(data.instructions)
-          // Store index and categorized instructions for UI
-          if (data.index) {
-            setInstructionIndex(data.index)
+        const supabase = getSupabaseClient(url, key)
+
+        // Load instructions
+        const { data: instructionsData, error: instructionsError } = await supabase
+          .from('agent_instructions')
+          .select('*')
+          .eq('repo_full_name', repoFullName)
+          .order('filename')
+
+        if (instructionsError) {
+          throw new Error(`Failed to load instructions: ${instructionsError.message}`)
+        }
+
+        // Load instruction index
+        const { data: indexData, error: indexError } = await supabase
+          .from('agent_instruction_index')
+          .select('index_data')
+          .eq('repo_full_name', repoFullName)
+          .single()
+
+        // Convert Supabase rows to InstructionFile format
+        const loadedInstructions: InstructionFile[] = (instructionsData || []).map((row: any) => ({
+          path: row.filename,
+          name: row.title || row.filename.replace('.mdc', '').replace(/-/g, ' '),
+          description: row.description || 'No description',
+          alwaysApply: row.always_apply || false,
+          content: row.content_body || row.content_md, // Use body if available, fallback to full content
+          agentTypes: row.agent_types || [],
+          topicId: row.topic_id,
+          isBasic: row.is_basic || false,
+          isSituational: row.is_situational || false,
+          topicMetadata: row.topic_metadata,
+        }))
+
+        setInstructions(loadedInstructions)
+        
+        // Set basic and situational
+        setBasicInstructions(loadedInstructions.filter(inst => inst.isBasic))
+        setSituationalInstructions(loadedInstructions.filter(inst => inst.isSituational))
+
+        // Set index
+        if (indexData && !indexError) {
+          setInstructionIndex(indexData.index_data)
+        } else if (!indexError) {
+          // Index doesn't exist yet, derive from instructions
+          const derivedIndex = {
+            basic: loadedInstructions.filter(inst => inst.isBasic).map(inst => inst.topicId || inst.path.replace('.mdc', '')),
+            situational: {},
+            topics: {} as Record<string, any>,
           }
-          if (data.basic) {
-            setBasicInstructions(data.basic)
+          
+          for (const inst of loadedInstructions) {
+            if (inst.topicMetadata) {
+              const topicId = inst.topicId || inst.path.replace('.mdc', '')
+              derivedIndex.topics[topicId] = inst.topicMetadata
+            }
           }
-          if (data.situational) {
-            setSituationalInstructions(data.situational)
-          }
-        } else {
-          throw new Error('Invalid instructions data format')
+          
+          setInstructionIndex(derivedIndex)
         }
       } catch (err) {
         console.error('Error loading instructions:', err)
-        setError(err instanceof Error ? err.message : 'Failed to load instruction files. Please ensure the build script has run to bundle instructions.')
+        setError(err instanceof Error ? err.message : 'Failed to load instruction files from Supabase.')
       } finally {
         setLoading(false)
       }
     }
 
     loadInstructions()
-  }, [isOpen])
+  }, [isOpen, supabaseUrl, supabaseAnonKey, repoFullName])
 
   // Reset edit state when instruction changes
   useEffect(() => {
@@ -228,50 +279,44 @@ export function AgentInstructionsViewer({ isOpen, onClose }: AgentInstructionsVi
     setSaveStatus('idle')
     setSaveError(null)
 
-    // Try to read the original file to get exact content with frontmatter
-    let fullContent = ''
-    
+    // Load full content from Supabase (content_md includes frontmatter)
     try {
-      // Request directory access if we don't have it
-      let handle = rulesDirectoryHandle
-      if (!handle && typeof window.showDirectoryPicker === 'function') {
-        const selectedHandle = await window.showDirectoryPicker({ mode: 'readwrite' })
-        
-        // Check if this is .cursor/rules by trying to find a .mdc file
-        let isRulesDir = false
-        try {
-          for await (const entry of selectedHandle.values()) {
-            if (entry.kind === 'file' && entry.name.endsWith('.mdc')) {
-              isRulesDir = true
-              break
-            }
-          }
-        } catch {
-          // Can't check, assume it's not
-        }
-        
-        if (isRulesDir) {
-          handle = selectedHandle
-        } else {
-          try {
-            const cursorHandle = await selectedHandle.getDirectoryHandle('.cursor', { create: false })
-            handle = await cursorHandle.getDirectoryHandle('rules', { create: false })
-          } catch (err) {
-            throw new Error('Could not find .cursor/rules directory. Please select the .cursor/rules directory or the workspace root directory.')
-          }
-        }
-        
-        setRulesDirectoryHandle(handle)
+      const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
+      const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
+
+      if (!url || !key) {
+        throw new Error('Supabase not configured')
       }
 
-      if (handle) {
-        // Read the original file
-        const filename = selectedInstruction.path
-        const fileHandle = await handle.getFileHandle(filename, { create: false })
-        const file = await fileHandle.getFile()
-        fullContent = await file.text()
+      const supabase = getSupabaseClient(url, key)
+      const topicId = selectedInstruction.topicId || selectedInstruction.path.replace('.mdc', '')
+
+      const { data, error } = await supabase
+        .from('agent_instructions')
+        .select('content_md')
+        .eq('repo_full_name', repoFullName)
+        .eq('topic_id', topicId)
+        .single()
+
+      if (error) {
+        throw error
+      }
+
+      if (data && data.content_md) {
+        setEditedContent(data.content_md)
       } else {
-        throw new Error('File System Access API not available')
+        // Fallback: reconstruct from instruction data
+        const topicMeta = instructionIndex?.topics?.[topicId]
+        const description = topicMeta?.description || selectedInstruction.description
+        const alwaysApply = selectedInstruction.alwaysApply
+        
+        const frontmatter = `---
+description: ${description}
+${alwaysApply ? 'alwaysApply: true' : ''}
+---
+
+`
+        setEditedContent(frontmatter + selectedInstruction.content)
       }
     } catch (err) {
       // Fallback: reconstruct from instruction data
@@ -286,15 +331,13 @@ ${alwaysApply ? 'alwaysApply: true' : ''}
 ---
 
 `
-      fullContent = frontmatter + selectedInstruction.content
+      setEditedContent(frontmatter + selectedInstruction.content)
       
-      // Show a warning that we're using reconstructed content
-      if (err instanceof Error && !err.message.includes('not available')) {
-        setSaveError(`Could not read original file. Using reconstructed content. Original error: ${err.message}`)
+      if (err instanceof Error) {
+        console.warn('Could not load full content from Supabase, using reconstructed:', err.message)
       }
     }
     
-    setEditedContent(fullContent)
     setIsEditing(true)
   }
 
@@ -316,68 +359,74 @@ ${alwaysApply ? 'alwaysApply: true' : ''}
     setSaveError(null)
 
     try {
-      // Request directory access if we don't have it
-      let handle = rulesDirectoryHandle
-      if (!handle && typeof window.showDirectoryPicker === 'function') {
-        // Request access to the directory
-        // User should select either the workspace root or .cursor/rules directory
-        const selectedHandle = await window.showDirectoryPicker({ mode: 'readwrite' })
-        
-        // Check if this is .cursor/rules by trying to find a .mdc file
-        let isRulesDir = false
-        try {
-          for await (const entry of selectedHandle.values()) {
-            if (entry.kind === 'file' && entry.name.endsWith('.mdc')) {
-              isRulesDir = true
-              break
-            }
-          }
-        } catch {
-          // Can't check, assume it's not
-        }
-        
-        if (isRulesDir) {
-          // User selected .cursor/rules directly
-          handle = selectedHandle
-        } else {
-          // User selected workspace root, navigate to .cursor/rules
-          try {
-            const cursorHandle = await selectedHandle.getDirectoryHandle('.cursor', { create: false })
-            handle = await cursorHandle.getDirectoryHandle('rules', { create: false })
-          } catch (err) {
-            throw new Error('Could not find .cursor/rules directory. Please select the .cursor/rules directory or the workspace root directory that contains .cursor/rules.')
-          }
-        }
-        
-        setRulesDirectoryHandle(handle)
-      } else if (!handle) {
-        throw new Error('File System Access API is not available in this browser. Please use a modern browser that supports it (Chrome, Edge, or Opera).')
+      const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
+      const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
+
+      if (!url || !key) {
+        throw new Error('Supabase not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env')
       }
 
-      // Write the file
-      const filename = selectedInstruction.path
-      const fileHandle = await handle.getFileHandle(filename, { create: false })
-      const writable = await fileHandle.createWritable()
-      await writable.write(editedContent)
-      await writable.close()
+      const supabase = getSupabaseClient(url, key)
+      const topicId = selectedInstruction.topicId || selectedInstruction.path.replace('.mdc', '')
+
+      // Parse content to extract body (without frontmatter) for content_body field
+      const frontmatterRegex = /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/
+      const match = editedContent.match(frontmatterRegex)
+      const contentBody = match ? match[2] : editedContent
+
+      // Update instruction in Supabase
+      const { error } = await supabase
+        .from('agent_instructions')
+        .update({
+          content_md: editedContent,
+          content_body: contentBody,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('repo_full_name', repoFullName)
+        .eq('topic_id', topicId)
+
+      if (error) {
+        throw error
+      }
 
       setSaveStatus('success')
       
       // Reload instructions after a short delay
       setTimeout(async () => {
-        // Reload the bundled instructions
         try {
-          const response = await fetch('/agent-instructions.json?t=' + Date.now())
-          if (response.ok) {
-            const data = await response.json()
-            if (data.instructions && Array.isArray(data.instructions)) {
-              setInstructions(data.instructions)
-              if (data.index) setInstructionIndex(data.index)
-              if (data.basic) setBasicInstructions(data.basic)
-              if (data.situational) setSituationalInstructions(data.situational)
+          const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
+          const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
+
+          if (url && key) {
+            const supabase = getSupabaseClient(url, key)
+
+            // Reload instructions
+            const { data: instructionsData, error: instructionsError } = await supabase
+              .from('agent_instructions')
+              .select('*')
+              .eq('repo_full_name', repoFullName)
+              .order('filename')
+
+            if (!instructionsError && instructionsData) {
+              const loadedInstructions: InstructionFile[] = instructionsData.map((row: any) => ({
+                path: row.filename,
+                name: row.title || row.filename.replace('.mdc', '').replace(/-/g, ' '),
+                description: row.description || 'No description',
+                alwaysApply: row.always_apply || false,
+                content: row.content_body || row.content_md,
+                agentTypes: row.agent_types || [],
+                topicId: row.topic_id,
+                isBasic: row.is_basic || false,
+                isSituational: row.is_situational || false,
+                topicMetadata: row.topic_metadata,
+              }))
+
+              setInstructions(loadedInstructions)
+              setBasicInstructions(loadedInstructions.filter(inst => inst.isBasic))
+              setSituationalInstructions(loadedInstructions.filter(inst => inst.isSituational))
               
               // Update the selected instruction
-              const updated = data.instructions.find((inst: InstructionFile) => inst.path === selectedInstruction.path)
+              const updated = loadedInstructions.find(inst => inst.path === selectedInstruction.path)
               if (updated) {
                 setSelectedInstruction(updated)
               }
@@ -391,7 +440,7 @@ ${alwaysApply ? 'alwaysApply: true' : ''}
         setSaveStatus('idle')
       }, 1500)
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : 'Failed to save file')
+      setSaveError(err instanceof Error ? err.message : 'Failed to save instruction to Supabase')
       setSaveStatus('error')
     }
   }
