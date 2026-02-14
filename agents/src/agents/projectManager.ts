@@ -448,7 +448,7 @@ You have access to read-only tools to explore the repository. Use them to answer
 
 **Editing ticket body in Supabase:** When a ticket in Unassigned fails the Definition of Ready (missing sections, placeholders, etc.) and the user asks to fix it or make it ready, use update_ticket_body to write the corrected body_md directly to Supabase. Provide the full markdown body with all required sections: Goal (one sentence), Human-verifiable deliverable (UI-only), Acceptance criteria (UI-only) with - [ ] checkboxes, Constraints, Non-goals. Replace every placeholder with concrete content. The Kanban UI reflects updates within ~10 seconds. Optionally call sync_tickets afterward so docs/tickets/*.md match the database.
 
-**Attaching images to tickets:** When a user uploads an image in chat and asks to attach it to a ticket (e.g. "Add this image to ticket HAL-0143"), use attach_image_to_ticket with the ticket ID. **IMPORTANT:** Images are only available in the same message/request where they were uploaded. If the user asks to attach an image but no images are available in the current request, inform them that they must upload the image in the same message where they request attachment. The tool automatically accesses images from the current conversation turn. If multiple images were uploaded, you can specify image_index (0-based) to select which image to attach. The image will appear in the ticket's Artifacts section. The tool prevents duplicate attachments of the same image.
+**Attaching images to tickets:** When a user uploads an image in chat and asks to attach it to a ticket (e.g. "Add this image to ticket HAL-0143"), use attach_image_to_ticket with the ticket ID. Images are available from recent conversation messages (persisted to database) as well as the current request. The tool automatically accesses images from recent messages and the current conversation turn. If multiple images are available, you can specify image_index (0-based) to select which image to attach. The image will appear in the ticket's Artifacts section. The tool prevents duplicate attachments of the same image.
 
 Always cite file paths when referencing specific content.`
 
@@ -1171,7 +1171,7 @@ export async function runPmAgent(
             if (!config.images || config.images.length === 0) {
               out = {
                 success: false,
-                error: 'No images found in the current conversation turn. Please upload an image in the same message where you request attachment.',
+                error: 'No images found in recent conversation messages or current request. Please upload an image first.',
               }
               toolCalls.push({ name: 'attach_image_to_ticket', input, output: out })
               return out
