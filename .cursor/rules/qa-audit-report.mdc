@@ -106,6 +106,97 @@ QA RESULT: FAIL — 0076
 - **Agent type:** `qa`
 - **Title format:** `QA report for ticket <ticket-id>`
 
+## UI Change Verification Checklist
+
+**MANDATORY:** When a ticket involves UI changes (new components, modified layouts, styling updates, interactive elements, etc.), QA **must** use this checklist to verify both functional correctness and UX/regression issues. The checklist is designed for **UI-only verification** (no code inspection required) and is specific enough that two different QA agents would run identical checks.
+
+**When to use:** If the ticket description, acceptance criteria, or changed files indicate any UI modifications (React components, CSS/styling, layout changes, new buttons/forms/modals, etc.), QA must complete this checklist.
+
+**How to use:**
+1. Copy the entire checklist below into your QA report
+2. For each item, mark as **Pass**, **Fail**, or **NA** (Not Applicable)
+3. For any **Fail** items, document:
+   - **Screenshot:** Attach or describe the visual issue
+   - **Steps to reproduce:** Exact steps that trigger the failure
+   - **Expected vs actual behavior:** What should happen vs what actually happens
+   - **Browser/device:** If relevant (e.g., "Chrome on macOS", "Mobile viewport")
+4. If an item is **NA**, briefly explain why (e.g., "No forms in this ticket", "No loading states implemented")
+
+**UI Change Verification Checklist:**
+
+- [ ] **Happy path — Primary user flow works**
+  - [ ] All primary actions (buttons, links, form submissions) execute successfully
+  - [ ] User can complete the main intended task without errors
+  - [ ] Success feedback is visible and clear (e.g., confirmation message, visual change)
+  - [ ] Navigation flows work as expected (can reach the feature, can return)
+
+- [ ] **Edge cases — Boundary conditions handled**
+  - [ ] Empty input fields are handled appropriately (validation, placeholder text, or clear error)
+  - [ ] Maximum length inputs are handled (truncation, validation, or clear error)
+  - [ ] Invalid input formats are rejected with clear error messages
+  - [ ] Special characters in text inputs are handled correctly
+  - [ ] Zero/null/undefined data states display appropriately (if applicable)
+
+- [ ] **Accessibility and keyboard navigation**
+  - [ ] All interactive elements are keyboard accessible (Tab key navigates to them)
+  - [ ] Focus indicators are visible when navigating with keyboard
+  - [ ] Enter/Space activates buttons and form submissions
+  - [ ] Escape key closes modals/dropdowns (if applicable)
+  - [ ] Screen reader labels are present for form inputs and buttons (check with browser dev tools or screen reader)
+  - [ ] Color contrast meets WCAG standards (text is readable against background)
+
+- [ ] **Responsive layout — Works across screen sizes**
+  - [ ] Desktop viewport (≥1024px): Layout is appropriate, no horizontal scrolling, content is readable
+  - [ ] Tablet viewport (768px-1023px): Layout adapts appropriately, no content cut off
+  - [ ] Mobile viewport (320px-767px): Layout stacks/adapts, text is readable, buttons are tappable size
+  - [ ] No horizontal scrolling on any viewport size
+  - [ ] Text remains readable at all sizes (no tiny text on mobile)
+
+- [ ] **Loading states — User feedback during async operations**
+  - [ ] Loading indicators appear during data fetches/async operations (if applicable)
+  - [ ] Loading states are visually clear (spinner, skeleton, progress bar, etc.)
+  - [ ] User cannot trigger duplicate actions during loading (buttons disabled or loading state prevents clicks)
+  - [ ] Loading states disappear when operation completes
+
+- [ ] **Empty states — Appropriate messaging when no data**
+  - [ ] Empty state message is clear and helpful (if applicable)
+  - [ ] Empty state includes guidance on how to populate data (if applicable)
+  - [ ] Empty state is visually distinct from error states
+
+- [ ] **Error states — Clear error handling and messaging**
+  - [ ] Error messages are displayed when operations fail (if applicable)
+  - [ ] Error messages are user-friendly (not technical jargon)
+  - [ ] Error states are visually distinct (e.g., red text, error icon)
+  - [ ] User can recover from errors (retry button, clear error, or navigate away)
+
+- [ ] **Regression spots — Existing functionality still works**
+  - [ ] Related features that share components/styling still function correctly
+  - [ ] No visual regressions in adjacent UI areas (spacing, alignment, colors)
+  - [ ] No broken links or navigation paths
+  - [ ] Existing forms/inputs in the same area still work
+  - [ ] No console errors introduced (check browser console)
+
+**Recording findings for Fail items:**
+
+When marking an item as **Fail**, include in your QA report:
+
+1. **Screenshot or description:** "Screenshot: [describe what's visible]" or attach screenshot if possible
+2. **Steps to reproduce:** Numbered list of exact steps (e.g., "1. Navigate to /tickets, 2. Click 'New Ticket', 3. Leave title empty, 4. Click 'Submit'")
+3. **Expected behavior:** What should happen
+4. **Actual behavior:** What actually happens
+5. **Browser/device (if relevant):** "Chrome 120 on macOS" or "Mobile viewport (375px)"
+
+**Example Fail entry:**
+```
+- [ ] **Happy path — Primary user flow works** — **FAIL**
+  - [ ] All primary actions execute successfully — **FAIL**
+    - **Issue:** Submit button does nothing when clicked
+    - **Steps to reproduce:** 1. Navigate to /settings, 2. Change theme to "Dark", 3. Click "Save" button
+    - **Expected:** Theme changes to dark mode, success message appears
+    - **Actual:** Button click has no effect, no visual feedback
+    - **Screenshot:** Button appears normal but no click handler fires
+```
+
 ## QA report structure
 
 1. **Ticket & deliverable** — One-line goal, deliverable, and acceptance criteria from the ticket.
@@ -113,7 +204,7 @@ QA RESULT: FAIL — 0076
 3. **Audit artifacts** — Confirm all required implementation artifacts are present in Supabase (plan, worklog, changed-files, decisions, verification, pm-review). Only include this section if all artifacts are present.
 4. **Code review** — PASS/FAIL with brief evidence (e.g. table of requirement vs implementation; file and line refs if helpful). Only include if artifacts are present.
 5. **Build verification** — **MANDATORY:** Run `npm run build:hal` (or `tsc -b`) and verify it completes with zero TypeScript errors. If TypeScript errors exist, QA **MUST FAIL** immediately. Document the build result (PASS/FAIL) and any TypeScript errors found. Only include if artifacts are present.
-6. **UI verification** — What was run: automated and/or manual steps. If automated UI was not run (e.g. native dialogs, login, or pickers), state that and list the manual steps the user should run. Only include if artifacts are present.
+6. **UI verification** — **MANDATORY when ticket involves UI changes:** Copy the **UI Change Verification Checklist** (see section above) into this section and mark each item as **Pass**, **Fail**, or **NA**. For any **Fail** items, include screenshots (or descriptions), steps to reproduce, expected vs actual behavior, and browser/device info. If the ticket does not involve UI changes, state "No UI changes in this ticket" and skip the checklist. Only include if artifacts are present.
 7. **Verdict** — Implementation complete? OK to merge? Any blocking manual verification? Must clearly state PASS or FAIL.
 
 ## Storing QA report
