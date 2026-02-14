@@ -35,57 +35,80 @@ function determineAgentTypes(filename: string, content: string): string[] {
   const filenameLower = filename.toLowerCase()
   const agentTypes = new Set<string>()
 
-  // Check for "all agents" indicators
-  if (
-    contentLower.includes('all agent') ||
-    contentLower.includes('all agents') ||
-    filenameLower.includes('hal-tool-call-contract') ||
-    filenameLower.includes('agent-supabase-api-paradigm') ||
-    filenameLower.includes('single-source-agents')
-  ) {
+  // Specific file-based rules (most specific first)
+  if (filename === 'ready-to-start-checklist.md') {
+    // Applies to all agents (PM checks before moving, agents check before starting)
     agentTypes.add('all')
-  }
-
-  // PM-specific
-  if (
-    contentLower.includes('pm agent') ||
-    contentLower.includes('project manager') ||
-    contentLower.includes('project-manager') ||
-    filenameLower.includes('pm-handoff') ||
-    filenameLower.includes('ready-to-start-checklist')
-  ) {
+  } else if (filename === 'pm-handoff.md') {
     agentTypes.add('project-manager')
-  }
-
-  // QA-specific
-  if (
-    contentLower.includes('qa agent') ||
-    contentLower.includes('qa-agent') ||
-    filenameLower.includes('qa-agent') ||
-    filenameLower.includes('ticket-verification-rules')
-  ) {
+  } else if (filename === 'ticket-verification-rules.md') {
+    // Applies to QA and PM (verification rules)
     agentTypes.add('qa-agent')
-  }
-
-  // Implementation-specific
-  if (
-    contentLower.includes('implementation agent') ||
-    contentLower.includes('implementation-agent') ||
-    filenameLower.includes('implementation')
-  ) {
+    agentTypes.add('project-manager')
+  } else if (filename === 'qa-agent-supabase-tools.md') {
+    agentTypes.add('qa-agent')
+    agentTypes.add('implementation-agent') // Implementation agents also use these tools
+  } else if (filename === 'agent-supabase-api-paradigm.mdc') {
+    // Applies to all agents (all use HAL API)
+    agentTypes.add('all')
+  } else if (filename === 'hal-tool-call-contract.mdc') {
+    // Applies to all agents (all use tool calls)
+    agentTypes.add('all')
+  } else if (filename === 'chat-ui-staging-test-procedure.mdc') {
+    // Applies to Implementation and QA (they run staging tests)
     agentTypes.add('implementation-agent')
+    agentTypes.add('qa-agent')
+  } else if (filename === 'status-message-template.mdc') {
+    // Applies to all agents (template for all agent types)
+    agentTypes.add('all')
+  } else if (filename === 'cloud-artifacts-without-merge-brainstorm.md') {
+    // Applies to all agents (process discussion)
+    agentTypes.add('all')
+  } else if (filename === 'single-source-agents.md') {
+    // Applies to all agents (process guidance)
+    agentTypes.add('all')
+  } else if (filename === 'split-repos-and-deployment.md') {
+    // Applies to all agents (deployment guidance)
+    agentTypes.add('all')
+  } else if (filename === 'vercel-preview-smoke-test.md') {
+    // Applies to all agents (testing guidance)
+    agentTypes.add('all')
+  } else if (filename === 'MIGRATION_SUMMARY.md') {
+    // Migration summary - applies to all agents for reference
+    agentTypes.add('all')
+  } else {
+    // Content-based detection
+    const hasAllAgents = 
+      contentLower.includes('all agent') || 
+      contentLower.includes('all agents') ||
+      contentLower.includes('every agent') ||
+      contentLower.includes('any agent')
+    
+    if (hasAllAgents) {
+      agentTypes.add('all')
+    } else {
+      // Check for specific agent mentions
+      const hasQA = contentLower.includes('qa agent') || contentLower.includes('qa-agent') || 
+                    filenameLower.includes('qa') || contentLower.includes('qa report')
+      const hasImplementation = contentLower.includes('implementation agent') || 
+                               contentLower.includes('implementation-agent') ||
+                               contentLower.includes('implementation:')
+      const hasPM = contentLower.includes('project manager') || 
+                   contentLower.includes('project-manager') || 
+                   contentLower.includes('pm agent') ||
+                   filenameLower.includes('pm-')
+      const hasProcessReview = contentLower.includes('process review') || 
+                              contentLower.includes('process-review') ||
+                              filenameLower.includes('process-review')
+      
+      if (hasQA) agentTypes.add('qa-agent')
+      if (hasImplementation) agentTypes.add('implementation-agent')
+      if (hasPM) agentTypes.add('project-manager')
+      if (hasProcessReview) agentTypes.add('process-review-agent')
+    }
   }
 
-  // Process Review-specific
-  if (
-    contentLower.includes('process review') ||
-    contentLower.includes('process-review') ||
-    filenameLower.includes('process-review')
-  ) {
-    agentTypes.add('process-review-agent')
-  }
-
-  // If no specific agent types found, default to 'all' (shared/global)
+  // If no agent types found, default to 'all' (shared/global)
   if (agentTypes.size === 0) {
     agentTypes.add('all')
   }
