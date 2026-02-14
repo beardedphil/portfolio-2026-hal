@@ -704,94 +704,21 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
       }
     }
 
-    // Fallback to filesystem if Supabase not available or failed
-    const indexPath = path.join(rulesPath, '.instructions-index.json')
-    let instructionIndex: {
-      basic?: string[]
-      situational?: Record<string, string[]>
-      topics?: Record<string, { title: string; description: string; agentTypes: string[]; keywords?: string[] }>
-    } = {}
-    
+    // Fallback to filesystem: Only read the entry point file that explains how to access instructions via API
+    // Individual instruction files have been migrated to Supabase and are no longer in the filesystem
     try {
-      const indexContent = await fs.readFile(indexPath, 'utf8')
-      instructionIndex = JSON.parse(indexContent)
-    } catch {
-      // If index doesn't exist, fall back to loading all files (backward compatibility)
-    }
-
-    // Load basic instructions (always included)
-    const basicFiles = instructionIndex.basic || []
-    if (basicFiles.length > 0) {
-      sections.push('### Basic instructions (always active)\n')
-      for (const filename of basicFiles) {
-        try {
-          const filePath = path.join(rulesPath, `${filename}.mdc`)
-          const content = await fs.readFile(filePath, 'utf8')
-          sections.push(`#### ${filename}.mdc\n\n${content}\n`)
-        } catch (err) {
-          sections.push(`#### ${filename}.mdc\n\n(file not found)\n`)
-        }
-      }
-    }
-
-    // List available situational instruction topics
-    if (instructionIndex.topics && Object.keys(instructionIndex.topics).length > 0) {
-      sections.push('\n### Available instruction topics (request on-demand)\n')
-      sections.push('When you encounter a scenario that requires detailed instructions, you can request specific instruction sets using the `get_instruction_set` tool. Available topics:\n')
-      
-      const topicsByAgent: Record<string, Array<{ id: string; title: string; description: string }>> = {}
-      for (const [topicId, topic] of Object.entries(instructionIndex.topics)) {
-        const agentTypes = topic.agentTypes || ['all']
-        for (const agentType of agentTypes) {
-          if (!topicsByAgent[agentType]) topicsByAgent[agentType] = []
-          topicsByAgent[agentType].push({
-            id: topicId,
-            title: topic.title,
-            description: topic.description,
-          })
-        }
-      }
-
-      // Show topics for current agent type (PM agent)
-      const pmTopics = [
-        ...(topicsByAgent['project-manager'] || []),
-        ...(topicsByAgent['all'] || []),
-      ]
-      
-      if (pmTopics.length > 0) {
-        sections.push('**Topics available for Project Manager:**\n')
-        for (const topic of pmTopics) {
-          sections.push(`- **${topic.title}** (ID: \`${topic.id}\`): ${topic.description}`)
-        }
-      }
-
-      // Also show topics for other agent types for awareness
-      const otherAgentTypes = ['implementation-agent', 'qa-agent'].filter(at => at !== 'project-manager')
-      for (const agentType of otherAgentTypes) {
-        const topics = [
-          ...(topicsByAgent[agentType] || []),
-          ...(topicsByAgent['all'] || []),
-        ]
-        if (topics.length > 0) {
-          sections.push(`\n**Topics available for ${agentType.replace('-', ' ')}:**`)
-          for (const topic of topics) {
-            sections.push(`- **${topic.title}** (ID: \`${topic.id}\`): ${topic.description}`)
-          }
-        }
-      }
-
-      sections.push('\n**To request an instruction set:** Use the `get_instruction_set` tool with the topic ID (e.g., `get_instruction_set({ topicId: "auditability-and-traceability" })`).')
-    }
-
-    // Fallback: if no index, load all files (backward compatibility)
-    if (!instructionIndex.basic && !instructionIndex.topics) {
-      const entries = await fs.readdir(rulesPath)
-      const mdcFiles = entries.filter((e: string) => e.endsWith('.mdc') && !e.startsWith('.'))
-      for (const f of mdcFiles) {
-        const content = await fs.readFile(path.join(rulesPath, f), 'utf8')
-        sections.push(`### ${f}\n\n${content}`)
-      }
-      if (mdcFiles.length === 0) sections.push('(no .mdc files found)')
+      const entryPointPath = path.join(rulesPath, 'agent-instructions.mdc')
+      const entryPointContent = await fs.readFile(entryPointPath, 'utf8')
+      sections.push('### Agent Instructions Entry Point\n\n')
+      sections.push(entryPointContent)
+      sections.push('\n\n**Note:** Individual instruction files have been migrated to Supabase. Use HAL API endpoints (as described above) to access instructions. If Supabase/HAL API is not available, you will only have access to this entry point file.')
+    } catch (err) {
+      sections.push('### Agent Instructions\n\n')
+      sections.push('**Error:** Could not load agent instructions entry point. Instructions are stored in Supabase and accessed via HAL API endpoints. If Supabase/HAL API is not available, instructions cannot be loaded.\n')
+      sections.push('**To access instructions:**\n')
+      sections.push('- Use HAL API endpoint `/api/instructions/get` to fetch basic instructions\n')
+      sections.push('- Use HAL API endpoint `/api/instructions/get-topic` to fetch specific topics\n')
+      sections.push('- Use HAL API endpoint `/api/instructions/get-index` to get available topics\n')
     }
   } catch (err) {
     sections.push(`(error loading rules: ${err instanceof Error ? err.message : String(err)})`)
@@ -2571,48 +2498,10 @@ export async function runPmAgent(
           }
         }
 
-        // Fallback to filesystem
-        const rulesDir = config.rulesDir ?? '.cursor/rules'
-        const rulesPath = path.resolve(config.repoRoot, rulesDir)
-        
-        // Load instruction index
-        const indexPath = path.join(rulesPath, '.instructions-index.json')
-        let instructionIndex: {
-          topics?: Record<string, { title: string; description: string; agentTypes: string[] }>
-        } = {}
-        
-        try {
-          const indexContent = await fs.readFile(indexPath, 'utf8')
-          instructionIndex = JSON.parse(indexContent)
-        } catch {
-          return { error: 'Instruction index not found. Cannot determine available topics.' }
-        }
-
-        // Check if topic exists
-        if (!instructionIndex.topics || !instructionIndex.topics[input.topicId]) {
-          const availableTopics = instructionIndex.topics ? Object.keys(instructionIndex.topics).join(', ') : 'none'
-          return { 
-            error: `Topic "${input.topicId}" not found. Available topics: ${availableTopics}` 
-          }
-        }
-
-        // Load the instruction file
-        const filePath = path.join(rulesPath, `${input.topicId}.mdc`)
-        try {
-          const content = await fs.readFile(filePath, 'utf8')
-          const topic = instructionIndex.topics[input.topicId]
-          const result = {
-            topicId: input.topicId,
-            title: topic.title,
-            description: topic.description,
-            content: content,
-          }
-          toolCalls.push({ name: 'get_instruction_set', input, output: result })
-          return result
-        } catch (err) {
-          return { 
-            error: `Could not read instruction file for topic "${input.topicId}": ${err instanceof Error ? err.message : String(err)}` 
-          }
+        // Fallback to filesystem: Individual instruction files have been migrated to Supabase
+        // The filesystem fallback can only provide the entry point file, not individual topics
+        return { 
+          error: `Cannot load instruction topic "${input.topicId}" from filesystem. Individual instruction files have been migrated to Supabase. Use HAL API endpoint \`/api/instructions/get-topic\` or direct Supabase access to retrieve instructions. If Supabase/HAL API is not available, instructions cannot be loaded.`
         }
       } catch (err) {
         const error = { 
