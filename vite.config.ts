@@ -2157,6 +2157,27 @@ export default defineConfig({
           }
           next()
         })
+
+        // Peer review / DoR check endpoint (0180)
+        server.middlewares.use(async (req, res, next) => {
+          if (req.url === '/api/tickets/peer-review' && (req.method === 'POST' || req.method === 'OPTIONS')) {
+            try {
+              const peerReviewHandler = await import('./api/tickets/peer-review')
+              await peerReviewHandler.default(req, res)
+            } catch (err) {
+              res.statusCode = 500
+              res.setHeader('Content-Type', 'application/json')
+              res.end(
+                JSON.stringify({
+                  success: false,
+                  error: err instanceof Error ? err.message : String(err),
+                })
+              )
+            }
+            return
+          }
+          next()
+        })
       },
     },
   ],

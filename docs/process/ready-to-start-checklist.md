@@ -90,7 +90,30 @@ If any step fails, the ticket is **NOT Ready**. Do not proceed with work until t
 
 5. **No obvious placeholders** — The ticket body does not contain unresolved template placeholders such as `<AC 1>`, `<task-id>`, `<short title>`, `<what we want to achieve>`, or similar angle-bracket placeholders that indicate "fill this in later."
 
+## Peer Review / DoR Check (0180)
+
+A **Peer Review / DoR check** action is available in the HAL app for any Unassigned or Ready-to-Do ticket. This action:
+
+1. **Runs automatically** when triggered from the ticket detail view
+2. **Displays PASS/FAIL** with specific, clickable issues (missing sections, placeholders, acceptance criteria not checkboxes, etc.)
+3. **Prevents moving to To Do** when the result is FAIL — tickets that fail peer review are not eligible to be moved into To Do via PM automation
+4. **Allows moving to To Do** when the result is PASS — tickets that pass peer review are eligible for PM automation to move them into To Do
+
+### How to use Peer Review
+
+1. Open a ticket in the ticket detail view (click on any ticket card)
+2. Scroll to the "Peer review / DoR check" section
+3. Click "Run peer review / DoR check"
+4. Review the results:
+   - **PASS**: Ticket is ready and can be moved to To Do
+   - **FAIL**: Click on any issue to jump to that section in the ticket body, then fix the issues
+
+### Integration with PM Automation
+
+The PM automation (`checkUnassignedTickets`) uses the same peer review evaluation logic. Tickets that fail peer review will not be automatically moved from Unassigned to To Do, and will appear in the "not ready" list with specific missing items.
+
 ## Reference
 
 - Ticket template: `docs/templates/ticket.template.md` (includes a "Ticket template (copy/paste)" section with required headings and a filled-in example)
 - PM agent: uses this checklist via the `evaluate_ticket_ready` tool before calling `kanban_move_ticket_to_todo`.
+- Peer review API: `POST /api/tickets/peer-review` — runs comprehensive DoR check and returns PASS/FAIL with specific issues

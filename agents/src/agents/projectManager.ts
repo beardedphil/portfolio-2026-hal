@@ -135,47 +135,146 @@ export interface ReadyCheckResult {
 
 /**
  * Evaluate ticket body against the Ready-to-start checklist (Definition of Ready).
- * Simplified check: ticket has content beyond the template (is bigger than template).
- * 
- * The template is approximately 1500-2000 characters. A ticket is ready if:
- * - It has substantial content (longer than template baseline)
- * - It's not just template placeholders
+ * Comprehensive check: validates all required sections, formatting, and placeholders.
  */
 export function evaluateTicketReady(bodyMd: string): ReadyCheckResult {
   const body = bodyMd.trim()
-  
-  // Template baseline: approximately 1500-2000 chars for a filled template
-  // A ticket with actual content should be substantially larger
-  const TEMPLATE_BASELINE = 1500
-  const hasSubstantialContent = body.length > TEMPLATE_BASELINE
-  
-  // Check if it's mostly placeholders (simple heuristic: if >50% of content is placeholders, it's not ready)
-  const placeholders = body.match(PLACEHOLDER_RE) ?? []
-  const placeholderChars = placeholders.join('').length
-  const isMostlyPlaceholders = placeholderChars > body.length * 0.5
-
-  const ready = hasSubstantialContent && !isMostlyPlaceholders
   const missingItems: string[] = []
-  
-  if (!ready) {
-    if (!hasSubstantialContent) {
-      missingItems.push('Ticket content is too short (needs more content beyond template)')
-    }
-    if (isMostlyPlaceholders) {
-      missingItems.push('Ticket contains too many unresolved placeholders')
+  const checklistResults = {
+    goal: false,
+    deliverable: false,
+    acceptanceCriteria: false,
+    constraintsNonGoals: false,
+    noPlaceholders: true,
+  }
+
+  // Check for Goal section
+  const goalMatch = body.match(/^##\s+Goal\s*\(one\s+sentence\)/im)
+  if (!goalMatch) {
+    missingItems.push('Missing required section: "Goal (one sentence)"')
+  } else {
+    const goalSectionMatch = body.match(/^##\s+Goal\s*\(one\s+sentence\)\s*\n\n(.+?)(?=\n##|$)/ims)
+    if (goalSectionMatch) {
+      const goalContent = goalSectionMatch[1].trim()
+      const hasPlaceholder = /<[^>]+>/.test(goalContent) || /TBD|TODO|fill\s+in/i.test(goalContent)
+      if (!goalContent || goalContent.length < 10 || hasPlaceholder) {
+        missingItems.push('Goal section is empty or contains placeholders')
+      } else {
+        checklistResults.goal = true
+      }
+    } else {
+      checklistResults.goal = true
     }
   }
+
+  // Check for Human-verifiable deliverable section
+  const deliverableMatch = body.match(/^##\s+Human-verifiable\s+deliverable\s*\(UI-only\)/im)
+  if (!deliverableMatch) {
+    missingItems.push('Missing required section: "Human-verifiable deliverable (UI-only)"')
+  } else {
+    const deliverableSectionMatch = body.match(/^##\s+Human-verifiable\s+deliverable\s*\(UI-only\)\s*\n\n(.+?)(?=\n##|$)/ims)
+    if (deliverableSectionMatch) {
+      const deliverableContent = deliverableSectionMatch[1].trim()
+      const hasPlaceholder = /<[^>]+>/.test(deliverableContent) || /TBD|TODO|fill\s+in|Describe\s+exactly/i.test(deliverableContent)
+      if (!deliverableContent || deliverableContent.length < 20 || hasPlaceholder) {
+        missingItems.push('Human-verifiable deliverable section is empty or contains placeholders')
+      } else {
+        checklistResults.deliverable = true
+      }
+    } else {
+      checklistResults.deliverable = true
+    }
+  }
+
+  // Check for Acceptance criteria section with checkboxes
+  const acceptanceCriteriaMatch = body.match(/^##\s+Acceptance\s+criteria\s*\(UI-only\)/im)
+  if (!acceptanceCriteriaMatch) {
+    missingItems.push('Missing required section: "Acceptance criteria (UI-only)"')
+  } else {
+    const acSectionMatch = body.match(/^##\s+Acceptance\s+criteria\s*\(UI-only\)\s*\n\n(.+?)(?=\n##|$)/ims)
+    if (acSectionMatch) {
+      const acContent = acSectionMatch[1]
+      const checkboxLines = acContent.match(/^-\s+\[\s*\]/gm)
+      const plainBulletLines = acContent.match(/^-\s+(?!\[))/gm)
+      
+      if (!checkboxLines || checkboxLines.length === 0) {
+        if (plainBulletLines && plainBulletLines.length > 0) {
+          missingItems.push('Acceptance criteria must use checkbox format (- [ ]), not plain bullets (-)')
+        } else {
+          missingItems.push('Acceptance criteria section is empty or has no items')
+        }
+      } else {
+        const hasPlaceholder = /<[^>]+>/.test(acContent) || /TBD|TODO|fill\s+in|<AC\s+\d+>/i.test(acContent)
+        if (hasPlaceholder) {
+          missingItems.push('Acceptance criteria contains unresolved placeholders')
+        } else {
+          checklistResults.acceptanceCriteria = true
+        }
+      }
+    } else {
+      checklistResults.acceptanceCriteria = true
+    }
+  }
+
+  // Check for Constraints section
+  let constraintsValid = false
+  const constraintsMatch = body.match(/^##\s+Constraints\s*\n/im)
+  if (!constraintsMatch) {
+    missingItems.push('Missing required section: "Constraints"')
+  } else {
+    const constraintsSectionMatch = body.match(/^##\s+Constraints\s*\n\n(.+?)(?=\n##|$)/ims)
+    if (constraintsSectionMatch) {
+      const constraintsContent = constraintsSectionMatch[1].trim()
+      const hasPlaceholder = /<[^>]+>/.test(constraintsContent) || /TBD|TODO|fill\s+in/i.test(constraintsContent)
+      if (!constraintsContent || constraintsContent.length < 5 || hasPlaceholder) {
+        missingItems.push('Constraints section is empty or contains placeholders')
+      } else {
+        constraintsValid = true
+      }
+    } else {
+      constraintsValid = true
+    }
+  }
+
+  // Check for Non-goals section
+  let nonGoalsValid = false
+  const nonGoalsMatch = body.match(/^##\s+Non-goals\s*\n/im)
+  if (!nonGoalsMatch) {
+    missingItems.push('Missing required section: "Non-goals"')
+  } else {
+    const nonGoalsSectionMatch = body.match(/^##\s+Non-goals\s*\n\n(.+?)(?=\n##|$)/ims)
+    if (nonGoalsSectionMatch) {
+      const nonGoalsContent = nonGoalsSectionMatch[1].trim()
+      const hasPlaceholder = /<[^>]+>/.test(nonGoalsContent) || /TBD|TODO|fill\s+in/i.test(nonGoalsContent)
+      if (!nonGoalsContent || nonGoalsContent.length < 5 || hasPlaceholder) {
+        missingItems.push('Non-goals section is empty or contains placeholders')
+      } else {
+        nonGoalsValid = true
+      }
+    } else {
+      nonGoalsValid = true
+    }
+  }
+
+  // Both constraints and non-goals must be valid
+  checklistResults.constraintsNonGoals = constraintsValid && nonGoalsValid
+
+  // Check for unresolved placeholders throughout the document
+  const placeholders = body.match(PLACEHOLDER_RE) ?? []
+  const textPlaceholders = body.match(/\b(TBD|TODO|fill\s+in\s+later|auto-assigned|\(fill\s+in\s+later\))\b/gi) ?? []
+  
+  if (placeholders.length > 0 || textPlaceholders.length > 0) {
+    const uniquePlaceholders = [...new Set([...placeholders, ...textPlaceholders])]
+    missingItems.push(`Unresolved placeholders found: ${uniquePlaceholders.slice(0, 3).join(', ')}${uniquePlaceholders.length > 3 ? '...' : ''}`)
+    checklistResults.noPlaceholders = false
+  }
+
+  const ready = missingItems.length === 0
 
   return {
     ready,
     missingItems,
-    checklistResults: {
-      goal: hasSubstantialContent,
-      deliverable: hasSubstantialContent,
-      acceptanceCriteria: hasSubstantialContent,
-      constraintsNonGoals: hasSubstantialContent,
-      noPlaceholders: !isMostlyPlaceholders,
-    },
+    checklistResults,
   }
 }
 

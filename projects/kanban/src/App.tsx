@@ -1051,151 +1051,215 @@ function HumanValidationSection({
 function PeerReviewSection({
   ticketId,
   ticketPk,
-  body,
-  onOpenEditor,
+  bodyMd,
+  columnId,
+  supabaseUrl,
+  supabaseAnonKey,
+  onTicketUpdate,
 }: {
   ticketId: string
   ticketPk: string
-  body: string | null
-  onOpenEditor?: () => void
+  bodyMd: string | null
+  columnId: string | null
+  supabaseUrl?: string
+  supabaseAnonKey?: string
+  onTicketUpdate?: () => void
 }) {
-  const [reviewResult, setReviewResult] = useState<PeerReviewResult | null>(null)
+  const [reviewResult, setReviewResult] = useState<{
+    pass: boolean
+    issues: Array<{ type: string; section?: string; message: string; location?: string }>
+    checklistResults: Record<string, boolean>
+  } | null>(null)
   const [isRunning, setIsRunning] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const handleRunReview = useCallback(() => {
-    if (!body || isRunning) return
-    
+  // Only show for Unassigned or Ready-to-Do tickets
+  const shouldShow = columnId === 'col-unassigned' || columnId === 'col-todo' || columnId === null
+
+  const runPeerReview = useCallback(async () => {
+    if (!bodyMd || !supabaseUrl || !supabaseAnonKey) {
+      setError('Ticket body or Supabase credentials missing')
+      return
+    }
+
     setIsRunning(true)
+    setError(null)
+
     try {
-      const result = performPeerReview(body)
-      setReviewResult(result)
-    } catch (err) {
-      console.error('Peer review error:', err)
-      setReviewResult({
-        pass: false,
-        issues: [{
-          type: 'other',
-          message: `Error running peer review: ${err instanceof Error ? err.message : String(err)}`,
-        }],
+      // Determine API base URL (use window.location.origin for same-origin requests)
+      const apiBaseUrl = typeof window !== 'undefined' ? window.location.origin : ''
+
+      const response = await fetch(`${apiBaseUrl}/api/tickets/peer-review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ticketPk,
+          bodyMd,
+          supabaseUrl,
+          supabaseAnonKey,
+        }),
       })
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      }
+
+      const data = await response.json()
+
+      if (!data.success) {
+        throw new Error(data.error || 'Peer review failed')
+      }
+
+      setReviewResult({
+        pass: data.pass,
+        issues: data.issues || [],
+        checklistResults: data.checklistResults || {},
+      })
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err)
+      setError(`Failed to run peer review: ${errorMessage}`)
+      console.error('Peer review error:', err)
     } finally {
       setIsRunning(false)
     }
-  }, [body, isRunning])
+  }, [ticketPk, bodyMd, supabaseUrl, supabaseAnonKey])
 
-  // Auto-run review when body changes (if body exists)
-  useEffect(() => {
-    if (body && body.trim()) {
-      const result = performPeerReview(body)
-      setReviewResult(result)
-    } else {
-      setReviewResult(null)
-    }
-  }, [body])
+  const scrollToSection = useCallback((sectionName: string) => {
+    // Scroll to the section heading in the ticket body
+    // Look for markdown headings that match the section name
+    const ticketBodyElement = document.querySelector('.ticket-detail-body')
+    if (!ticketBodyElement) return
 
-  const handleFixIssue = useCallback((issue: { section?: string; lineNumber?: number }) => {
-    if (onOpenEditor) {
-      onOpenEditor()
-      // Scroll to section if available (would need DOM manipulation or state to focus)
-      // For now, just open the editor
+    // Try to find the heading by text content
+    const headings = ticketBodyElement.querySelectorAll('h2, h3')
+    for (const heading of Array.from(headings)) {
+      const headingText = heading.textContent || ''
+      if (headingText.toLowerCase().includes(sectionName.toLowerCase())) {
+        heading.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        // Highlight briefly
+        const originalBg = (heading as HTMLElement).style.backgroundColor
+        ;(heading as HTMLElement).style.backgroundColor = '#fff3cd'
+        setTimeout(() => {
+          ;(heading as HTMLElement).style.backgroundColor = originalBg || ''
+        }, 2000)
+        break
+      }
     }
-  }, [onOpenEditor])
+  }, [])
+
+  if (!shouldShow) return null
 
   return (
-    <div className="peer-review-section">
-      <h3 className="peer-review-title">Peer Review / DoR Check</h3>
+    <div className="peer-review-section" style={{ marginTop: '1.5rem', padding: '1rem', border: '1px solid #ddd', borderRadius: '4px' }}>
+      <h3 className="peer-review-title" style={{ marginTop: 0, marginBottom: '1rem', fontSize: '1.1rem' }}>
+        Peer review / DoR check
+      </h3>
       
-      <div className="peer-review-actions" style={{ marginBottom: '1rem' }}>
-        <button
-          type="button"
-          className="peer-review-run-button"
-          onClick={handleRunReview}
-          disabled={!body || isRunning}
-          style={{
-            padding: '8px 16px',
-            fontSize: '14px',
-            fontWeight: '500',
-            backgroundColor: '#3b82f6',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: isRunning || !body ? 'not-allowed' : 'pointer',
-            opacity: isRunning || !body ? 0.6 : 1,
-          }}
-        >
-          {isRunning ? 'Running...' : 'Run Peer Review / DoR Check'}
-        </button>
-      </div>
-
-      {reviewResult && (
-        <div 
-          className={`peer-review-result ${reviewResult.pass ? 'peer-review-pass' : 'peer-review-fail'}`}
-          style={{
-            padding: '12px',
-            borderRadius: '4px',
-            marginBottom: '1rem',
-            backgroundColor: reviewResult.pass ? '#d1fae5' : '#fee2e2',
-            border: `1px solid ${reviewResult.pass ? '#10b981' : '#ef4444'}`,
-          }}
-        >
-          <div style={{ fontWeight: '600', marginBottom: reviewResult.pass ? '0' : '8px' }}>
-            {reviewResult.pass ? '✅ PASS' : '❌ FAIL'}
-          </div>
-          
-          {!reviewResult.pass && reviewResult.issues.length > 0 && (
-            <div style={{ marginTop: '8px' }}>
-              <div style={{ fontWeight: '500', marginBottom: '4px' }}>
-                Found {reviewResult.issues.length} issue(s):
-              </div>
-              <ul style={{ margin: '4px 0', paddingLeft: '20px' }}>
-                {reviewResult.issues.map((issue, idx) => (
-                  <li 
-                    key={idx}
-                    style={{ 
-                      marginBottom: '4px',
-                      cursor: onOpenEditor ? 'pointer' : 'default',
-                      textDecoration: onOpenEditor ? 'underline' : 'none',
-                    }}
-                    onClick={() => handleFixIssue(issue)}
-                    title={onOpenEditor ? 'Click to open editor and fix this issue' : undefined}
-                  >
-                    {issue.message}
-                    {issue.lineNumber && ` (line ${issue.lineNumber})`}
-                  </li>
-                ))}
-              </ul>
-              {onOpenEditor && (
-                <button
-                  type="button"
-                  onClick={onOpenEditor}
-                  style={{
-                    marginTop: '8px',
-                    padding: '6px 12px',
-                    fontSize: '13px',
-                    backgroundColor: '#3b82f6',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  Open Editor to Fix Issues
-                </button>
-              )}
-            </div>
-          )}
-          
-          {reviewResult.pass && (
-            <div style={{ marginTop: '4px', fontSize: '14px' }}>
-              Ticket meets Definition of Ready requirements and is eligible to be moved to To Do.
-            </div>
-          )}
+      {error && (
+        <div className="peer-review-error" role="alert" style={{ marginBottom: '1rem', padding: '0.5rem', backgroundColor: '#fee', color: '#c00', borderRadius: '4px' }}>
+          {error}
         </div>
       )}
 
-      {!body && (
-        <div style={{ padding: '12px', backgroundColor: '#fef3c7', borderRadius: '4px', color: '#92400e' }}>
-          No ticket body available for review.
+      {!reviewResult && (
+        <button
+          type="button"
+          className="peer-review-button"
+          onClick={runPeerReview}
+          disabled={isRunning || !bodyMd}
+          style={{
+            padding: '0.5rem 1rem',
+            fontSize: '0.9rem',
+            backgroundColor: '#007bff',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: isRunning || !bodyMd ? 'not-allowed' : 'pointer',
+            opacity: isRunning || !bodyMd ? 0.6 : 1,
+          }}
+        >
+          {isRunning ? 'Running peer review...' : 'Run peer review / DoR check'}
+        </button>
+      )}
+
+      {reviewResult && (
+        <div className="peer-review-result">
+          <div
+            className="peer-review-status"
+            style={{
+              padding: '0.75rem',
+              marginBottom: '1rem',
+              borderRadius: '4px',
+              fontWeight: 'bold',
+              backgroundColor: reviewResult.pass ? '#d4edda' : '#f8d7da',
+              color: reviewResult.pass ? '#155724' : '#721c24',
+            }}
+          >
+            {reviewResult.pass ? '✓ PASS' : '✗ FAIL'}
+          </div>
+
+          {reviewResult.issues.length > 0 && (
+            <div className="peer-review-issues">
+              <h4 style={{ marginTop: 0, marginBottom: '0.5rem', fontSize: '1rem' }}>Issues found:</h4>
+              <ul style={{ margin: 0, paddingLeft: '1.5rem' }}>
+                {reviewResult.issues.map((issue, idx) => (
+                  <li
+                    key={idx}
+                    style={{ marginBottom: '0.5rem' }}
+                  >
+                    {issue.location ? (
+                      <button
+                        type="button"
+                        onClick={() => scrollToSection(issue.location!)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#007bff',
+                          textDecoration: 'underline',
+                          cursor: 'pointer',
+                          padding: 0,
+                          textAlign: 'left',
+                        }}
+                      >
+                        {issue.message}
+                      </button>
+                    ) : (
+                      <span>{issue.message}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {!reviewResult.pass && (
+            <div className="peer-review-fix-hint" style={{ marginTop: '1rem', padding: '0.75rem', backgroundColor: '#fff3cd', borderRadius: '4px' }}>
+              <strong>Fix the ticket:</strong> Click on any issue above to jump to that section, or edit the ticket body to resolve the issues.
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => {
+              setReviewResult(null)
+              setError(null)
+              if (onTicketUpdate) {
+                onTicketUpdate()
+              }
+            }}
+            style={{
+              marginTop: '1rem',
+              padding: '0.5rem 1rem',
+              fontSize: '0.9rem',
+              backgroundColor: '#6c757d',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+            }}
+          >
+            Run again
+          </button>
         </div>
       )}
     </div>
@@ -2387,6 +2451,15 @@ function TicketDetailModal({
               <AttachmentsSection
                 attachments={attachments}
                 loading={attachmentsLoading}
+              />
+              <PeerReviewSection
+                ticketId={ticketId}
+                ticketPk={ticketId}
+                bodyMd={body}
+                columnId={columnId}
+                supabaseUrl={supabaseUrl}
+                supabaseAnonKey={supabaseKey}
+                onTicketUpdate={_onTicketUpdate}
               />
               {showValidationSection && (
                 <>
