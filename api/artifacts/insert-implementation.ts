@@ -10,16 +10,37 @@ import { logStorageAttempt } from './_log-attempt.js'
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []
-  for await (const chunk of req) {
-    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk)
-  }
-  const raw = Buffer.concat(chunks).toString('utf8').trim()
-  if (!raw) return {}
+  let totalLength = 0
+  const maxBodySize = 10 * 1024 * 1024 // 10MB limit
+  
   try {
-    return JSON.parse(raw) as unknown
+    for await (const chunk of req) {
+      const buffer = typeof chunk === 'string' ? Buffer.from(chunk) : chunk
+      totalLength += buffer.length
+      if (totalLength > maxBodySize) {
+        throw new Error(`Request body too large: ${totalLength} bytes (max: ${maxBodySize} bytes)`)
+      }
+      chunks.push(buffer)
+    }
+  } catch (readError) {
+    console.error(`[insert-implementation] Error reading request body: ${readError instanceof Error ? readError.message : String(readError)}`)
+    throw new Error(`Failed to read request body: ${readError instanceof Error ? readError.message : String(readError)}`)
+  }
+  
+  const raw = Buffer.concat(chunks).toString('utf8')
+  if (!raw || raw.trim().length === 0) {
+    console.warn(`[insert-implementation] Empty request body received`)
+    return {}
+  }
+  
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    console.log(`[insert-implementation] Successfully parsed JSON body: ${raw.length} bytes`)
+    return parsed
   } catch (parseError) {
     console.error(`[insert-implementation] JSON parse error: ${parseError instanceof Error ? parseError.message : String(parseError)}`)
     console.error(`[insert-implementation] Raw body length: ${raw.length}, first 500 chars: ${raw.substring(0, 500)}`)
+    console.error(`[insert-implementation] Last 500 chars: ${raw.substring(Math.max(0, raw.length - 500))}`)
     throw new Error(`Failed to parse request body as JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`)
   }
 }
@@ -62,29 +83,38 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const artifactType = typeof body.artifactType === 'string' ? body.artifactType.trim() : undefined
     const title = typeof body.title === 'string' ? body.title.trim() : undefined
     
-    // Extract body_md with robust handling for various input types
-    // Handle string directly, or convert other types to string, preserving all content
+    // Robust body_md extraction: handle string, null, undefined, and convert non-strings to string
     let body_md: string | undefined
-    if (typeof body.body_md === 'string') {
-      body_md = body.body_md
-    } else if (body.body_md !== undefined && body.body_md !== null) {
-      // Convert to string, preserving content (handles numbers, objects, etc.)
-      body_md = String(body.body_md)
-    } else {
+    if (body.body_md === null || body.body_md === undefined) {
       body_md = undefined
+    } else if (typeof body.body_md === 'string') {
+      body_md = body.body_md // Keep as-is, even if empty (validation will catch empty strings)
+    } else {
+      // Convert non-string to string (handles numbers, objects, etc.)
+      try {
+        body_md = String(body.body_md)
+      } catch (convertError) {
+        console.error(`[insert-implementation] Failed to convert body_md to string: ${convertError instanceof Error ? convertError.message : String(convertError)}`)
+        body_md = undefined
+      }
     }
 
     // Log artifact creation request for tracing
     console.log(`[insert-implementation] Artifact creation request: ticketId=${ticketId}, artifactType=${artifactType}, title="${title}", body_md type=${typeof body.body_md}, body_md length=${body_md?.length ?? 'undefined'}`)
     
     // Additional validation: ensure body_md is actually a string and not empty
-    if (body_md !== undefined && (typeof body_md !== 'string' || body_md.length === 0)) {
-      console.error(`[insert-implementation] Invalid body_md: type=${typeof body_md}, value=${body_md?.substring(0, 100) ?? 'null/undefined'}`)
+    if (body_md === undefined || typeof body_md !== 'string' || body_md.length === 0) {
+      const errorMsg = body_md === undefined 
+        ? 'body_md is required and must be provided in the request body'
+        : typeof body_md !== 'string'
+        ? `body_md must be a string, received ${typeof body.body_md}`
+        : 'body_md must be a non-empty string'
+      console.error(`[insert-implementation] Invalid body_md: ${errorMsg}, body_md type=${typeof body.body_md}, body_md value=${body.body_md !== undefined && body.body_md !== null ? String(body.body_md).substring(0, 100) : 'null/undefined'}`)
       json(res, 400, {
         success: false,
-        error: 'body_md must be a non-empty string. Received invalid or empty body_md.',
+        error: errorMsg,
         validation_failed: true,
-        validation_reason: 'body_md is missing, empty, or not a string',
+        validation_reason: errorMsg,
       })
       return
     }
@@ -175,6 +205,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         success: false,
         error: errorMsg,
         validation_failed: true,
+        validation_reason: errorMsg,
       })
       return
     }
@@ -182,6 +213,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const contentValidation = hasSubstantiveContent(body_md, title)
     console.log(`[insert-implementation] Content validation: valid=${contentValidation.valid}, reason=${contentValidation.reason || 'none'}, body_md length=${body_md.length}`)
     if (!contentValidation.valid) {
+      const validationReason = contentValidation.reason || `Artifact body must contain substantive content (minimum 50 characters, not just placeholder text). Current length: ${body_md.length} characters.`
       // Log validation failure attempt (0175)
       await logStorageAttempt(
         supabase,
@@ -191,15 +223,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         'implementation',
         '/api/artifacts/insert-implementation',
         'rejected by validation',
-        contentValidation.reason || 'Artifact body must contain substantive content',
-        contentValidation.reason || undefined
+        validationReason,
+        validationReason
       )
-      const errorMessage = contentValidation.reason || 'Artifact body must contain substantive content, not just a title or placeholder text.'
       json(res, 400, {
         success: false,
-        error: errorMessage,
+        error: validationReason,
         validation_failed: true,
-        validation_reason: contentValidation.reason || 'Content validation failed: insufficient substantive content',
+        validation_reason: validationReason, // Include validation reason for UI display
       })
       return
     }
