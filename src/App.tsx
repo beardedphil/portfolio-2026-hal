@@ -3113,8 +3113,33 @@ function App() {
   return (
     <div className="hal-app">
       <header className="hal-header">
-        <h1>HAL</h1>
-        <span className="hal-subtitle">Agent Workspace</span>
+        <div className="hal-header-left">
+          <h1>HAL</h1>
+          <span className="hal-subtitle">Agent Workspace</span>
+        </div>
+        <div className="hal-header-center">
+          {!connectedProject ? (
+            <button type="button" className="connect-project-btn" onClick={handleGithubConnect}>
+              Connect GitHub Repo
+            </button>
+          ) : (
+            <div className="project-info">
+              {connectedGithubRepo && (
+                <span className="project-name" title={connectedGithubRepo.fullName}>
+                  {connectedGithubRepo.fullName}
+                </span>
+              )}
+              <button
+                ref={disconnectButtonRef}
+                type="button"
+                className="disconnect-btn"
+                onClick={handleDisconnectClick}
+              >
+                Disconnect
+              </button>
+            </div>
+          )}
+        </div>
         <div className="hal-header-actions">
           <button
             type="button"
@@ -3261,32 +3286,6 @@ function App() {
       <main className="hal-main">
         {/* Left column: Kanban board */}
         <section className="hal-kanban-region" aria-label="Kanban board">
-          <div className="kanban-header">
-            <h2>Kanban Board</h2>
-            <div className="kanban-header-actions">
-              {!connectedProject ? (
-                <button type="button" className="connect-project-btn" onClick={handleGithubConnect}>
-                  Connect GitHub Repo
-                </button>
-              ) : (
-                <div className="project-info">
-                  {connectedGithubRepo && (
-                    <span className="project-name">
-                      Repo: {connectedGithubRepo.fullName}
-                    </span>
-                  )}
-                  <button
-                    ref={disconnectButtonRef}
-                    type="button"
-                    className="disconnect-btn"
-                    onClick={handleDisconnectClick}
-                  >
-                    Disconnect
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
           {githubConnectError && (
             <div className="connect-error" role="alert">
               {githubConnectError}
