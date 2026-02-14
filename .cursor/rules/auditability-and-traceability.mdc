@@ -129,6 +129,7 @@ Use HAL API endpoints (tool calls) to store artifacts:
   - Store via tool call: `insert_implementation_artifact` with `artifactType: "decisions"`
 - **Verification artifact** (agent_type: `implementation`, title: `Verification for ticket <ticket-id>`)
   - QA verification steps: code review + automated checks (build, lint). No manual UI testing at QA stage — user tests in Human in the Loop after merge.
+  - **MANDATORY:** Must include TypeScript compilation check: run `npm run build:hal` (or `tsc -b`) and verify it completes with **zero TypeScript errors**. If TypeScript errors exist, the implementation is **NOT ready** and must be fixed before claiming "ready for QA".
   - If verification involves visuals, include screenshot filenames.
   - Store via tool call: `insert_implementation_artifact` with `artifactType: "verification"`
 - **PM Review artifact** (agent_type: `implementation`, title: `PM Review for ticket <ticket-id>`)

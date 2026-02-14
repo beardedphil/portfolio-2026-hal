@@ -12,6 +12,8 @@ alwaysApply: true
 **Before sending ANY summary message, verify ALL of these are complete:**
 
 - [ ] Code implemented and tested
+- [ ] **TypeScript compilation passes with zero errors** — Run `npm run build:hal` (or `tsc -b`) and verify it completes successfully. **NON-NEGOTIABLE:** TypeScript errors are blocking. Fix all TypeScript errors before proceeding.
+- [ ] **Build succeeds** — Run `npm run build:hal` and verify the build completes without errors. This ensures Vercel deployments will succeed.
 - [ ] All changes committed to feature branch (with ticket ID in commit message)
 - [ ] Feature branch pushed to remote
 - [ ] **All 6 artifacts stored in Supabase** (plan, worklog, changed-files, decisions, verification, pm-review)
@@ -52,8 +54,9 @@ alwaysApply: true
 
 - **Scenario:** Implementation cloud agent can create/push a feature branch, but the separate QA cloud agent **cannot access non-`main` branches** (e.g., due to cloud environment restrictions). This is the standard workflow for cloud agents.
 - **When ready for QA:** The implementation agent must:
-  1. Verify the feature branch is clean and pushed to remote.
-  2. **Store all required artifacts in Supabase** by including tool calls in your message:
+  1. **Run `npm run build:hal` (or `tsc -b`) and verify it completes with zero TypeScript errors**. **NON-NEGOTIABLE:** TypeScript errors are blocking. Fix all TypeScript errors before proceeding.
+  2. Verify the feature branch is clean and pushed to remote.
+  3. **Store all required artifacts in Supabase** by including tool calls in your message:
      ```json
      {
        "tool": "insert_implementation_artifact",
@@ -66,10 +69,10 @@ alwaysApply: true
      }
      ```
      (Repeat for each required artifact: plan, worklog, changed-files, decisions, verification, pm-review)
-  3. **Merge the feature branch into `main`** (with a commit message that includes the ticket ID, e.g., `merge(0056): merge feature branch to main for cloud QA access`).
-  4. Push `main` to remote.
-  5. **Kill HAL** (`npx --yes kill-port 5173 5174`), **pull from main** (`git pull origin main`), **restart HAL** (`npm run dev` in background).
-  6. **Update the ticket body** by including a tool call in your message:
+  4. **Merge the feature branch into `main`** (with a commit message that includes the ticket ID, e.g., `merge(0056): merge feature branch to main for cloud QA access`).
+  5. Push `main` to remote.
+  6. **Kill HAL** (`npx --yes kill-port 5173 5174`), **pull from main** (`git pull origin main`), **restart HAL** (`npm run dev` in background).
+  7. **Update the ticket body** by including a tool call in your message:
      ```json
      {
        "tool": "update_ticket_body",
@@ -79,8 +82,8 @@ alwaysApply: true
        }
      }
      ```
-  7. Mark the ticket as "Merged to main for QA" (add this note to the ticket body).
-  8. **Move the ticket to QA column** by including a tool call in your message:
+  8. Mark the ticket as "Merged to main for QA" (add this note to the ticket body).
+  9. **Move the ticket to QA column** by including a tool call in your message:
      ```json
      {
        "tool": "move_ticket_column",
@@ -90,7 +93,7 @@ alwaysApply: true
        }
      }
      ```
-  9. Then send the completion/summary message including the branch name, merge note, and `git status -sb`.
+  10. Then send the completion/summary message including the branch name, merge note, and `git status -sb`.
 - **Why:** Cloud QA agents may only have access to `main` branch. Merging to `main` makes the changes accessible for QA review and testing.
 
 ## Artifacts storage requirement (implementation agent)
@@ -114,8 +117,8 @@ alwaysApply: true
 
 ## Sequence: push first, merge to main, then summarize
 
-- The moment you **think** you're done (implementation complete, audit written, etc.) is when you **commit and push** — not after you've already told the user.
-- **First:** commit all relevant changes, **push the feature branch** to GitHub, **merge the feature branch into `main`** (with a commit message that includes the ticket ID, e.g., `merge(0060): merge feature branch to main`), push `main`, **delete the feature branch** (local and remote).
+- The moment you **think** you're done (implementation complete, audit written, etc.) is when you **verify TypeScript compilation and build** — not after you've already told the user.
+- **First:** **Run `npm run build:hal` (or `tsc -b`) and verify it completes with zero TypeScript errors**. **NON-NEGOTIABLE:** TypeScript errors are blocking. Fix all TypeScript errors before proceeding. Then commit all relevant changes, **push the feature branch** to GitHub, **merge the feature branch into `main`** (with a commit message that includes the ticket ID, e.g., `merge(0060): merge feature branch to main`), push `main`, **delete the feature branch** (local and remote).
 - **After merge, before summarizing (implementation agent):** After merging to `main` and pushing `main`, and before updating the ticket body or sending the summary message:
   1. **Kill HAL:** Stop the dev server (e.g. `npx --yes kill-port 5173 5174` to free HAL and Kanban ports).
   2. **Pull from main:** Run `git pull origin main` (you should already be on `main`).
@@ -138,7 +141,7 @@ alwaysApply: true
 ## Before you reply: the gate
 
 - **If you are about to send a message** that summarizes completed work, or that includes any of: "done", "complete", "ready", "looks good", "here's what I did", "Implementation complete", "Summary:", or similar — **STOP**.
-- **First** run: `git status -sb`. If there are any `M` (modified) or `??` (untracked) relevant to the task: run `git add`, `git commit -m '...'` (with ticket ID in subject), `git push` (feature branch), **store all 6 required artifacts in Supabase** by calling HAL API directly or writing to queue file, **verify artifacts were stored** by calling `/api/artifacts/get`, then **merge the feature branch into `main`** (with a commit message that includes the ticket ID, e.g., `merge(0060): merge feature branch to main`), push `main`, **delete the feature branch** (local and remote). Then **kill HAL** (`npx --yes kill-port 5173 5174`), **pull from main** (`git pull origin main`), **restart HAL** (`npm run dev` in background), **update the ticket body** by including a tool call in your message with the branch name, merge note, and a note that all artifacts are stored in Supabase, and **move the ticket to QA column** by including a tool call in your message with `{ ticketId: "<id>", columnId: "col-qa" }`. Then run `git status -sb` again.
+- **First** run: `git status -sb`. If there are any `M` (modified) or `??` (untracked) relevant to the task: **run `npm run build:hal` (or `tsc -b`) and verify it completes with zero TypeScript errors**. **NON-NEGOTIABLE:** If TypeScript errors exist, fix them before proceeding. Then run `git add`, `git commit -m '...'` (with ticket ID in subject), `git push` (feature branch), **store all 6 required artifacts in Supabase** by calling HAL API directly or writing to queue file, **verify artifacts were stored** by calling `/api/artifacts/get`, then **merge the feature branch into `main`** (with a commit message that includes the ticket ID, e.g., `merge(0060): merge feature branch to main`), push `main`, **delete the feature branch** (local and remote). Then **kill HAL** (`npx --yes kill-port 5173 5174`), **pull from main** (`git pull origin main`), **restart HAL** (`npm run dev` in background), **update the ticket body** by including a tool call in your message with the branch name, merge note, and a note that all artifacts are stored in Supabase, and **move the ticket to QA column** by including a tool call in your message with `{ ticketId: "<id>", columnId: "col-qa" }`. Then run `git status -sb` again.
 - **Only after** the working tree is clean, **all 6 required artifacts are verified as stored in Supabase** (via `/api/artifacts/get`), the feature branch is merged to main, the branch is deleted, HAL has been restarted on latest main, the **branch name is added to the ticket**, and the **ticket is moved to QA column** may you send that message — and your message **must** include the **branch name** and the exact `git status -sb` output.
 - **CRITICAL:** If artifact storage or verification fails, do **not** claim "ready" or "done". Fix the artifact storage issue first. QA will fail tickets with missing artifacts.
 - **MANDATORY:** Always merge to main and delete the feature branch before sending any summary message. Never send a summary while still on a feature branch.

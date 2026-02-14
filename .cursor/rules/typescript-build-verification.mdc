@@ -1,0 +1,83 @@
+---
+description: TypeScript compilation and build verification requirements (non-negotiable)
+alwaysApply: true
+---
+
+# TypeScript Build Verification (Non-Negotiable)
+
+**CRITICAL:** All implementation work must pass TypeScript compilation and build verification before being marked "ready for QA". This is **non-negotiable** and prevents Vercel deployment failures.
+
+## Mandatory Verification Steps
+
+**Before claiming "ready for QA" or "done", the implementation agent MUST:**
+
+1. **Run TypeScript compilation check:**
+   ```bash
+   npm run build:hal
+   ```
+   OR
+   ```bash
+   tsc -b
+   ```
+
+2. **Verify zero TypeScript errors:**
+   - The command must complete with exit code 0
+   - No TypeScript errors may be present in the output
+   - All type errors must be fixed before proceeding
+
+3. **Verify build succeeds:**
+   - `npm run build:hal` must complete successfully
+   - This ensures Vercel deployments will succeed
+
+## When to Run Verification
+
+- **Before committing:** Run TypeScript check after code changes
+- **Before pushing:** Verify build passes before pushing to remote
+- **Before marking "ready":** Final verification must pass before claiming "ready for QA"
+- **In Verification artifact:** Document that TypeScript compilation passed with zero errors
+
+## Failure Handling
+
+**If TypeScript errors exist:**
+- **STOP** — Do not commit, push, or claim "ready"
+- Fix all TypeScript errors
+- Re-run verification until it passes
+- Only then proceed with commit/push/ready workflow
+
+**If build fails:**
+- **STOP** — Do not commit, push, or claim "ready"
+- Fix the build errors
+- Re-run verification until it passes
+- Only then proceed with commit/push/ready workflow
+
+## Verification Artifact Requirement
+
+The Verification artifact **must** include:
+- Confirmation that `npm run build:hal` (or `tsc -b`) was run
+- Confirmation that it completed with **zero TypeScript errors**
+- Confirmation that the build succeeded
+
+**Example:**
+```markdown
+## Automated Checks
+- ✅ TypeScript compilation: `npm run build:hal` completed with zero errors
+- ✅ Build: `npm run build:hal` succeeded
+- ✅ Linter: No errors
+```
+
+## Why This Matters
+
+- **Vercel deployments fail** if TypeScript errors exist
+- **Build failures block** deployment and prevent user testing
+- **Type safety** prevents runtime errors
+- **Consistency** ensures all code is properly typed
+
+## Commands Reference
+
+- **TypeScript check:** `npm run build:hal` or `tsc -b`
+- **Full build:** `npm run build:hal` (includes TypeScript + Vite build)
+- **Agents only:** `npm run build:agents` (TypeScript check for agents code)
+
+## Summary
+
+**NON-NEGOTIABLE:** TypeScript compilation must pass with zero errors before any work is marked "ready for QA". Build must succeed. No exceptions.
