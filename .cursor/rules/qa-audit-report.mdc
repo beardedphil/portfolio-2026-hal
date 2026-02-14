@@ -118,22 +118,25 @@ QA RESULT: FAIL — 0076
 
 ## Storing QA report
 
-**Send a tool call to HAL in your message:**
+**CRITICAL: You must make actual HTTP API calls, not just include JSON blocks in your message.**
 
-Include this JSON block in your message:
+**How to store the QA report:**
 
-```json
-{
-  "tool": "insert_qa_artifact",
-  "params": {
-    "ticketId": "0076",
-    "title": "QA report for ticket 0076",
-    "body_md": "# QA Report\n\n..."
-  }
-}
+1. Read the API base URL from `.hal/api-base-url` (if it exists)
+2. Make an HTTP POST request to `${baseUrl}/api/artifacts/insert-qa` with:
+   - Headers: `Content-Type: application/json`
+   - Body: `{ "ticketId": "0076", "title": "QA report for ticket 0076", "body_md": "<full markdown content>" }`
+3. Use `curl` or `run_terminal_cmd` to execute the API call
+4. Verify the response indicates success
+
+**Example:**
+```bash
+curl -X POST ${baseUrl}/api/artifacts/insert-qa \
+  -H "Content-Type: application/json" \
+  -d '{"ticketId":"0076","title":"QA report for ticket 0076","body_md":"# QA Report\n\n..."}'
 ```
 
-HAL will parse this from your message, execute it, and store the artifact in Supabase. You don't need API URLs or credentials - just include the JSON in your message.
+**DO NOT** just include JSON blocks in your message text - you must actually execute the API calls using terminal commands or HTTP requests.
 
 ## QA completion: do not hand off to the user
 
@@ -153,36 +156,23 @@ When the verdict is **PASS (OK to merge)**, QA must **complete the full workflow
 
 **If you are verifying from the feature branch** (normal workflow):
 
-1. **Store QA report in Supabase** — Include a tool call in your message:
-   ```json
-   {
-     "tool": "insert_qa_artifact",
-     "params": {
-       "ticketId": "0076",
-       "title": "QA report for ticket 0076",
-       "body_md": "# QA Report\n\n..."
-     }
-   }
+1. **Store QA report in Supabase** — Make an HTTP POST request to `${baseUrl}/api/artifacts/insert-qa`:
+   ```bash
+   curl -X POST ${baseUrl}/api/artifacts/insert-qa \
+     -H "Content-Type: application/json" \
+     -d '{"ticketId":"0076","title":"QA report for ticket 0076","body_md":"<markdown>"}'
    ```
-2. **Update ticket body** (optional) — If needed, include a tool call to update the ticket body:
-   ```json
-   {
-     "tool": "update_ticket_body",
-     "params": {
-       "ticketId": "0076",
-       "body_md": "# Updated ticket body..."
-     }
-   }
+2. **Update ticket body** (optional) — If needed, make an HTTP POST request to `${baseUrl}/api/tickets/update`:
+   ```bash
+   curl -X POST ${baseUrl}/api/tickets/update \
+     -H "Content-Type: application/json" \
+     -d '{"ticketId":"0076","body_md":"<updated markdown>"}'
    ```
-3. **Move ticket to Human in the Loop** — Include a tool call:
-   ```json
-   {
-     "tool": "move_ticket_column",
-     "params": {
-       "ticketId": "0076",
-       "columnId": "col-human-in-the-loop"
-     }
-   }
+3. **Move ticket to Human in the Loop** — Make an HTTP POST request to `${baseUrl}/api/tickets/move`:
+   ```bash
+   curl -X POST ${baseUrl}/api/tickets/move \
+     -H "Content-Type: application/json" \
+     -d '{"ticketId":"0076","columnId":"col-human-in-the-loop"}'
    ```
 4. **Merge to main** — checkout `main`, merge the feature branch, push `main`.
 5. **Delete the feature branch** — local and remote (see `delete-branch-after-merge.mdc`).
@@ -190,9 +180,9 @@ When the verdict is **PASS (OK to merge)**, QA must **complete the full workflow
 
 **If you are verifying from `main`** (implementation was merged to main for QA access):
 
-1. **Store QA report in Supabase** — Include a tool call in your message. Include a note in the report that verification was performed against `main`.
-2. **Update ticket body** (optional) — If needed, include a tool call to note that verification was performed against `main`.
-3. **Move ticket to Human in the Loop** — Include a tool call to move the ticket.
+1. **Store QA report in Supabase** — Make an HTTP POST request to `${baseUrl}/api/artifacts/insert-qa`. Include a note in the report that verification was performed against `main`.
+2. **Update ticket body** (optional) — If needed, make an HTTP POST request to `${baseUrl}/api/tickets/update` to note that verification was performed against `main`.
+3. **Move ticket to Human in the Loop** — Make an HTTP POST request to `${baseUrl}/api/tickets/move`.
 4. **Then** give your summary to the user. **The final message must include:** `QA RESULT: PASS — <ticket-id>` (see "Completion message format requirement" above).
 
 Do not give a summary with "next steps" or "run these commands" — QA performs the merge (or confirms main) and branch deletion where applicable. The user receives the completed result.
@@ -201,51 +191,52 @@ Do not give a summary with "next steps" or "run these commands" — QA performs 
 - **If verdict is FAIL:** Do not merge. Store the QA report in Supabase, then **YOU MUST move the ticket to the top of To-do** (`col-todo` column) via HAL API. **This is MANDATORY** - failing to move the ticket to To-do means the QA workflow is incomplete. Summarize findings and recommend a bugfix ticket (see `bugfix-tracking.mdc`). **The final message must include:** `QA RESULT: FAIL — <ticket-id>` (see "Completion message format requirement" above).
   
   **FAIL workflow:**
-  1. **Store QA report in Supabase** — Include a tool call in your message:
-     ```json
-     {
-       "tool": "insert_qa_artifact",
-       "params": {
-         "ticketId": "0076",
-         "title": "QA report for ticket 0076",
-         "body_md": "# QA Report\n\n..."
-       }
-     }
+  1. **Store QA report in Supabase** — Make an HTTP POST request to `${baseUrl}/api/artifacts/insert-qa`:
+     ```bash
+     curl -X POST ${baseUrl}/api/artifacts/insert-qa \
+       -H "Content-Type: application/json" \
+       -d '{"ticketId":"0076","title":"QA report for ticket 0076","body_md":"<markdown>"}'
      ```
-  2. **Move ticket to To-do** — **REQUIRED**: You MUST include this tool call. The ticket MUST be moved to `col-todo` when QA fails. This is not optional. Include a tool call to move the ticket to `col-todo`:
-     ```json
-     {
-       "tool": "move_ticket_column",
-       "params": {
-         "ticketId": "0076",
-         "columnId": "col-todo"
-       }
-     }
+  2. **Move ticket to To-do** — **REQUIRED**: You MUST make an HTTP POST request to `${baseUrl}/api/tickets/move`. The ticket MUST be moved to `col-todo` when QA fails. This is not optional:
+     ```bash
+     curl -X POST ${baseUrl}/api/tickets/move \
+       -H "Content-Type: application/json" \
+       -d '{"ticketId":"0076","columnId":"col-todo"}'
      ```
      **Note:** The goal is to move failed tickets to the **top** of the To-do column for priority handling. The current move API (`/api/tickets/move`) appends tickets to the end of the column. If the API is enhanced in the future to support position parameters, use position 0 or a negative value to place at the top. For now, moving to `col-todo` satisfies the requirement even if it's at the end initially.
   3. **Then** give your summary to the user. **The final message must include:** `QA RESULT: FAIL — <ticket-id>`.
 
-## HAL Tool Call Contract
+## HAL API Calls
 
-All Supabase operations are sent to HAL as **tool calls** in your messages. HAL parses and executes them automatically.
+**CRITICAL: You must make actual HTTP API calls using terminal commands (curl) or run_terminal_cmd tool, not just include JSON blocks in your message.**
 
-**Available tools:**
+All Supabase operations must be executed via HTTP POST requests to HAL API endpoints.
 
-- **`insert_qa_artifact`** — Store QA report in Supabase
-  - Params: `{ ticketId: string, title: string, body_md: string }`
+**Available API endpoints:**
 
-- **`update_ticket_body`** — Update ticket body in Supabase
-  - Params: `{ ticketId: string, body_md: string }`
+- **`POST /api/artifacts/insert-qa`** — Store QA report in Supabase
+  - Body: `{ ticketId: string, title: string, body_md: string }`
+  - Example: `curl -X POST ${baseUrl}/api/artifacts/insert-qa -H "Content-Type: application/json" -d '{"ticketId":"0076","title":"QA report","body_md":"..."}'`
 
-- **`move_ticket_column`** — Move ticket to different column
-  - Params: `{ ticketId: string, columnId: string }`
+- **`POST /api/tickets/update`** — Update ticket body in Supabase
+  - Body: `{ ticketId: string, body_md: string }`
+  - Example: `curl -X POST ${baseUrl}/api/tickets/update -H "Content-Type: application/json" -d '{"ticketId":"0076","body_md":"..."}'`
 
-- **`get_ticket_content`** — Fetch ticket content
-  - Params: `{ ticketId: string }`
+- **`POST /api/tickets/move`** — Move ticket to different column
+  - Body: `{ ticketId: string, columnId: string }`
+  - Example: `curl -X POST ${baseUrl}/api/tickets/move -H "Content-Type: application/json" -d '{"ticketId":"0076","columnId":"col-todo"}'`
 
-**How to use:** Include tool calls as JSON blocks in your messages. HAL will parse and execute them. You don't need API URLs or credentials.
+- **`POST /api/tickets/get`** — Fetch ticket content
+  - Body: `{ ticketId: string }`
+  - Example: `curl -X POST ${baseUrl}/api/tickets/get -H "Content-Type: application/json" -d '{"ticketId":"0076"}'`
 
-See `docs/process/agent-supabase-api-paradigm.mdc` for full documentation.
+**How to use:**
+1. Read the API base URL from `.hal/api-base-url` (if it exists)
+2. Use `run_terminal_cmd` tool with `curl` to make HTTP POST requests
+3. Verify the response indicates success before proceeding
+4. **DO NOT** just include JSON blocks in your message - you must actually execute the API calls
+
+**Important:** The instructions previously said to "include JSON blocks in your message" - this is incorrect. You must make actual HTTP API calls.
 
 ## Scope
 
