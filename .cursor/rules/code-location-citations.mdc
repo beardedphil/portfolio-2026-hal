@@ -1,5 +1,5 @@
 ---
-description: Require agents to cite specific file paths and line numbers when referencing where functionality is implemented
+description: Require agents to cite specific file paths and line numbers/symbols when referencing where functionality is implemented
 alwaysApply: true
 ---
 
@@ -82,9 +82,17 @@ When answering "where is X implemented?" or providing guidance:
 
 ## Verification
 
-Reviewers should be able to:
+Citations must be **human-verifiable** — a reviewer should be able to:
 1. Quickly locate the cited file
 2. Navigate to the specific line number or symbol
 3. Verify the claimed functionality exists at that location
 
 If a citation is missing or insufficient, the reviewer should request clarification with a proper citation format.
+
+**When in doubt, provide more specific citations** (line numbers + symbol names) rather than less.
+
+## Scope
+
+- Applies to **all agents** (implementation, QA, PM) when referencing code locations
+- Citations must be **human-verifiable** — a reviewer should be able to open the file and find the referenced location
+- When in doubt, provide **more specific citations** (line numbers + symbol names) rather than less
