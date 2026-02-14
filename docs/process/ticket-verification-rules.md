@@ -40,6 +40,25 @@ This document defines how we decide a ticket is **properly completed**.
 - **Traceability**: changed-files artifact matches what actually changed
 - **Risk notes**: decisions artifact lists meaningful assumptions/trade-offs
 
+## Testing Scenarios Requirement
+
+**MANDATORY:** When agents verify acceptance criteria, they must include a **"Testing scenarios used"** section in their artifacts. This requirement is enforced via `.cursor/rules/testing-scenarios-requirement.mdc`.
+
+### Requirements
+
+- **Implementation agents:** Must include testing scenarios in the **Verification artifact** (`artifactType: "verification"`)
+- **QA agents:** Must include testing scenarios in the **QA Report** (`artifactType: "qa-report"`)
+- **PM/Process review agents:** Must include testing scenarios in the **PM Review artifact** when applicable (`artifactType: "pm-review"`)
+
+### Minimum Content
+
+Each "Testing scenarios used" section must include:
+- At least **1 happy-path scenario** (1-3 bullets describing UI state/inputs used)
+- At least **2 edge/negative scenarios** (1-3 bullets each, describing UI state/inputs used)
+- Concrete UI state/inputs (no vague "tested it works" language)
+
+See `.cursor/rules/testing-scenarios-requirement.mdc` for complete requirements, examples, and integration details.
+
 ## Where to put new verification rules
 
 Add new rules here as additional sections. If a rule needs enforcing at agent-time, we can later mirror it into `.cursor/rules/`.
