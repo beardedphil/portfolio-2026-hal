@@ -201,6 +201,27 @@ A toggle button labeled "Dark mode" appears in the Settings page. Clicking it sw
 - [ ] No obvious broken layout: element isn't off-screen/overlapped/behind an overlay unintentionally.
 - [ ] A quick refresh/reload does not break the UI behavior (if applicable).
 
+### Chat persistence after disconnect/reconnect (required for chat-related tickets)
+
+**Note:** This checklist is **required for any ticket that affects chat functionality** (e.g., chat UI changes, message handling, conversation state, agent chat features). It verifies that chat persistence across disconnect/reconnect (HAL-0097) is not regressed.
+
+- [ ] **Start a chat**: Open a chat with any agent (Project Manager, Implementation Agent, QA Agent) and send at least one message. Verify the message appears in the chat thread.
+- [ ] **Disconnect/reconnect**: Click "Disconnect" button, then reconnect to the same repository (or refresh the page if testing refresh behavior).
+- [ ] **Verify thread and messages remain visible**: After reconnect, the same chat thread is visible in the chat preview stack, and opening it shows all previous messages (same thread ID, message count unchanged from before disconnect).
+- [ ] **Send a new message after reconnect**: Send a new message in the reconnected chat thread.
+- [ ] **Verify no duplicates/blank messages**: Confirm that:
+  - No duplicate chat threads were created (only one chat preview per agent type)
+  - No empty message shells or blank messages appear in the conversation
+  - The new message appears correctly after the previous messages
+  - Message count matches expected value (previous messages + new message)
+
+**Expected UI results:**
+- Same thread ID visible (chat preview shows same conversation)
+- Message count unchanged from before disconnect (all previous messages present)
+- No empty shells or blank messages in the conversation
+- New messages append correctly after reconnect
+- No duplicate chat previews in the chat preview stack
+
 ## Constraints
 
 - Keep this task as small as possible while still producing a **human-verifiable** UI change.
