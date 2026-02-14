@@ -491,6 +491,19 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
 
   const sections: string[] = []
 
+  // MANDATORY: Load basic instructions from Supabase first
+  sections.push(
+    '## MANDATORY: Load Your Instructions First\n\n' +
+    '**BEFORE responding to the user, you MUST load your basic instructions from Supabase using the `get_instruction_set` tool.**\n\n' +
+    '**Use the tool:** `get_instruction_set({ topicId: "project-manager-basic" })` or load all basic instructions for project-manager agent type.\n\n' +
+    '**The instructions from Supabase contain:**\n' +
+    '- Required workflows and procedures\n' +
+    '- How to evaluate ticket readiness\n' +
+    '- Code citation requirements\n' +
+    '- All other mandatory PM agent workflows\n\n' +
+    '**DO NOT proceed with responding until you have loaded and read your instructions from Supabase.**\n'
+  )
+
   // Conversation so far: pre-built context pack (e.g. summary + recent from DB) or bounded history
   let hasConversation = false
   if (config.conversationContextPack && config.conversationContextPack.trim() !== '') {
