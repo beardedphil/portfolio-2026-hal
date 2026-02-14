@@ -454,27 +454,6 @@ function App() {
     }
   }, [theme])
 
-  // Handle Esc key and focus management for disconnect confirmation modal (0142)
-  useEffect(() => {
-    if (!disconnectConfirmOpen) return
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        handleDisconnectCancel()
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyDown)
-    // Focus the confirm button when modal opens
-    setTimeout(() => {
-      disconnectConfirmButtonRef.current?.focus()
-    }, 0)
-
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [disconnectConfirmOpen, handleDisconnectCancel])
-
   // Restore connected GitHub repo from localStorage on load (0119: fix repo display after refresh)
   // The repo state is restored for UI display; Kanban will receive the connection message when the iframe loads
   // Note: If GitHub auth fails, refreshGithubAuth will clear the restored repo
@@ -2521,6 +2500,27 @@ function App() {
       disconnectButtonRef.current?.focus()
     }, 0)
   }, [])
+
+  // Handle Esc key and focus management for disconnect confirmation modal (0142)
+  useEffect(() => {
+    if (!disconnectConfirmOpen) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        handleDisconnectCancel()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    // Focus the confirm button when modal opens
+    setTimeout(() => {
+      disconnectConfirmButtonRef.current?.focus()
+    }, 0)
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [disconnectConfirmOpen, handleDisconnectCancel])
 
   const previousResponseIdInLastRequest =
     lastPmOutboundRequest != null &&
