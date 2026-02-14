@@ -3445,15 +3445,6 @@ function App() {
                     })()}
                     <button
                       type="button"
-                      className="chat-window-return-link"
-                      onClick={() => {
-                        setOpenChatTarget(null)
-                      }}
-                    >
-                      Return to Kanban
-                    </button>
-                    <button
-                      type="button"
                       className={`chat-window-close ${openChatTarget === 'project-manager' ? 'chat-window-close-pm' : ''}`}
                       onClick={() => {
                         setOpenChatTarget(null)

@@ -690,32 +690,6 @@ body {
   gap: 1rem;
 }
 
-.chat-window-return-link {
-  padding: 0.4rem 0.75rem;
-  font-size: 0.85rem;
-  color: var(--hal-purple-600);
-  background: transparent;
-  border: 1px solid var(--hal-purple-600);
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background-color 0.15s, color 0.15s;
-}
-
-.chat-window-return-link:hover {
-  background: var(--hal-purple-600);
-  color: white;
-}
-
-[data-theme='dark'] .chat-window-return-link {
-  color: var(--hal-purple-400);
-  border-color: var(--hal-purple-400);
-}
-
-[data-theme='dark'] .chat-window-return-link:hover {
-  background: var(--hal-purple-400);
-  color: var(--hal-text);
-}
-
 .chat-window-close {
   width: 2rem;
   height: 2rem;
