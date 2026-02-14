@@ -1843,13 +1843,13 @@ function SortableCard({
   card,
   columnId,
   onOpenDetail,
-  agentRun,
+  activeWorkAgentType,
   isSaving = false,
 }: {
   card: Card
   columnId: string
   onOpenDetail?: (cardId: string) => void
-  agentRun?: SupabaseAgentRunRow | null
+  activeWorkAgentType?: 'Implementation' | 'QA' | null
   isSaving?: boolean
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -1864,9 +1864,10 @@ function SortableCard({
   const handleCardClick = () => {
     if (onOpenDetail) onOpenDetail(card.id)
   }
-  // Show badge for Doing column tickets: agent name if working, "Unassigned" if not
+  // Show badge for Doing column tickets: use activeWorkAgentType (set from source column) or "Unassigned" (0135)
   const showAgentBadge = columnId === 'col-doing'
-  const agentName = agentRun?.agent_type === 'implementation' ? 'Implementation' : agentRun?.agent_type === 'qa' ? 'QA' : null
+  // Use activeWorkAgentType from state (set based on source column) instead of database lookup (0135)
+  const agentName = activeWorkAgentType || null
   const badgeText = agentName || 'Unassigned'
   const badgeTitle = agentName ? `Working: ${agentName} Agent` : 'No agent currently working'
   return (
@@ -1920,10 +1921,10 @@ function SortableColumn({
   supabaseTickets = [],
   updateSupabaseTicketKanban,
   refetchSupabaseTickets,
-  agentRunsByTicketPk = {},
   pendingMoves = new Set(),
   fetchActiveAgentRuns,
   setActiveWorkAgentTypes,
+  activeWorkAgentTypes = {},
 }: {
   col: Column
   cards: Record<string, Card>
@@ -1935,10 +1936,10 @@ function SortableColumn({
   supabaseTickets?: SupabaseTicketRow[]
   updateSupabaseTicketKanban?: (pk: string, updates: { kanban_column_id?: string; kanban_position?: number; kanban_moved_at?: string }) => Promise<{ ok: true } | { ok: false; error: string }>
   refetchSupabaseTickets?: (skipPendingMoves?: boolean) => Promise<{ success: boolean; freshTickets?: SupabaseTicketRow[] }>
-  agentRunsByTicketPk?: Record<string, SupabaseAgentRunRow>
   pendingMoves?: Set<string>
   fetchActiveAgentRuns?: (freshTickets?: SupabaseTicketRow[]) => Promise<void>
   setActiveWorkAgentTypes?: React.Dispatch<React.SetStateAction<Record<string, 'Implementation' | 'QA'>>>
+  activeWorkAgentTypes?: Record<string, 'Implementation' | 'QA'>
 }) {
   const halCtx = useContext(HalKanbanContext)
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
@@ -2184,15 +2185,15 @@ function SortableColumn({
           {col.cardIds.map((cardId) => {
             const card = cards[cardId]
             if (!card) return null
-            const agentRun = agentRunsByTicketPk[cardId] || null
+            const activeWorkAgentType = activeWorkAgentTypes[cardId] || null
             return (
               <SortableCard
                 key={card.id}
                 card={card}
                 columnId={col.id}
                 onOpenDetail={onOpenDetail}
-                agentRun={agentRun}
-                isSaving={pendingMoves.has(card.id)}
+                activeWorkAgentType={activeWorkAgentType}
+                isSaving={pendingMoves.has(cardId)}
               />
             )
           })}
@@ -2340,9 +2341,10 @@ function App() {
   const [_supabaseNotInitialized, setSupabaseNotInitialized] = useState(false)
   const [_selectedSupabaseTicketId, setSelectedSupabaseTicketId] = useState<string | null>(null)
   const [_selectedSupabaseTicketContent, setSelectedSupabaseTicketContent] = useState<string | null>(null)
-  // Agent runs for Doing column tickets (0114)
+  // Agent runs for Doing column tickets (0114) - kept for compatibility but not used for badges (0135)
+  // @ts-expect-error - kept for compatibility, setAgentRunsByTicketPk is still used in fetchActiveAgentRuns
   const [agentRunsByTicketPk, setAgentRunsByTicketPk] = useState<Record<string, SupabaseAgentRunRow>>({})
-  // Agent type labels for Active work section (0135) - simple string storage, no DB
+  // Agent type labels for Active work section (0135) - simple string storage based on source column, no DB
   const [activeWorkAgentTypes, setActiveWorkAgentTypes] = useState<Record<string, 'Implementation' | 'QA'>>({})
   // Sync with Docs removed (Supabase-only) (0065)
   // Ticket persistence tracking (0047)
@@ -2412,9 +2414,6 @@ function App() {
     }
     return map
   }, [sourceTickets])
-
-  /** Agent runs: from HAL when library mode, else from our own fetch */
-  const displayAgentRunsByTicketPk = halCtx?.agentRunsByTicketPk ?? agentRunsByTicketPk
 
   /** Connect to Supabase with given url/key; sets status, tickets, errors. */
   const connectSupabase = useCallback(async (url: string, key: string) => {
@@ -3847,6 +3846,20 @@ function App() {
             delete next[ticketPk]
             return next
           })
+        } else if (!wasInDoing && isMovingToDoing) {
+          // Ticket moving to Doing - set badge based on source column (0135)
+          // col-todo or col-unassigned → Implementation, col-qa → QA, others → Unassigned
+          const sourceColumnId = ticket?.kanban_column_id || null
+          let agentType: 'Implementation' | 'QA' | null = null
+          if (sourceColumnId === 'col-todo' || sourceColumnId === 'col-unassigned' || !sourceColumnId) {
+            agentType = 'Implementation'
+          } else if (sourceColumnId === 'col-qa') {
+            agentType = 'QA'
+          }
+          // Set badge immediately based on source column (0135)
+          if (agentType) {
+            setActiveWorkAgentTypes((prev) => ({ ...prev, [ticketPk]: agentType! }))
+          }
         }
         
         setSupabaseTickets((prev) =>
@@ -4114,6 +4127,20 @@ function App() {
               delete next[ticketPk]
               return next
             })
+          } else if (!wasInDoing && isMovingToDoing) {
+            // Ticket moving to Doing - set badge based on source column (0135)
+            // col-todo or col-unassigned → Implementation, col-qa → QA, others → Unassigned
+            const sourceColumnId = sourceTicket?.kanban_column_id || null
+            let agentType: 'Implementation' | 'QA' | null = null
+            if (sourceColumnId === 'col-todo' || sourceColumnId === 'col-unassigned' || !sourceColumnId) {
+              agentType = 'Implementation'
+            } else if (sourceColumnId === 'col-qa') {
+              agentType = 'QA'
+            }
+            // Set badge immediately based on source column (0135)
+            if (agentType) {
+              setActiveWorkAgentTypes((prev) => ({ ...prev, [ticketPk]: agentType! }))
+            }
           }
           
           // Optimistic update (0047)
@@ -4833,10 +4860,10 @@ ${notes || '(none provided)'}
                   supabaseTickets={supabaseTickets}
                   updateSupabaseTicketKanban={updateSupabaseTicketKanban}
                   refetchSupabaseTickets={refetchSupabaseTickets}
-                  agentRunsByTicketPk={displayAgentRunsByTicketPk}
                   pendingMoves={pendingMoves}
                   fetchActiveAgentRuns={fetchActiveAgentRuns}
                   setActiveWorkAgentTypes={setActiveWorkAgentTypes}
+                  activeWorkAgentTypes={activeWorkAgentTypes}
                 />
               ))}
             </div>
