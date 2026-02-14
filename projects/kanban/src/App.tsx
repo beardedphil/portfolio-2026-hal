@@ -2351,6 +2351,8 @@ function App() {
   }, [halCtx?.theme])
 
   const [supabaseTickets, setSupabaseTickets] = useState<SupabaseTicketRow[]>([])
+  // Ref to always get latest tickets in fetchActiveAgentRuns (0135) - prevents stale closure values
+  const supabaseTicketsRef = useRef<SupabaseTicketRow[]>([])
   const [supabaseColumnsRows, setSupabaseColumnsRows] = useState<SupabaseKanbanColumnRow[]>([])
   const [supabaseLastRefresh, setSupabaseLastRefresh] = useState<Date | null>(null)
   const [supabaseColumnsLastRefresh, setSupabaseColumnsLastRefresh] = useState<Date | null>(null)
@@ -2740,10 +2742,12 @@ function App() {
     if (!url || !key || !connectedRepoFullName) return
     try {
       const client = createClient(url, key)
-      // Get all tickets in Doing column - use functional state update to get latest tickets (0135)
+      // Get all tickets in Doing column - use ref to always get latest tickets (0135)
+      // This prevents stale closure values when function is called after ticket moves
       setAgentRunsByTicketPk((prevRuns) => {
-        // Get current tickets in Doing column from latest state
-        const doingTickets = supabaseTickets.filter((t) => t.kanban_column_id === 'col-doing')
+        // Get current tickets in Doing column from ref (always latest value)
+        const currentTickets = supabaseTicketsRef.current
+        const doingTickets = currentTickets.filter((t) => t.kanban_column_id === 'col-doing')
         const ticketPkSet = new Set(doingTickets.map((t) => t.pk))
         
         // Immediately clear runs for tickets that are no longer in Doing (0135)
@@ -2759,8 +2763,9 @@ function App() {
         return cleanedRuns
       })
       
-      // Then fetch fresh runs for tickets currently in Doing
-      const doingTickets = supabaseTickets.filter((t) => t.kanban_column_id === 'col-doing')
+      // Then fetch fresh runs for tickets currently in Doing - use ref for latest tickets (0135)
+      const currentTickets = supabaseTicketsRef.current
+      const doingTickets = currentTickets.filter((t) => t.kanban_column_id === 'col-doing')
       if (doingTickets.length === 0) {
         // Already cleared above, just ensure state is empty
         setAgentRunsByTicketPk({})
@@ -2787,9 +2792,10 @@ function App() {
         }
       }
       // Update state with fresh runs, ensuring we only include tickets currently in Doing (0135)
-      // Double-check that we only include runs for tickets currently in Doing
-      // This handles race conditions where tickets might have moved during the fetch
-      const currentDoingTickets = supabaseTickets.filter((t) => t.kanban_column_id === 'col-doing')
+      // Double-check using ref to get latest tickets - handles race conditions where tickets
+      // might have moved during the async fetch
+      const latestTickets = supabaseTicketsRef.current
+      const currentDoingTickets = latestTickets.filter((t) => t.kanban_column_id === 'col-doing')
       const currentTicketPkSet = new Set(currentDoingTickets.map((t) => t.pk))
       const finalRuns: Record<string, SupabaseAgentRunRow> = {}
       for (const ticketPk of Object.keys(runsByTicket)) {
@@ -2801,7 +2807,7 @@ function App() {
     } catch (e) {
       console.warn('Failed to fetch agent runs:', e)
     }
-  }, [supabaseProjectUrl, supabaseAnonKey, connectedRepoFullName, supabaseTickets])
+  }, [supabaseProjectUrl, supabaseAnonKey, connectedRepoFullName])
 
   // Resolve ticket detail modal content when modal opens (0033); Supabase-only (0065)
   useEffect(() => {
@@ -3448,6 +3454,11 @@ function App() {
     if (halCtx || !supabaseBoardActive || !supabaseProjectUrl?.trim() || !supabaseAnonKey?.trim()) return
     refetchSupabaseTickets(false)
   }, [halCtx, connectedRepoFullName, supabaseBoardActive, refetchSupabaseTickets])
+
+  // Keep ref in sync with supabaseTickets state (0135) - ensures fetchActiveAgentRuns always reads latest tickets
+  useEffect(() => {
+    supabaseTicketsRef.current = supabaseTickets
+  }, [supabaseTickets])
 
   // Polling when Supabase board is active (0013). Skip when library mode (HAL passes data).
   useEffect(() => {
