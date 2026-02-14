@@ -1282,21 +1282,6 @@ function App() {
     return `HAL-${padded}`
   }, [])
 
-  // Format agent status for display (0087)
-  const formatAgentStatus = useCallback((status: typeof implAgentRunStatus | typeof qaAgentRunStatus): string => {
-    if (status === 'preparing') return 'Preparing'
-    if (status === 'fetching_ticket') return 'Fetching ticket'
-    if (status === 'resolving_repo') return 'Resolving repository'
-    if (status === 'fetching_branch') return 'Finding branch'
-    if (status === 'launching') return 'Launching'
-    if (status === 'polling') return 'Running'
-    if (status === 'generating_report') return 'Generating report'
-    if (status === 'merging') return 'Merging'
-    if (status === 'moving_ticket') return 'Moving ticket'
-    if (status === 'completed') return 'Done'
-    if (status === 'failed') return 'Failed'
-    return 'Idle'
-  }, [])
 
   // Load older messages for a conversation (pagination)
   const loadOlderMessages = useCallback(
@@ -3143,7 +3128,6 @@ function App() {
     setSupabaseAnonKey(null)
     setUnreadByTarget({ 'project-manager': 0, 'implementation-agent': 0, 'qa-agent': 0, 'process-review-agent': 0 })
     // Do NOT clear agent status on disconnect (0097: preserve agent status across disconnect/reconnect)
-    // Status boxes are gated by connectedProject, so they'll be hidden anyway
     // Only clear ticket IDs and diagnostics (these are per-session)
     setImplAgentTicketId(null)
     setQaAgentTicketId(null)
@@ -4179,71 +4163,6 @@ function App() {
               </p>
             </div>
           ) : null}
-
-          {/* Agent Status Boxes (0087) - shown at bottom of Chat pane for working agents only */}
-          {connectedProject && (
-            <div className="agent-status-boxes">
-              {/* Implementation Agent status box - only show when working (not idle, not completed) */}
-              {implAgentRunStatus !== 'idle' && implAgentRunStatus !== 'completed' && (
-                <div className="agent-status-box">
-                  <div className="agent-status-box-header">
-                    <span className="agent-status-box-name">Implementation Agent</span>
-                    <span className={`agent-status-box-status agent-status-${implAgentRunStatus}`}>
-                      {formatAgentStatus(implAgentRunStatus)}
-                    </span>
-                  </div>
-                  <div className="agent-status-box-ticket">
-                    {formatTicketId(implAgentTicketId)}
-                  </div>
-                  {implAgentError && (
-                    <div className="agent-status-box-error" role="alert">
-                      {implAgentError}
-                    </div>
-                  )}
-                </div>
-              )}
-              {/* QA Agent status box - only show when working (not idle, not completed) */}
-              {qaAgentRunStatus !== 'idle' && qaAgentRunStatus !== 'completed' && (
-                <div className="agent-status-box">
-                  <div className="agent-status-box-header">
-                    <span className="agent-status-box-name">QA Agent</span>
-                    <span className={`agent-status-box-status agent-status-${qaAgentRunStatus}`}>
-                      {formatAgentStatus(qaAgentRunStatus)}
-                    </span>
-                  </div>
-                  <div className="agent-status-box-ticket">
-                    {formatTicketId(qaAgentTicketId)}
-                  </div>
-                  {qaAgentError && (
-                    <div className="agent-status-box-error" role="alert">
-                      {qaAgentError}
-                    </div>
-                  )}
-                </div>
-              )}
-              {/* Process Review Agent status box - only show when working (not idle, not completed) */}
-              {processReviewAgentRunStatus !== 'idle' && processReviewAgentRunStatus !== 'completed' && (
-                <div className="agent-status-box">
-                  <div className="agent-status-box-header">
-                    <span className="agent-status-box-name">Process Review Agent</span>
-                    <span className={`agent-status-box-status agent-status-${processReviewAgentRunStatus}`}>
-                      {processReviewAgentRunStatus === 'preparing' ? 'Preparing' :
-                       processReviewAgentRunStatus === 'running' ? 'Running' :
-                       processReviewAgentRunStatus === 'failed' ? 'Failed' : 'Idle'}
-                    </span>
-                  </div>
-                  <div className="agent-status-box-ticket">
-                    {_processReviewAgentTicketId ? formatTicketId(_processReviewAgentTicketId) : '—'}
-                  </div>
-                  {processReviewAgentError && (
-                    <div className="agent-status-box-error" role="alert">
-                      {processReviewAgentError}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
 
           {/* Configuration Status Panel (0042) - Hidden per ticket 0105, code kept intact */}
           {false && (
