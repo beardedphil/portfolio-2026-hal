@@ -177,18 +177,27 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     // Determine target position
     let targetPosition: number
 
+    // Ensure columnId is defined before using it
+    if (!columnId) {
+      json(res, 400, {
+        success: false,
+        error: 'Column ID is required but was not resolved.',
+      })
+      return
+    }
+
     // Fetch all tickets in target column (for position calculation)
     const ticketsInColumnQuery = repoFullName
       ? supabase
           .from('tickets')
           .select('pk, kanban_position')
-          .eq('kanban_column_id', columnId!)
+          .eq('kanban_column_id', columnId)
           .eq('repo_full_name', repoFullName)
           .order('kanban_position', { ascending: true })
       : supabase
           .from('tickets')
           .select('pk, kanban_position')
-          .eq('kanban_column_id', columnId!)
+          .eq('kanban_column_id', columnId)
           .order('kanban_position', { ascending: true })
 
     const { data: ticketsInColumn, error: fetchErr } = await ticketsInColumnQuery
