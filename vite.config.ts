@@ -1673,6 +1673,33 @@ export default defineConfig({
       },
     },
     {
+      name: 'instructions-migrate-docs-endpoint',
+      configureServer(server) {
+        server.middlewares.use(async (req, res, next) => {
+          if (req.url !== '/api/instructions/migrate-docs' || (req.method !== 'POST' && req.method !== 'OPTIONS')) {
+            next()
+            return
+          }
+          res.setHeader('Access-Control-Allow-Origin', '*')
+          res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+          res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+          if (req.method === 'OPTIONS') {
+            res.statusCode = 204
+            res.end()
+            return
+          }
+          try {
+            const handler = await import('./api/instructions/migrate-docs.js')
+            await handler.default(req, res)
+          } catch (err) {
+            res.statusCode = 500
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ success: false, error: err instanceof Error ? err.message : String(err) }))
+          }
+        })
+      },
+    },
+    {
       name: 'artifacts-get-endpoint',
       configureServer(server) {
         server.middlewares.use(async (req, res, next) => {
