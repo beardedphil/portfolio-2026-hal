@@ -2293,12 +2293,14 @@ function SortableCard({
   onOpenDetail,
   activeWorkAgentType,
   isSaving = false,
+  supabaseTickets = [],
 }: {
   card: Card
   columnId: string
   onOpenDetail?: (cardId: string) => void
   activeWorkAgentType?: 'Implementation' | 'QA' | null
   isSaving?: boolean
+  supabaseTickets?: Array<{ pk: string; [key: string]: any }>
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
@@ -2349,6 +2351,28 @@ function SortableCard({
           )}
         </button>
       </div>
+      {/* Failure count indicators (0195) */}
+      {(() => {
+        const ticket = supabaseTickets.find(t => t.pk === card.id)
+        if (!ticket) return null
+        const qaFails = (ticket as any).qa_fail_count ?? 0
+        const hitlFails = (ticket as any).hitl_fail_count ?? 0
+        if (qaFails === 0 && hitlFails === 0) return null
+        return (
+          <div style={{ fontSize: '0.75rem', color: '#666', marginTop: '4px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {qaFails > 0 && (
+              <span title={`QA failures: ${qaFails}`} style={{ padding: '2px 6px', background: '#fee', borderRadius: '3px' }}>
+                QA fails: {qaFails}
+              </span>
+            )}
+            {hitlFails > 0 && (
+              <span title={`Human-in-the-Loop failures: ${hitlFails}`} style={{ padding: '2px 6px', background: '#fee', borderRadius: '3px' }}>
+                HITL fails: {hitlFails}
+              </span>
+            )}
+          </div>
+        )
+      })()}
       {showAgentBadge && (
         <span className="ticket-card-agent-badge" title={badgeTitle}>
           {badgeText}
@@ -2642,6 +2666,7 @@ function SortableColumn({
                 onOpenDetail={onOpenDetail}
                 activeWorkAgentType={activeWorkAgentType}
                 isSaving={pendingMoves.has(cardId)}
+                supabaseTickets={supabaseTickets}
               />
             )
           })}

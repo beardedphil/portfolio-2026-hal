@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { createClient } from '@supabase/supabase-js'
+import crypto from 'node:crypto'
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []
@@ -256,6 +257,225 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         error: 'Could not determine ticket PK for update.',
       })
       return
+    }
+
+    // Check for 3rd failure escalation (0195)
+    // Only check if moving to col-todo (QA fail) or if already in col-human-in-the-loop (HITL fail)
+    const isQaFail = columnId === 'col-todo' && currentColumnId === 'col-qa'
+    const isHitlFail = columnId === 'col-todo' && currentColumnId === 'col-human-in-the-loop'
+    
+    if (isQaFail || isHitlFail) {
+      // Fetch artifacts to count failures
+      const { data: artifacts } = await supabase
+        .from('agent_artifacts')
+        .select('agent_type, body_md, created_at')
+        .eq('ticket_pk', ticketPkToUse)
+        .in('agent_type', ['qa', 'human-in-the-loop'])
+        .order('created_at', { ascending: false })
+
+      let qaFailCount = 0
+      let hitlFailCount = 0
+
+      if (artifacts) {
+        for (const artifact of artifacts) {
+          const bodyMd = artifact.body_md || ''
+          
+          if (artifact.agent_type === 'qa') {
+            // QA failures: look for "QA RESULT: FAIL" or "verdict.*fail" patterns
+            const isFail = /QA RESULT:\s*FAIL|verdict.*fail|qa.*fail/i.test(bodyMd) && 
+                          !/QA RESULT:\s*PASS|verdict.*pass|qa.*pass/i.test(bodyMd)
+            if (isFail) {
+              qaFailCount++
+            }
+          } else if (artifact.agent_type === 'human-in-the-loop') {
+            // HITL failures: look for "FAIL" verdict or failure indicators
+            const isFail = /verdict.*fail|fail.*verdict|This ticket failed/i.test(bodyMd) && 
+                          !/verdict.*pass|pass.*verdict/i.test(bodyMd)
+            if (isFail) {
+              hitlFailCount++
+            }
+          }
+        }
+      }
+
+      // If this is a QA fail, increment count (current failure not yet in artifacts)
+      if (isQaFail) {
+        qaFailCount++
+      }
+      // If this is a HITL fail, increment count (current failure not yet in artifacts)
+      if (isHitlFail) {
+        hitlFailCount++
+      }
+
+      // Check if this is the 3rd failure
+      const isThirdQaFail = isQaFail && qaFailCount >= 3
+      const isThirdHitlFail = isHitlFail && hitlFailCount >= 3
+
+      if (isThirdQaFail || isThirdHitlFail) {
+        // Escalate to Process Review
+        const processReviewColumnId = 'col-process-review'
+        
+        // Fetch tickets in Process Review column for position
+        const { data: processReviewTickets } = await supabase
+          .from('tickets')
+          .select('pk, kanban_position')
+          .eq('kanban_column_id', processReviewColumnId)
+          .eq('repo_full_name', repoFullName)
+          .order('kanban_position', { ascending: true })
+
+        const processReviewPosition = processReviewTickets && processReviewTickets.length > 0
+          ? Math.max(...processReviewTickets.map((t: any) => t.kanban_position ?? -1)) + 1
+          : 0
+
+        // Update ticket to Process Review
+        const update = await supabase
+          .from('tickets')
+          .update({
+            kanban_column_id: processReviewColumnId,
+            kanban_position: processReviewPosition,
+            kanban_moved_at: movedAt,
+          })
+          .eq('pk', ticketPkToUse)
+
+        if (update.error) {
+          json(res, 200, {
+            success: false,
+            error: `Supabase update failed: ${update.error.message}`,
+          })
+          return
+        }
+
+        // Create suggestion ticket(s) via direct Supabase insert (using same logic as create endpoint)
+        try {
+          const ticketDisplayId = (ticketFetch.data as any)?.display_id || (ticketFetch.data as any)?.id
+          const failureType = isThirdQaFail ? 'QA' : 'HITL'
+          const totalFailures = isThirdQaFail ? qaFailCount : hitlFailCount
+          
+          // Generate suggestion text
+          const suggestion = `Improve agent instructions and process documentation to reduce ${failureType} failures. Ticket ${ticketDisplayId} has failed ${failureType} ${totalFailures} times, indicating a systemic issue that should be addressed through process improvements, instruction updates, or template changes.`
+
+          // Determine next ticket number
+          const { data: existingRows } = await supabase
+            .from('tickets')
+            .select('ticket_number')
+            .eq('repo_full_name', repoFullName)
+            .order('ticket_number', { ascending: false })
+            .limit(1)
+
+          const maxNum = existingRows && existingRows.length > 0 
+            ? ((existingRows[0] as any).ticket_number ?? 0)
+            : 0
+          const nextNum = maxNum + 1
+
+          // Generate prefix
+          const repo = repoFullName.split('/').pop() ?? repoFullName
+          const tokens = repo.toLowerCase().split(/[^a-z0-9]+/g).filter(Boolean)
+          let prefix = 'PRJ'
+          for (let i = tokens.length - 1; i >= 0; i--) {
+            const t = tokens[i]
+            if (!/[a-z]/.test(t)) continue
+            if (t.length >= 2 && t.length <= 6) {
+              prefix = t.toUpperCase()
+              break
+            }
+          }
+
+          const displayId = `${prefix}-${String(nextNum).padStart(4, '0')}`
+          const id = String(nextNum)
+          const title = suggestion.length > 100 ? `${suggestion.slice(0, 97)}...` : suggestion
+          const filename = `${String(nextNum).padStart(4, '0')}-${title.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'ticket'}.md`
+
+          const bodyMd = `# Ticket
+
+- **ID**: (auto-assigned)
+- **Title**: (auto-assigned)
+- **Owner**: Implementation agent
+- **Type**: Process
+- **Priority**: P2
+
+## Linkage (for tracking)
+
+- **Proposed from**: ${ticketDisplayId} — Process Review (3rd ${failureType} failure escalation)
+
+## Goal (one sentence)
+
+${suggestion}
+
+## Human-verifiable deliverable (UI-only)
+
+Updated agent instructions, rules, templates, or process documentation that implements the improvement described in the Goal above.
+
+## Acceptance criteria (UI-only)
+
+- [ ] Agent instructions/rules updated to address the suggestion
+- [ ] Changes are documented and tested
+- [ ] Process improvements are reflected in relevant documentation
+
+## Constraints
+
+- Keep changes focused on agent instructions and process, not implementation code
+- Ensure changes are backward compatible where possible
+
+## Non-goals
+
+- Implementation code changes
+- Feature additions unrelated to process improvement
+
+## Implementation notes (optional)
+
+This ticket was automatically created from Process Review escalation for ticket ${ticketDisplayId} after ${totalFailures} ${failureType} failures. Review the Goal above and implement the appropriate improvement to agent instructions, rules, or process documentation.
+`
+
+          // Insert ticket
+          const insert = await supabase.from('tickets').insert({
+            pk: crypto.randomUUID(),
+            repo_full_name: repoFullName,
+            ticket_number: nextNum,
+            display_id: displayId,
+            id,
+            filename,
+            title: `${displayId} — ${title}`,
+            body_md: bodyMd,
+            kanban_column_id: 'col-unassigned',
+            kanban_position: 0,
+            kanban_moved_at: new Date().toISOString(),
+          })
+
+          if (!insert.error) {
+            json(res, 200, {
+              success: true,
+              position: processReviewPosition,
+              movedAt,
+              columnId: processReviewColumnId,
+              columnName: columnName || undefined,
+              escalated: true,
+              failureType,
+              failureCount: totalFailures,
+              suggestionTicketCreated: true,
+              suggestionTicketId: displayId,
+            })
+            return
+          } else {
+            console.error('Failed to create suggestion ticket:', insert.error)
+          }
+        } catch (createErr) {
+          // Log error but don't fail the move
+          console.error('Failed to create suggestion ticket on escalation:', createErr)
+        }
+
+        json(res, 200, {
+          success: true,
+          position: processReviewPosition,
+          movedAt,
+          columnId: processReviewColumnId,
+          columnName: columnName || undefined,
+          escalated: true,
+          failureType: isThirdQaFail ? 'QA' : 'HITL',
+          failureCount: qaFailCount + hitlFailCount,
+          suggestionTicketCreated: false,
+        })
+        return
+      }
     }
 
     const update = await supabase

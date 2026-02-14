@@ -3,10 +3,50 @@
     "basic": [
       "agent-instructions",
       "qa-audit-report",
-      "heading-parsing-pitfalls"
+      "heading-parsing-pitfalls",
+      "code-location-citations",
+      "code-citation-requirements",
+      "state-management-change-documentation",
+      "key-decisions-summary"
     ],
     "situational": {},
-    "topics": {}
+    "topics": {
+      "agent-instructions": {
+        "title": "Agent Instructions Entry Point",
+        "description": "Entry point for agent instructions - load basic rules from Supabase",
+        "agentTypes": [
+          "all"
+        ]
+      },
+      "code-location-citations": {
+        "title": "Code Location Citations",
+        "description": "Require agents to cite concrete code locations that reviewers can verify quickly",
+        "agentTypes": [
+          "all"
+        ]
+      },
+      "code-citation-requirements": {
+        "title": "Code Citation Requirements",
+        "description": "Require agents to cite specific file paths and line numbers when referencing code locations",
+        "agentTypes": [
+          "all"
+        ]
+      },
+      "state-management-change-documentation": {
+        "title": "State Management Change Documentation",
+        "description": "Require agents to document and justify any changes to application state management in review artifacts",
+        "agentTypes": [
+          "all"
+        ]
+      },
+      "key-decisions-summary": {
+        "title": "Key Decisions Summary Requirement",
+        "description": "Require agents to include a \"Key decisions\" summary in completion write-ups so reviewers can understand tradeoffs without re-reading entire worklogs",
+        "agentTypes": [
+          "all"
+        ]
+      }
+    }
   },
   "instructions": [
     {
@@ -39,7 +79,14 @@
       ],
       "topicId": "agent-instructions",
       "isBasic": true,
-      "isSituational": false
+      "isSituational": false,
+      "topicMetadata": {
+        "title": "Agent Instructions Entry Point",
+        "description": "Entry point for agent instructions - load basic rules from Supabase",
+        "agentTypes": [
+          "all"
+        ]
+      }
     },
     {
       "path": "code-citation-requirements.mdc",
@@ -54,8 +101,15 @@
         "project-manager"
       ],
       "topicId": "code-citation-requirements",
-      "isBasic": false,
-      "isSituational": false
+      "isBasic": true,
+      "isSituational": false,
+      "topicMetadata": {
+        "title": "Code Citation Requirements",
+        "description": "Require agents to cite specific file paths and line numbers when referencing code locations",
+        "agentTypes": [
+          "all"
+        ]
+      }
     },
     {
       "path": "code-location-citations.mdc",
@@ -67,8 +121,15 @@
         "all"
       ],
       "topicId": "code-location-citations",
-      "isBasic": false,
-      "isSituational": false
+      "isBasic": true,
+      "isSituational": false,
+      "topicMetadata": {
+        "title": "Code Location Citations",
+        "description": "Require agents to cite concrete code locations that reviewers can verify quickly",
+        "agentTypes": [
+          "all"
+        ]
+      }
     },
     {
       "path": "heading-parsing-pitfalls.mdc",
@@ -82,6 +143,29 @@
       "topicId": "heading-parsing-pitfalls",
       "isBasic": true,
       "isSituational": false
+    },
+    {
+      "path": "key-decisions-summary.mdc",
+      "name": "key decisions summary",
+      "description": "Require agents to include a \"Key decisions\" summary in completion write-ups so reviewers can understand tradeoffs without re-reading entire worklogs",
+      "alwaysApply": true,
+      "content": "# Key Decisions Summary Requirement\n\n**MANDATORY:** All agent completion write-ups must include a short, explicit **\"Key decisions\"** summary (2–6 bullets) so reviewers can quickly understand tradeoffs and design choices without re-reading the entire worklog or diff.\n\n## When This Requirement Applies\n\nThis requirement applies to **all agents** when completing work:\n\n- **Implementation agents** — Must include \"Key decisions\" in both the **PM Review artifact** and the **final chat completion summary**\n- **QA agents** — Must verify that the \"Key decisions\" section exists and is complete during review\n- **Project Manager agents** — Must check for \"Key decisions\" section when reviewing implementation artifacts\n\n## Required Content: Key Decisions Section\n\n**MANDATORY:** Implementation agents **must** include a \"Key decisions\" section in:\n\n1. **PM Review artifact** (stored in Supabase with `artifactType: \"pm-review\"`)\n2. **Final chat completion summary** (the \"done\" message sent to the user)\n\n### Format\n\nThe \"Key decisions\" section should be a bulleted list (2–6 bullets) that explains:\n\n- **Why approach A was chosen over approach B** (e.g., \"Used Supabase API endpoint instead of direct database access for better error handling and validation\")\n- **Any tradeoffs or risks** (e.g., \"Chose synchronous validation over async to simplify error handling, but this may block UI for large datasets\")\n- **Design choices that affect maintainability** (e.g., \"Stored instructions in Supabase rather than file system to enable runtime updates without deployments\")\n- **Performance or scalability considerations** (e.g., \"Implemented client-side caching to reduce API calls, with 5-minute TTL to balance freshness and performance\")\n- **Integration decisions** (e.g., \"Updated existing instruction update endpoint rather than creating new one to maintain API consistency\")\n\n### Example: Good Key Decisions Section\n\n```markdown\n## Key Decisions\n\n- **Stored instructions in Supabase instead of file system** — Enables runtime updates via HAL UI without requiring deployments or code changes. Tradeoff: Requires Supabase connection, but this is already a dependency for the project.\n\n- **Updated existing `/api/instructions/update` endpoint** — Rather than creating a new endpoint, extended the existing one to maintain API consistency. This keeps the instruction update workflow unified.\n\n- **Added \"Key decisions\" requirement to all agent types** — Not just implementation agents, but also QA and PM agents need to check for this section. This ensures comprehensive review coverage.\n\n- **Included example in instruction file** — Provides concrete guidance on what constitutes a good \"Key decisions\" bullet, helping agents understand the expected level of detail and tradeoff explanation.\n\n- **Required in both PM Review artifact and chat summary** — Ensures visibility in both the structured artifact (for audit trail) and the conversational summary (for immediate review).\n```\n\n### Example: Poor Key Decisions Section (Too Vague)\n\n```markdown\n## Key Decisions\n\n- Used Supabase for storage\n- Updated the API\n- Added requirements\n```\n\n**Why this is poor:** Doesn't explain tradeoffs, alternatives considered, or reasoning. Reviewers can't understand the \"why\" without reading the entire worklog.\n\n## Implementation Agent Requirements\n\n**MANDATORY:** When completing a ticket, implementation agents **must**:\n\n1. **Include \"Key decisions\" in PM Review artifact:**\n   - Store the PM Review artifact via HAL API: `POST /api/artifacts/insert-implementation`\n   - Artifact type: `pm-review`\n   - Title format: `PM Review for ticket <ticket-id>`\n   - The artifact body must include a \"Key decisions\" section with 2–6 bullets\n\n2. **Include \"Key decisions\" in final chat completion summary:**\n   - When sending the completion message (the \"done\" summary), include a \"Key decisions\" section\n   - This can be a brief summary (2–4 bullets) that highlights the most important decisions\n   - The full detailed version should be in the PM Review artifact\n\n### PM Review Artifact Template\n\n```markdown\n# PM Review for ticket <ticket-id>\n\n[Other PM Review content...]\n\n## Key Decisions\n\n- [Bullet 1: Why approach A over B, tradeoffs, risks]\n- [Bullet 2: Design choice affecting maintainability]\n- [Bullet 3: Performance/scalability consideration]\n- [Bullet 4: Integration decision]\n- [Bullet 5-6: Additional important decisions]\n\n[Other PM Review content...]\n```\n\n### Final Chat Summary Template\n\n```markdown\n## Summary\n\n[Brief summary of what was implemented...]\n\n## Key Decisions\n\n- [Most important decision 1]\n- [Most important decision 2]\n- [Most important decision 3]\n\nTicket <ticket-id> implementation completed and moved to QA.\n```\n\n## QA Agent Requirements\n\n**MANDATORY:** When QA agents review a ticket, they **must**:\n\n1. **Verify \"Key decisions\" section exists** — Check both:\n   - PM Review artifact (via HAL API: `POST /api/artifacts/get`)\n   - Final chat completion summary (if available in conversation history)\n\n2. **Verify \"Key decisions\" content quality** — The section should:\n   - Contain 2–6 bullets (not too few, not too many)\n   - Explain tradeoffs or alternatives considered\n   - Provide reasoning, not just descriptions\n   - Be specific enough that reviewers understand the \"why\" without reading the entire worklog\n\n3. **Include \"Key decisions\" review in QA report** — QA reports should include a section confirming:\n   - \"Key decisions\" section exists in PM Review artifact: [Yes / No]\n   - \"Key decisions\" section exists in completion summary: [Yes / No / N/A]\n   - Content quality: [Pass / Fail / Needs improvement]\n   - If missing or incomplete, QA **MUST FAIL** the ticket\n\n### QA Report Template Addition\n\nQA reports should include:\n\n```markdown\n## Key Decisions Review\n\n**Key decisions section in PM Review artifact:** [Yes / No]\n\n**Key decisions section in completion summary:** [Yes / No / N/A]\n\n**Content quality:**\n- [ ] Contains 2–6 bullets: [Yes / No]\n- [ ] Explains tradeoffs or alternatives: [Yes / No]\n- [ ] Provides reasoning (not just descriptions): [Yes / No]\n- [ ] Specific enough to understand \"why\" without reading full worklog: [Yes / No]\n\n**Overall assessment:** [Pass / Fail / Needs improvement]\n\n**If missing or incomplete:** QA **MUST FAIL** the ticket and request the implementation agent to add the \"Key decisions\" section.\n```\n\n## Project Manager Agent Requirements\n\n**MANDATORY:** When Project Manager agents review implementation artifacts, they **must**:\n\n1. **Check for \"Key decisions\" section** — Verify it exists in the PM Review artifact\n\n2. **Verify completeness** — Ensure the section:\n   - Contains 2–6 bullets\n   - Explains tradeoffs and reasoning\n   - Helps reviewers understand design choices quickly\n\n3. **Flag missing sections** — If \"Key decisions\" is missing or incomplete, PM agents should:\n   - Note this in their review\n   - Request the implementation agent to add it\n   - Consider this a blocker for ticket completion\n\n## Integration with Existing Workflows\n\n### PM Review Artifact\n\nThe \"Key decisions\" section must be included in the **PM Review artifact** stored in Supabase:\n- **Artifact type:** `pm-review`\n- **Title format:** `PM Review for ticket <ticket-id>`\n- **Storage:** Via HAL API endpoint `/api/artifacts/insert-implementation` with `artifactType: \"pm-review\"`\n\n### Final Chat Completion Summary\n\nThe \"Key decisions\" section must also be included in the **final chat completion summary** (the \"done\" message):\n- This is the message sent when the implementation agent completes work\n- Can be a brief version (2–4 bullets) highlighting the most important decisions\n- The full detailed version should be in the PM Review artifact\n\n### QA Audit Report\n\nQA agents must verify \"Key decisions\" documentation as part of their standard QA workflow.\n\n## Scope\n\n- Applies to **all agents** (implementation, QA, PM) when completing or reviewing work\n- The \"Key decisions\" section must be **human-verifiable** — a reviewer can open the PM Review artifact and immediately see the key decisions and tradeoffs\n- When in doubt, **include more detail** — it's better to over-explain tradeoffs than to leave reviewers guessing why certain approaches were chosen\n",
+      "agentTypes": [
+        "all",
+        "qa-agent",
+        "implementation-agent",
+        "project-manager"
+      ],
+      "topicId": "key-decisions-summary",
+      "isBasic": true,
+      "isSituational": false,
+      "topicMetadata": {
+        "title": "Key Decisions Summary Requirement",
+        "description": "Require agents to include a \"Key decisions\" summary in completion write-ups so reviewers can understand tradeoffs without re-reading entire worklogs",
+        "agentTypes": [
+          "all"
+        ]
+      }
     },
     {
       "path": "qa-audit-report.mdc",
@@ -111,8 +195,15 @@
         "project-manager"
       ],
       "topicId": "state-management-change-documentation",
-      "isBasic": false,
-      "isSituational": false
+      "isBasic": true,
+      "isSituational": false,
+      "topicMetadata": {
+        "title": "State Management Change Documentation",
+        "description": "Require agents to document and justify any changes to application state management in review artifacts",
+        "agentTypes": [
+          "all"
+        ]
+      }
     }
   ],
   "basic": [
@@ -130,7 +221,57 @@
       ],
       "topicId": "agent-instructions",
       "isBasic": true,
-      "isSituational": false
+      "isSituational": false,
+      "topicMetadata": {
+        "title": "Agent Instructions Entry Point",
+        "description": "Entry point for agent instructions - load basic rules from Supabase",
+        "agentTypes": [
+          "all"
+        ]
+      }
+    },
+    {
+      "path": "code-citation-requirements.mdc",
+      "name": "code citation requirements",
+      "description": "Require agents to cite specific file paths and line numbers when referencing code locations",
+      "alwaysApply": true,
+      "content": "# Code Citation Requirements\n\nWhen agents reference \"where something is implemented\" or claim where key functionality exists, they **must** cite concrete code locations using file paths and (when feasible) line numbers or symbol names. This enables reviewers to verify claims quickly without searching the codebase.\n\n## Mandatory Citation Format\n\n**Minimum acceptable citation formats:**\n\n1. **File path with line range:** `src/foo.ts:42-61`\n2. **File path with single line:** `src/foo.ts:42`\n3. **File path with symbol name:** `src/foo.ts — function bar()` or `src/foo.ts — class MyComponent`\n4. **File path with line and symbol:** `src/foo.ts:42 — function bar()`\n\n**Examples:**\n- ✅ `src/api/tickets.ts:123-145` — implementation of ticket syncing\n- ✅ `components/KanbanBoard.tsx:42` — column rendering logic\n- ✅ `src/utils/validation.ts — function validateTicket()` — validation rules\n- ✅ `src/hooks/useTickets.ts:78-92 — useEffect hook` — data fetching\n- ❌ \"in the tickets API file\" — too vague\n- ❌ \"tickets.ts\" — missing path context\n- ❌ \"the validation function\" — no file reference\n\n## Required Contexts\n\nThis requirement applies to all of the following contexts:\n\n### 1. Implementation Summaries and Worklogs\n\nWhen implementation agents document what was implemented, they must cite specific locations:\n\n**Example (worklog):**\n```markdown\n## Changes Made\n\n- Added ticket syncing logic in `src/api/tickets.ts:123-145` — `syncTickets()` function\n- Updated column rendering in `components/KanbanBoard.tsx:42-67` — `renderColumns()` method\n- Fixed validation in `src/utils/validation.ts:89-102 — validateTicket()` function\n```\n\n### 2. QA Reports\n\nWhen QA agents review code and report findings, they must cite specific locations:\n\n**Example (QA report code review section):**\n```markdown\n## Code Review\n\n| Requirement | Implementation | Status |\n|------------|----------------|--------|\n| Ticket syncing | `src/api/tickets.ts:123-145 — syncTickets()` | ✅ PASS |\n| Column rendering | `components/KanbanBoard.tsx:42-67` | ✅ PASS |\n| Validation | `src/utils/validation.ts:89-102 — validateTicket()` | ⚠️ FAIL — missing null check |\n```\n\n### 3. PM Guidance\n\nWhen Project Manager agents answer questions like \"Where is X implemented?\" or \"How does Y work?\", they must cite specific locations:\n\n**Example (PM response):**\n```markdown\nTicket syncing is implemented in `src/api/tickets.ts:123-145` in the `syncTickets()` function. The function handles:\n- Fetching tickets from Supabase (`src/api/tickets.ts:130-138`)\n- Updating local state (`src/api/tickets.ts:140-145`)\n```\n\n## Exceptions: When Line Numbers Are Unreliable\n\nWhen line numbers are unreliable or unstable (e.g., generated code, minified bundles, frequently changing files), cite the nearest stable anchor instead:\n\n**Acceptable alternatives:**\n- **Symbol name + file path:** `src/generated/api.ts — export function fetchTickets()`\n- **Exported function/class:** `src/api/index.ts — export { syncTickets }`\n- **Route ID or path:** `src/routes.ts — route id: 'tickets'`\n- **Component name:** `components/TicketCard.tsx — <TicketCard /> component`\n- **Configuration key:** `config/app.config.ts — tickets.syncInterval`\n\n**Examples:**\n- ✅ `dist/bundle.js — function syncTickets()` (minified bundle)\n- ✅ `src/generated/types.ts — interface Ticket` (generated file)\n- ✅ `src/routes.ts — route: '/tickets'` (routing config)\n- ❌ `dist/bundle.js:1234` (line number in minified code is unreliable)\n\n**When in doubt:** Prefer symbol names, exported identifiers, or stable configuration keys over line numbers in generated or frequently-changing files.\n\n## Enforcement\n\n- **Implementation agents:** Must include citations in worklogs, plans, and implementation summaries.\n- **QA agents:** Must include citations in code review sections of QA reports (see `.cursor/rules/qa-audit-report.mdc`).\n- **PM agents:** Must include citations when answering \"where is X implemented?\" questions.\n\n**Reviewers should verify:** All code location claims can be verified by navigating to the cited file path and (when provided) line number or symbol name.\n",
+      "agentTypes": [
+        "all",
+        "qa-agent",
+        "implementation-agent",
+        "project-manager"
+      ],
+      "topicId": "code-citation-requirements",
+      "isBasic": true,
+      "isSituational": false,
+      "topicMetadata": {
+        "title": "Code Citation Requirements",
+        "description": "Require agents to cite specific file paths and line numbers when referencing code locations",
+        "agentTypes": [
+          "all"
+        ]
+      }
+    },
+    {
+      "path": "code-location-citations.mdc",
+      "name": "code location citations",
+      "description": "Require agents to cite specific file paths and line numbers/symbols when referencing where functionality is implemented",
+      "alwaysApply": true,
+      "content": "# Code Location Citations\n\nWhen an agent references \"where something is implemented\" or claims where key functionality exists, they **must** cite concrete code locations that reviewers can verify quickly.\n\n## Required Citation Format\n\n**Minimum acceptable citation formats:**\n\n- **File path with line range:** `src/foo.ts:42-61`\n- **File path with function/class name:** `src/foo.ts — function bar()`\n- **File path with symbol:** `src/foo.ts — class MyComponent`\n- **File path with route/component ID:** `src/routes.ts — route id: \"dashboard\"`\n\n**Examples:**\n- ✅ `src/components/Button.tsx:15-23` (line range)\n- ✅ `src/utils/api.ts — function fetchUser()` (symbol name)\n- ✅ `src/routes.ts:42 — route id: \"settings\"` (route identifier)\n- ✅ `src/App.tsx — component App` (component name)\n- ❌ `src/components/Button.tsx` (missing line/symbol)\n- ❌ `the Button component` (no file path)\n\n## When Citations Are Required\n\nCitations are **mandatory** in these contexts:\n\n1. **Implementation summaries/worklogs** — When describing what was implemented or where changes were made\n2. **QA reports** — When reviewing code and referencing where functionality exists\n3. **PM guidance** — When answering \"where is X implemented?\" or similar questions\n\n## Exceptions: Unreliable Line Numbers\n\nIf line numbers are unreliable or unstable (e.g., generated code, minified bundles, auto-generated files), cite the **nearest stable anchor** instead:\n\n- **Symbol name** (exported function, class, constant)\n- **Route ID** or **component name**\n- **Export identifier**\n- **File path** (always required, even when line numbers aren't)\n\n**Examples of stable anchors:**\n- `src/generated/api.ts — export function createUser()` (generated file, use symbol)\n- `dist/bundle.js — function handleClick()` (minified, use symbol)\n- `src/routes.ts — route id: \"dashboard\"` (route identifier)\n\n**Always include the file path** even when using stable anchors instead of line numbers.\n\n## Scope\n\n- Applies to **all agents** (implementation, QA, PM) when referencing code locations\n- Citations must be **human-verifiable** — a reviewer should be able to open the file and find the referenced location\n- When in doubt, provide **more specific citations** (line numbers + symbol names) rather than less\n",
+      "agentTypes": [
+        "all"
+      ],
+      "topicId": "code-location-citations",
+      "isBasic": true,
+      "isSituational": false,
+      "topicMetadata": {
+        "title": "Code Location Citations",
+        "description": "Require agents to cite concrete code locations that reviewers can verify quickly",
+        "agentTypes": [
+          "all"
+        ]
+      }
     },
     {
       "path": "heading-parsing-pitfalls.mdc",
@@ -146,6 +287,29 @@
       "isSituational": false
     },
     {
+      "path": "key-decisions-summary.mdc",
+      "name": "key decisions summary",
+      "description": "Require agents to include a \"Key decisions\" summary in completion write-ups so reviewers can understand tradeoffs without re-reading entire worklogs",
+      "alwaysApply": true,
+      "content": "# Key Decisions Summary Requirement\n\n**MANDATORY:** All agent completion write-ups must include a short, explicit **\"Key decisions\"** summary (2–6 bullets) so reviewers can quickly understand tradeoffs and design choices without re-reading the entire worklog or diff.\n\n## When This Requirement Applies\n\nThis requirement applies to **all agents** when completing work:\n\n- **Implementation agents** — Must include \"Key decisions\" in both the **PM Review artifact** and the **final chat completion summary**\n- **QA agents** — Must verify that the \"Key decisions\" section exists and is complete during review\n- **Project Manager agents** — Must check for \"Key decisions\" section when reviewing implementation artifacts\n\n## Required Content: Key Decisions Section\n\n**MANDATORY:** Implementation agents **must** include a \"Key decisions\" section in:\n\n1. **PM Review artifact** (stored in Supabase with `artifactType: \"pm-review\"`)\n2. **Final chat completion summary** (the \"done\" message sent to the user)\n\n### Format\n\nThe \"Key decisions\" section should be a bulleted list (2–6 bullets) that explains:\n\n- **Why approach A was chosen over approach B** (e.g., \"Used Supabase API endpoint instead of direct database access for better error handling and validation\")\n- **Any tradeoffs or risks** (e.g., \"Chose synchronous validation over async to simplify error handling, but this may block UI for large datasets\")\n- **Design choices that affect maintainability** (e.g., \"Stored instructions in Supabase rather than file system to enable runtime updates without deployments\")\n- **Performance or scalability considerations** (e.g., \"Implemented client-side caching to reduce API calls, with 5-minute TTL to balance freshness and performance\")\n- **Integration decisions** (e.g., \"Updated existing instruction update endpoint rather than creating new one to maintain API consistency\")\n\n### Example: Good Key Decisions Section\n\n```markdown\n## Key Decisions\n\n- **Stored instructions in Supabase instead of file system** — Enables runtime updates via HAL UI without requiring deployments or code changes. Tradeoff: Requires Supabase connection, but this is already a dependency for the project.\n\n- **Updated existing `/api/instructions/update` endpoint** — Rather than creating a new endpoint, extended the existing one to maintain API consistency. This keeps the instruction update workflow unified.\n\n- **Added \"Key decisions\" requirement to all agent types** — Not just implementation agents, but also QA and PM agents need to check for this section. This ensures comprehensive review coverage.\n\n- **Included example in instruction file** — Provides concrete guidance on what constitutes a good \"Key decisions\" bullet, helping agents understand the expected level of detail and tradeoff explanation.\n\n- **Required in both PM Review artifact and chat summary** — Ensures visibility in both the structured artifact (for audit trail) and the conversational summary (for immediate review).\n```\n\n### Example: Poor Key Decisions Section (Too Vague)\n\n```markdown\n## Key Decisions\n\n- Used Supabase for storage\n- Updated the API\n- Added requirements\n```\n\n**Why this is poor:** Doesn't explain tradeoffs, alternatives considered, or reasoning. Reviewers can't understand the \"why\" without reading the entire worklog.\n\n## Implementation Agent Requirements\n\n**MANDATORY:** When completing a ticket, implementation agents **must**:\n\n1. **Include \"Key decisions\" in PM Review artifact:**\n   - Store the PM Review artifact via HAL API: `POST /api/artifacts/insert-implementation`\n   - Artifact type: `pm-review`\n   - Title format: `PM Review for ticket <ticket-id>`\n   - The artifact body must include a \"Key decisions\" section with 2–6 bullets\n\n2. **Include \"Key decisions\" in final chat completion summary:**\n   - When sending the completion message (the \"done\" summary), include a \"Key decisions\" section\n   - This can be a brief summary (2–4 bullets) that highlights the most important decisions\n   - The full detailed version should be in the PM Review artifact\n\n### PM Review Artifact Template\n\n```markdown\n# PM Review for ticket <ticket-id>\n\n[Other PM Review content...]\n\n## Key Decisions\n\n- [Bullet 1: Why approach A over B, tradeoffs, risks]\n- [Bullet 2: Design choice affecting maintainability]\n- [Bullet 3: Performance/scalability consideration]\n- [Bullet 4: Integration decision]\n- [Bullet 5-6: Additional important decisions]\n\n[Other PM Review content...]\n```\n\n### Final Chat Summary Template\n\n```markdown\n## Summary\n\n[Brief summary of what was implemented...]\n\n## Key Decisions\n\n- [Most important decision 1]\n- [Most important decision 2]\n- [Most important decision 3]\n\nTicket <ticket-id> implementation completed and moved to QA.\n```\n\n## QA Agent Requirements\n\n**MANDATORY:** When QA agents review a ticket, they **must**:\n\n1. **Verify \"Key decisions\" section exists** — Check both:\n   - PM Review artifact (via HAL API: `POST /api/artifacts/get`)\n   - Final chat completion summary (if available in conversation history)\n\n2. **Verify \"Key decisions\" content quality** — The section should:\n   - Contain 2–6 bullets (not too few, not too many)\n   - Explain tradeoffs or alternatives considered\n   - Provide reasoning, not just descriptions\n   - Be specific enough that reviewers understand the \"why\" without reading the entire worklog\n\n3. **Include \"Key decisions\" review in QA report** — QA reports should include a section confirming:\n   - \"Key decisions\" section exists in PM Review artifact: [Yes / No]\n   - \"Key decisions\" section exists in completion summary: [Yes / No / N/A]\n   - Content quality: [Pass / Fail / Needs improvement]\n   - If missing or incomplete, QA **MUST FAIL** the ticket\n\n### QA Report Template Addition\n\nQA reports should include:\n\n```markdown\n## Key Decisions Review\n\n**Key decisions section in PM Review artifact:** [Yes / No]\n\n**Key decisions section in completion summary:** [Yes / No / N/A]\n\n**Content quality:**\n- [ ] Contains 2–6 bullets: [Yes / No]\n- [ ] Explains tradeoffs or alternatives: [Yes / No]\n- [ ] Provides reasoning (not just descriptions): [Yes / No]\n- [ ] Specific enough to understand \"why\" without reading full worklog: [Yes / No]\n\n**Overall assessment:** [Pass / Fail / Needs improvement]\n\n**If missing or incomplete:** QA **MUST FAIL** the ticket and request the implementation agent to add the \"Key decisions\" section.\n```\n\n## Project Manager Agent Requirements\n\n**MANDATORY:** When Project Manager agents review implementation artifacts, they **must**:\n\n1. **Check for \"Key decisions\" section** — Verify it exists in the PM Review artifact\n\n2. **Verify completeness** — Ensure the section:\n   - Contains 2–6 bullets\n   - Explains tradeoffs and reasoning\n   - Helps reviewers understand design choices quickly\n\n3. **Flag missing sections** — If \"Key decisions\" is missing or incomplete, PM agents should:\n   - Note this in their review\n   - Request the implementation agent to add it\n   - Consider this a blocker for ticket completion\n\n## Integration with Existing Workflows\n\n### PM Review Artifact\n\nThe \"Key decisions\" section must be included in the **PM Review artifact** stored in Supabase:\n- **Artifact type:** `pm-review`\n- **Title format:** `PM Review for ticket <ticket-id>`\n- **Storage:** Via HAL API endpoint `/api/artifacts/insert-implementation` with `artifactType: \"pm-review\"`\n\n### Final Chat Completion Summary\n\nThe \"Key decisions\" section must also be included in the **final chat completion summary** (the \"done\" message):\n- This is the message sent when the implementation agent completes work\n- Can be a brief version (2–4 bullets) highlighting the most important decisions\n- The full detailed version should be in the PM Review artifact\n\n### QA Audit Report\n\nQA agents must verify \"Key decisions\" documentation as part of their standard QA workflow.\n\n## Scope\n\n- Applies to **all agents** (implementation, QA, PM) when completing or reviewing work\n- The \"Key decisions\" section must be **human-verifiable** — a reviewer can open the PM Review artifact and immediately see the key decisions and tradeoffs\n- When in doubt, **include more detail** — it's better to over-explain tradeoffs than to leave reviewers guessing why certain approaches were chosen\n",
+      "agentTypes": [
+        "all",
+        "qa-agent",
+        "implementation-agent",
+        "project-manager"
+      ],
+      "topicId": "key-decisions-summary",
+      "isBasic": true,
+      "isSituational": false,
+      "topicMetadata": {
+        "title": "Key Decisions Summary Requirement",
+        "description": "Require agents to include a \"Key decisions\" summary in completion write-ups so reviewers can understand tradeoffs without re-reading entire worklogs",
+        "agentTypes": [
+          "all"
+        ]
+      }
+    },
+    {
       "path": "qa-audit-report.mdc",
       "name": "qa audit report",
       "description": "QA agents must store QA reports in Supabase via HAL API",
@@ -159,6 +323,29 @@
       "topicId": "qa-audit-report",
       "isBasic": true,
       "isSituational": false
+    },
+    {
+      "path": "state-management-change-documentation.mdc",
+      "name": "state management change documentation",
+      "description": "Require agents to document and justify any changes to application state management in review artifacts",
+      "alwaysApply": true,
+      "content": "# State Management Change Documentation\n\n**MANDATORY:** Any change to application state management (stores, reducers, context, persistence, query cache, etc.) must be **called out and justified** in the agent's review artifact(s), so reviewers can quickly understand behavioral risk.\n\n## What is a \"State Management Change\"?\n\nA **state management change** is any modification to how application state is stored, accessed, updated, or persisted. This includes:\n\n### Examples of State Management Changes\n\n- **Store modifications** (Zustand, Redux, Pinia, etc.)\n  - Adding/removing/modifying store slices or actions\n  - Changing store structure or initial state\n  - Modifying store selectors or computed values\n\n- **Context provider changes** (React Context, Vue provide/inject, etc.)\n  - Adding/removing/modifying context providers\n  - Changing context value structure\n  - Modifying context consumers\n\n- **Persistence/hydration changes**\n  - Adding/removing localStorage/sessionStorage usage\n  - Changing persistence keys or serialization format\n  - Modifying hydration logic (loading persisted state on app start)\n  - Changing persistence scope (what gets persisted vs. ephemeral)\n\n- **Query cache changes** (React Query, SWR, Apollo, etc.)\n  - Modifying cache keys or invalidation strategies\n  - Changing cache time-to-live (TTL) or stale-while-revalidate settings\n  - Adding/removing cache mutations or optimistic updates\n\n- **Cross-tab synchronization changes**\n  - Adding/removing `storage` event listeners\n  - Modifying broadcast channel or shared worker usage\n  - Changing how state syncs across browser tabs/windows\n\n- **State migration changes**\n  - Adding migration logic for existing persisted state\n  - Changing state schema versions\n  - Modifying backward compatibility handling\n\n## When This Requirement Applies\n\nThis requirement applies to **all agents** when making changes that affect state management:\n\n- **Implementation agents** — Must document state management changes in their **PM Review artifact**\n- **QA agents** — Must verify that state management changes are properly documented and check the impact during QA review\n- **Project Manager agents** — Must ensure state management changes are called out in PM reviews\n\n## Required Documentation: PM Review Checklist\n\n**MANDATORY:** When an implementation agent makes any state management change, they **must** include the following checklist in their **PM Review artifact** (stored in Supabase with `artifactType: \"pm-review\"`).\n\n### Copy/Paste Checklist Template\n\n```markdown\n## State Management Changes\n\n**State management changes made:** [Yes / No]\n\nIf Yes, complete the following:\n\n### What Changed\n- [ ] Store/Context/Cache modified: [specify which and what changed]\n- [ ] Persistence logic modified: [specify what changed]\n- [ ] Migration logic added: [specify what changed]\n- [ ] Other state management change: [specify what changed]\n\n### Why This Change Was Necessary\n[Brief explanation of why the state management change was required]\n\n### Migration Considerations\n- [ ] Existing persisted state affected: [Yes / No]\n- [ ] Backward compatibility: [Maintained / Broken / N/A]\n- [ ] Migration path: [Describe how existing users' state will be handled, if applicable]\n\n### User-Visible Impact\n- [ ] State persists across sessions: [Yes / No / Changed]\n- [ ] State syncs across tabs: [Yes / No / Changed]\n- [ ] User data loss risk: [None / Low / Medium / High]\n- [ ] Performance impact: [None / Low / Medium / High]\n- [ ] Breaking changes: [None / Describe if any]\n\n### Code Locations\n[Cite specific file paths and line numbers where state management changes were made, per `.cursor/rules/code-location-citations.mdc`]\n```\n\n## QA Review Requirements\n\n**MANDATORY:** When QA agents review a ticket that includes state management changes, they **must**:\n\n1. **Verify the PM Review artifact includes the state management checklist** — If state management changes were made but the checklist is missing or incomplete, QA **MUST FAIL** the ticket.\n\n2. **Review the documented impact** — QA should verify:\n   - The \"What Changed\" section accurately describes the code changes\n   - The \"Why This Change Was Necessary\" provides adequate justification\n   - Migration considerations are addressed if applicable\n   - User-visible impact is accurately assessed\n\n3. **Include state management review in QA report** — QA reports should include a section confirming:\n   - State management changes were properly documented (or \"No state management changes\" if none were made)\n   - The documented impact assessment appears reasonable\n   - Any concerns about user data loss, breaking changes, or migration issues\n\n### QA Report Template Addition\n\nQA reports should include:\n\n```markdown\n## State Management Review\n\n**State management changes:** [Yes / No]\n\nIf Yes:\n- [ ] PM Review includes complete state management checklist\n- [ ] Documented changes match code review findings\n- [ ] Migration considerations addressed: [Yes / No / N/A]\n- [ ] User-visible impact assessment appears reasonable: [Yes / No]\n- [ ] Concerns identified: [None / List any concerns]\n```\n\n## Integration with Existing Workflows\n\n### PM Review Artifact\n\nThe state management checklist must be included in the **PM Review artifact** stored in Supabase:\n- **Artifact type:** `pm-review`\n- **Title format:** `PM Review for ticket <ticket-id>`\n- **Storage:** Via HAL API endpoint `/api/artifacts/insert-pm-review` (or equivalent)\n\n### QA Audit Report\n\nQA agents must verify state management documentation as part of their standard QA workflow (see `.cursor/rules/qa-audit-report.mdc`).\n\n## Scope\n\n- Applies to **all agents** (implementation, QA, PM) when state management changes are involved\n- The checklist must be **human-verifiable** — a reviewer can open the PM Review artifact and immediately see whether state management changes were made and their impact\n- When in doubt, **document the change** — it's better to over-document than to miss a state management change that could affect user experience\n",
+      "agentTypes": [
+        "all",
+        "qa-agent",
+        "implementation-agent",
+        "project-manager"
+      ],
+      "topicId": "state-management-change-documentation",
+      "isBasic": true,
+      "isSituational": false,
+      "topicMetadata": {
+        "title": "State Management Change Documentation",
+        "description": "Require agents to document and justify any changes to application state management in review artifacts",
+        "agentTypes": [
+          "all"
+        ]
+      }
     }
   ],
   "situational": []
