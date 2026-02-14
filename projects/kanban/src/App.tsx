@@ -697,26 +697,42 @@ function ArtifactReportViewer({
       // ReactMarkdown v10 passes node-based props
       // The image URL is in props.node.properties.src or props.node.url
       const node = props.node
-      const src = node?.properties?.src || node?.url || props.src || null
-      const alt = node?.properties?.alt || node?.alt || props.alt || null
       
-      console.log('[ImageComponent] Props structure:', {
-        hasNode: !!node,
-        nodeType: node?.type,
-        nodeUrl: node?.url?.substring?.(0, 100),
-        nodeProperties: node?.properties,
-        directSrc: props.src,
-        extractedSrc: src?.substring?.(0, 100),
-      })
+      // Log the FULL node structure to see what we have
+      console.log('[ImageComponent] Full node:', node)
+      console.log('[ImageComponent] node.properties:', node?.properties)
+      console.log('[ImageComponent] node.properties keys:', node?.properties ? Object.keys(node.properties) : 'none')
+      console.log('[ImageComponent] node.properties.src:', node?.properties?.src)
+      console.log('[ImageComponent] node.properties.href:', node?.properties?.href)
+      console.log('[ImageComponent] node.url:', node?.url)
+      
+      // Try all possible locations for src
+      const src = node?.properties?.src || 
+                  node?.properties?.href || 
+                  node?.url || 
+                  node?.properties?.url ||
+                  props.src || 
+                  null
+      
+      const alt = node?.properties?.alt || 
+                  node?.alt || 
+                  props.alt || 
+                  null
+      
+      console.log('[ImageComponent] Extracted src:', src?.substring?.(0, 100) || src)
+      console.log('[ImageComponent] Extracted alt:', alt)
       
       if (!src) {
-        console.error('[ImageComponent] No src found in any location')
+        console.error('[ImageComponent] No src found. Full node structure:', JSON.stringify(node, null, 2))
         return (
           <div style={{ border: '2px solid red', padding: '1rem', backgroundColor: '#ffebee' }}>
             <p style={{ margin: 0, fontWeight: 'bold' }}>ERROR: ImageComponent called but no src found</p>
-            <pre style={{ fontSize: '0.8rem', overflow: 'auto', maxHeight: '200px' }}>
-              Node: {node ? JSON.stringify(node, null, 2).substring(0, 500) : 'null'}
-            </pre>
+            <details style={{ marginTop: '0.5rem' }}>
+              <summary>Node structure (click to expand)</summary>
+              <pre style={{ fontSize: '0.8rem', overflow: 'auto', maxHeight: '200px', whiteSpace: 'pre-wrap' }}>
+                {JSON.stringify(node, null, 2)}
+              </pre>
+            </details>
           </div>
         )
       }
