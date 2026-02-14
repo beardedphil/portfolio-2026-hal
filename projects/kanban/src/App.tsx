@@ -370,6 +370,44 @@ function formatTime(): string {
   return d.toLocaleTimeString('en-US', { hour12: false }) + '.' + String(d.getMilliseconds()).padStart(3, '0')
 }
 
+/**
+ * Retry a fetch request with exponential backoff.
+ * @param fetchFn Function that returns a Promise resolving to a Response
+ * @param maxRetries Maximum number of retries (default: 3)
+ * @param initialDelayMs Initial delay in milliseconds (default: 1000)
+ * @returns Promise resolving to the Response
+ */
+async function fetchWithRetry(
+  fetchFn: () => Promise<Response>,
+  maxRetries: number = 3,
+  initialDelayMs: number = 1000
+): Promise<Response> {
+  let lastError: Error | null = null
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetchFn()
+      // Retry on 5xx errors and network errors (but not 4xx client errors)
+      if (response.status >= 500 || response.status === 0) {
+        if (attempt < maxRetries) {
+          const delay = initialDelayMs * Math.pow(2, attempt)
+          await new Promise(resolve => setTimeout(resolve, delay))
+          continue
+        }
+      }
+      return response
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error))
+      if (attempt < maxRetries) {
+        const delay = initialDelayMs * Math.pow(2, attempt)
+        await new Promise(resolve => setTimeout(resolve, delay))
+        continue
+      }
+      throw lastError
+    }
+  }
+  throw lastError || new Error('Fetch failed after retries')
+}
+
 /** Auto-dismiss component for success messages (0047) */
 function AutoDismissMessage({ onDismiss, delay }: { onDismiss: () => void; delay: number }) {
   useEffect(() => {
@@ -1282,25 +1320,52 @@ function ArtifactsSection({
 }) {
   const isLoading = loading || refreshing
 
-  // Detect missing expected artifacts for implementation tickets in QA or later columns (0137)
+  // Detect missing expected artifacts for implementation tickets in QA or later columns (0196)
   const isImplementationTicket = artifacts.some((a) => a.agent_type === 'implementation')
   const isInQaOrLater = columnId === 'col-qa' || columnId === 'col-human-in-the-loop' || columnId === 'col-process-review'
-  const hasChangedFiles = artifacts.some((a) => 
-    a.title?.toLowerCase().includes('changed files') && 
-    a.agent_type === 'implementation' &&
-    a.body_md && 
-    a.body_md.trim().length > 0 &&
-    !a.body_md.includes('(No files changed in this PR)') &&
-    !a.body_md.includes('(none)')
-  )
-  const hasVerification = artifacts.some((a) => 
-    a.title?.toLowerCase().includes('verification') && 
-    a.agent_type === 'implementation' &&
-    a.body_md && 
-    a.body_md.trim().length > 0 &&
-    !a.body_md.includes('(none)')
-  )
-
+  
+  // Check for all 8 required implementation artifacts
+  const requiredArtifactTypes = [
+    { key: 'plan', title: 'Plan' },
+    { key: 'worklog', title: 'Worklog' },
+    { key: 'changed-files', title: 'Changed Files' },
+    { key: 'decisions', title: 'Decisions' },
+    { key: 'verification', title: 'Verification' },
+    { key: 'pm-review', title: 'PM Review' },
+    { key: 'git-diff', title: 'Git diff' },
+    { key: 'instructions-used', title: 'Instructions Used' },
+  ]
+  
+  const hasArtifact = (type: string) => {
+    const typeLower = type.toLowerCase()
+    return artifacts.some((a) => {
+      const titleLower = a.title?.toLowerCase() || ''
+      const isMatch = 
+        (typeLower === 'plan' && titleLower.includes('plan for ticket')) ||
+        (typeLower === 'worklog' && titleLower.includes('worklog for ticket')) ||
+        (typeLower === 'changed-files' && titleLower.includes('changed files for ticket')) ||
+        (typeLower === 'decisions' && titleLower.includes('decisions for ticket')) ||
+        (typeLower === 'verification' && titleLower.includes('verification for ticket')) ||
+        (typeLower === 'pm-review' && titleLower.includes('pm review for ticket')) ||
+        (typeLower === 'git-diff' && (titleLower.includes('git diff for ticket') || titleLower.includes('git-diff for ticket'))) ||
+        (typeLower === 'instructions-used' && titleLower.includes('instructions used for ticket'))
+      
+      return isMatch && 
+        a.agent_type === 'implementation' &&
+        a.body_md && 
+        a.body_md.trim().length > 50 && // Substantive content check
+        !a.body_md.includes('(none)') &&
+        !a.body_md.includes('(No files changed')
+    })
+  }
+  
+  const missingArtifacts = isImplementationTicket && isInQaOrLater
+    ? requiredArtifactTypes.filter(({ key }) => !hasArtifact(key))
+    : []
+  
+  // Legacy checks for backward compatibility
+  const hasChangedFiles = hasArtifact('changed-files')
+  const hasVerification = hasArtifact('verification')
   const missingChangedFiles = isImplementationTicket && isInQaOrLater && !hasChangedFiles
   const missingVerification = isImplementationTicket && isInQaOrLater && !hasVerification
 
@@ -1357,13 +1422,25 @@ function ArtifactsSection({
         </div>
       )}
 
-      {/* Error states for missing expected artifacts (0137) */}
-      {missingChangedFiles && (
+      {/* Error states for missing expected artifacts (0196) */}
+      {missingArtifacts.length > 0 && (
+        <div className="artifacts-error-state" role="alert">
+          <strong>Missing required implementation artifacts:</strong> The following {missingArtifacts.length} required artifact{missingArtifacts.length > 1 ? 's are' : ' is'} missing or empty:
+          <ul style={{ marginTop: '0.5em', marginBottom: '0.5em', paddingLeft: '1.5em' }}>
+            {missingArtifacts.map(({ title }) => (
+              <li key={title}>{title}</li>
+            ))}
+          </ul>
+          This may indicate that artifact insertion failed (API error, validation error, or network error). Check the implementation agent logs for error messages.
+        </div>
+      )}
+      {/* Legacy error states for backward compatibility (0137) */}
+      {missingChangedFiles && !missingArtifacts.some(a => a.key === 'changed-files') && (
         <div className="artifacts-error-state" role="alert">
           <strong>Changed Files artifact unavailable:</strong> Unable to determine changed files. This may be due to missing PR/branch information or GitHub API failure.
         </div>
       )}
-      {missingVerification && (
+      {missingVerification && !missingArtifacts.some(a => a.key === 'verification') && (
         <div className="artifacts-error-state" role="alert">
           <strong>Verification artifact unavailable:</strong> Unable to generate verification content. This may be due to missing PR/branch information or GitHub API failure.
         </div>
@@ -2828,14 +2905,24 @@ function App() {
           body.supabaseUrl = url
           body.supabaseAnonKey = key
         }
-        return fetch('/api/artifacts/get', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify(body),
-        })
+        return fetchWithRetry(
+          () => fetch('/api/artifacts/get', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(body),
+          }),
+          3, // maxRetries
+          1000 // initialDelayMs
+        )
           .then((r) => r.json().catch(() => ({})))
-          .then((j: { artifacts?: SupabaseAgentArtifactRow[] }) => Array.isArray(j.artifacts) ? j.artifacts : [])
+          .then((j: { artifacts?: SupabaseAgentArtifactRow[]; error?: string }) => {
+            if (j.error && !Array.isArray(j.artifacts)) {
+              console.warn('Artifacts API returned error:', j.error)
+              return []
+            }
+            return Array.isArray(j.artifacts) ? j.artifacts : []
+          })
       }
       if (halCtx.fetchArtifactsForTicket) {
         halCtx
@@ -2965,14 +3052,24 @@ function App() {
           body.supabaseUrl = url
           body.supabaseAnonKey = key
         }
-        return fetch('/api/artifacts/get', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify(body),
-        })
+        return fetchWithRetry(
+          () => fetch('/api/artifacts/get', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(body),
+          }),
+          3, // maxRetries
+          1000 // initialDelayMs
+        )
           .then((r) => r.json().catch(() => ({})))
-          .then((j: { artifacts?: SupabaseAgentArtifactRow[] }) => Array.isArray(j.artifacts) ? j.artifacts : [])
+          .then((j: { artifacts?: SupabaseAgentArtifactRow[]; error?: string }) => {
+            if (j.error && !Array.isArray(j.artifacts)) {
+              console.warn('Artifacts API returned error:', j.error)
+              return []
+            }
+            return Array.isArray(j.artifacts) ? j.artifacts : []
+          })
       }
       if (halCtx.fetchArtifactsForTicket) {
         halCtx

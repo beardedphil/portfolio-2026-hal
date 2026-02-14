@@ -89,23 +89,38 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         return
       }
 
-      // Try to find ticket by ticket_number (repo-scoped) or id (legacy)
-      const { data: ticket, error: ticketError } = await supabase
-        .from('tickets')
-        .select('pk')
-        .or(`ticket_number.eq.${ticketNumber},id.eq.${ticketId}`)
-        .maybeSingle()
+      // Retry logic for ticket lookup (up to 3 attempts with exponential backoff)
+      let ticketLookupError: Error | null = null
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) {
+          await new Promise((resolve) => setTimeout(resolve, Math.pow(2, attempt) * 100))
+        }
+        
+        const { data: ticket, error: ticketError } = await supabase
+          .from('tickets')
+          .select('pk')
+          .or(`ticket_number.eq.${ticketNumber},id.eq.${ticketId}`)
+          .maybeSingle()
 
-      if (ticketError || !ticket) {
+        if (!ticketError && ticket?.pk) {
+          finalTicketPk = ticket.pk
+          ticketLookupError = null
+          break
+        }
+        
+        if (ticketError) {
+          ticketLookupError = ticketError
+        }
+      }
+
+      if (ticketLookupError || !finalTicketPk) {
         json(res, 200, {
           success: false,
-          error: `Ticket ${ticketId} not found in Supabase.`,
+          error: `Ticket ${ticketId} not found in Supabase${ticketLookupError ? `: ${ticketLookupError.message}` : ''}.`,
           artifacts: [],
         })
         return
       }
-
-      finalTicketPk = ticket.pk
     }
 
     if (!finalTicketPk) {
@@ -117,25 +132,67 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
-    // Fetch all artifacts for this ticket
+    // Fetch all artifacts for this ticket with retry logic (0196)
     // Order by created_at ascending (oldest first) with secondary sort by artifact_id for deterministic ordering (0147)
-    const { data: artifacts, error: artifactsError } = await supabase
-      .from('agent_artifacts')
-      .select('artifact_id, ticket_pk, repo_full_name, agent_type, title, body_md, created_at, updated_at')
-      .eq('ticket_pk', finalTicketPk)
-      .order('created_at', { ascending: true })
-      .order('artifact_id', { ascending: true })
+    let artifacts: any[] | null = null
+    let artifactsError: any = null
+    const maxRetries = 3
+    const retryDelay = 1000 // 1 second
+    
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, retryDelay * attempt))
+      }
+      
+      const { data, error } = await supabase
+        .from('agent_artifacts')
+        .select('artifact_id, ticket_pk, repo_full_name, agent_type, title, body_md, created_at, updated_at')
+        .eq('ticket_pk', finalTicketPk)
+        .order('created_at', { ascending: true })
+        .order('artifact_id', { ascending: true })
+
+      if (!error && data !== null) {
+        artifacts = data
+        artifactsError = null
+        break
+      }
+      
+      if (error) {
+        artifactsError = error
+        
+        // Only retry on network/timeout errors, not validation errors
+        const isRetryableError = 
+          error.message?.includes('timeout') ||
+          error.message?.includes('network') ||
+          error.message?.includes('ECONNREFUSED') ||
+          error.message?.includes('ETIMEDOUT') ||
+          error.code === 'PGRST116' // PostgREST connection error
+        
+        if (!isRetryableError || attempt === maxRetries - 1) {
+          break
+        }
+      }
+    }
 
     if (artifactsError) {
       json(res, 200, {
         success: false,
-        error: `Failed to fetch artifacts: ${artifactsError.message}`,
+        error: `Failed to fetch artifacts after ${maxRetries} attempts: ${artifactsError.message}`,
         artifacts: [],
       })
       return
     }
 
-    const artifactsList = artifacts || []
+    const artifactsList = (artifacts || []) as Array<{
+      artifact_id: string
+      ticket_pk: string
+      repo_full_name: string
+      agent_type: string
+      title: string
+      body_md?: string
+      created_at: string
+      updated_at?: string
+    }>
 
     // If summary mode is requested, return summarized data
     const summaryMode = body.summary === true
