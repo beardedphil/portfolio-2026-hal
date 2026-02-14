@@ -8,7 +8,7 @@ import { createContext } from 'react'
 import type { KanbanTicketRow, KanbanColumnRow, KanbanAgentRunRow, KanbanAgentArtifactRow } from './types'
 
 /** Chat target for one-click work buttons (matches HAL's ChatTarget). */
-export type HalChatTarget = 'project-manager' | 'implementation-agent' | 'qa-agent' | 'standup'
+export type HalChatTarget = 'project-manager' | 'implementation-agent' | 'qa-agent'
 
 export interface HalKanbanContextValue {
   /** Tickets (from HAL's Supabase fetch). */

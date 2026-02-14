@@ -21,7 +21,7 @@ type ArtifactRow = {
 }
 
 type Agent = 'project-manager' | 'implementation-agent' | 'qa-agent' | 'process-review-agent'
-type ChatTarget = Agent | 'standup'
+type ChatTarget = Agent
 
 type ImageAttachment = {
   file: File
@@ -261,7 +261,6 @@ const CHAT_OPTIONS: { id: ChatTarget; label: string }[] = [
   { id: 'implementation-agent', label: 'Implementation Agent' },
   { id: 'qa-agent', label: 'QA' },
   { id: 'process-review-agent', label: 'Process Review' },
-  { id: 'standup', label: 'Standup (all agents)' },
 ]
 // DEBUG: QA option should be visible
 console.log('CHAT_OPTIONS:', CHAT_OPTIONS.map(o => o.label))
@@ -352,7 +351,6 @@ function App() {
     'implementation-agent': 0,
     'qa-agent': 0,
     'process-review-agent': 0,
-    standup: 0,
   }))
   const [agentTypingTarget, setAgentTypingTarget] = useState<ChatTarget | null>(null)
   /** Implementation Agent run status for on-screen timeline (0044, 0046, 0050). */
@@ -534,6 +532,18 @@ function App() {
   useEffect(() => {
     refreshGithubAuth().catch(() => {})
   }, [refreshGithubAuth])
+
+  // Redirect if Standup chat is accessed (0154: Standup removed)
+  useEffect(() => {
+    // Handle legacy 'standup' references (e.g., from old localStorage or direct state manipulation)
+    // openChatTarget can be a string (conversation ID) or ChatTarget, so check if it's the legacy 'standup' string
+    if (openChatTarget === 'standup') {
+      // Redirect to Project Manager (sensible default)
+      setOpenChatTarget('project-manager')
+      setSelectedChatTarget('project-manager')
+      setSelectedConversationId(null)
+    }
+  }, [openChatTarget])
 
   const loadGithubRepos = useCallback(async () => {
     try {
@@ -965,9 +975,9 @@ function App() {
   }, [qaAgentError])
 
   // Get active messages from selected conversation (0070)
-  // For PM and Standup, always use default conversation; for Implementation/QA, use selected conversation if modal is open
+  // For PM, always use default conversation; for Implementation/QA, use selected conversation if modal is open
   const activeMessages = (() => {
-    if (selectedChatTarget === 'project-manager' || selectedChatTarget === 'standup') {
+    if (selectedChatTarget === 'project-manager') {
       const defaultConvId = getConversationId('project-manager', 1)
       return conversations.has(defaultConvId) ? conversations.get(defaultConvId)!.messages : []
     }
@@ -1009,9 +1019,9 @@ function App() {
     return firstLine.length > 100 ? firstLine.substring(0, 100) + '...' : firstLine
   }, [])
 
-  // Get preview text for PM or Standup chat (0087)
+  // Get preview text for PM chat (0087)
   const getChatTargetPreview = useCallback((target: ChatTarget): string => {
-    if (target === 'project-manager' || target === 'standup') {
+    if (target === 'project-manager') {
       const defaultConvId = getConversationId('project-manager', 1)
       if (conversations.has(defaultConvId)) {
         const conv = conversations.get(defaultConvId)!
@@ -1778,7 +1788,7 @@ function App() {
   const triggerAgentRun = useCallback(
     (content: string, target: ChatTarget, imageAttachments?: ImageAttachment[], conversationId?: string) => {
       // Get or create conversation ID (0070)
-      const convId = conversationId || getDefaultConversationId(target === 'project-manager' ? 'project-manager' : target === 'standup' ? 'project-manager' : target)
+      const convId = conversationId || getDefaultConversationId(target === 'project-manager' ? 'project-manager' : target)
       const useDb = target === 'project-manager' && supabaseUrl != null && supabaseAnonKey != null && connectedProject != null
       setLastAgentError(null)
 
@@ -2521,9 +2531,6 @@ function App() {
     let convId: string
     if (selectedConversationId && conversations.has(selectedConversationId)) {
       convId = selectedConversationId
-    } else if (selectedChatTarget === 'standup') {
-      // Standup uses a special conversation
-      convId = getDefaultConversationId('project-manager') // Reuse PM conversation for standup
     } else {
       convId = getDefaultConversationId(selectedChatTarget === 'project-manager' ? 'project-manager' : selectedChatTarget)
     }
@@ -2555,30 +2562,6 @@ function App() {
 
     // Use the extracted triggerAgentRun function
     triggerAgentRun(content, selectedChatTarget, attachments, convId)
-    
-    // Standup handling (not part of triggerAgentRun)
-    if (selectedChatTarget === 'standup') {
-      setAgentTypingTarget('standup')
-      setTimeout(() => {
-        addMessage(convId, 'system', '--- Standup (all agents) ---')
-      }, 100)
-      setTimeout(() => {
-        addMessage(convId, 'project-manager', `[Standup] Project Manager:
-• Reviewed ticket backlog
-• No blockers identified
-• Ready to assist with prioritization`)
-      }, 300)
-      setTimeout(() => {
-        addMessage(convId, 'implementation-agent', `[Standup] Implementation Agent:
-• Awaiting task assignment
-• Development environment ready
-• No active work in progress`)
-      }, 600)
-      setTimeout(() => {
-        addMessage(convId, 'system', '--- End of Standup ---')
-        setAgentTypingTarget(null)
-      }, 900)
-    }
   }, [inputValue, selectedChatTarget, selectedConversationId, conversations, addMessage, supabaseUrl, supabaseAnonKey, connectedProject, triggerAgentRun, getDefaultConversationId])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -2609,7 +2592,7 @@ function App() {
     setLastCreateTicketAvailable(null)
     setSupabaseUrl(null)
     setSupabaseAnonKey(null)
-    setUnreadByTarget({ 'project-manager': 0, 'implementation-agent': 0, 'qa-agent': 0, 'process-review-agent': 0, standup: 0 })
+    setUnreadByTarget({ 'project-manager': 0, 'implementation-agent': 0, 'qa-agent': 0, 'process-review-agent': 0 })
     // Do NOT clear agent status on disconnect (0097: preserve agent status across disconnect/reconnect)
     // Status boxes are gated by connectedProject, so they'll be hidden anyway
     // Only clear ticket IDs and diagnostics (these are per-session)
@@ -2914,8 +2897,6 @@ function App() {
                       ? getConversationLabel(conversations.get(openChatTarget)!)
                       : openChatTarget === 'project-manager'
                       ? 'Project Manager'
-                      : openChatTarget === 'standup'
-                      ? 'Standup (all agents)'
                       : 'Chat'}
                   </div>
                   <div className="chat-window-actions">
@@ -3458,36 +3439,6 @@ function App() {
                   )}
                 </div>
                 <div className="chat-preview-text">{getChatTargetPreview('project-manager')}</div>
-              </div>
-
-              {/* Standup */}
-              <div
-                className={`chat-preview-pane ${openChatTarget === 'standup' ? 'chat-preview-active' : ''}`}
-                onClick={() => {
-                  setOpenChatTarget('standup')
-                  setSelectedChatTarget('standup')
-                  setSelectedConversationId(null)
-                  setUnreadByTarget((prev) => ({ ...prev, standup: 0 }))
-                }}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault()
-                    setOpenChatTarget('standup')
-                    setSelectedChatTarget('standup')
-                    setSelectedConversationId(null)
-                    setUnreadByTarget((prev) => ({ ...prev, standup: 0 }))
-                  }
-                }}
-              >
-                <div className="chat-preview-header">
-                  <span className="chat-preview-name">Standup (all agents)</span>
-                  {unreadByTarget.standup > 0 && (
-                    <span className="chat-preview-unread">{unreadByTarget.standup}</span>
-                  )}
-                </div>
-                <div className="chat-preview-text">{getChatTargetPreview('standup')}</div>
               </div>
 
               {/* QA Group */}
