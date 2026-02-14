@@ -228,7 +228,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       '   - The diff should be in unified diff format and will be displayed with syntax highlighting in the UI',
       '',
       '8. **Instructions Used** (`artifactType: "instructions-used"`, title: `Instructions Used for ticket ${displayId}`)',
-      '   - Must include: List of instruction sets or topics that were referenced during implementation',
+      '   - Must include: List of all instruction sets/topics loaded during implementation',
+      '   - Document: Global bootstrap instructions, agent-specific instructions, and any topic-specific loads',
+      '   - Use the template at `docs/templates/instructions-used.template.md` as a guide',
+      '   - Include: Stage 1 (Global Bootstrap), Stage 2 (Full Agent Instruction Set), Stage 3 (Topic-Specific Loads), and Instruction Usage Summary',
       '   - If you used any agent instructions (via `get_instruction_set` tool or HAL API `/api/instructions/get-topic`), list them here',
       '   - Include any agent instructions, cursor rules, or process documents that guided your work',
       '   - If no specific instructions were used beyond the standard implementation workflow, state that explicitly',
@@ -311,7 +314,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       'const planData = await planRes.json()',
       'if (!planData.success) throw new Error(planData.error)',
       '',
+<<<<<<< HEAD
       '// 4. Continue storing all 8 required artifacts as you work...',
+=======
+      '// 4. Continue storing the remaining 7 required artifacts as you work...',
+>>>>>>> ticket/0178-implementation
       '```',
       '',
       '**No credentials needed** - The HAL server uses its own Supabase credentials. Just call the API endpoints directly.',
