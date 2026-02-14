@@ -1374,20 +1374,86 @@ function ArtifactDiagnostics({
           .order('attempted_at', { ascending: false })
 
         if (attemptsErr) {
-          // Fallback to API
-          const apiBaseUrl = window.location.origin
-          const res = await fetch(`${apiBaseUrl}/api/artifacts/get-diagnostics`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ticketId, ticketPk, supabaseUrl, supabaseAnonKey }),
-          })
-          const data = await res.json()
-          if (data.success && data.diagnostics) {
-            setDiagnostics(data.diagnostics)
-            setRetrievalError(data.retrievalError || null)
+          // Check if it's a "table doesn't exist" error
+          const isTableMissing = attemptsErr.message?.includes('does not exist') || 
+                                  attemptsErr.message?.includes('relation') ||
+                                  attemptsErr.code === '42P01'
+          
+          if (isTableMissing) {
+            // Table doesn't exist - build diagnostics without attempt data
+            const requiredArtifactTypes = [
+              { key: 'plan', title: 'Plan' },
+              { key: 'worklog', title: 'Worklog' },
+              { key: 'changed-files', title: 'Changed Files' },
+              { key: 'decisions', title: 'Decisions' },
+              { key: 'verification', title: 'Verification' },
+              { key: 'pm-review', title: 'PM Review' },
+              { key: 'git-diff', title: 'Git diff' },
+              { key: 'instructions-used', title: 'Instructions Used' },
+            ]
+
+            const { data: artifactsData } = await supabase
+              .from('agent_artifacts')
+              .select('artifact_id, ticket_pk, agent_type, title, body_md, created_at')
+              .eq('ticket_pk', ticketPk)
+
+            const artifactsList = (artifactsData || []) as Array<{
+              artifact_id: string
+              ticket_pk: string
+              agent_type: string
+              title: string
+              body_md?: string
+              created_at: string
+            }>
+
+            const diagnosticsData = requiredArtifactTypes.map(({ key, title }) => {
+              const matchingArtifacts = artifactsList.filter((a) => {
+                if (a.agent_type !== 'implementation') return false
+                const titleLower = a.title?.toLowerCase() || ''
+                return (
+                  (key === 'plan' && titleLower.includes('plan for ticket')) ||
+                  (key === 'worklog' && titleLower.includes('worklog for ticket')) ||
+                  (key === 'changed-files' && titleLower.includes('changed files for ticket')) ||
+                  (key === 'decisions' && titleLower.includes('decisions for ticket')) ||
+                  (key === 'verification' && titleLower.includes('verification for ticket')) ||
+                  (key === 'pm-review' && titleLower.includes('pm review for ticket')) ||
+                  (key === 'git-diff' && (titleLower.includes('git diff for ticket') || titleLower.includes('git-diff for ticket'))) ||
+                  (key === 'instructions-used' && titleLower.includes('instructions used for ticket'))
+                )
+              })
+
+              const artifactsWithContent = matchingArtifacts.filter((a) => {
+                const body = a.body_md || ''
+                return body.trim().length > 50 && !body.includes('(none)') && !body.includes('(No files changed')
+              })
+
+              return {
+                artifactType: key,
+                title,
+                isPresent: artifactsWithContent.length > 0,
+                rowCount: matchingArtifacts.length,
+                lastAttempt: null, // No attempt data available
+              }
+            })
+
+            setDiagnostics(diagnosticsData)
+            setError('Storage attempts tracking table not found. Run migration 0175-artifact-storage-attempts.sql to enable attempt tracking.')
           } else {
-            setError(data.error || 'Failed to fetch diagnostics')
-            setRetrievalError(data.retrievalError || null)
+            // Other error - fallback to API
+            const apiBaseUrl = window.location.origin
+            const res = await fetch(`${apiBaseUrl}/api/artifacts/get-diagnostics`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ticketId, ticketPk, supabaseUrl, supabaseAnonKey }),
+            })
+            const data = await res.json()
+            if (data.success && data.diagnostics) {
+              setDiagnostics(data.diagnostics)
+              setRetrievalError(data.retrievalError || null)
+            } else {
+              setError(data.error || 'Failed to fetch diagnostics')
+              setRetrievalError(data.retrievalError || null)
+            }
           }
         } else {
           // Build diagnostics from artifacts and attempts
@@ -1510,6 +1576,11 @@ function ArtifactDiagnostics({
   return (
     <div className="artifact-diagnostics-section">
       <h3 className="artifact-diagnostics-title">Artifact Diagnostics</h3>
+      {error && (
+        <div className="artifact-diagnostics-error" role="alert" style={{ marginBottom: '1em' }}>
+          <p><strong>Note:</strong> {error}</p>
+        </div>
+      )}
       {retrievalError && (
         <div className="artifact-diagnostics-error" role="alert" style={{ marginBottom: '1em' }}>
           <p><strong>Retrieval error:</strong> {retrievalError.message}</p>
@@ -1535,24 +1606,54 @@ function ArtifactDiagnostics({
                   {item.rowCount} row{item.rowCount !== 1 ? 's' : ''}
                 </span>
               </div>
-              <div style={{ fontSize: '0.9em', color: item.isPresent ? '#28a745' : '#dc3545' }}>
+              <div style={{ fontSize: '0.9em', color: item.isPresent ? '#28a745' : '#dc3545', marginBottom: item.isPresent ? '0' : '0.5em' }}>
                 {item.isPresent ? 'Present' : 'Missing'}
               </div>
-              {!item.isPresent && item.lastAttempt && (
-                <div style={{ marginTop: '0.5em', padding: '0.5em', backgroundColor: '#f8f9fa', borderRadius: '4px', fontSize: '0.85em' }}>
-                  <div><strong>Last attempt:</strong> {new Date(item.lastAttempt.timestamp).toLocaleString()}</div>
-                  <div><strong>Endpoint:</strong> {item.lastAttempt.endpoint}</div>
-                  <div><strong>Outcome:</strong> {item.lastAttempt.outcome}</div>
-                  {item.lastAttempt.validationReason && (
-                    <div style={{ marginTop: '0.5em', color: '#dc3545' }}>
-                      <strong>Validation reason:</strong> {item.lastAttempt.validationReason}
+              {!item.isPresent && (
+                <div style={{ marginTop: '0.5em', padding: '0.75em', backgroundColor: item.lastAttempt ? '#fff3cd' : '#f8f9fa', border: `1px solid ${item.lastAttempt ? '#ffc107' : '#ddd'}`, borderRadius: '4px', fontSize: '0.85em' }}>
+                  {item.lastAttempt ? (
+                    <>
+                      <div style={{ marginBottom: '0.5em', fontWeight: '600', color: '#856404' }}>
+                        Last storage attempt:
+                      </div>
+                      <div style={{ marginBottom: '0.25em' }}>
+                        <strong>When:</strong> {new Date(item.lastAttempt.timestamp).toLocaleString()}
+                      </div>
+                      <div style={{ marginBottom: '0.25em' }}>
+                        <strong>Endpoint:</strong> <code style={{ fontSize: '0.9em', backgroundColor: '#f8f9fa', padding: '0.1em 0.3em', borderRadius: '2px' }}>{item.lastAttempt.endpoint}</code>
+                      </div>
+                      <div style={{ marginBottom: '0.25em' }}>
+                        <strong>Outcome:</strong> <span style={{ 
+                          color: item.lastAttempt.outcome === 'stored' ? '#28a745' : '#dc3545',
+                          fontWeight: '600'
+                        }}>{item.lastAttempt.outcome}</span>
+                      </div>
+                      {item.lastAttempt.validationReason && (
+                        <div style={{ marginTop: '0.5em', padding: '0.5em', backgroundColor: '#f8d7da', border: '1px solid #f5c6cb', borderRadius: '4px', color: '#721c24' }}>
+                          <strong>Validation rejection:</strong> {item.lastAttempt.validationReason}
+                        </div>
+                      )}
+                      {item.lastAttempt.errorMessage && !item.lastAttempt.validationReason && (
+                        <div style={{ marginTop: '0.5em', padding: '0.5em', backgroundColor: '#f8d7da', border: '1px solid #f5c6cb', borderRadius: '4px', color: '#721c24' }}>
+                          <strong>Error:</strong> {item.lastAttempt.errorMessage}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div style={{ color: '#666', fontStyle: 'italic' }}>
+                      No storage attempt recorded. This could mean:
+                      <ul style={{ marginTop: '0.5em', marginBottom: '0', paddingLeft: '1.5em' }}>
+                        <li>The artifact was never attempted to be stored</li>
+                        <li>The storage attempts tracking table hasn't been set up (run migration 0175)</li>
+                        <li>Storage attempts occurred before tracking was enabled</li>
+                      </ul>
                     </div>
                   )}
-                  {item.lastAttempt.errorMessage && !item.lastAttempt.validationReason && (
-                    <div style={{ marginTop: '0.5em', color: '#dc3545' }}>
-                      <strong>Error:</strong> {item.lastAttempt.errorMessage}
-                    </div>
-                  )}
+                </div>
+              )}
+              {!item.isPresent && item.rowCount > 0 && (
+                <div style={{ marginTop: '0.5em', padding: '0.5em', backgroundColor: '#fff3cd', border: '1px solid #ffc107', borderRadius: '4px', fontSize: '0.85em', color: '#856404' }}>
+                  <strong>Note:</strong> {item.rowCount} artifact row{item.rowCount !== 1 ? 's' : ''} exist{item.rowCount === 1 ? 's' : ''} but {item.rowCount === 1 ? 'is' : 'are'} empty or placeholder content. The artifact may have been created but failed validation or was never populated with content.
                 </div>
               )}
             </li>
