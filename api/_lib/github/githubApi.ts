@@ -224,7 +224,13 @@ export async function fetchFileContents(
   }
 }
 
-export type PrFile = { filename: string; status: string; additions: number; deletions: number }
+export type PrFile = { 
+  filename: string
+  status: string
+  additions: number
+  deletions: number
+  patch?: string | null // Unified diff patch (null for binary files or files too large)
+}
 
 /** Fetch PR files from GitHub. prUrl e.g. https://github.com/owner/repo/pull/123 */
 export async function fetchPullRequestFiles(
@@ -243,6 +249,58 @@ export async function fetchPullRequestFiles(
   }
 }
 
+/** Fetch unified git diff from PR files. Combines all file patches into a single unified diff. */
+export async function fetchPullRequestDiff(
+  token: string,
+  prUrl: string
+): Promise<{ diff: string } | { error: string }> {
+  try {
+    const filesResult = await fetchPullRequestFiles(token, prUrl)
+    if ('error' in filesResult) {
+      return { error: filesResult.error }
+    }
+    
+    const files = filesResult.files
+    if (files.length === 0) {
+      return { error: 'No files changed in this PR' }
+    }
+    
+    // Build unified diff from all file patches
+    const diffParts: string[] = []
+    
+    for (const file of files) {
+      // Skip binary files or files without patches
+      if (!file.patch) {
+        // For binary files, add a note
+        diffParts.push(`diff --git a/${file.filename} b/${file.filename}`)
+        diffParts.push(`Binary files differ`)
+        diffParts.push('')
+        continue
+      }
+      
+      // Add file header if not already present in patch
+      if (!file.patch.startsWith('diff --git')) {
+        diffParts.push(`diff --git a/${file.filename} b/${file.filename}`)
+        diffParts.push(`--- a/${file.filename}`)
+        diffParts.push(`+++ b/${file.filename}`)
+      }
+      
+      // Add the patch content
+      diffParts.push(file.patch)
+      diffParts.push('') // Empty line between files
+    }
+    
+    const diff = diffParts.join('\n').trim()
+    if (!diff) {
+      return { error: 'No diff content available (all files may be binary or too large)' }
+    }
+    
+    return { diff }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
 /** Result type for artifact generation - includes error state when data unavailable */
 export type ArtifactGenerationResult = {
   title: string
@@ -255,9 +313,10 @@ export type ArtifactGenerationResponse = {
   errors: Array<{ artifactType: string; reason: string }>
 }
 
-/** Generate the 6 implementation artifacts from PR data and Cursor summary. Stored in Supabase only.
+/** Generate the 7 implementation artifacts from PR data and Cursor summary. Stored in Supabase only.
  * Returns artifacts with body_md set to null when data is unavailable (e.g., no PR files, missing PR URL).
  * Callers should NOT store artifacts where body_md is null - instead show error state in UI.
+ * Artifacts: plan, worklog, changed-files, decisions, verification, pm-review, git-diff
  */
 export function generateImplementationArtifacts(
   displayId: string,
@@ -385,6 +444,73 @@ export function generateImplementationArtifacts(
     prUrl ? `**Pull request:** ${prUrl}` : '',
   ].join('\n')
 
+  // Git diff artifact: generate unified diff from PR files
+  let gitDiffResult: ArtifactGenerationResult
+  if (!prUrl) {
+    gitDiffResult = {
+      title: `Git diff for ticket ${displayId}`,
+      body_md: null,
+      error: 'Pull request URL not available. Cannot generate git diff.',
+    }
+  } else if (prFilesError) {
+    gitDiffResult = {
+      title: `Git diff for ticket ${displayId}`,
+      body_md: null,
+      error: `Failed to fetch PR files: ${prFilesError}. Cannot generate git diff.`,
+    }
+  } else if (prFiles === null) {
+    gitDiffResult = {
+      title: `Git diff for ticket ${displayId}`,
+      body_md: null,
+      error: 'PR files data not available. Cannot generate git diff.',
+    }
+  } else if (prFiles.length === 0) {
+    gitDiffResult = {
+      title: `Git diff for ticket ${displayId}`,
+      body_md: null,
+      error: 'No files changed in this PR. If code changes exist, they may not be reflected in the PR yet.',
+    }
+  } else {
+    // Build unified diff from all file patches
+    const diffParts: string[] = []
+    
+    for (const file of prFiles) {
+      // Skip binary files or files without patches
+      if (!file.patch) {
+        // For binary files, add a note
+        diffParts.push(`diff --git a/${file.filename} b/${file.filename}`)
+        diffParts.push(`Binary files differ`)
+        diffParts.push('')
+        continue
+      }
+      
+      // Add file header if not already present in patch
+      if (!file.patch.startsWith('diff --git')) {
+        diffParts.push(`diff --git a/${file.filename} b/${file.filename}`)
+        diffParts.push(`--- a/${file.filename}`)
+        diffParts.push(`+++ b/${file.filename}`)
+      }
+      
+      // Add the patch content
+      diffParts.push(file.patch)
+      diffParts.push('') // Empty line between files
+    }
+    
+    const diff = diffParts.join('\n').trim()
+    if (!diff) {
+      gitDiffResult = {
+        title: `Git diff for ticket ${displayId}`,
+        body_md: null,
+        error: 'No diff content available (all files may be binary or too large)',
+      }
+    } else {
+      gitDiffResult = {
+        title: `Git diff for ticket ${displayId}`,
+        body_md: diff,
+      }
+    }
+  }
+
   const allArtifacts: ArtifactGenerationResult[] = [
     { title: `Plan for ticket ${displayId}`, body_md: planBody },
     { title: `Worklog for ticket ${displayId}`, body_md: worklogBody },
@@ -392,6 +518,7 @@ export function generateImplementationArtifacts(
     { title: `Decisions for ticket ${displayId}`, body_md: decisionsBody },
     verificationResult,
     { title: `PM Review for ticket ${displayId}`, body_md: pmReviewBody },
+    gitDiffResult,
   ]
 
   // Separate artifacts with content from those with errors
@@ -413,6 +540,8 @@ export function generateImplementationArtifacts(
         ? 'decisions'
         : artifact.title.toLowerCase().includes('pm review')
         ? 'pm-review'
+        : artifact.title.toLowerCase().includes('git diff') || artifact.title.toLowerCase().includes('git-diff')
+        ? 'git-diff'
         : 'unknown'
       errors.push({
         artifactType,
