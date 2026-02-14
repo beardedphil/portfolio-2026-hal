@@ -1951,3 +1951,56 @@ body {
   white-space: pre-wrap;
   word-wrap: break-word;
 }
+
+.instruction-section {
+  margin-bottom: 2rem;
+}
+
+.instruction-section-title {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--hal-text);
+}
+
+.instruction-section-description {
+  margin: 0 0 1rem 0;
+  font-size: 0.9rem;
+  color: var(--hal-text-muted);
+  line-height: 1.5;
+}
+
+.instruction-section-description code {
+  background: var(--hal-surface-alt);
+  padding: 0.2rem 0.4rem;
+  border-radius: 3px;
+  font-size: 0.85em;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace;
+}
+
+.instruction-item-basic {
+  border-left: 3px solid var(--hal-status-ok);
+}
+
+.instruction-item-situational {
+  border-left: 3px solid var(--hal-primary);
+}
+
+.instruction-item-badge {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.2rem 0.5rem;
+  background: var(--hal-primary);
+  color: white;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.instruction-item-keywords {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--hal-text-muted);
+  font-style: italic;
+}

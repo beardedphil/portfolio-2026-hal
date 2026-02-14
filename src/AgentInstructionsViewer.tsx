@@ -7,6 +7,15 @@ type InstructionFile = {
   alwaysApply: boolean
   content: string
   agentTypes: string[] // Derived from content analysis
+  topicId?: string
+  isBasic?: boolean
+  isSituational?: boolean
+  topicMetadata?: {
+    title: string
+    description: string
+    agentTypes: string[]
+    keywords?: string[]
+  }
 }
 
 type AgentType = 'all' | 'project-manager' | 'implementation-agent' | 'qa-agent' | 'process-review-agent'
@@ -20,6 +29,13 @@ interface AgentInstructionsViewerProps {
 
 export function AgentInstructionsViewer({ isOpen, onClose }: AgentInstructionsViewerProps) {
   const [instructions, setInstructions] = useState<InstructionFile[]>([])
+  const [basicInstructions, setBasicInstructions] = useState<InstructionFile[]>([])
+  const [situationalInstructions, setSituationalInstructions] = useState<InstructionFile[]>([])
+  const [instructionIndex, setInstructionIndex] = useState<{
+    basic?: string[]
+    situational?: Record<string, string[]>
+    topics?: Record<string, { title: string; description: string; agentTypes: string[]; keywords?: string[] }>
+  } | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [viewState, setViewState] = useState<ViewState>('agents')
@@ -46,6 +62,16 @@ export function AgentInstructionsViewer({ isOpen, onClose }: AgentInstructionsVi
         const data = await response.json()
         if (data.instructions && Array.isArray(data.instructions)) {
           setInstructions(data.instructions)
+          // Store index and categorized instructions for UI
+          if (data.index) {
+            setInstructionIndex(data.index)
+          }
+          if (data.basic) {
+            setBasicInstructions(data.basic)
+          }
+          if (data.situational) {
+            setSituationalInstructions(data.situational)
+          }
         } else {
           throw new Error('Invalid instructions data format')
         }
@@ -250,19 +276,89 @@ export function AgentInstructionsViewer({ isOpen, onClose }: AgentInstructionsVi
               {viewState === 'agent-instructions' && selectedAgent && (
                 <div className="agent-instructions-list">
                   <h4>{getAgentLabel(selectedAgent)} Instructions</h4>
-                  <div className="instruction-list">
-                    {getInstructionsForAgent(selectedAgent).map((instruction) => (
-                      <button
-                        key={instruction.path}
-                        type="button"
-                        className="instruction-item"
-                        onClick={() => handleInstructionClick(instruction)}
-                      >
-                        <div className="instruction-item-name">{instruction.name}</div>
-                        <div className="instruction-item-description">{instruction.description}</div>
-                      </button>
-                    ))}
-                  </div>
+                  
+                  {/* Basic Instructions */}
+                  {(() => {
+                    const basic = getInstructionsForAgent(selectedAgent).filter(inst => {
+                      if (basicInstructions.length > 0) {
+                        return basicInstructions.some(b => b.path === inst.path)
+                      }
+                      const topicId = inst.topicId || inst.path.replace('.mdc', '')
+                      return instructionIndex?.basic?.includes(topicId) || inst.isBasic
+                    })
+                    if (basic.length > 0) {
+                      return (
+                        <div className="instruction-section">
+                          <h5 className="instruction-section-title">Basic Instructions (Always Active)</h5>
+                          <p className="instruction-section-description">These instructions are always included in the agent's context.</p>
+                          <div className="instruction-list">
+                            {basic.map((instruction) => (
+                              <button
+                                key={instruction.path}
+                                type="button"
+                                className="instruction-item instruction-item-basic"
+                                onClick={() => handleInstructionClick(instruction)}
+                              >
+                                <div className="instruction-item-name">{instruction.name}</div>
+                                <div className="instruction-item-description">{instruction.description}</div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    }
+                    return null
+                  })()}
+
+                  {/* Situational Instructions */}
+                  {(() => {
+                    const situational = getInstructionsForAgent(selectedAgent).filter(inst => {
+                      if (basicInstructions.some(b => b.path === inst.path)) {
+                        return false
+                      }
+                      if (situationalInstructions.length > 0) {
+                        return situationalInstructions.some(s => s.path === inst.path)
+                      }
+                      const topicId = inst.topicId || inst.path.replace('.mdc', '')
+                      return instructionIndex?.topics?.[topicId] !== undefined || inst.isSituational
+                    })
+                    if (situational.length > 0) {
+                      return (
+                        <div className="instruction-section">
+                          <h5 className="instruction-section-title">Situational Instructions (Request On-Demand)</h5>
+                          <p className="instruction-section-description">These instructions are available but not loaded by default. Agents can request them using the <code>get_instruction_set</code> tool when needed.</p>
+                          <div className="instruction-list">
+                            {situational.map((instruction) => {
+                              const topicId = instruction.path.replace('.mdc', '')
+                              const topicMeta = instructionIndex?.topics?.[topicId]
+                              return (
+                                <button
+                                  key={instruction.path}
+                                  type="button"
+                                  className="instruction-item instruction-item-situational"
+                                  onClick={() => handleInstructionClick(instruction)}
+                                >
+                                  <div className="instruction-item-name">
+                                    {topicMeta?.title || instruction.name}
+                                    <span className="instruction-item-badge">On-Demand</span>
+                                  </div>
+                                  <div className="instruction-item-description">
+                                    {topicMeta?.description || instruction.description}
+                                  </div>
+                                  {topicMeta?.keywords && topicMeta.keywords.length > 0 && (
+                                    <div className="instruction-item-keywords">
+                                      Keywords: {topicMeta.keywords.join(', ')}
+                                    </div>
+                                  )}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )
+                    }
+                    return null
+                  })()}
                 </div>
               )}
 

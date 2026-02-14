@@ -416,6 +416,8 @@ export interface PmAgentResult {
 
 const PM_SYSTEM_INSTRUCTIONS = `You are the Project Manager agent for HAL. Your job is to help users understand the codebase, review tickets, and provide project guidance.
 
+**Instruction loading:** You start with basic instructions only. When you encounter a scenario that requires detailed instructions (e.g., ticket creation workflow, artifact requirements, QA processes), use the \`get_instruction_set\` tool to request the specific instruction topic. This keeps your context focused and allows you to load detailed instructions only when needed.
+
 You have access to read-only tools to explore the repository. Use them to answer questions about code, tickets, and project state.
 
 **Repository access:** 
@@ -516,15 +518,97 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
 
   sections.push('## Repo rules (from .cursor/rules/)')
   try {
-    const entries = await fs.readdir(rulesPath)
-    const mdcFiles = entries.filter((e: string) => e.endsWith('.mdc'))
-    for (const f of mdcFiles) {
-      const content = await fs.readFile(path.join(rulesPath, f), 'utf8')
-      sections.push(`### ${f}\n\n${content}`)
+    // Load instruction index to determine basic vs situational
+    const indexPath = path.join(rulesPath, '.instructions-index.json')
+    let instructionIndex: {
+      basic?: string[]
+      situational?: Record<string, string[]>
+      topics?: Record<string, { title: string; description: string; agentTypes: string[]; keywords?: string[] }>
+    } = {}
+    
+    try {
+      const indexContent = await fs.readFile(indexPath, 'utf8')
+      instructionIndex = JSON.parse(indexContent)
+    } catch {
+      // If index doesn't exist, fall back to loading all files (backward compatibility)
     }
-    if (mdcFiles.length === 0) sections.push('(no .mdc files found)')
-  } catch {
-    sections.push('(rules directory not found or not readable)')
+
+    // Load basic instructions (always included)
+    const basicFiles = instructionIndex.basic || []
+    if (basicFiles.length > 0) {
+      sections.push('### Basic instructions (always active)\n')
+      for (const filename of basicFiles) {
+        try {
+          const filePath = path.join(rulesPath, `${filename}.mdc`)
+          const content = await fs.readFile(filePath, 'utf8')
+          sections.push(`#### ${filename}.mdc\n\n${content}\n`)
+        } catch (err) {
+          sections.push(`#### ${filename}.mdc\n\n(file not found)\n`)
+        }
+      }
+    }
+
+    // List available situational instruction topics
+    if (instructionIndex.topics && Object.keys(instructionIndex.topics).length > 0) {
+      sections.push('\n### Available instruction topics (request on-demand)\n')
+      sections.push('When you encounter a scenario that requires detailed instructions, you can request specific instruction sets using the `get_instruction_set` tool. Available topics:\n')
+      
+      const topicsByAgent: Record<string, Array<{ id: string; title: string; description: string }>> = {}
+      for (const [topicId, topic] of Object.entries(instructionIndex.topics)) {
+        const agentTypes = topic.agentTypes || ['all']
+        for (const agentType of agentTypes) {
+          if (!topicsByAgent[agentType]) topicsByAgent[agentType] = []
+          topicsByAgent[agentType].push({
+            id: topicId,
+            title: topic.title,
+            description: topic.description,
+          })
+        }
+      }
+
+      // Show topics for current agent type (PM agent)
+      const pmTopics = [
+        ...(topicsByAgent['project-manager'] || []),
+        ...(topicsByAgent['all'] || []),
+      ]
+      
+      if (pmTopics.length > 0) {
+        sections.push('**Topics available for Project Manager:**\n')
+        for (const topic of pmTopics) {
+          sections.push(`- **${topic.title}** (ID: \`${topic.id}\`): ${topic.description}`)
+        }
+      }
+
+      // Also show topics for other agent types for awareness
+      const otherAgentTypes = ['implementation-agent', 'qa-agent'].filter(at => at !== 'project-manager')
+      for (const agentType of otherAgentTypes) {
+        const topics = [
+          ...(topicsByAgent[agentType] || []),
+          ...(topicsByAgent['all'] || []),
+        ]
+        if (topics.length > 0) {
+          sections.push(`\n**Topics available for ${agentType.replace('-', ' ')}:**`)
+          for (const topic of topics) {
+            sections.push(`- **${topic.title}** (ID: \`${topic.id}\`): ${topic.description}`)
+          }
+        }
+      }
+
+      sections.push('\n**To request an instruction set:** Use the `get_instruction_set` tool with the topic ID (e.g., `get_instruction_set({ topicId: "auditability-and-traceability" })`).')
+    }
+
+    // Fallback: if no index, load all files (backward compatibility)
+    if (!instructionIndex.basic && !instructionIndex.topics) {
+      const entries = await fs.readdir(rulesPath)
+      const mdcFiles = entries.filter((e: string) => e.endsWith('.mdc') && !e.startsWith('.'))
+      for (const f of mdcFiles) {
+        const content = await fs.readFile(path.join(rulesPath, f), 'utf8')
+        sections.push(`### ${f}\n\n${content}`)
+      }
+      if (mdcFiles.length === 0) sections.push('(no .mdc files found)')
+    }
+  } catch (err) {
+    sections.push(`(error loading rules: ${err instanceof Error ? err.message : String(err)})`)
   }
 
   sections.push('## Ticket template (required structure for create_ticket)')
@@ -2220,6 +2304,65 @@ export async function runPmAgent(
     },
   })
 
+  const getInstructionSetTool = tool({
+    description: 'Request a specific instruction set by topic ID. Use this when you need detailed instructions for a specific scenario (e.g., "auditability-and-traceability" for implementation agent artifact checking, "qa-audit-report" for QA workflow). Returns the full instruction content for the requested topic.',
+    parameters: z.object({
+      topicId: z.string().describe('Instruction topic ID (e.g., "auditability-and-traceability", "qa-audit-report", "done-means-pushed")'),
+    }),
+    execute: async (input) => {
+      const rulesDir = config.rulesDir ?? '.cursor/rules'
+      const rulesPath = path.resolve(config.repoRoot, rulesDir)
+      
+      try {
+        // Load instruction index
+        const indexPath = path.join(rulesPath, '.instructions-index.json')
+        let instructionIndex: {
+          topics?: Record<string, { title: string; description: string; agentTypes: string[] }>
+        } = {}
+        
+        try {
+          const indexContent = await fs.readFile(indexPath, 'utf8')
+          instructionIndex = JSON.parse(indexContent)
+        } catch {
+          return { error: 'Instruction index not found. Cannot determine available topics.' }
+        }
+
+        // Check if topic exists
+        if (!instructionIndex.topics || !instructionIndex.topics[input.topicId]) {
+          const availableTopics = instructionIndex.topics ? Object.keys(instructionIndex.topics).join(', ') : 'none'
+          return { 
+            error: `Topic "${input.topicId}" not found. Available topics: ${availableTopics}` 
+          }
+        }
+
+        // Load the instruction file
+        const filePath = path.join(rulesPath, `${input.topicId}.mdc`)
+        try {
+          const content = await fs.readFile(filePath, 'utf8')
+          const topic = instructionIndex.topics[input.topicId]
+          const result = {
+            topicId: input.topicId,
+            title: topic.title,
+            description: topic.description,
+            content: content,
+          }
+          toolCalls.push({ name: 'get_instruction_set', input, output: result })
+          return result
+        } catch (err) {
+          return { 
+            error: `Could not read instruction file for topic "${input.topicId}": ${err instanceof Error ? err.message : String(err)}` 
+          }
+        }
+      } catch (err) {
+        const error = { 
+          error: `Error loading instruction set: ${err instanceof Error ? err.message : String(err)}` 
+        }
+        toolCalls.push({ name: 'get_instruction_set', input, output: error })
+        return error
+      }
+    },
+  })
+
   const searchFilesTool = tool({
     description: hasGitHubRepo
       ? 'Search code in the connected GitHub repo. Pattern is used as search term (GitHub does not support full regex).'
@@ -2253,6 +2396,7 @@ export async function runPmAgent(
   })
 
   const tools = {
+    get_instruction_set: getInstructionSetTool,
     list_directory: tool({
       description: hasGitHubRepo
         ? 'List files in a directory in the connected GitHub repo. Path is relative to repo root.'

@@ -14,6 +14,7 @@ const __dirname = path.dirname(__filename)
 
 const RULES_DIR = path.join(__dirname, '..', '.cursor', 'rules')
 const OUTPUT_FILE = path.join(__dirname, '..', 'public', 'agent-instructions.json')
+const INDEX_FILE = path.join(RULES_DIR, '.instructions-index.json')
 
 function parseInstructionFile(filePath, content) {
   const filename = path.basename(filePath)
@@ -89,10 +90,25 @@ function bundleInstructions() {
       fs.mkdirSync(publicDir, { recursive: true })
     }
 
-    // Read all .mdc files from .cursor/rules/
-    const files = fs.readdirSync(RULES_DIR).filter(f => f.endsWith('.mdc'))
+    // Load instruction index
+    let instructionIndex = { basic: [], situational: {}, topics: {} }
+    if (fs.existsSync(INDEX_FILE)) {
+      try {
+        const indexContent = fs.readFileSync(INDEX_FILE, 'utf-8')
+        instructionIndex = JSON.parse(indexContent)
+      } catch (err) {
+        console.warn(`Warning: Could not parse instruction index: ${err.message}`)
+      }
+    } else {
+      console.warn(`Warning: Instruction index not found at ${INDEX_FILE}, using fallback mode`)
+    }
+
+    // Read all .mdc files from .cursor/rules/ (excluding index file)
+    const files = fs.readdirSync(RULES_DIR).filter(f => f.endsWith('.mdc') && !f.startsWith('.'))
     
-    const instructions = []
+    const allInstructions = []
+    const basicInstructions = []
+    const situationalInstructions = []
     
     for (const file of files) {
       const filePath = path.join(RULES_DIR, file)
@@ -100,7 +116,23 @@ function bundleInstructions() {
         const content = fs.readFileSync(filePath, 'utf-8')
         const parsed = parseInstructionFile(filePath, content)
         if (parsed) {
-          instructions.push(parsed)
+          const topicId = file.replace('.mdc', '')
+          parsed.topicId = topicId
+          parsed.isBasic = instructionIndex.basic?.includes(topicId) || false
+          parsed.isSituational = !parsed.isBasic && (instructionIndex.topics?.[topicId] !== undefined)
+          
+          // Add topic metadata if available
+          if (instructionIndex.topics?.[topicId]) {
+            parsed.topicMetadata = instructionIndex.topics[topicId]
+          }
+          
+          allInstructions.push(parsed)
+          
+          if (parsed.isBasic) {
+            basicInstructions.push(parsed)
+          } else if (parsed.isSituational) {
+            situationalInstructions.push(parsed)
+          }
         }
       } catch (err) {
         console.warn(`Warning: Could not read ${file}:`, err.message)
@@ -108,9 +140,18 @@ function bundleInstructions() {
     }
 
     // Write bundled instructions to JSON file
-    fs.writeFileSync(OUTPUT_FILE, JSON.stringify({ instructions }, null, 2), 'utf-8')
+    const output = {
+      index: instructionIndex,
+      instructions: allInstructions,
+      basic: basicInstructions,
+      situational: situationalInstructions,
+    }
     
-    console.log(`✓ Bundled ${instructions.length} instruction files to ${OUTPUT_FILE}`)
+    fs.writeFileSync(OUTPUT_FILE, JSON.stringify(output, null, 2), 'utf-8')
+    
+    console.log(`✓ Bundled ${allInstructions.length} instruction files to ${OUTPUT_FILE}`)
+    console.log(`  - Basic: ${basicInstructions.length}`)
+    console.log(`  - Situational: ${situationalInstructions.length}`)
   } catch (err) {
     console.error('Error bundling instructions:', err)
     process.exit(1)
