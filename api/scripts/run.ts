@@ -79,12 +79,25 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     const script = ALLOWED_SCRIPTS[scriptName]
-    const scriptPath = path.join(process.cwd(), script.path)
+    // Use path.resolve to get absolute path - on Vercel, process.cwd() is /var/task
+    const scriptPath = path.resolve(process.cwd(), script.path)
 
-    console.log(`[API] Running script: ${scriptName} (${scriptPath})`)
+    console.log(`[API] Running script: ${scriptName}`)
+    console.log(`[API] Script path: ${scriptPath}`)
+    console.log(`[API] CWD: ${process.cwd()}`)
+
+    // Check if file exists
+    const fs = await import('fs')
+    if (!fs.existsSync(scriptPath)) {
+      json(res, 500, {
+        success: false,
+        error: `Script file not found: ${scriptPath}. Current directory: ${process.cwd()}`,
+      })
+      return
+    }
 
     // Run the script
-    const { stdout, stderr } = await execAsync(`node ${scriptPath} ${args.join(' ')}`, {
+    const { stdout, stderr } = await execAsync(`node "${scriptPath}" ${args.join(' ')}`, {
       cwd: process.cwd(),
       env: process.env, // Pass through all environment variables (including Vercel's)
       maxBuffer: 10 * 1024 * 1024, // 10MB buffer for large output
