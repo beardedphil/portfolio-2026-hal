@@ -3,7 +3,7 @@ description: Conditional rendering review checklist for UI components
 alwaysApply: true
 ---
 
-# Conditional Rendering Review
+# Conditional rendering review
 
 Before implementing or changing any conditional rendering in UI components, agents **must** follow this checklist to ensure UI conditional-rendering decisions are consistently justified against the ticket's Goal and the app's product intent (avoid accidental feature removal/hiding and prevent UX regressions).
 
