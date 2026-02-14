@@ -99,6 +99,169 @@ QA RESULT: FAIL — 0076
 
 **CRITICAL:** Artifact verification is the **first and mandatory step** of QA. Do not skip it, do not defer it, do not proceed with code review if verification fails. If you cannot verify artifacts exist, the ticket fails QA.
 
+<<<<<<< HEAD
+=======
+## UI Change Verification Checklist
+
+**MANDATORY:** When a ticket involves UI changes (user interface, user experience, visual elements, layout, styling, components, forms, modals, dialogs, navigation, responsive design, accessibility features, or any visible changes to the application), QA **must** include the UI Change Verification Checklist in the QA report.
+
+**When to use this checklist:**
+- The ticket description mentions UI, UX, interface, visual, layout, styling, component, form, modal, dialog, navigation, responsive, accessibility, or similar terms
+- The Changed Files artifact includes UI-related files (e.g., `.tsx`, `.jsx`, `.vue`, `.css`, `.scss`, component files, page files)
+- The ticket's acceptance criteria reference user-visible changes or interactions
+- The implementation involves any visible changes to the application
+
+**How to use this checklist:**
+1. **Copy the entire checklist below** into your QA report
+2. **Mark each item** as **Pass**, **Fail**, or **N/A** (Not Applicable)
+3. **For each Fail item**, provide:
+   - Screenshot(s) showing the issue (if possible)
+   - Steps to reproduce the failure
+   - Description of what failed and why
+4. **For each N/A item**, briefly explain why it doesn't apply to this ticket
+
+**UI Change Verification Checklist:**
+
+| Item | Status | Notes |
+|------|--------|-------|
+| **Happy Path** - Primary user flow works as expected | Pass / Fail / N/A | |
+| **Edge Cases** - Handles empty/null/undefined data gracefully | Pass / Fail / N/A | |
+| **Edge Cases** - Handles very long text/content without breaking layout | Pass / Fail / N/A | |
+| **Edge Cases** - Handles rapid user interactions (e.g., rapid clicks) without errors | Pass / Fail / N/A | |
+| **Accessibility** - Keyboard navigation works (Tab, Enter, Escape, Arrow keys as applicable) | Pass / Fail / N/A | |
+| **Accessibility** - Focus indicators are visible and logical | Pass / Fail / N/A | |
+| **Accessibility** - Screen reader announcements are appropriate (if applicable) | Pass / Fail / N/A | |
+| **Responsive Layout** - Works correctly on mobile viewport (320px-768px width) | Pass / Fail / N/A | |
+| **Responsive Layout** - Works correctly on tablet viewport (768px-1024px width) | Pass / Fail / N/A | |
+| **Responsive Layout** - Works correctly on desktop viewport (1024px+ width) | Pass / Fail / N/A | |
+| **Loading States** - Loading indicators appear and disappear appropriately (if applicable) | Pass / Fail / N/A | |
+| **Empty States** - Empty state messages/placeholders display correctly (if applicable) | Pass / Fail / N/A | |
+| **Error States** - Error messages display correctly and are user-friendly (if applicable) | Pass / Fail / N/A | |
+| **Regression** - Existing functionality in the same area still works | Pass / Fail / N/A | |
+| **Regression** - No visual regressions (layout, spacing, colors, fonts unchanged where not intended) | Pass / Fail / N/A | |
+| **Regression** - No console errors introduced (check browser console) | Pass / Fail / N/A | |
+
+**Documentation requirements for failures:**
+- **Screenshots:** When an item fails, include screenshots showing the issue. If screenshots are not possible (e.g., in headless environment), describe the issue in detail.
+- **Steps to reproduce:** For each failure, provide clear steps that a human can follow to reproduce the issue.
+- **Failure description:** Explain what failed, why it failed, and what the expected behavior should be.
+
+**Example checklist in QA report:**
+```markdown
+## UI Change Verification Checklist
+
+| Item | Status | Notes |
+|------|--------|-------|
+| **Happy Path** - Primary user flow works as expected | ✅ Pass | User can complete the full workflow without errors |
+| **Edge Cases** - Handles empty/null/undefined data gracefully | ✅ Pass | Empty state displays correctly |
+| **Edge Cases** - Handles very long text/content without breaking layout | ⚠️ Fail | Long usernames overflow container. Screenshot: [link]. Steps: 1) Enter username with 200+ characters 2) Observe overflow |
+| **Accessibility** - Keyboard navigation works | ✅ Pass | All interactive elements accessible via keyboard |
+| **Responsive Layout** - Works correctly on mobile viewport | ✅ Pass | Layout adapts correctly at 375px width |
+| **Loading States** - Loading indicators appear appropriately | ✅ Pass | Spinner shows during data fetch |
+| **Regression** - Existing functionality still works | ✅ Pass | No breaking changes to related features |
+```
+
+**Important notes:**
+- This checklist is designed for **UI-only verification** — you can complete it without inspecting code, by testing the application in a browser or UI testing environment.
+- Two different QA agents should be able to run the same checks and get consistent results.
+- If you cannot perform UI verification (e.g., no access to running application, headless environment without screenshots), mark items as **N/A** and explain why in the notes.
+- This checklist **does not replace** code review or artifact verification — those remain mandatory.
+
+## Acceptance criteria validation
+
+**MANDATORY:** Every QA report **must** include an "Acceptance criteria validation" section that explicitly validates each acceptance criterion from the ticket.
+
+**Required checklist item:**
+- [ ] **I reviewed the ticket's Acceptance criteria and validated each item (or documented why an item could not be validated).**
+
+**How to complete acceptance criteria validation:**
+
+1. **Extract acceptance criteria from the ticket** — Copy each acceptance criterion exactly as it appears in the ticket (from the "Acceptance criteria" section).
+
+2. **Enumerate each acceptance criterion** — For each acceptance criterion, create a line item in your QA report with:
+   - The full text of the acceptance criterion (copy/paste from ticket)
+   - A result status: **Pass**, **Fail**, or **Blocked**
+   - Brief evidence or explanation
+
+3. **Record results:**
+   - **Pass** — The acceptance criterion is met. Provide brief evidence (e.g., "Verified in `src/App.tsx:42-67`", "Tested manually: user can complete workflow", "Build passes with zero errors").
+   - **Fail** — The acceptance criterion is not met. Provide brief explanation of what failed and why.
+   - **Blocked** — The acceptance criterion cannot be validated because:
+     - The acceptance criterion is missing from the ticket
+     - The acceptance criterion is ambiguous or unclear (explain what is missing or unclear)
+     - Required information or context is missing to validate the criterion
+     - **IMPORTANT:** When an acceptance criterion is missing or ambiguous, you **must** mark it as **Blocked** and explain what is missing. Do **not** silently pass QA or assume the criterion is met.
+
+4. **Format for QA report:**
+   ```markdown
+   ## Acceptance criteria validation
+   
+   - [ ] **I reviewed the ticket's Acceptance criteria and validated each item (or documented why an item could not be validated).**
+   
+   ### Acceptance Criterion 1: [Copy/paste exact text from ticket]
+   **Status:** Pass / Fail / Blocked
+   **Evidence/Explanation:** [Brief evidence or explanation]
+   
+   ### Acceptance Criterion 2: [Copy/paste exact text from ticket]
+   **Status:** Pass / Fail / Blocked
+   **Evidence/Explanation:** [Brief evidence or explanation]
+   
+   [... continue for each acceptance criterion ...]
+   ```
+
+**Example acceptance criteria validation:**
+```markdown
+## Acceptance criteria validation
+
+- [x] **I reviewed the ticket's Acceptance criteria and validated each item (or documented why an item could not be validated).**
+
+### Acceptance Criterion 1: QA report template/rule contains a required section titled "Acceptance criteria validation".
+**Status:** ✅ Pass
+**Evidence/Explanation:** Verified in `.cursor/rules/qa-audit-report.mdc:XXX-YYY` — section "Acceptance criteria validation" is present and marked as MANDATORY.
+
+### Acceptance Criterion 2: That section includes a checklist line: "[ ] I reviewed the ticket's Acceptance criteria and validated each item (or documented why an item could not be validated)."
+**Status:** ✅ Pass
+**Evidence/Explanation:** Verified in `.cursor/rules/qa-audit-report.mdc:XXX` — checklist line is present in the section.
+
+### Acceptance Criterion 3: The QA report format requires QA to enumerate each acceptance criterion (copy/paste from ticket) and record a result (Pass/Fail/Blocked) with brief evidence.
+**Status:** ✅ Pass
+**Evidence/Explanation:** Verified in `.cursor/rules/qa-audit-report.mdc:XXX-YYY` — format section includes enumeration requirement with Pass/Fail/Blocked status options.
+
+### Acceptance Criterion 4: A ticket with acceptance criteria missing/ambiguous causes QA to explicitly mark the item as Blocked and explain what is missing (without silently passing QA).
+**Status:** ✅ Pass
+**Evidence/Explanation:** Verified in `.cursor/rules/qa-audit-report.mdc:XXX` — instructions explicitly state that missing/ambiguous criteria must be marked as Blocked with explanation.
+
+### Acceptance Criterion 5: Documentation/rules updated in a way that applies to future QA reports (not a one-off note in a single QA artifact).
+**Status:** ✅ Pass
+**Evidence/Explanation:** Verified — changes were made to `.cursor/rules/qa-audit-report.mdc` and Supabase instructions, which apply to all future QA reports.
+```
+
+**Example with Blocked criterion:**
+```markdown
+## Acceptance criteria validation
+
+- [x] **I reviewed the ticket's Acceptance criteria and validated each item (or documented why an item could not be validated).**
+
+### Acceptance Criterion 1: User can create a new ticket via the UI.
+**Status:** ✅ Pass
+**Evidence/Explanation:** Verified manually — user can click "Create ticket" button and form appears correctly.
+
+### Acceptance Criterion 2: [Missing from ticket]
+**Status:** ⚠️ Blocked
+**Evidence/Explanation:** This acceptance criterion is missing from the ticket. The ticket only lists one acceptance criterion, but the goal mentions multiple requirements. Cannot validate without clear acceptance criteria.
+
+### Acceptance Criterion 3: Tickets are saved to database.
+**Status:** ⚠️ Blocked
+**Evidence/Explanation:** Acceptance criterion is ambiguous — does not specify which database, what fields must be saved, or how to verify persistence. Need clarification on expected behavior and verification method.
+```
+
+**Important notes:**
+- **Do NOT skip this section** — Every QA report must include acceptance criteria validation, even if the ticket has no acceptance criteria listed (in which case, mark as Blocked and explain).
+- **Do NOT silently pass** — If acceptance criteria are missing or ambiguous, you **must** mark them as Blocked and explain what is missing. This prevents QA from passing tickets with unclear requirements.
+- **Copy/paste exact text** — Use the exact wording from the ticket's "Acceptance criteria" section to avoid misinterpretation.
+- **Be specific in evidence** — When marking Pass, provide concrete evidence (file paths, line numbers, test results, manual verification steps) that a human reviewer can verify.
+
+>>>>>>> origin/ticket/0169-implementation
 ## Required artifact (QA report)
 
 - **Storage:** Supabase `agent_artifacts` table (via HAL API endpoint `/api/artifacts/insert-qa`)
@@ -111,52 +274,12 @@ QA RESULT: FAIL — 0076
 1. **Ticket & deliverable** — One-line goal, deliverable, and acceptance criteria from the ticket.
 2. **Missing Required Implementation Artifacts** (if applicable) — List of missing artifacts. If artifacts are missing, this section must be present and QA must fail.
 3. **Audit artifacts** — Confirm all required implementation artifacts are present in Supabase (plan, worklog, changed-files, decisions, verification, pm-review). Only include this section if all artifacts are present.
-4. **Code review** — PASS/FAIL with brief evidence (e.g. table of requirement vs implementation; file and line refs if helpful). Only include if artifacts are present.
-5. **Build verification** — **MANDATORY:** Run `npm run build:hal` (or `tsc -b`) and verify it completes with zero TypeScript errors. If TypeScript errors exist, QA **MUST FAIL** immediately. Document the build result (PASS/FAIL) and any TypeScript errors found. Only include if artifacts are present.
-6. **UI verification** — What was run: automated and/or manual steps. If automated UI was not run (e.g. native dialogs, login, or pickers), state that and list the manual steps the user should run. Only include if artifacts are present.
-7. **Acceptance criteria validation** — **MANDATORY:** This section must be included in all QA reports. It requires QA to explicitly validate each acceptance criterion from the ticket.
-   - **Checklist line (required):** `- [ ] I reviewed the ticket's Acceptance criteria and validated each item (or documented why an item could not be validated).`
-   - **Enumeration requirement:** QA must enumerate each acceptance criterion from the ticket (copy/paste the full text of each AC). For each AC, record:
-     - **Result:** `Pass`, `Fail`, or `Blocked`
-     - **Evidence:** Brief evidence supporting the result (artifact links, file paths, screenshots, reproduction steps, or explanation of why validation was blocked)
-   - **Handling missing/ambiguous ACs:** If an acceptance criterion is missing from the ticket, ambiguous, or cannot be validated for any reason, QA **must** mark it as **`Blocked`** and explain what is missing or why it cannot be validated. QA **must not** silently pass validation when ACs are missing or ambiguous.
-   - **Integration with AC Confirmation Checklist:** This section fulfills the AC Confirmation Checklist requirement (see `.cursor/rules/ac-confirmation-checklist.mdc`). The enumeration format here (Pass/Fail/Blocked) is the required format for QA reports. Only include if artifacts are present.
-8. **Verdict** — Implementation complete? OK to merge? Any blocking manual verification? Must clearly state PASS or FAIL.
-
-### Example: Acceptance criteria validation section format
-
-```markdown
-## Acceptance criteria validation
-
-- [ ] I reviewed the ticket's Acceptance criteria and validated each item (or documented why an item could not be validated).
-
-### AC 1: "QA report template/rule contains a required section titled **'Acceptance criteria validation'**"
-- **Result:** Pass
-- **Evidence:** See `.cursor/rules/qa-audit-report.mdc` lines 117-123. The QA report structure includes section 7 titled "Acceptance criteria validation" with detailed requirements.
-
-### AC 2: "That section includes a checklist line: **'[ ] I reviewed the ticket's Acceptance criteria and validated each item (or documented why an item could not be validated).'**"
-- **Result:** Pass
-- **Evidence:** See `.cursor/rules/qa-audit-report.mdc` line 118. The checklist line is explicitly required in the section.
-
-### AC 3: "The QA report format requires QA to enumerate each acceptance criterion (copy/paste from ticket) and record a result (Pass/Fail/Blocked) with brief evidence."
-- **Result:** Pass
-- **Evidence:** See `.cursor/rules/qa-audit-report.mdc` lines 119-121. The enumeration requirement specifies Pass/Fail/Blocked format with evidence.
-
-### AC 4: "A ticket with acceptance criteria missing/ambiguous causes QA to explicitly mark the item as **Blocked** and explain what is missing (without silently passing QA)."
-- **Result:** Pass
-- **Evidence:** See `.cursor/rules/qa-audit-report.mdc` line 122. The section explicitly requires marking missing/ambiguous ACs as Blocked with explanation.
-
-### AC 5: "Documentation/rules updated in a way that applies to future QA reports (not a one-off note in a single QA artifact)."
-- **Result:** Pass
-- **Evidence:** See `.cursor/rules/qa-audit-report.mdc` - the rule file itself was updated, ensuring all future QA reports will include this section.
-```
-
-**Note:** If an AC is missing or ambiguous, mark it as `Blocked` and explain:
-```markdown
-### AC X: "[AC text from ticket, or 'Missing/ambiguous AC']"
-- **Result:** Blocked
-- **Evidence:** The acceptance criterion is missing from the ticket body. Cannot validate without clear AC definition.
-```
+4. **Acceptance criteria validation** — **MANDATORY:** Enumerate each acceptance criterion from the ticket, copy/paste the exact text, and record Pass/Fail/Blocked status with brief evidence. If acceptance criteria are missing or ambiguous, mark as Blocked and explain what is missing. See the "Acceptance criteria validation" section above for full requirements and format. Only include if artifacts are present.
+5. **Code review** — PASS/FAIL with brief evidence (e.g. table of requirement vs implementation; file and line refs if helpful). Only include if artifacts are present.
+6. **Build verification** — **MANDATORY:** Run `npm run build:hal` (or `tsc -b`) and verify it completes with zero TypeScript errors. If TypeScript errors exist, QA **MUST FAIL** immediately. Document the build result (PASS/FAIL) and any TypeScript errors found. Only include if artifacts are present.
+7. **UI Change Verification Checklist** — **MANDATORY when ticket involves UI changes:** If the ticket involves UI changes (see "UI Change Verification Checklist" section above for criteria), you **must** include the complete UI Change Verification Checklist in your QA report. Copy the checklist table, mark each item as Pass/Fail/N/A, and provide notes for failures. Only include if artifacts are present and ticket involves UI.
+8. **UI verification** — What was run: automated and/or manual steps. If automated UI was not run (e.g. native dialogs, login, or pickers), state that and list the manual steps the user should run. Only include if artifacts are present.
+9. **Verdict** — Implementation complete? OK to merge? Any blocking manual verification? Must clearly state PASS or FAIL.
 
 ## Storing QA report
 
@@ -198,25 +321,38 @@ When the verdict is **PASS (OK to merge)**, QA must **complete the full workflow
 
 **If you are verifying from the feature branch** (normal workflow):
 
+<<<<<<< HEAD
 1. **Complete Acceptance criteria validation** — **MANDATORY:** Before proceeding, complete the Acceptance criteria validation section. Enumerate every Acceptance Criteria from the ticket, record Pass/Fail/Blocked for each with evidence. If any AC is marked as Fail or Blocked (due to missing/ambiguous ACs), QA **MUST FAIL** and you must not proceed to step 2. See the "Acceptance criteria validation" section in the QA report structure above for full requirements.
 2. **Store QA report in Supabase** — Make an HTTP POST request to `${baseUrl}/api/artifacts/insert-qa`. The QA report must include the Acceptance criteria validation section:
+=======
+1. **Store QA report in Supabase** — Make an HTTP POST request to `${baseUrl}/api/artifacts/insert-qa`:
+>>>>>>> origin/ticket/0169-implementation
    ```bash
    curl -X POST ${baseUrl}/api/artifacts/insert-qa \
      -H "Content-Type: application/json" \
      -d '{"ticketId":"0076","title":"QA report for ticket 0076","body_md":"<markdown>"}'
    ```
+<<<<<<< HEAD
 3. **Update ticket body** (optional) — If needed, make an HTTP POST request to `${baseUrl}/api/tickets/update`:
+=======
+2. **Update ticket body** (optional) — If needed, make an HTTP POST request to `${baseUrl}/api/tickets/update`:
+>>>>>>> origin/ticket/0169-implementation
    ```bash
    curl -X POST ${baseUrl}/api/tickets/update \
      -H "Content-Type: application/json" \
      -d '{"ticketId":"0076","body_md":"<updated markdown>"}'
    ```
+<<<<<<< HEAD
 4. **Move ticket to Human in the Loop** — Make an HTTP POST request to `${baseUrl}/api/tickets/move`:
+=======
+3. **Move ticket to Human in the Loop** — Make an HTTP POST request to `${baseUrl}/api/tickets/move`:
+>>>>>>> origin/ticket/0169-implementation
    ```bash
    curl -X POST ${baseUrl}/api/tickets/move \
      -H "Content-Type: application/json" \
      -d '{"ticketId":"0076","columnId":"col-human-in-the-loop"}'
    ```
+<<<<<<< HEAD
 5. **Merge to main** — checkout `main`, merge the feature branch, push `main`.
 6. **Delete the feature branch** — local and remote (see `delete-branch-after-merge.mdc`).
 7. **Then** give your summary to the user. **The final message must include the Acceptance criteria validation section and:** `QA RESULT: PASS — <ticket-id>` (see "Completion message format requirement" above).
@@ -228,6 +364,18 @@ When the verdict is **PASS (OK to merge)**, QA must **complete the full workflow
 3. **Update ticket body** (optional) — If needed, make an HTTP POST request to `${baseUrl}/api/tickets/update` to note that verification was performed against `main`.
 4. **Move ticket to Human in the Loop** — Make an HTTP POST request to `${baseUrl}/api/tickets/move`.
 5. **Then** give your summary to the user. **The final message must include the Acceptance criteria validation section and:** `QA RESULT: PASS — <ticket-id>` (see "Completion message format requirement" above).
+=======
+4. **Merge to main** — checkout `main`, merge the feature branch, push `main`.
+5. **Delete the feature branch** — local and remote (see `delete-branch-after-merge.mdc`).
+6. **Then** give your summary to the user. **The final message must include:** `QA RESULT: PASS — <ticket-id>` (see "Completion message format requirement" above).
+
+**If you are verifying from `main`** (implementation was merged to main for QA access):
+
+1. **Store QA report in Supabase** — Make an HTTP POST request to `${baseUrl}/api/artifacts/insert-qa`. Include a note in the report that verification was performed against `main`.
+2. **Update ticket body** (optional) — If needed, make an HTTP POST request to `${baseUrl}/api/tickets/update` to note that verification was performed against `main`.
+3. **Move ticket to Human in the Loop** — Make an HTTP POST request to `${baseUrl}/api/tickets/move`.
+4. **Then** give your summary to the user. **The final message must include:** `QA RESULT: PASS — <ticket-id>` (see "Completion message format requirement" above).
+>>>>>>> origin/ticket/0169-implementation
 
 Do not give a summary with "next steps" or "run these commands" — QA performs the merge (or confirms main) and branch deletion where applicable. The user receives the completed result.
 
@@ -235,21 +383,33 @@ Do not give a summary with "next steps" or "run these commands" — QA performs 
 - **If verdict is FAIL:** Do not merge. Store the QA report in Supabase, then **YOU MUST move the ticket to the top of To-do** (`col-todo` column) via HAL API. **This is MANDATORY** - failing to move the ticket to To-do means the QA workflow is incomplete. Summarize findings and recommend a bugfix ticket (see `bugfix-tracking.mdc`). **The final message must include:** `QA RESULT: FAIL — <ticket-id>` (see "Completion message format requirement" above).
   
   **FAIL workflow:**
+<<<<<<< HEAD
   1. **Complete Acceptance criteria validation** — **MANDATORY:** Complete the Acceptance criteria validation section even when QA fails. Enumerate every Acceptance Criteria from the ticket, record Pass/Fail/Blocked for each with evidence. This helps identify which ACs were not met or blocked. See the "Acceptance criteria validation" section in the QA report structure above for full requirements.
   2. **Store QA report in Supabase** — Make an HTTP POST request to `${baseUrl}/api/artifacts/insert-qa`. The QA report must include the Acceptance criteria validation section showing which ACs were marked as Fail or Blocked:
+=======
+  1. **Store QA report in Supabase** — Make an HTTP POST request to `${baseUrl}/api/artifacts/insert-qa`:
+>>>>>>> origin/ticket/0169-implementation
      ```bash
      curl -X POST ${baseUrl}/api/artifacts/insert-qa \
        -H "Content-Type: application/json" \
        -d '{"ticketId":"0076","title":"QA report for ticket 0076","body_md":"<markdown>"}'
      ```
+<<<<<<< HEAD
   3. **Move ticket to To-do** — **REQUIRED**: You MUST make an HTTP POST request to `${baseUrl}/api/tickets/move`. The ticket MUST be moved to `col-todo` when QA fails. This is not optional:
+=======
+  2. **Move ticket to To-do** — **REQUIRED**: You MUST make an HTTP POST request to `${baseUrl}/api/tickets/move`. The ticket MUST be moved to `col-todo` when QA fails. This is not optional:
+>>>>>>> origin/ticket/0169-implementation
      ```bash
      curl -X POST ${baseUrl}/api/tickets/move \
        -H "Content-Type: application/json" \
        -d '{"ticketId":"0076","columnId":"col-todo"}'
      ```
      **Note:** The goal is to move failed tickets to the **top** of the To-do column for priority handling. The current move API (`/api/tickets/move`) appends tickets to the end of the column. If the API is enhanced in the future to support position parameters, use position 0 or a negative value to place at the top. For now, moving to `col-todo` satisfies the requirement even if it's at the end initially.
+<<<<<<< HEAD
   4. **Then** give your summary to the user. **The final message must include the Acceptance criteria validation section and:** `QA RESULT: FAIL — <ticket-id>`.
+=======
+  3. **Then** give your summary to the user. **The final message must include:** `QA RESULT: FAIL — <ticket-id>`.
+>>>>>>> origin/ticket/0169-implementation
 
 ## HAL API Calls
 
@@ -287,4 +447,8 @@ All Supabase operations must be executed via HTTP POST requests to HAL API endpo
 
 - Applies to any QA or verification of a **ticketed** task (ticket in Supabase).
 - Keep the report concise; use bullets and tables where appropriate.
+<<<<<<< HEAD
 - All artifacts are stored in Supabase, not in `docs/audit/` folders.
+=======
+- All artifacts are stored in Supabase, not in `docs/audit/` folders.
+>>>>>>> origin/ticket/0169-implementation
