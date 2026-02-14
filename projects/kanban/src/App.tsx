@@ -2525,8 +2525,29 @@ function App() {
   }, [connectSupabase])
 
   // Supabase-only mode (0065): always use Supabase when connected, otherwise empty
-  const columnsForDisplay = supabaseBoardActive ? supabaseColumns : columns
+  // Filter out 'col-doing' - it's now shown in Active work row above the board (0145)
+  const allColumns = supabaseBoardActive ? supabaseColumns : columns
+  const columnsForDisplay = allColumns.filter((c) => c.id !== 'col-doing')
   const cardsForDisplay = supabaseBoardActive ? supabaseCards : cards
+  
+  // Get tickets in Doing column for Active work row (0145)
+  const doingTickets = supabaseBoardActive
+    ? supabaseTickets.filter((t) => t.kanban_column_id === 'col-doing').sort((a, b) => {
+        // Sort by position, then by moved_at timestamp
+        if (a.kanban_position !== null && b.kanban_position !== null) {
+          return a.kanban_position - b.kanban_position
+        }
+        if (a.kanban_position !== null) return -1
+        if (b.kanban_position !== null) return 1
+        // Both null position - sort by moved_at (newer first)
+        if (a.kanban_moved_at && b.kanban_moved_at) {
+          return new Date(b.kanban_moved_at).getTime() - new Date(a.kanban_moved_at).getTime()
+        }
+        if (a.kanban_moved_at) return -1
+        if (b.kanban_moved_at) return 1
+        return 0
+      })
+    : []
 
   /** Fetch artifacts for a ticket (0082) */
   const fetchTicketArtifacts = useCallback(
@@ -4256,6 +4277,53 @@ ${notes || '(none provided)'}
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
       >
+        {/* Active work row: shows tickets in Doing column (0145) */}
+        {supabaseBoardActive && doingTickets.length > 0 && (
+          <section className="active-work-row" aria-label="Active work">
+            <h2 className="active-work-title">Active work</h2>
+            <div className="active-work-items">
+              {doingTickets.map((ticket) => {
+                const agentRun = displayAgentRunsByTicketPk[ticket.pk]
+                const agentName = agentRun?.agent_type === 'implementation' ? 'Implementation' : agentRun?.agent_type === 'qa' ? 'QA' : null
+                const statusLabel = agentName ? 'Doing' : 'Unassigned'
+                const timestamp = ticket.kanban_moved_at
+                  ? new Date(ticket.kanban_moved_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                  : ticket.updated_at
+                  ? new Date(ticket.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                  : null
+                const displayId = ticket.display_id || (ticket.ticket_number ? `HAL-${String(ticket.ticket_number).padStart(4, '0')}` : null)
+                const ticketIdentifier = displayId ? `${displayId}: ${ticket.title}` : ticket.title
+                
+                return (
+                  <div
+                    key={ticket.pk}
+                    className="active-work-item"
+                    onClick={() => handleOpenTicketDetail(ticket.pk)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        handleOpenTicketDetail(ticket.pk)
+                      }
+                    }}
+                    aria-label={`Open ticket ${ticketIdentifier}`}
+                  >
+                    <div className="active-work-item-title">{ticketIdentifier}</div>
+                    <div className="active-work-item-meta">
+                      <span className="active-work-item-agent">{agentName || 'Unassigned'}</span>
+                      <span className="active-work-item-status">
+                        {statusLabel}
+                        {timestamp && ` — updated ${timestamp}`}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+        )}
+        
         <section className="columns-section" aria-label="Columns">
           {!isEmbedded && (
             <>

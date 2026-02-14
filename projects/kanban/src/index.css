@@ -209,6 +209,72 @@ h1 {
   outline-offset: 2px;
 }
 
+/* Active work row (0145) */
+.active-work-row {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: var(--kanban-surface);
+  border: 1px solid var(--kanban-border);
+  border-radius: 8px;
+}
+.active-work-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem 0;
+  color: var(--kanban-text);
+}
+.active-work-items {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  overflow-x: auto;
+}
+.active-work-item {
+  min-width: 200px;
+  max-width: 300px;
+  padding: 0.75rem;
+  background: var(--kanban-surface-alt);
+  border: 1px solid var(--kanban-border-muted);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.active-work-item:hover {
+  background: var(--kanban-surface);
+  border-color: var(--kanban-primary);
+  transform: translateY(-1px);
+}
+.active-work-item:focus {
+  outline: none;
+}
+.active-work-item:focus-visible {
+  outline: 2px solid var(--kanban-primary);
+  outline-offset: 2px;
+}
+.active-work-item-title {
+  font-weight: 500;
+  font-size: 0.95rem;
+  color: var(--kanban-text);
+  line-height: 1.3;
+}
+.active-work-item-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+}
+.active-work-item-agent {
+  font-weight: 500;
+  color: var(--kanban-primary);
+}
+.active-work-item-status {
+  color: var(--kanban-text-muted);
+}
+
 /* Columns section */
 .columns-section {
   margin-bottom: 1.5rem;
