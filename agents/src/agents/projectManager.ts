@@ -130,52 +130,159 @@ export interface ReadyCheckResult {
     acceptanceCriteria: boolean
     constraintsNonGoals: boolean
     noPlaceholders: boolean
+    properHeadings?: boolean // Optional for backward compatibility
   }
 }
 
 /**
  * Evaluate ticket body against the Ready-to-start checklist (Definition of Ready).
- * Simplified check: ticket has content beyond the template (is bigger than template).
+ * Uses peer review logic (0180) for comprehensive checks.
  * 
- * The template is approximately 1500-2000 characters. A ticket is ready if:
- * - It has substantial content (longer than template baseline)
- * - It's not just template placeholders
+ * A ticket is ready if it passes peer review (all required sections present,
+ * proper formatting, no placeholders, etc.).
  */
 export function evaluateTicketReady(bodyMd: string): ReadyCheckResult {
-  const body = bodyMd.trim()
+  // Use peer review logic for comprehensive check (0180)
+  const peerReviewResult = performPeerReviewForPM(bodyMd)
   
-  // Template baseline: approximately 1500-2000 chars for a filled template
-  // A ticket with actual content should be substantially larger
-  const TEMPLATE_BASELINE = 1500
-  const hasSubstantialContent = body.length > TEMPLATE_BASELINE
-  
-  // Check if it's mostly placeholders (simple heuristic: if >50% of content is placeholders, it's not ready)
-  const placeholders = body.match(PLACEHOLDER_RE) ?? []
-  const placeholderChars = placeholders.join('').length
-  const isMostlyPlaceholders = placeholderChars > body.length * 0.5
+  return {
+    ready: peerReviewResult.pass,
+    missingItems: peerReviewResult.issues.map((issue) => issue.message),
+    checklistResults: {
+      goal: peerReviewResult.checklistResults.goal,
+      deliverable: peerReviewResult.checklistResults.deliverable,
+      acceptanceCriteria: peerReviewResult.checklistResults.acceptanceCriteria,
+      constraintsNonGoals: peerReviewResult.checklistResults.constraintsNonGoals,
+      noPlaceholders: peerReviewResult.checklistResults.noPlaceholders,
+    },
+  }
+}
 
-  const ready = hasSubstantialContent && !isMostlyPlaceholders
-  const missingItems: string[] = []
-  
-  if (!ready) {
-    if (!hasSubstantialContent) {
-      missingItems.push('Ticket content is too short (needs more content beyond template)')
-    }
-    if (isMostlyPlaceholders) {
-      missingItems.push('Ticket contains too many unresolved placeholders')
+/**
+ * Perform peer review (Definition of Ready check) on a ticket body.
+ * This is a simplified version of the full peer review for PM agent use.
+ * Returns detailed PASS/FAIL result with specific issues.
+ */
+function performPeerReviewForPM(bodyMd: string): {
+  pass: boolean
+  issues: Array<{ message: string }>
+  checklistResults: {
+    goal: boolean
+    deliverable: boolean
+    acceptanceCriteria: boolean
+    constraintsNonGoals: boolean
+    noPlaceholders: boolean
+    properHeadings: boolean
+  }
+} {
+  const body = bodyMd.trim()
+  const issues: Array<{ message: string }> = []
+  const checklistResults = {
+    goal: false,
+    deliverable: false,
+    acceptanceCriteria: false,
+    constraintsNonGoals: false,
+    noPlaceholders: true,
+    properHeadings: true,
+  }
+
+  // Required section headings (exact match, case-sensitive)
+  const REQUIRED_SECTIONS = [
+    { heading: '## Goal (one sentence)', name: 'Goal' },
+    { heading: '## Human-verifiable deliverable (UI-only)', name: 'Human-verifiable deliverable' },
+    { heading: '## Acceptance criteria (UI-only)', name: 'Acceptance criteria' },
+  ]
+
+  // Check for required sections
+  for (const section of REQUIRED_SECTIONS) {
+    const content = sectionContent(body, section.heading)
+    if (!content || content.length < 10) {
+      issues.push({
+        message: `Missing or empty "${section.name}" section. Required heading: "${section.heading}"`,
+      })
+    } else {
+      if (section.name === 'Goal') {
+        checklistResults.goal = true
+      } else if (section.name === 'Human-verifiable deliverable') {
+        checklistResults.deliverable = true
+      }
     }
   }
 
+  // Check Acceptance criteria format (must use checkboxes - [ ])
+  const acceptanceCriteriaContent = sectionContent(body, '## Acceptance criteria (UI-only)')
+  if (acceptanceCriteriaContent) {
+    const lines = acceptanceCriteriaContent.split('\n')
+    const hasCheckboxes = lines.some((line) => /^[-*]\s+\[[\sx]\]/.test(line.trim()))
+    const hasPlainBullets = lines.some((line) => {
+      const trimmed = line.trim()
+      return /^[-*]\s+[^[\s]/.test(trimmed) && !trimmed.startsWith('- [')
+    })
+
+    if (hasPlainBullets && !hasCheckboxes) {
+      issues.push({
+        message: 'Acceptance criteria must use checkbox format (- [ ]), not plain bullets (-)',
+      })
+    } else if (hasCheckboxes) {
+      checklistResults.acceptanceCriteria = true
+    }
+  }
+
+  // Check for placeholders
+  const placeholders = body.match(PLACEHOLDER_RE) ?? []
+  if (placeholders.length > 0) {
+    const uniquePlaceholders = [...new Set(placeholders)]
+    issues.push({
+      message: `Unresolved placeholders found: ${uniquePlaceholders.join(', ')}`,
+    })
+    checklistResults.noPlaceholders = false
+  }
+
+  // Check for proper heading levels (must use ## not # or ###)
+  const headingLines = body.split('\n').map((line, idx) => ({ line, idx: idx + 1 }))
+  for (const { line, idx } of headingLines) {
+    const trimmed = line.trim()
+    // Check for H1 (#) when H2 (##) is required
+    if (/^#\s+[^#]/.test(trimmed) && !trimmed.startsWith('##')) {
+      issues.push({
+        message: `Line ${idx}: Use ## (H2) for section headings, not # (H1). Found: "${trimmed.substring(0, 50)}"`,
+      })
+      checklistResults.properHeadings = false
+    } else if (/^#{3,}\s+/.test(trimmed)) {
+      // Check if it's a required section that should be H2
+      const headingText = trimmed.replace(/^#+\s+/, '')
+      const isRequiredSection = REQUIRED_SECTIONS.some(
+        (s) => s.heading.replace(/^##\s+/, '') === headingText
+      )
+      if (isRequiredSection) {
+        issues.push({
+          message: `Line ${idx}: Required section "${headingText}" must use ## (H2), not ${trimmed.match(/^#+/)?.[0] || 'H3+'}. Found: "${trimmed.substring(0, 50)}"`,
+        })
+        checklistResults.properHeadings = false
+      }
+    }
+  }
+
+  // Check Constraints and Non-goals (optional but recommended)
+  const constraintsContent = sectionContent(body, '## Constraints')
+  const nonGoalsContent = sectionContent(body, '## Non-goals')
+  if ((constraintsContent && constraintsContent.length >= 10) || (nonGoalsContent && nonGoalsContent.length >= 10)) {
+    checklistResults.constraintsNonGoals = true
+  }
+
+  // Overall pass/fail
+  const pass =
+    checklistResults.goal &&
+    checklistResults.deliverable &&
+    checklistResults.acceptanceCriteria &&
+    checklistResults.noPlaceholders &&
+    checklistResults.properHeadings &&
+    issues.length === 0
+
   return {
-    ready,
-    missingItems,
-    checklistResults: {
-      goal: hasSubstantialContent,
-      deliverable: hasSubstantialContent,
-      acceptanceCriteria: hasSubstantialContent,
-      constraintsNonGoals: hasSubstantialContent,
-      noPlaceholders: !isMostlyPlaceholders,
-    },
+    pass,
+    issues,
+    checklistResults,
   }
 }
 

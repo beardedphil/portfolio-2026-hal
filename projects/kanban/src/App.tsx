@@ -1300,6 +1300,191 @@ function ProcessReviewSection({
   )
 }
 
+/** Peer Review section component (0180): checks ticket formatting and Definition of Ready */
+function PeerReviewSection({
+  ticketId,
+  ticketPk,
+  bodyMd,
+  supabaseUrl,
+  supabaseAnonKey,
+  onEditTicket,
+}: {
+  ticketId: string
+  ticketPk: string
+  bodyMd: string | null
+  supabaseUrl?: string
+  supabaseAnonKey?: string
+  onEditTicket?: () => void
+}) {
+  const [reviewResult, setReviewResult] = useState<{
+    pass: boolean
+    issues: Array<{
+      type: string
+      message: string
+      section?: string
+      line?: number
+    }>
+    checklistResults: {
+      goal: boolean
+      deliverable: boolean
+      acceptanceCriteria: boolean
+      constraintsNonGoals: boolean
+      noPlaceholders: boolean
+      properHeadings: boolean
+    }
+  } | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const runPeerReview = React.useCallback(async () => {
+    if (!bodyMd) {
+      setError('Ticket body is required for peer review')
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+
+    try {
+      const apiBaseUrl = window.location.origin
+      const response = await fetch(`${apiBaseUrl}/api/tickets/peer-review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ticketId,
+          ticketPk,
+          bodyMd,
+          supabaseUrl,
+          supabaseAnonKey,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!result.success) {
+        setError(result.error || 'Failed to perform peer review')
+        return
+      }
+
+      setReviewResult({
+        pass: result.pass,
+        issues: result.issues || [],
+        checklistResults: result.checklistResults || {},
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to perform peer review')
+    } finally {
+      setLoading(false)
+    }
+  }, [ticketId, ticketPk, bodyMd, supabaseUrl, supabaseAnonKey])
+
+  const handleIssueClick = (issue: { type: string; message: string; section?: string; line?: number }) => {
+    if (onEditTicket) {
+      onEditTicket()
+      // Scroll to section if available
+      if (issue.section) {
+        setTimeout(() => {
+          const heading = document.querySelector(`h2:contains("${issue.section}")`)
+          heading?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }, 100)
+      }
+    }
+  }
+
+  return (
+    <div className="peer-review-section" style={{ marginTop: '1.5rem', padding: '1rem', border: '1px solid #ddd', borderRadius: '4px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+        <h3 className="peer-review-title" style={{ margin: 0, fontSize: '1.1rem' }}>Peer Review / DoR Check</h3>
+        <button
+          type="button"
+          onClick={runPeerReview}
+          disabled={loading || !bodyMd}
+          style={{
+            padding: '0.5rem 1rem',
+            fontSize: '0.9rem',
+            cursor: loading || !bodyMd ? 'not-allowed' : 'pointer',
+            opacity: loading || !bodyMd ? 0.6 : 1,
+          }}
+        >
+          {loading ? 'Running...' : 'Run Review'}
+        </button>
+      </div>
+
+      {error && (
+        <div className="peer-review-error" role="alert" style={{ color: '#d32f2f', marginBottom: '1rem' }}>
+          <p>{error}</p>
+        </div>
+      )}
+
+      {reviewResult && (
+        <div className="peer-review-result">
+          <div
+            style={{
+              padding: '0.75rem',
+              marginBottom: '1rem',
+              borderRadius: '4px',
+              backgroundColor: reviewResult.pass ? '#e8f5e9' : '#ffebee',
+              border: `1px solid ${reviewResult.pass ? '#4caf50' : '#f44336'}`,
+            }}
+          >
+            <strong style={{ fontSize: '1.1rem', color: reviewResult.pass ? '#2e7d32' : '#c62828' }}>
+              {reviewResult.pass ? '✓ PASS' : '✗ FAIL'}
+            </strong>
+          </div>
+
+          {reviewResult.issues.length > 0 && (
+            <div className="peer-review-issues" style={{ marginTop: '1rem' }}>
+              <h4 style={{ marginBottom: '0.5rem', fontSize: '1rem' }}>Issues found:</h4>
+              <ul style={{ margin: 0, paddingLeft: '1.5rem' }}>
+                {reviewResult.issues.map((issue, idx) => (
+                  <li
+                    key={idx}
+                    style={{
+                      marginBottom: '0.5rem',
+                      cursor: onEditTicket ? 'pointer' : 'default',
+                      color: onEditTicket ? '#1976d2' : 'inherit',
+                      textDecoration: onEditTicket ? 'underline' : 'none',
+                    }}
+                    onClick={() => onEditTicket && handleIssueClick(issue)}
+                    title={onEditTicket ? 'Click to edit ticket' : undefined}
+                  >
+                    {issue.message}
+                    {issue.line && ` (line ${issue.line})`}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div className="peer-review-checklist" style={{ marginTop: '1rem', fontSize: '0.9rem' }}>
+            <h4 style={{ marginBottom: '0.5rem', fontSize: '1rem' }}>Checklist:</h4>
+            <ul style={{ margin: 0, paddingLeft: '1.5rem', listStyle: 'none' }}>
+              <li style={{ marginBottom: '0.25rem' }}>
+                {reviewResult.checklistResults.goal ? '✓' : '✗'} Goal section
+              </li>
+              <li style={{ marginBottom: '0.25rem' }}>
+                {reviewResult.checklistResults.deliverable ? '✓' : '✗'} Human-verifiable deliverable section
+              </li>
+              <li style={{ marginBottom: '0.25rem' }}>
+                {reviewResult.checklistResults.acceptanceCriteria ? '✓' : '✗'} Acceptance criteria (with checkboxes)
+              </li>
+              <li style={{ marginBottom: '0.25rem' }}>
+                {reviewResult.checklistResults.constraintsNonGoals ? '✓' : '○'} Constraints & Non-goals (optional)
+              </li>
+              <li style={{ marginBottom: '0.25rem' }}>
+                {reviewResult.checklistResults.noPlaceholders ? '✓' : '✗'} No unresolved placeholders
+              </li>
+              <li style={{ marginBottom: '0.25rem' }}>
+                {reviewResult.checklistResults.properHeadings ? '✓' : '✗'} Proper heading levels (## not # or ###)
+              </li>
+            </ul>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 /** Artifact Diagnostics component (0175): shows required artifacts checklist with storage attempt info */
 function ArtifactDiagnostics({
   ticketPk,
@@ -2247,6 +2432,21 @@ function TicketDetailModal({
                 attachments={attachments}
                 loading={attachmentsLoading}
               />
+              {(columnId === 'col-unassigned' || columnId === null || !columnId) && (
+                <PeerReviewSection
+                  ticketId={ticketId}
+                  ticketPk={ticketId}
+                  bodyMd={body}
+                  supabaseUrl={supabaseUrl}
+                  supabaseAnonKey={supabaseKey}
+                  onEditTicket={() => {
+                    // Trigger a refresh of the ticket body
+                    if (onRetry) {
+                      onRetry()
+                    }
+                  }}
+                />
+              )}
               {showValidationSection && (
                 <>
                   {validationError && (
