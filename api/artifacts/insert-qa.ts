@@ -59,7 +59,18 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const ticketId = typeof body.ticketId === 'string' ? body.ticketId.trim() : undefined
     const title = typeof body.title === 'string' ? body.title.trim() : undefined
-    const body_md = typeof body.body_md === 'string' ? body.body_md : (body.body_md !== undefined && body.body_md !== null ? String(body.body_md) : undefined)
+    
+    // Extract body_md with robust handling for various input types
+    // Handle string directly, or convert other types to string, preserving all content
+    let body_md: string | undefined
+    if (typeof body.body_md === 'string') {
+      body_md = body.body_md
+    } else if (body.body_md !== undefined && body.body_md !== null) {
+      // Convert to string, preserving content (handles numbers, objects, etc.)
+      body_md = String(body.body_md)
+    } else {
+      body_md = undefined
+    }
 
     // Log artifact creation request for tracing
     console.log(`[insert-qa] Artifact creation request: ticketId=${ticketId}, title="${title}", body_md type=${typeof body.body_md}, body_md length=${body_md?.length ?? 'undefined'}`)
@@ -71,6 +82,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         success: false,
         error: 'body_md must be a non-empty string. Received invalid or empty body_md.',
         validation_failed: true,
+        validation_reason: 'body_md is missing, empty, or not a string',
       })
       return
     }
@@ -181,11 +193,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         contentValidation.reason || 'Artifact body must contain substantive QA report content',
         contentValidation.reason || undefined
       )
+      const errorMessage = contentValidation.reason || 'Artifact body must contain substantive QA report content, not just a title or placeholder text.'
       json(res, 400, {
         success: false,
-        error: contentValidation.reason || 'Artifact body must contain substantive QA report content, not just a title or placeholder text.',
+        error: errorMessage,
         validation_failed: true,
-        validation_reason: contentValidation.reason, // Include validation reason for UI display
+        validation_reason: contentValidation.reason || 'Content validation failed: insufficient substantive content',
       })
       return
     }
@@ -292,20 +305,31 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       }
 
       // Append to existing artifact instead of replacing (0137: preserve history when tickets are reworked)
+      // But replace if existing body is empty/placeholder (0197: prevent shell artifacts)
       const existingArtifact = artifacts.find((a) => a.artifact_id === targetArtifactId)
       const existingBody = existingArtifact?.body_md || ''
-      const timestamp = new Date().toISOString()
-      const separator = '\n\n---\n\n'
-      const appendedBody = existingBody.trim()
-        ? `${existingBody.trim()}${separator}**Update (${timestamp}):**\n\n${body_md}`
-        : body_md // If existing body is empty, just use new body
       
-      console.log(`[insert-qa] Appending to artifact ${targetArtifactId} (existing length=${existingBody.length}, new length=${body_md.length})`)
+      // Check if existing body is substantive using validation
+      const existingValidation = hasSubstantiveQAContent(existingBody, canonicalTitle)
+      const shouldAppend = existingValidation.valid && existingBody.trim().length > 0
+      
+      let finalBody: string
+      if (shouldAppend) {
+        // Existing body is substantive, append new content
+        const timestamp = new Date().toISOString()
+        const separator = '\n\n---\n\n'
+        finalBody = `${existingBody.trim()}${separator}**Update (${timestamp}):**\n\n${body_md}`
+      } else {
+        // Existing body is empty/placeholder, replace it entirely (0197)
+        finalBody = body_md
+      }
+      
+      console.log(`[insert-qa] ${shouldAppend ? 'Appending to' : 'Replacing'} artifact ${targetArtifactId} (existing length=${existingBody.length}, new length=${body_md.length})`)
       const { error: updateError } = await supabase
         .from('agent_artifacts')
         .update({
           title: canonicalTitle, // Use canonical title for consistency
-          body_md: appendedBody,
+          body_md: finalBody,
         })
         .eq('artifact_id', targetArtifactId)
 
@@ -391,11 +415,28 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         if (!raceFindError && raceArtifacts && raceArtifacts.length > 0) {
           // Use the most recent artifact
           const targetArtifact = raceArtifacts[0]
+          const existingRaceBody = (targetArtifact as { body_md?: string }).body_md || ''
+          
+          // Check if existing body is substantive - if not, replace it entirely (0197)
+          const existingRaceValidation = hasSubstantiveQAContent(existingRaceBody, canonicalTitle)
+          const shouldAppendRace = existingRaceValidation.valid && existingRaceBody.trim().length > 0
+          
+          let finalRaceBody: string
+          if (shouldAppendRace) {
+            // Existing body is substantive, append new content
+            const timestamp = new Date().toISOString()
+            const separator = '\n\n---\n\n'
+            finalRaceBody = `${existingRaceBody.trim()}${separator}**Update (${timestamp}):**\n\n${body_md}`
+          } else {
+            // Existing body is empty/placeholder, replace it entirely (0197)
+            finalRaceBody = body_md
+          }
+          
           const { error: updateError } = await supabase
             .from('agent_artifacts')
             .update({ 
               title: canonicalTitle, // Use canonical title for consistency
-              body_md 
+              body_md: finalRaceBody
             })
             .eq('artifact_id', targetArtifact.artifact_id)
 
