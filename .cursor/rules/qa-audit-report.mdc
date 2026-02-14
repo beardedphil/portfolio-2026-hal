@@ -206,8 +206,13 @@ When the verdict is **PASS (OK to merge)**, QA must **complete the full workflow
 
 **If you are verifying from the feature branch** (normal workflow):
 
+<<<<<<< HEAD
 1. **Complete Acceptance criteria validation** — **MANDATORY:** Before proceeding, complete the Acceptance criteria validation section. Enumerate every Acceptance Criteria from the ticket, record Pass/Fail/Blocked status for each with evidence. If any AC is marked as Fail or Blocked, QA **MUST FAIL** and you must not proceed to step 2. See "QA report structure" section above for the required format.
 2. **Complete AC Confirmation Checklist** — **MANDATORY:** Complete the AC Confirmation Checklist. Enumerate every Acceptance Criteria from the ticket, state "Met" or "Not met" for each with evidence. If any AC is not met, QA **MUST FAIL** and you must not proceed to step 3. See `.cursor/rules/ac-confirmation-checklist.mdc` for full requirements.
+=======
+1. **Complete Acceptance criteria validation** — **MANDATORY:** Before proceeding, complete the Acceptance criteria validation section. Enumerate every Acceptance Criteria from the ticket, record Pass/Fail/Blocked for each with evidence. If any AC is marked as Fail or Blocked (due to implementation issues, not missing/ambiguous ACs), QA **MUST FAIL** and you must not proceed to step 2. See "QA report structure" section above for full requirements.
+2. **Complete AC Confirmation Checklist** — **MANDATORY:** Also complete the AC Confirmation Checklist. Enumerate every Acceptance Criteria from the ticket, state "Met" or "Not met" for each with evidence. If any AC is not met, QA **MUST FAIL** and you must not proceed to step 3. See `.cursor/rules/ac-confirmation-checklist.mdc` for full requirements.
+>>>>>>> 2fb23ea64cd6764a4e06ebe875939c3ee6c179ff
 3. **Store QA report in Supabase** — Make an HTTP POST request to `${baseUrl}/api/artifacts/insert-qa`. The QA report must include both the Acceptance criteria validation section and the AC Confirmation Checklist:
    ```bash
    curl -X POST ${baseUrl}/api/artifacts/insert-qa \
@@ -232,8 +237,13 @@ When the verdict is **PASS (OK to merge)**, QA must **complete the full workflow
 
 **If you are verifying from `main`** (implementation was merged to main for QA access):
 
+<<<<<<< HEAD
 1. **Complete Acceptance criteria validation** — **MANDATORY:** Before proceeding, complete the Acceptance criteria validation section. Enumerate every Acceptance Criteria from the ticket, record Pass/Fail/Blocked status for each with evidence. If any AC is marked as Fail or Blocked, QA **MUST FAIL** and you must not proceed to step 2. See "QA report structure" section above for the required format.
 2. **Complete AC Confirmation Checklist** — **MANDATORY:** Complete the AC Confirmation Checklist. Enumerate every Acceptance Criteria from the ticket, state "Met" or "Not met" for each with evidence. If any AC is not met, QA **MUST FAIL** and you must not proceed to step 3. See `.cursor/rules/ac-confirmation-checklist.mdc` for full requirements.
+=======
+1. **Complete Acceptance criteria validation** — **MANDATORY:** Before proceeding, complete the Acceptance criteria validation section. Enumerate every Acceptance Criteria from the ticket, record Pass/Fail/Blocked for each with evidence. If any AC is marked as Fail or Blocked (due to implementation issues, not missing/ambiguous ACs), QA **MUST FAIL** and you must not proceed to step 2. See "QA report structure" section above for full requirements.
+2. **Complete AC Confirmation Checklist** — **MANDATORY:** Also complete the AC Confirmation Checklist. Enumerate every Acceptance Criteria from the ticket, state "Met" or "Not met" for each with evidence. If any AC is not met, QA **MUST FAIL** and you must not proceed to step 3. See `.cursor/rules/ac-confirmation-checklist.mdc` for full requirements.
+>>>>>>> 2fb23ea64cd6764a4e06ebe875939c3ee6c179ff
 3. **Store QA report in Supabase** — Make an HTTP POST request to `${baseUrl}/api/artifacts/insert-qa`. The QA report must include both the Acceptance criteria validation section and the AC Confirmation Checklist. Include a note in the report that verification was performed against `main`.
 4. **Update ticket body** (optional) — If needed, make an HTTP POST request to `${baseUrl}/api/tickets/update` to note that verification was performed against `main`.
 5. **Move ticket to Human in the Loop** — Make an HTTP POST request to `${baseUrl}/api/tickets/move`.
@@ -245,9 +255,15 @@ Do not give a summary with "next steps" or "run these commands" — QA performs 
 - **If verdict is FAIL:** Do not merge. Store the QA report in Supabase, then **YOU MUST move the ticket to the top of To-do** (`col-todo` column) via HAL API. **This is MANDATORY** - failing to move the ticket to To-do means the QA workflow is incomplete. Summarize findings and recommend a bugfix ticket (see `bugfix-tracking.mdc`). **The final message must include:** `QA RESULT: FAIL — <ticket-id>` (see "Completion message format requirement" above).
   
   **FAIL workflow:**
+<<<<<<< HEAD
   1. **Complete Acceptance criteria validation** — **MANDATORY:** Complete the Acceptance criteria validation section even when QA fails. Enumerate every Acceptance Criteria from the ticket, record Pass/Fail/Blocked status for each with evidence. This helps identify which ACs failed or were blocked. See "QA report structure" section above for the required format.
   2. **Complete AC Confirmation Checklist** — **MANDATORY:** Complete the AC Confirmation Checklist even when QA fails. Enumerate every Acceptance Criteria from the ticket, state "Met" or "Not met" for each with evidence. This helps identify which ACs were not met. See `.cursor/rules/ac-confirmation-checklist.mdc` for full requirements.
   3. **Store QA report in Supabase** — Make an HTTP POST request to `${baseUrl}/api/artifacts/insert-qa`. The QA report must include both the Acceptance criteria validation section and the AC Confirmation Checklist showing which ACs were not met:
+=======
+  1. **Complete Acceptance criteria validation** — **MANDATORY:** Complete the Acceptance criteria validation section even when QA fails. Enumerate every Acceptance Criteria from the ticket, record Pass/Fail/Blocked for each with evidence. This helps identify which ACs failed or were blocked. See "QA report structure" section above for full requirements.
+  2. **Complete AC Confirmation Checklist** — **MANDATORY:** Also complete the AC Confirmation Checklist even when QA fails. Enumerate every Acceptance Criteria from the ticket, state "Met" or "Not met" for each with evidence. This helps identify which ACs were not met. See `.cursor/rules/ac-confirmation-checklist.mdc` for full requirements.
+  3. **Store QA report in Supabase** — Make an HTTP POST request to `${baseUrl}/api/artifacts/insert-qa`. The QA report must include both the Acceptance criteria validation section and the AC Confirmation Checklist showing which ACs failed or were blocked:
+>>>>>>> 2fb23ea64cd6764a4e06ebe875939c3ee6c179ff
      ```bash
      curl -X POST ${baseUrl}/api/artifacts/insert-qa \
        -H "Content-Type: application/json" \
