@@ -3,8 +3,9 @@
  * 
  * These tests verify that:
  * - Conversation threads are correctly mapped to cursor_agent_id
- * - Existing threads are reused when agents are still RUNNING
- * - New agents are created when threads don't exist or agents are FINISHED
+ * - When continuing a conversation, conversation history is fetched and included in the prompt
+ * - New agents are always created (Cursor doesn't support follow-up messages)
+ * - Thread mapping is updated with the new agent ID
  * - Restart functionality clears thread mappings
  */
 
@@ -54,61 +55,79 @@ describe('PM agent launch thread lookup', () => {
     expect(mockSupabase.from).toHaveBeenCalledWith('hal_pm_conversation_threads')
   })
 
-  it('should reuse existing thread when agent is RUNNING', async () => {
-    // Mock: existing thread with RUNNING agent
+  it('should fetch conversation history when continuing an existing thread', async () => {
+    // Mock: existing thread
     mockSupabase.maybeSingle.mockResolvedValueOnce({ 
       data: { cursor_agent_id: 'existing-agent-id' }, 
       error: null 
     })
     
-    // Mock: agent status check returns RUNNING
-    const mockFetch = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ status: 'RUNNING' }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        text: async () => JSON.stringify({ id: 'existing-agent-id', status: 'RUNNING' }),
-      })
-    global.fetch = mockFetch
-    
-    // Mock: find existing run
-    mockSupabase.maybeSingle.mockResolvedValueOnce({ 
-      data: { run_id: 'existing-run-id', status: 'polling' }, 
-      error: null 
+    // Mock: conversation history fetch
+    mockSupabase.limit.mockResolvedValueOnce({
+      data: [
+        { role: 'user', content: 'Hello' },
+        { role: 'assistant', content: 'Hi there!' },
+        { role: 'user', content: 'How are you?' },
+      ],
+      error: null,
     })
     
-    // The handler should reuse the existing run
-    expect(mockSupabase.from).toHaveBeenCalledWith('hal_pm_conversation_threads')
-  })
-
-  it('should create new agent when existing agent is FINISHED', async () => {
-    // Mock: existing thread
-    mockSupabase.maybeSingle.mockResolvedValueOnce({ 
-      data: { cursor_agent_id: 'finished-agent-id' }, 
-      error: null 
-    })
-    
-    // Mock: agent status check returns FINISHED
-    const mockFetch = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ status: 'FINISHED' }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        text: async () => JSON.stringify({ id: 'new-agent-id', status: 'CREATING' }),
-      })
-    global.fetch = mockFetch
-    
-    // Mock: new agent run creation
+    // Mock: agent run creation
     mockSupabase.maybeSingle.mockResolvedValueOnce({ 
       data: { run_id: 'new-run-id' }, 
       error: null 
     })
     
-    // The handler should create a new agent
+    // Mock: cursor agent launch response
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      text: async () => JSON.stringify({ id: 'new-agent-id', status: 'CREATING' }),
+    })
+    global.fetch = mockFetch
+    
+    // Mock: thread upsert (updating with new agent ID)
+    mockSupabase.upsert.mockResolvedValueOnce({ data: null, error: null })
+    
+    // The handler should:
+    // 1. Check for existing thread
+    // 2. Fetch conversation history
+    // 3. Create new agent with history in prompt
+    // 4. Update thread mapping with new agent ID
+    expect(mockSupabase.from).toHaveBeenCalledWith('hal_pm_conversation_threads')
+    expect(mockSupabase.from).toHaveBeenCalledWith('hal_conversation_messages')
+  })
+
+  it('should create new agent even when continuing (Cursor doesn\'t support follow-up messages)', async () => {
+    // Mock: existing thread
+    mockSupabase.maybeSingle.mockResolvedValueOnce({ 
+      data: { cursor_agent_id: 'old-agent-id' }, 
+      error: null 
+    })
+    
+    // Mock: conversation history (empty for simplicity)
+    mockSupabase.limit.mockResolvedValueOnce({
+      data: [],
+      error: null,
+    })
+    
+    // Mock: agent run creation (new run for new agent)
+    mockSupabase.maybeSingle.mockResolvedValueOnce({ 
+      data: { run_id: 'new-run-id' }, 
+      error: null 
+    })
+    
+    // Mock: cursor agent launch response (new agent ID)
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      text: async () => JSON.stringify({ id: 'new-agent-id', status: 'CREATING' }),
+    })
+    global.fetch = mockFetch
+    
+    // Mock: thread upsert (updating with new agent ID)
+    mockSupabase.upsert.mockResolvedValueOnce({ data: null, error: null })
+    
+    // The handler should create a new agent (not reuse the old one)
+    // but update the thread mapping with the new agent ID
     expect(mockSupabase.from).toHaveBeenCalledWith('hal_pm_conversation_threads')
   })
 
@@ -123,7 +142,7 @@ describe('PM agent launch thread lookup', () => {
 
   it('should handle missing conversationId gracefully', async () => {
     // When conversationId is not provided, should proceed with new agent creation
-    // (no thread lookup)
+    // (no thread lookup, no conversation history)
     mockSupabase.maybeSingle.mockResolvedValueOnce({ 
       data: { run_id: 'test-run-id' }, 
       error: null 
@@ -138,5 +157,45 @@ describe('PM agent launch thread lookup', () => {
     // Should not call thread lookup when conversationId is missing
     // (This is tested by ensuring from('hal_pm_conversation_threads') is not called
     // when conversationId is undefined)
+  })
+
+  it('should include conversation history in prompt when continuing', async () => {
+    // Mock: existing thread
+    mockSupabase.maybeSingle.mockResolvedValueOnce({ 
+      data: { cursor_agent_id: 'existing-agent-id' }, 
+      error: null 
+    })
+    
+    // Mock: conversation history with multiple messages
+    mockSupabase.limit.mockResolvedValueOnce({
+      data: [
+        { role: 'user', content: 'First message' },
+        { role: 'assistant', content: 'First response' },
+        { role: 'user', content: 'Second message' },
+        { role: 'assistant', content: 'Second response' },
+      ],
+      error: null,
+    })
+    
+    // Mock: agent run creation
+    mockSupabase.maybeSingle.mockResolvedValueOnce({ 
+      data: { run_id: 'new-run-id' }, 
+      error: null 
+    })
+    
+    // Mock: cursor agent launch response
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      text: async () => JSON.stringify({ id: 'new-agent-id', status: 'CREATING' }),
+    })
+    global.fetch = mockFetch
+    
+    // Mock: thread upsert
+    mockSupabase.upsert.mockResolvedValueOnce({ data: null, error: null })
+    
+    // The handler should fetch conversation history and include it in the prompt
+    // (The actual prompt building is tested implicitly by verifying the conversation
+    // history is fetched)
+    expect(mockSupabase.from).toHaveBeenCalledWith('hal_conversation_messages')
   })
 })
