@@ -1,24 +1,21 @@
-import { useState, useEffect, useContext, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useContext, useRef } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { HalKanbanContext } from '../HalKanbanContext'
 import type { SupabaseAgentArtifactRow } from './types'
 
-export interface ProcessReviewSectionProps {
-  ticketId: string
-  ticketPk: string
-  artifacts: SupabaseAgentArtifactRow[]
-  supabaseUrl?: string
-  supabaseAnonKey?: string
-}
-
-/** Process Review section component (0094) */
 export function ProcessReviewSection({
   ticketId,
   ticketPk,
   artifacts: _artifacts, // Unused: artifacts are only shown in artifacts panel (0148)
   supabaseUrl,
   supabaseAnonKey,
-}: ProcessReviewSectionProps) {
+}: {
+  ticketId: string
+  ticketPk: string
+  artifacts: SupabaseAgentArtifactRow[]
+  supabaseUrl?: string
+  supabaseAnonKey?: string
+}) {
   const halCtx = useContext(HalKanbanContext)
   const [suggestions, setSuggestions] = useState<Array<{ id: string; text: string; justification: string; selected: boolean }>>([])
   const [lastRunStatus, setLastRunStatus] = useState<{ timestamp: string; success: boolean; error?: string } | null>(null)
@@ -30,7 +27,7 @@ export function ProcessReviewSection({
   const isRunningReview = halCtx?.processReviewRunningForTicketPk === ticketPk
 
   // Load last run status from database on mount and when review completes
-  const loadLastRunStatus = useCallback(async () => {
+  const loadLastRunStatus = React.useCallback(async () => {
     if (!supabaseUrl || !supabaseAnonKey || !ticketPk) return
 
     try {
@@ -95,7 +92,7 @@ export function ProcessReviewSection({
   }, [loadLastRunStatus])
 
   // Refresh when review completes (isRunningReview changes from true to false)
-  const prevIsRunningReview = useRef(isRunningReview)
+  const prevIsRunningReview = React.useRef(isRunningReview)
   useEffect(() => {
     if (prevIsRunningReview.current && !isRunningReview) {
       // Review just completed, refresh data

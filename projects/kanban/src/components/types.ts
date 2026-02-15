@@ -1,3 +1,5 @@
+/** Shared types for ticket detail modal components */
+
 /** Supabase agent_artifacts table row (0082) */
 export type SupabaseAgentArtifactRow = {
   artifact_id: string

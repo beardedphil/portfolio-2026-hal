@@ -1,13 +1,12 @@
-import { extractFeatureBranch, checkMergedToMain } from './utils'
-
-export interface QAInfoSectionProps {
-  bodyMd: string | null
-}
+import React from 'react'
+import { extractFeatureBranch, checkMergedToMain } from '../lib/ticketBody'
 
 /** QA Info Section: displays feature branch when ticket is in QA column (0113, 0148) */
 export function QAInfoSection({
   bodyMd,
-}: QAInfoSectionProps) {
+}: {
+  bodyMd: string | null
+}) {
   const featureBranch = extractFeatureBranch(bodyMd)
   const mergeStatus = checkMergedToMain(bodyMd)
   

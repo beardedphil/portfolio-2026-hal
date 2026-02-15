@@ -1,15 +1,14 @@
+import React from 'react'
 import type { TicketAttachment } from './types'
-
-export interface AttachmentsSectionProps {
-  attachments: TicketAttachment[]
-  loading: boolean
-}
 
 /** Attachments Section: displays file attachments for tickets (0092) */
 export function AttachmentsSection({
   attachments,
   loading,
-}: AttachmentsSectionProps) {
+}: {
+  attachments: TicketAttachment[]
+  loading: boolean
+}) {
   if (loading) {
     return (
       <div className="attachments-section">

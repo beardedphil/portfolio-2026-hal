@@ -1,58 +1,14 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { parseFrontmatter } from '../frontmatter'
-import { extractPriority, stripQAInformationBlockFromBody } from './utils'
+import { stripQAInformationBlockFromBody } from '../lib/ticketBody'
+import { extractPriority } from './utils'
+import type { SupabaseAgentArtifactRow, TicketAttachment } from './types'
 import { ArtifactsSection } from './ArtifactsSection'
 import { AttachmentsSection } from './AttachmentsSection'
 import { ProcessReviewSection } from './ProcessReviewSection'
-import type { SupabaseAgentArtifactRow, TicketAttachment } from './types'
-
-// These components are still in App.tsx - we'll import them from there for now
-// In a future refactor, these could also be extracted
-type HumanValidationSectionProps = {
-  ticketId: string
-  ticketPk: string
-  stepsToValidate: string
-  notes: string
-  onStepsChange: (value: string) => void
-  onNotesChange: (value: string) => void
-  onPass: () => void
-  onFail: () => void
-  isProcessing: boolean
-}
-
-type AutoDismissMessageProps = {
-  onDismiss: () => void
-  delay: number
-}
-
-export interface TicketDetailModalProps {
-  open: boolean
-  onClose: () => void
-  ticketId: string
-  title: string
-  body: string | null
-  loading: boolean
-  error: string | null
-  onRetry?: () => void
-  artifacts: SupabaseAgentArtifactRow[]
-  artifactsLoading: boolean
-  artifactsStatus?: string | null
-  onRefreshArtifacts?: () => void
-  onOpenArtifact: (artifact: SupabaseAgentArtifactRow) => void
-  columnId: string | null
-  onValidationPass: (ticketPk: string) => Promise<void>
-  onValidationFail: (ticketPk: string, steps: string, notes: string) => Promise<void>
-  supabaseUrl: string
-  supabaseKey: string
-  onTicketUpdate: () => void
-  attachments: TicketAttachment[]
-  attachmentsLoading: boolean
-  failureCounts?: { qa: number; hitl: number } | null
-  // Components that are still in App.tsx - passed as props for now
-  HumanValidationSection: React.ComponentType<HumanValidationSectionProps>
-  AutoDismissMessage: React.ComponentType<AutoDismissMessageProps>
-}
+import { HumanValidationSection } from './HumanValidationSection'
+import { AutoDismissMessage } from './AutoDismissMessage'
 
 /** Ticket detail modal (0033): title, metadata, markdown body, close/escape/backdrop, scroll lock, focus trap */
 export function TicketDetailModal({
@@ -78,9 +34,30 @@ export function TicketDetailModal({
   attachments,
   attachmentsLoading,
   failureCounts,
-  HumanValidationSection,
-  AutoDismissMessage,
-}: TicketDetailModalProps) {
+}: {
+  open: boolean
+  onClose: () => void
+  ticketId: string
+  title: string
+  body: string | null
+  loading: boolean
+  error: string | null
+  onRetry?: () => void
+  artifacts: SupabaseAgentArtifactRow[]
+  artifactsLoading: boolean
+  artifactsStatus?: string | null
+  onRefreshArtifacts?: () => void
+  onOpenArtifact: (artifact: SupabaseAgentArtifactRow) => void
+  columnId: string | null
+  onValidationPass: (ticketPk: string) => Promise<void>
+  onValidationFail: (ticketPk: string, steps: string, notes: string) => Promise<void>
+  supabaseUrl: string
+  supabaseKey: string
+  onTicketUpdate: () => void
+  attachments: TicketAttachment[]
+  attachmentsLoading: boolean
+  failureCounts?: { qa: number; hitl: number } | null
+}) {
   const [validationSteps, setValidationSteps] = useState('')
   const [validationNotes, setValidationNotes] = useState('')
   const [isProcessing, setIsProcessing] = useState(false)

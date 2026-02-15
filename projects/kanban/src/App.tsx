@@ -27,14 +27,26 @@ import {
   useSortable,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-// parseFrontmatter now used in components
+import {
+  parseFrontmatter,
+} from './frontmatter'
 import { createClient } from '@supabase/supabase-js'
 import ReactMarkdown from 'react-markdown'
 import type { Components } from 'react-markdown'
 import { GitDiffViewer } from './GitDiffViewer'
+import {
+  extractTicketId,
+  extractFeatureBranch,
+  stripQAInformationBlockFromBody,
+  checkMergedToMain,
+  normalizeTitleLineInBody,
+} from './lib/ticketBody'
 import { TicketDetailModal } from './components/TicketDetailModal'
-// ArtifactsSection, AttachmentsSection, ProcessReviewSection now used in TicketDetailModal
+import { ArtifactsSection } from './components/ArtifactsSection'
 import { QAInfoSection } from './components/QAInfoSection'
+import { AttachmentsSection } from './components/AttachmentsSection'
+import { ProcessReviewSection } from './components/ProcessReviewSection'
+import { getAgentTypeDisplayName } from './components/utils'
 
 type LogEntry = { id: number; message: string; at: string }
 type Card = { id: string; title: string; /** Display id for work button (e.g. HAL-0081); when card id is Supabase pk, used for message. */ displayId?: string }
@@ -70,7 +82,7 @@ type SupabaseKanbanColumnRow = {
   updated_at: string
 }
 
-/** Supabase agent_artifacts table row (0082) */
+/** Supabase agent_artifacts table row (0082) - exported from components/types.ts */
 type SupabaseAgentArtifactRow = {
   artifact_id: string
   ticket_pk: string
@@ -95,7 +107,7 @@ type SupabaseAgentRunRow = {
   updated_at: string
 }
 
-/** Supabase ticket_attachments table row (0092) */
+/** Supabase ticket_attachments table row (0092) - exported from components/types.ts */
 type TicketAttachment = {
   pk: string
   ticket_pk: string
@@ -158,45 +170,6 @@ const DEFAULT_KANBAN_COLUMNS_SEED = [
   { id: 'col-wont-implement', title: 'Will Not Implement', position: 7 },
 ] as const
 
-/** First 4 digits from filename (e.g. 0009-...md → 0009). Invalid → null. */
-function extractTicketId(filename: string): string | null {
-  const match = filename.match(/^(\d{4})/)
-  return match ? match[1] : null
-}
-
-/** Extract feature branch name from ticket body_md QA section. Returns branch name or null. */
-function extractFeatureBranch(bodyMd: string | null): string | null {
-  if (!bodyMd) return null
-  // Look for "**Branch**: `branch-name`" or "- **Branch**: `branch-name`" in QA section
-  const branchMatch = bodyMd.match(/(?:^|\n)(?:- )?\*\*Branch\*\*:\s*`([^`]+)`/i)
-  return branchMatch ? branchMatch[1].trim() : null
-}
-
-// stripQAInformationBlockFromBody moved to ./components/utils.ts
-
-/** Check if ticket body_md indicates branch was merged to main. Returns { merged: boolean, timestamp: string | null }. */
-function checkMergedToMain(bodyMd: string | null): { merged: boolean; timestamp: string | null } {
-  if (!bodyMd) return { merged: false, timestamp: null }
-  
-  // Look for "Merged to main" confirmation in QA section or anywhere in body
-  const mergedPatterns = [
-    /(?:^|\n)(?:- )?\*\*Merged to main\*\*:\s*Yes/i,
-    /(?:^|\n)(?:- )?\*\*Merged to main\*\*:\s*✅/i,
-    /merged to main for (?:cloud )?qa access/i,
-    /merged.*main.*qa/i,
-    /Merged to main:\s*Yes/i,
-    /Merged to main:\s*✅/i,
-  ]
-  
-  const hasMerged = mergedPatterns.some(pattern => pattern.test(bodyMd))
-  
-  // Try to extract timestamp if present (look for ISO date or common date formats near "merged" text)
-  const timestampMatch = bodyMd.match(/(?:merged|Merged).*?(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}|[\d\/]+\s+[\d:]+)/i)
-  const timestamp = timestampMatch ? timestampMatch[1] : null
-  
-  return { merged: hasMerged, timestamp }
-}
-
 function normalizeTicketRow(row: Partial<SupabaseTicketRow> & { id?: string }): SupabaseTicketRow {
   const legacyId = String(row.id ?? '').trim() || '0000'
   const pk = typeof row.pk === 'string' && row.pk.trim() ? row.pk.trim() : legacyId
@@ -218,34 +191,6 @@ function normalizeTicketRow(row: Partial<SupabaseTicketRow> & { id?: string }): 
     ticket_number: row.ticket_number,
     display_id: displayId,
   }
-}
-
-/** Normalize Title line in body_md to include ID prefix: "<ID> — <title>". Returns { normalized, wasNormalized }. */
-function normalizeTitleLineInBody(bodyMd: string, ticketId: string): { normalized: string; wasNormalized: boolean } {
-  if (!bodyMd || !ticketId) return { normalized: bodyMd, wasNormalized: false }
-  const idPrefix = `${ticketId} — `
-  // Match the Title line: "- **Title**: ..."
-  const titleLineRegex = /(- \*\*Title\*\*:\s*)(.+?)(?:\n|$)/
-  const match = bodyMd.match(titleLineRegex)
-  if (!match) return { normalized: bodyMd, wasNormalized: false } // No Title line found, return as-is
-  
-  const prefix = match[1] // "- **Title**: "
-  let titleValue = match[2].trim()
-  
-  // Check if already has correct ID prefix
-  if (titleValue.startsWith(idPrefix)) {
-    return { normalized: bodyMd, wasNormalized: false }
-  }
-  
-  // Remove any existing ID prefix (e.g. "0048 — " or "HAL-0048 - ")
-  titleValue = titleValue.replace(/^(?:[A-Za-z0-9]{2,10}-)?\d{4}\s*[—–-]\s*/, '')
-  
-  // Prepend the correct ID prefix
-  const normalizedTitle = `${idPrefix}${titleValue}`
-  const normalizedLine = `${prefix}${normalizedTitle}${match[0].endsWith('\n') ? '\n' : ''}`
-  const normalized = bodyMd.replace(titleLineRegex, normalizedLine)
-  
-  return { normalized, wasNormalized: true }
 }
 
 const DEFAULT_COLUMNS: Column[] = [
@@ -360,13 +305,7 @@ async function fetchWithRetry(
 }
 
 /** Auto-dismiss component for success messages (0047) */
-function AutoDismissMessage({ onDismiss, delay }: { onDismiss: () => void; delay: number }) {
-  useEffect(() => {
-    const timer = setTimeout(onDismiss, delay)
-    return () => clearTimeout(timer)
-  }, [onDismiss, delay])
-  return null
-}
+// AutoDismissMessage extracted to components/AutoDismissMessage.tsx
 
 function stableColumnId(): string {
   return typeof crypto !== 'undefined' && crypto.randomUUID
@@ -378,24 +317,10 @@ function normalizeTitle(title: string): string {
   return title.trim().toLowerCase()
 }
 
-// extractPriority moved to ./components/utils.ts
+// extractPriority extracted to components/utils.ts
 
 
-/** Get display name for agent type (0082) */
-function getAgentTypeDisplayName(agentType: string): string {
-  switch (agentType) {
-    case 'implementation':
-      return 'Implementation report'
-    case 'qa':
-      return 'QA report'
-    case 'human-in-the-loop':
-      return 'Human-in-the-Loop report'
-    case 'other':
-      return 'Other agent report'
-    default:
-      return `${agentType} report`
-  }
-}
+// getAgentTypeDisplayName extracted to components/utils.ts
 
 /** Image viewer modal for full-size image display (0158) */
 function ImageViewerModal({
@@ -918,84 +843,16 @@ function ArtifactReportViewer({
 }
 
 /** Human validation section component (0085) */
-function HumanValidationSection({
-  ticketId: _ticketId,
-  ticketPk: _ticketPk,
-  stepsToValidate,
-  notes,
-  onStepsChange,
-  onNotesChange,
-  onPass,
-  onFail,
-  isProcessing,
-}: {
-  ticketId: string
-  ticketPk: string
-  stepsToValidate: string
-  notes: string
-  onStepsChange: (value: string) => void
-  onNotesChange: (value: string) => void
-  onPass: () => void
-  onFail: () => void
-  isProcessing: boolean
-}) {
-  return (
-    <div className="human-validation-section">
-      <h3 className="human-validation-title">Human validation</h3>
-      <div className="human-validation-fields">
-        <label className="human-validation-field">
-          <span className="human-validation-label">Steps to validate</span>
-          <textarea
-            className="human-validation-textarea"
-            value={stepsToValidate}
-            onChange={(e) => onStepsChange(e.target.value)}
-            placeholder="Enter validation steps (one per line or freeform text)"
-            rows={4}
-            disabled={isProcessing}
-          />
-        </label>
-        <label className="human-validation-field">
-          <span className="human-validation-label">Notes</span>
-          <textarea
-            className="human-validation-textarea"
-            value={notes}
-            onChange={(e) => onNotesChange(e.target.value)}
-            placeholder="Enter any notes or feedback"
-            rows={4}
-            disabled={isProcessing}
-          />
-        </label>
-      </div>
-      <div className="human-validation-actions">
-        <button
-          type="button"
-          className="human-validation-button human-validation-button-pass"
-          onClick={onPass}
-          disabled={isProcessing}
-        >
-          Pass
-        </button>
-        <button
-          type="button"
-          className="human-validation-button human-validation-button-fail"
-          onClick={onFail}
-          disabled={isProcessing}
-        >
-          Fail
-        </button>
-      </div>
-    </div>
-  )
-}
+// HumanValidationSection extracted to components/HumanValidationSection.tsx
 
-// Components extracted to ./components/ directory:
-// - ProcessReviewSection -> ./components/ProcessReviewSection.tsx
-// - ArtifactsSection -> ./components/ArtifactsSection.tsx  
-// - AttachmentsSection -> ./components/AttachmentsSection.tsx
-// - QAInfoSection -> ./components/QAInfoSection.tsx
-// - TicketDetailModal -> ./components/TicketDetailModal.tsx
+// ProcessReviewSection extracted to components/ProcessReviewSection.tsx
 
-/** Ticket detail modal (0033): title, metadata, markdown body, close/escape/backdrop, scroll lock, focus trap - REMOVED: now in ./components/TicketDetailModal.tsx */
+// ArtifactsSection extracted to components/ArtifactsSection.tsx
+
+// AttachmentsSection extracted to components/AttachmentsSection.tsx
+
+// QAInfoSection extracted to components/QAInfoSection.tsx
+// TicketDetailModal extracted to components/TicketDetailModal.tsx
 
 function SortableCard({
   card,
@@ -1129,7 +986,7 @@ function SortableColumn({
     } else if (col.id === 'col-todo') {
       return { label: 'Implement top ticket', chatTarget: 'implementation-agent' as const, message: `Implement ticket ${ticketRef}.` }
     } else if (col.id === 'col-qa') {
-      return { label: 'QA All Tickets', chatTarget: 'qa-agent' as const, message: `QA ticket ${ticketRef}.` }
+      return { label: 'QA top ticket', chatTarget: 'qa-agent' as const, message: `QA ticket ${ticketRef}.` }
     } else if (col.id === 'col-process-review') {
       return { label: 'Review top ticket', isProcessReview: true as const }
     }
@@ -1172,50 +1029,7 @@ function SortableColumn({
       return
     }
 
-    // Library mode: QA All Tickets - process sequentially
-    if (col.id === 'col-qa' && buttonConfig.chatTarget === 'qa-agent' && halCtx?.onOpenChatAndSend) {
-      const onOpenChatAndSend = halCtx.onOpenChatAndSend
-      // Launch QA for tickets sequentially (one at a time, wait for each to move)
-      const processNextTicket = () => {
-        // Get fresh tickets from halCtx (library mode - HAL owns the data)
-        // Access halCtx.tickets directly each time to get latest data from React context
-        if (!halCtx?.tickets) {
-          return // No tickets available
-        }
-        
-        const currentQaTickets = halCtx.tickets
-          .filter((t) => t.kanban_column_id === 'col-qa')
-          .map((t) => t.pk)
-        
-        if (currentQaTickets.length === 0) {
-          return // No more tickets to process
-        }
-        
-        // Process the top ticket (first one)
-        const topTicketPk = currentQaTickets[0]
-        const topTicket = halCtx.tickets.find((t) => t.pk === topTicketPk)
-        const ticketRef = topTicket?.display_id ?? topTicket?.id ?? topTicketPk
-        
-        // Launch QA for this ticket
-        onOpenChatAndSend({
-          chatTarget: 'qa-agent',
-          message: `QA ticket ${ticketRef}.`,
-          ticketPk: topTicketPk,
-        })
-        
-        // Wait a bit for HAL to process and update tickets, then process next ticket
-        // HAL will update halCtx.tickets when the ticket moves, so next iteration will see updated data
-        setTimeout(() => {
-          processNextTicket()
-        }, 2000) // Wait 2 seconds before processing next ticket
-      }
-      
-      // Start processing
-      processNextTicket()
-      return
-    }
-
-    // Library mode: For other columns (not QA All Tickets), use single ticket behavior
+    // Library mode: HAL owns data; tell HAL to open chat (HAL will move ticket to Doing for Implement if needed)
     if (halCtx?.onOpenChatAndSend && buttonConfig.chatTarget) {
       halCtx.onOpenChatAndSend({
         chatTarget: buttonConfig.chatTarget as import('./HalKanbanContext').HalChatTarget,
@@ -1271,86 +1085,54 @@ function SortableColumn({
         }
       }
     }
-    // Iframe/standalone: For QA agent, move tickets from QA to Active Work (col-doing) sequentially when QA All Tickets clicked (0616)
-    if (buttonConfig.chatTarget === 'qa-agent' && supabaseBoardActive && updateSupabaseTicketKanban && refetchSupabaseTickets && supabaseTickets) {
-      const processNextTicket = async () => {
-        // Refetch to get latest tickets state
-        const refetchResult = await refetchSupabaseTickets(false)
-        const currentTickets = refetchResult.freshTickets ?? supabaseTickets
-        
-        // Get current tickets in col-qa column
-        const qaTickets = currentTickets.filter((t) => t.kanban_column_id === 'col-qa')
-        
-        if (qaTickets.length === 0) {
-          // No more tickets to process
-          if (fetchActiveAgentRuns && refetchResult.freshTickets) {
-            fetchActiveAgentRuns(refetchResult.freshTickets)
-          } else if (fetchActiveAgentRuns) {
-            fetchActiveAgentRuns()
-          }
-          return
-        }
-        
-        // Process the top ticket (first one)
-        const topTicket = qaTickets[0]
+    // Iframe/standalone: For QA agent, move ticket from QA to Active Work (col-doing) when QA Top Ticket clicked (0159)
+    if (buttonConfig.chatTarget === 'qa-agent' && supabaseBoardActive && updateSupabaseTicketKanban && refetchSupabaseTickets && firstCardId) {
+      const ticket = supabaseTickets.find((t) => t.pk === firstCardId)
+      if (ticket && ticket.kanban_column_id === 'col-qa') {
         const targetColumn = supabaseColumns.find((c) => c.id === 'col-doing')
-        
         if (targetColumn) {
           const targetPosition = targetColumn.cardIds.length
           const movedAt = new Date().toISOString()
-          const ticketPk = topTicket.pk
-          const ticketRef = topTicket.display_id ?? topTicket.id
-          
           // Set agent type label immediately when button is clicked (0135)
           if (setActiveWorkAgentTypes) {
-            setActiveWorkAgentTypes((prev) => ({ ...prev, [ticketPk]: 'QA' }))
+            setActiveWorkAgentTypes((prev) => ({ ...prev, [firstCardId]: 'QA' }))
           }
-          
-          const result = await updateSupabaseTicketKanban(ticketPk, {
+          const result = await updateSupabaseTicketKanban(firstCardId, {
             kanban_column_id: 'col-doing',
             kanban_position: targetPosition,
             kanban_moved_at: movedAt,
           })
-          
           if (result.ok) {
-            // Launch QA for this ticket via postMessage
-            if (typeof window !== 'undefined' && window.parent !== window) {
-              window.parent.postMessage(
-                { type: 'HAL_OPEN_CHAT_AND_SEND', chatTarget: 'qa-agent', message: `QA ticket ${ticketRef}.` },
-                '*'
-              )
-            }
-            
-            // Wait a bit for the ticket to move, then process next ticket
             setTimeout(() => {
-              processNextTicket()
-            }, 2000) // Wait 2 seconds before processing next ticket
+              refetchSupabaseTickets(false).then((result) => {
+                // Refetch agent runs since ticket moved to Doing (0135)
+                // Pass fresh tickets directly from refetch result to avoid stale state reads
+                if (fetchActiveAgentRuns && result.freshTickets) {
+                  fetchActiveAgentRuns(result.freshTickets)
+                } else if (fetchActiveAgentRuns) {
+                  // Fallback: ref should be updated by now, but use it as backup
+                  fetchActiveAgentRuns()
+                }
+              })
+            }, 500)
           } else if (result.error) {
-            // Show explicit error message (0159, 0616)
-            console.error(`[QA All Tickets] Failed to move ticket ${ticketRef}:`, result.error)
+            // Show explicit error message (0159)
+            console.error('[QA Top Ticket] Failed to move ticket:', result.error)
+            // Error will be visible via updateSupabaseTicketKanban error handling
             // Clear agent type on failure
             if (setActiveWorkAgentTypes) {
               setActiveWorkAgentTypes((prev) => {
                 const next = { ...prev }
-                delete next[ticketPk]
+                delete next[firstCardId]
                 return next
               })
             }
-            // Continue with next ticket even on error
-            setTimeout(() => {
-              processNextTicket()
-            }, 1000)
           }
         }
       }
-      
-      // Start processing
-      processNextTicket()
     }
 
-    // PostMessage fallback for iframe/standalone mode (only if not already handled above)
-    // For QA All Tickets, postMessage is handled in the QA agent section above
-    if (typeof window !== 'undefined' && window.parent !== window && buttonConfig.chatTarget && !(col.id === 'col-qa' && buttonConfig.chatTarget === 'qa-agent' && supabaseBoardActive)) {
+    if (typeof window !== 'undefined' && window.parent !== window && buttonConfig.chatTarget) {
       window.parent.postMessage(
         { type: 'HAL_OPEN_CHAT_AND_SEND', chatTarget: buttonConfig.chatTarget, message: buttonConfig.message },
         '*'
@@ -4206,8 +3988,6 @@ function App() {
           attachments={detailModalAttachments}
           attachmentsLoading={detailModalAttachmentsLoading}
           failureCounts={detailModalFailureCounts}
-          HumanValidationSection={HumanValidationSection}
-          AutoDismissMessage={AutoDismissMessage}
           onValidationPass={async (ticketPk: string) => {
             // Always use HAL's callbacks - HAL handles all database operations
             if (!halCtx) {

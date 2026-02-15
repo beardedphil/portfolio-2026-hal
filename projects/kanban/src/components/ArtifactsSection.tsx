@@ -1,15 +1,6 @@
+import React from 'react'
 import type { SupabaseAgentArtifactRow } from './types'
 import { getAgentTypeDisplayName } from './utils'
-
-export interface ArtifactsSectionProps {
-  artifacts: SupabaseAgentArtifactRow[]
-  loading: boolean
-  onOpenArtifact: (artifact: SupabaseAgentArtifactRow) => void
-  statusMessage?: string | null
-  onRefresh?: () => void
-  refreshing?: boolean
-  columnId?: string | null
-}
 
 /** Artifacts section component (0082) with error state detection (0137) */
 export function ArtifactsSection({
@@ -20,7 +11,15 @@ export function ArtifactsSection({
   onRefresh: _onRefresh = undefined,
   refreshing = false,
   columnId = null,
-}: ArtifactsSectionProps) {
+}: {
+  artifacts: SupabaseAgentArtifactRow[]
+  loading: boolean
+  onOpenArtifact: (artifact: SupabaseAgentArtifactRow) => void
+  statusMessage?: string | null
+  onRefresh?: () => void
+  refreshing?: boolean
+  columnId?: string | null
+}) {
   const isLoading = loading || refreshing
 
   // Detect missing expected artifacts for implementation tickets in QA or later columns (0196)
