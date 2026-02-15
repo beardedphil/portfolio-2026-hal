@@ -206,7 +206,7 @@ body {
   display: flex;
   flex-direction: column;
   min-width: 280px;
-  min-height: 400px;
+  min-height: 0; /* Allow flex shrinking - required for nested scrolling to work */
   background: var(--hal-surface);
   overflow: visible;
   overflow-x: hidden;
@@ -361,7 +361,7 @@ body {
   min-height: 0;
   min-width: 0;
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: auto; /* This is the scroll container - all nested elements should not scroll */
   display: flex;
   flex-direction: column;
 }
@@ -384,10 +384,11 @@ body {
 }
 
 /* Override Kanban root styles when embedded in HAL - remove height constraint and scrolling */
+/* Active Work and Kanban board scroll together in the outer container */
 .kanban-frame-container #root {
   min-height: 0 !important;
   height: auto !important;
-  padding: 0 !important;
+  padding: 1rem !important; /* Restore padding for spacing */
   overflow: visible !important;
   overflow-y: visible !important; /* Explicitly override overflow-y: auto from Kanban CSS */
   overflow-x: hidden !important;
@@ -401,15 +402,26 @@ body {
   overflow: visible !important;
   overflow-y: visible !important;
   overflow-x: hidden !important;
-  display: flex;
+  display: contents; /* Match the component's display: contents */
   flex-direction: column;
 }
 
-/* Ensure columns section doesn't constrain height */
+/* Ensure Active Work and columns section don't constrain height or create scroll context */
+/* They should both be children of the scrollable container and move together */
+.kanban-frame-container .active-work-row {
+  flex: 0 0 auto !important; /* Don't grow or shrink, use natural height */
+  overflow: visible !important;
+  overflow-y: visible !important;
+  overflow-x: visible !important;
+}
+
 .kanban-frame-container .columns-section {
   flex: 0 1 auto !important; /* Don't grow to fill space, allow natural height */
   min-height: 0;
   margin-bottom: 1.5rem;
+  overflow: visible !important;
+  overflow-y: visible !important;
+  overflow-x: visible !important;
 }
 
 /* Ensure Kanban columns container can scroll horizontally (preserved) */
@@ -435,8 +447,9 @@ body {
 .kanban-frame-container .column-content {
   flex: 1;
   min-height: 0;
-  overflow-y: visible;
-  overflow-x: hidden;
+  overflow-y: visible !important;
+  overflow-x: hidden !important;
+  overflow: visible !important;
 }
 
 /* Kanban column cards container - no individual scrolling (0165: unified scroll) */
