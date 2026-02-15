@@ -5332,10 +5332,7 @@ function App() {
                                 <div style={{ marginTop: '4px', whiteSpace: 'pre-wrap' }}>{workingMemory.assumptions}</div>
                               </div>
                             )}
-                            {workingMemory && workingMemory.openQuestions && (() => {
-                              const wm = workingMemory!
-                              return wm.openQuestions.length > 0
-                            })() && (() => {
+                            {workingMemory && workingMemory.openQuestions && workingMemory!.openQuestions.length > 0 && (() => {
                               const wm = workingMemory!
                               return (
                                 <div style={{ marginBottom: '12px' }}>
@@ -5351,7 +5348,7 @@ function App() {
                             {workingMemory && workingMemory.glossary && (() => {
                               const wm = workingMemory!
                               return Object.keys(wm.glossary || {}).length > 0
-                            })() && (() => {
+                            })() && workingMemory && (() => {
                               const wm = workingMemory!
                               return (
                                 <div style={{ marginBottom: '12px' }}>
@@ -5370,7 +5367,7 @@ function App() {
                             {workingMemory && workingMemory.stakeholders && (() => {
                               const wm = workingMemory!
                               return wm.stakeholders.length > 0
-                            })() && (() => {
+                            })() && workingMemory && (() => {
                               const wm = workingMemory!
                               return (
                                 <div style={{ marginBottom: '12px' }}>
