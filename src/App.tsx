@@ -353,6 +353,25 @@ function App() {
   } | null>(null)
   const [pmWorkingMemoryOpen, setPmWorkingMemoryOpen] = useState(false)
   const [pmWorkingMemoryLoading, setPmWorkingMemoryLoading] = useState(false)
+  
+  // Alias workingMemory to pmWorkingMemory for UI compatibility (declared early so it can be used in useEffects)
+  const workingMemory = pmWorkingMemory ? {
+    summary: pmWorkingMemory.summary,
+    goals: pmWorkingMemory.goals,
+    requirements: pmWorkingMemory.requirements,
+    constraints: pmWorkingMemory.constraints,
+    decisions: pmWorkingMemory.decisions,
+    assumptions: pmWorkingMemory.assumptions,
+    openQuestions: pmWorkingMemory.open_questions,
+    glossary: pmWorkingMemory.glossary,
+    stakeholders: pmWorkingMemory.stakeholders,
+    lastUpdatedAt: pmWorkingMemory.updated_at,
+  } : null
+  const workingMemoryOpen = pmWorkingMemoryOpen
+  const workingMemoryLoading = pmWorkingMemoryLoading
+  const workingMemoryError = null
+  const setWorkingMemoryOpen = setPmWorkingMemoryOpen
+  
   const disconnectConfirmButtonRef = useRef<HTMLButtonElement>(null)
   const disconnectButtonRef = useRef<HTMLButtonElement>(null)
   /** Kanban data (HAL owns DB; fetches and passes to KanbanBoard). */
@@ -378,29 +397,7 @@ function App() {
   const MESSAGES_PER_PAGE = 50 // Number of messages to load per page
   const selectedChatTargetRef = useRef<ChatTarget>(selectedChatTarget)
   
-  // Load working memory when PM chat is selected and project is connected (0173)
-  useEffect(() => {
-    if (selectedChatTarget === 'project-manager' && connectedProject && supabaseUrl && supabaseAnonKey) {
-      const loadWorkingMemory = async () => {
-        try {
-          const baseUrl = (await fetch('/.hal/api-base-url').then(r => r.text())).trim() || window.location.origin
-          const res = await fetch(`${baseUrl}/api/pm/working-memory?projectId=${encodeURIComponent(connectedProject)}&agent=project-manager`)
-          const data = await res.json()
-          if (data.success && data.workingMemory) {
-            setWorkingMemory(data.workingMemory)
-            setWorkingMemoryError(null)
-          } else if (data.error && data.error !== 'PGRST116') {
-            // PGRST116 is "not found" which is OK (no working memory yet)
-            setWorkingMemoryError(data.error)
-          }
-        } catch (err) {
-          // Silently fail - working memory is optional
-          console.warn('[PM] Failed to load working memory:', err)
-        }
-      }
-      loadWorkingMemory()
-    }
-  }, [selectedChatTarget, connectedProject, supabaseUrl, supabaseAnonKey])
+  // Load working memory when PM chat is selected and project is connected (0173) - moved after fetchPmWorkingMemory definition
   
   const [unreadByTarget, setUnreadByTarget] = useState<Record<ChatTarget, number>>(() => ({
     'project-manager': 0,
@@ -1279,11 +1276,11 @@ function App() {
   // Fetch working memory when PM conversation changes (0173)
   useEffect(() => {
     if (selectedChatTarget === 'project-manager' && connectedProject && supabaseUrl && supabaseAnonKey) {
-      fetchWorkingMemory()
+      fetchPmWorkingMemory()
     } else {
-      setWorkingMemory(null)
+      setPmWorkingMemory(null)
     }
-  }, [selectedChatTarget, selectedConversationId, connectedProject, supabaseUrl, supabaseAnonKey, fetchWorkingMemory])
+  }, [selectedChatTarget, selectedConversationId, connectedProject, supabaseUrl, supabaseAnonKey, fetchPmWorkingMemory])
 
   // Get active messages from selected conversation (0070)
   // For PM, always use default conversation; for Implementation/QA, use selected conversation if modal is open
@@ -1330,71 +1327,17 @@ function App() {
     return firstLine.length > 100 ? firstLine.substring(0, 100) + '...' : firstLine
   }, [])
 
-  // Fetch working memory (0173: PM working memory)
+  // Legacy fetchWorkingMemory - redirects to fetchPmWorkingMemory
   const fetchWorkingMemory = useCallback(async () => {
-    if (!connectedProject || !supabaseUrl || !supabaseAnonKey || selectedChatTarget !== 'project-manager') {
-      return
-    }
-    setWorkingMemoryLoading(true)
-    setWorkingMemoryError(null)
-    try {
-      const res = await fetch('/api/pm/working-memory/get', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectId: connectedProject,
-          supabaseUrl,
-          supabaseAnonKey,
-          agent: 'project-manager',
-        }),
-      })
-      const data = await res.json()
-      if (data.success && data.workingMemory) {
-        setWorkingMemory(data.workingMemory)
-      } else {
-        setWorkingMemory(null)
-        if (data.error && !data.error.includes('not found')) {
-          setWorkingMemoryError(data.error)
-        }
-      }
-    } catch (err) {
-      setWorkingMemoryError(err instanceof Error ? err.message : String(err))
-      setWorkingMemory(null)
-    } finally {
-      setWorkingMemoryLoading(false)
-    }
-  }, [connectedProject, supabaseUrl, supabaseAnonKey, selectedChatTarget])
+    await fetchPmWorkingMemory()
+  }, [fetchPmWorkingMemory])
 
-  // Refresh working memory (0173: PM working memory)
-  const refreshWorkingMemory = useCallback(async () => {
-    if (!connectedProject || !supabaseUrl || !supabaseAnonKey || selectedChatTarget !== 'project-manager') {
-      return
+  // Load working memory when PM chat is selected and project is connected (0173)
+  useEffect(() => {
+    if (selectedChatTarget === 'project-manager' && connectedProject && supabaseUrl && supabaseAnonKey) {
+      fetchPmWorkingMemory()
     }
-    setWorkingMemoryLoading(true)
-    setWorkingMemoryError(null)
-    try {
-      const res = await fetch('/api/pm/working-memory/refresh', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectId: connectedProject,
-          supabaseUrl,
-          supabaseAnonKey,
-          agent: 'project-manager',
-        }),
-      })
-      const data = await res.json()
-      if (data.success && data.workingMemory) {
-        setWorkingMemory(data.workingMemory)
-      } else {
-        setWorkingMemoryError(data.error || 'Failed to refresh working memory')
-      }
-    } catch (err) {
-      setWorkingMemoryError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setWorkingMemoryLoading(false)
-    }
-  }, [connectedProject, supabaseUrl, supabaseAnonKey, selectedChatTarget])
+  }, [selectedChatTarget, connectedProject, supabaseUrl, supabaseAnonKey, fetchPmWorkingMemory])
 
   // Auto-fetch working memory when PM chat is opened and project is connected
   useEffect(() => {
@@ -1422,60 +1365,6 @@ function App() {
     const padded = ticketId.padStart(4, '0')
     return `HAL-${padded}`
   }, [])
-
-  // Fetch working memory for current PM conversation (0173)
-  const fetchWorkingMemory = useCallback(async () => {
-    if (!connectedProject || !supabaseUrl || !supabaseAnonKey) {
-      setWorkingMemory(null)
-      return
-    }
-    
-    if (selectedChatTarget !== 'project-manager') {
-      setWorkingMemory(null)
-      return
-    }
-    
-    const convId = selectedConversationId || getConversationId('project-manager', 1)
-    
-    setPmWorkingMemoryLoading(true)
-    
-    try {
-      const supabase = getSupabaseClient(supabaseUrl, supabaseAnonKey)
-      const { data, error } = await supabase
-        .from('hal_conversation_working_memory')
-        .select('*')
-        .eq('project_id', connectedProject)
-        .eq('agent', convId)
-        .single()
-      
-      if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
-        throw error
-      }
-      
-      if (data) {
-        setPmWorkingMemory({
-          summary: data.summary || '',
-          goals: Array.isArray(data.goals) ? data.goals : [],
-          requirements: Array.isArray(data.requirements) ? data.requirements : [],
-          constraints: Array.isArray(data.constraints) ? data.constraints : [],
-          decisions: Array.isArray(data.decisions) ? data.decisions : [],
-          assumptions: Array.isArray(data.assumptions) ? data.assumptions : [],
-          open_questions: Array.isArray(data.open_questions) ? data.open_questions : [],
-          glossary: data.glossary && typeof data.glossary === 'object' ? data.glossary as Record<string, string> : {},
-          stakeholders: Array.isArray(data.stakeholders) ? data.stakeholders : [],
-          updated_at: data.updated_at || new Date().toISOString(),
-          through_sequence: data.through_sequence || 0,
-        })
-      } else {
-        setPmWorkingMemory(null)
-      }
-    } catch (err) {
-      console.error('[PM] Failed to fetch working memory:', err)
-      setPmWorkingMemory(null)
-    } finally {
-      setPmWorkingMemoryLoading(false)
-    }
-  }, [connectedProject, supabaseUrl, supabaseAnonKey, selectedConversationId])
 
   // Fetch PM working memory (0173) - simplified version that uses current conversation
   const fetchPmWorkingMemory = useCallback(async () => {
@@ -1536,23 +1425,6 @@ function App() {
     await refreshPmWorkingMemory(convId)
   }, [selectedConversationId, refreshPmWorkingMemory])
 
-  // Alias workingMemory to pmWorkingMemory for UI compatibility
-  const workingMemory = pmWorkingMemory ? {
-    summary: pmWorkingMemory.summary,
-    goals: pmWorkingMemory.goals,
-    requirements: pmWorkingMemory.requirements,
-    constraints: pmWorkingMemory.constraints,
-    decisions: pmWorkingMemory.decisions,
-    assumptions: pmWorkingMemory.assumptions,
-    openQuestions: pmWorkingMemory.open_questions,
-    glossary: pmWorkingMemory.glossary,
-    stakeholders: pmWorkingMemory.stakeholders,
-    lastUpdatedAt: pmWorkingMemory.updated_at,
-  } : null
-  const workingMemoryOpen = pmWorkingMemoryOpen
-  const workingMemoryLoading = pmWorkingMemoryLoading
-  const workingMemoryError = null
-  const setWorkingMemoryOpen = setPmWorkingMemoryOpen
 
 
   // Load older messages for a conversation (pagination)
@@ -3499,90 +3371,6 @@ function App() {
     setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))
   }, [])
 
-  // Load working memory (0173)
-  const loadWorkingMemory = useCallback(async () => {
-    if (!connectedProject || !supabaseUrl || !supabaseAnonKey) return
-    
-    setWorkingMemoryLoading(true)
-    setWorkingMemoryError(null)
-    
-    try {
-      const res = await fetch('/api/conversations/working-memory/get', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectId: connectedProject,
-          agent: 'project-manager',
-          supabaseUrl,
-          supabaseAnonKey,
-        }),
-      })
-      
-      const data = await res.json()
-      
-      if (!res.ok || !data.success) {
-        setWorkingMemoryError(data.error || 'Failed to load working memory')
-        setWorkingMemory(null)
-        return
-      }
-      
-      setWorkingMemory(data.workingMemory)
-    } catch (err) {
-      setWorkingMemoryError(err instanceof Error ? err.message : String(err))
-      setWorkingMemory(null)
-    } finally {
-      setWorkingMemoryLoading(false)
-    }
-  }, [connectedProject, supabaseUrl, supabaseAnonKey])
-  
-  // Refresh working memory (0173)
-  const refreshWorkingMemory = useCallback(async () => {
-    if (!connectedProject || !supabaseUrl || !supabaseAnonKey) return
-    
-    const openaiApiKey = import.meta.env.VITE_OPENAI_API_KEY as string | undefined
-    const openaiModel = import.meta.env.VITE_OPENAI_MODEL as string | undefined
-    
-    if (!openaiApiKey || !openaiModel) {
-      setWorkingMemoryError('OpenAI API key and model are required to refresh working memory')
-      return
-    }
-    
-    setWorkingMemoryLoading(true)
-    setWorkingMemoryError(null)
-    
-    try {
-      const res = await fetch('/api/conversations/working-memory/update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectId: connectedProject,
-          agent: 'project-manager',
-          supabaseUrl,
-          supabaseAnonKey,
-          openaiApiKey,
-          openaiModel,
-          forceRefresh: true,
-        }),
-      })
-      
-      const data = await res.json()
-      
-      if (!res.ok || !data.success) {
-        setWorkingMemoryError(data.error || 'Failed to refresh working memory')
-        // Still try to load existing memory if refresh fails
-        await loadWorkingMemory()
-        return
-      }
-      
-      setWorkingMemory(data.workingMemory)
-    } catch (err) {
-      setWorkingMemoryError(err instanceof Error ? err.message : String(err))
-      // Still try to load existing memory if refresh fails
-      await loadWorkingMemory()
-    } finally {
-      setWorkingMemoryLoading(false)
-    }
-  }, [connectedProject, supabaseUrl, supabaseAnonKey, loadWorkingMemory])
 
   const handleDisconnect = useCallback(() => {
     setKanbanTickets([])
@@ -3610,9 +3398,8 @@ function App() {
     setCursorRunAgentType(null)
     setOrphanedCompletionSummary(null)
     // Clear working memory on disconnect (0173)
-    setWorkingMemory(null)
-    setWorkingMemoryOpen(false)
-    setWorkingMemoryError(null)
+    setPmWorkingMemory(null)
+    setPmWorkingMemoryOpen(false)
     // Do NOT remove localStorage items on disconnect (0097: preserve chats and agent status across disconnect/reconnect)
     // They will be restored when reconnecting to the same repo
   }, [])
@@ -5403,11 +5190,10 @@ function App() {
                         type="button"
                         onClick={async () => {
                           if (!connectedProject || !supabaseUrl || !supabaseAnonKey) {
-                            setWorkingMemoryError('Project not connected')
+                            // Project not connected - working memory unavailable
                             return
                           }
-                          setWorkingMemoryLoading(true)
-                          setWorkingMemoryError(null)
+                          setPmWorkingMemoryLoading(true)
                           try {
                             const baseUrl = (await fetch('/.hal/api-base-url').then(r => r.text())).trim() || window.location.origin
                             // Trigger refresh (this will cause the PM agent to update working memory on next message)
@@ -5425,12 +5211,12 @@ function App() {
                                 alert('Working memory will be refreshed automatically on the next PM agent response.')
                               }
                             } else {
-                              setWorkingMemoryError(data.error || 'Failed to load working memory')
+                              console.error('[PM] Failed to load working memory:', data.error)
                             }
                           } catch (err) {
-                            setWorkingMemoryError(err instanceof Error ? err.message : String(err))
+                            console.error('[PM] Failed to load working memory:', err)
                           } finally {
-                            setWorkingMemoryLoading(false)
+                            setPmWorkingMemoryLoading(false)
                           }
                         }}
                         disabled={workingMemoryLoading}
