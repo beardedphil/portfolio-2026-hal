@@ -412,6 +412,8 @@ export interface PmAgentResult {
   errorPhase?: 'context-pack' | 'openai' | 'tool'
   /** Debug: which repo was used for each tool call (0119) */
   _repoUsage?: Array<{ tool: string; usedGitHub: boolean; path?: string }>
+  /** Full prompt text sent to the LLM (system instructions + context pack + user message) */
+  promptText?: string
 }
 
 const PM_SYSTEM_INSTRUCTIONS = `You are the Project Manager agent for HAL. Your job is to help users understand the codebase, review tickets, and provide project guidance.
@@ -3106,6 +3108,9 @@ export async function runPmAgent(
 
   const promptBase = `${contextPack}\n\n---\n\nRespond to the user message above using the tools as needed.`
 
+  // Build full prompt text for display (system instructions + context pack + user message)
+  const fullPromptText = `## System Instructions\n\n${PM_SYSTEM_INSTRUCTIONS}\n\n---\n\n## User Prompt\n\n${promptBase}`
+
   // Build prompt with images if present
   // For vision models, prompt must be an array of content parts
   // For non-vision models, prompt is a string (images are ignored)
@@ -3119,6 +3124,8 @@ export async function runPmAgent(
       { type: 'text' as const, text: promptBase },
       ...config.images!.map((img) => ({ type: 'image' as const, image: img.dataUrl })),
     ]
+    // For vision models, note that images are included but not shown in text representation
+    // The fullPromptText will show the text portion
   } else {
     // Non-vision model or no images: use string format
     prompt = promptBase
@@ -3329,6 +3336,8 @@ export async function runPmAgent(
       ...(responseId != null && { responseId }),
       // Include repo usage for debugging (0119)
       _repoUsage: repoUsage.length > 0 ? repoUsage : undefined,
+      // Include full prompt text for display (0202)
+      promptText: fullPromptText,
     }
   } catch (err) {
     return {
@@ -3339,6 +3348,8 @@ export async function runPmAgent(
       errorPhase: 'openai',
       // Include repo usage even on error (0119)
       _repoUsage: repoUsage.length > 0 ? repoUsage : undefined,
+      // Include full prompt text even on error (0202)
+      promptText: fullPromptText,
     }
   }
 }

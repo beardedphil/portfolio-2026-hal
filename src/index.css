@@ -1020,6 +1020,26 @@ body {
   color: var(--hal-primary);
 }
 
+/* Clickable message indicator (0202) */
+.message-clickable {
+  transition: background-color 0.2s, border-color 0.2s;
+}
+
+.message-clickable:hover {
+  background: var(--hal-surface-alt);
+  border-color: var(--hal-primary);
+}
+
+.message-prompt-indicator {
+  margin-left: 0.5rem;
+  font-size: 0.875rem;
+  opacity: 0.7;
+}
+
+.message-clickable:hover .message-prompt-indicator {
+  opacity: 1;
+}
+
 /* System: centered, muted */
 .message-system {
   background: var(--hal-surface-alt);
