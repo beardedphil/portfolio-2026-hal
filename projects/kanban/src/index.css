@@ -1074,64 +1074,6 @@ h1 {
   font-weight: 600;
 }
 
-/* Artifact Diagnostics section (0175) */
-.artifact-diagnostics-section {
-  margin-top: 1.5rem;
-  padding-top: 1.5rem;
-  border-top: 1px solid var(--kanban-border);
-}
-.artifact-diagnostics-title {
-  font-size: 1rem;
-  font-weight: 600;
-  margin: 0 0 0.75rem 0;
-  color: var(--kanban-text);
-}
-.artifact-diagnostics-loading {
-  margin: 0.5rem 0;
-  color: var(--kanban-text-muted);
-  font-style: italic;
-  font-size: 0.9rem;
-}
-.artifact-diagnostics-error {
-  margin: 0.75rem 0;
-  padding: 0.75rem;
-  background: #fee;
-  border: 1px solid #fcc;
-  border-radius: 4px;
-  color: #c33;
-  font-size: 0.9rem;
-  line-height: 1.4;
-}
-.artifact-diagnostics-error strong {
-  display: block;
-  margin-bottom: 0.25rem;
-  font-weight: 600;
-}
-.artifact-diagnostics-checklist {
-  margin-top: 0.5rem;
-}
-.artifact-diagnostics-checklist ul {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-.artifact-diagnostics-checklist li {
-  margin-bottom: 1em;
-  padding: 0.75em;
-  border: 1px solid var(--kanban-border);
-  border-radius: 4px;
-  background: var(--kanban-bg-elevated);
-}
-[data-theme="dark"] .artifact-diagnostics-error {
-  background: #300;
-  border-color: #600;
-  color: #faa;
-}
-[data-theme="dark"] .artifact-diagnostics-checklist li {
-  background: var(--kanban-bg-elevated);
-  border-color: var(--kanban-border);
-}
-
 /* Artifacts section (0082) */
 .artifacts-section {
   margin-top: 1.5rem;
