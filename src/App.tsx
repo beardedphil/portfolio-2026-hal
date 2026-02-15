@@ -1269,6 +1269,7 @@ function App() {
   }, [qaAgentError])
 
   // Fetch working memory when PM conversation changes (0173) - moved after fetchPmWorkingMemory definition
+  // (This useEffect is defined later after fetchPmWorkingMemory is declared)
 
   // Get active messages from selected conversation (0070)
   // For PM, always use default conversation; for Implementation/QA, use selected conversation if modal is open
@@ -1314,6 +1315,54 @@ function App() {
     const firstLine = lastMsg.content.split('\n')[0]
     return firstLine.length > 100 ? firstLine.substring(0, 100) + '...' : firstLine
   }, [])
+
+  // Fetch PM working memory (0173) - defined early so it can be used in other functions
+  const fetchPmWorkingMemory = useCallback(async () => {
+    if (!connectedProject || !supabaseUrl || !supabaseAnonKey) {
+      setPmWorkingMemory(null)
+      return
+    }
+
+    try {
+      setPmWorkingMemoryLoading(true)
+      const supabase = getSupabaseClient(supabaseUrl, supabaseAnonKey)
+      const convId = selectedConversationId || getConversationId('project-manager', 1)
+      const agentFilter = convId
+      const { data, error } = await supabase
+        .from('hal_conversation_working_memory')
+        .select('*')
+        .eq('project_id', connectedProject)
+        .eq('agent', agentFilter)
+        .single()
+
+      if (error && error.code !== 'PGRST116') {
+        throw error
+      }
+
+      if (data) {
+        setPmWorkingMemory({
+          summary: data.summary || '',
+          goals: Array.isArray(data.goals) ? data.goals : [],
+          requirements: Array.isArray(data.requirements) ? data.requirements : [],
+          constraints: Array.isArray(data.constraints) ? data.constraints : [],
+          decisions: Array.isArray(data.decisions) ? data.decisions : [],
+          assumptions: Array.isArray(data.assumptions) ? data.assumptions : [],
+          open_questions: Array.isArray(data.open_questions) ? data.open_questions : [],
+          glossary: data.glossary && typeof data.glossary === 'object' ? data.glossary as Record<string, string> : {},
+          stakeholders: Array.isArray(data.stakeholders) ? data.stakeholders : [],
+          updated_at: data.updated_at || new Date().toISOString(),
+          through_sequence: data.through_sequence || 0,
+        })
+      } else {
+        setPmWorkingMemory(null)
+      }
+    } catch (err) {
+      console.error('[PM] Failed to fetch working memory:', err)
+      setPmWorkingMemory(null)
+    } finally {
+      setPmWorkingMemoryLoading(false)
+    }
+  }, [connectedProject, supabaseUrl, supabaseAnonKey, selectedConversationId])
 
   // Legacy fetchWorkingMemory - redirects to fetchPmWorkingMemory
   const fetchWorkingMemory = useCallback(async () => {
