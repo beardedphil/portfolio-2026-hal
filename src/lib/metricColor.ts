@@ -1,4 +1,16 @@
-/** Calculate color gradient from red (0%) to green (100%) for QA metrics (0667) */
+/**
+ * Helper module for calculating QA metric colors and theme initialization.
+ */
+
+import type { Theme } from '../types/hal'
+
+/**
+ * Calculate color gradient from red (0%) to green (100%) for QA metrics.
+ * Returns gray for null values.
+ * 
+ * @param percentage - The metric percentage (0-100) or null for N/A
+ * @returns RGB color string (e.g., "rgb(220, 53, 69)")
+ */
 export function getMetricColor(percentage: number | null): string {
   if (percentage === null) {
     return '#888888' // Gray for N/A
@@ -16,4 +28,20 @@ export function getMetricColor(percentage: number | null): string {
   const g = Math.round(blueRed + (blueGreen - blueRed) * (percentage / 100))
   const b = Math.round(greenRed + (greenGreen - greenRed) * (percentage / 100))
   return `rgb(${r}, ${g}, ${b})`
+}
+
+export const THEME_STORAGE_KEY = 'hal-theme'
+
+/**
+ * Reads the initial theme from localStorage.
+ * Returns 'light' as default if the value is missing or invalid.
+ * 
+ * @returns The theme ('light' or 'dark')
+ */
+export function getInitialTheme(): Theme {
+  const stored = localStorage.getItem(THEME_STORAGE_KEY)
+  if (stored === 'light' || stored === 'dark') {
+    return stored
+  }
+  return 'light' // default
 }
