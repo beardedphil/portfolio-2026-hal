@@ -5338,8 +5338,6 @@ function App() {
                             })() && (() => {
                               const wm = workingMemory!
                               return (
-                              const wm = workingMemory!
-                              return (
                                 <div style={{ marginBottom: '12px' }}>
                                   <strong>Open Questions:</strong>
                                   <ul style={{ marginTop: '4px', paddingLeft: '20px' }}>
