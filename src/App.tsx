@@ -317,21 +317,6 @@ function App() {
   const [openaiLastStatus, setOpenaiLastStatus] = useState<string | null>(null)
   const [openaiLastError, setOpenaiLastError] = useState<string | null>(null)
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
-  const [workingMemoryOpen, setWorkingMemoryOpen] = useState(false)
-  const [workingMemory, setWorkingMemory] = useState<{
-    summary: string
-    goals: string[]
-    requirements: string[]
-    constraints: string[]
-    decisions: string[]
-    assumptions: string[]
-    open_questions: string[]
-    glossary: Record<string, string>
-    stakeholders: string[]
-    last_updated_at: string
-  } | null>(null)
-  const [workingMemoryLoading, setWorkingMemoryLoading] = useState(false)
-  const [workingMemoryError, setWorkingMemoryError] = useState<string | null>(null)
   const [connectedProject, setConnectedProject] = useState<string | null>(null)
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
   const [lastPmOutboundRequest, setLastPmOutboundRequest] = useState<object | null>(null)
@@ -352,8 +337,8 @@ function App() {
   const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false)
   const [agentInstructionsOpen, setAgentInstructionsOpen] = useState(false)
   const [promptModalMessage, setPromptModalMessage] = useState<Message | null>(null)
-  // Working memory state (0173: PM working memory)
-  const [workingMemory, setWorkingMemory] = useState<{
+  /** Working memory for PM conversation (0173) */
+  const [pmWorkingMemory, setPmWorkingMemory] = useState<{
     summary: string
     goals: string[]
     requirements: string[]
@@ -361,13 +346,13 @@ function App() {
     decisions: string[]
     assumptions: string[]
     open_questions: string[]
-    glossary: string[]
+    glossary: Record<string, string>
     stakeholders: string[]
     updated_at: string
+    through_sequence: number
   } | null>(null)
-  const [workingMemoryExpanded, setWorkingMemoryExpanded] = useState(false)
-  const [workingMemoryLoading, setWorkingMemoryLoading] = useState(false)
-  const [workingMemoryError, setWorkingMemoryError] = useState<string | null>(null)
+  const [pmWorkingMemoryOpen, setPmWorkingMemoryOpen] = useState(false)
+  const [pmWorkingMemoryLoading, setPmWorkingMemoryLoading] = useState(false)
   const disconnectConfirmButtonRef = useRef<HTMLButtonElement>(null)
   const disconnectButtonRef = useRef<HTMLButtonElement>(null)
   /** Kanban data (HAL owns DB; fetches and passes to KanbanBoard). */
@@ -385,22 +370,22 @@ function App() {
   const [outboundRequestExpanded, setOutboundRequestExpanded] = useState(false)
   const [toolCallsExpanded, setToolCallsExpanded] = useState(false)
   // PM Working Memory (0173)
+  /** Working memory for PM conversation (0173) */
   const [pmWorkingMemory, setPmWorkingMemory] = useState<{
     summary: string
-    goals: string
-    requirements: string
-    constraints: string
-    decisions: string
-    assumptions: string
-    open_questions: string
-    glossary_terms: string
-    stakeholders: string
-    last_updated: string
+    goals: string[]
+    requirements: string[]
+    constraints: string[]
+    decisions: string[]
+    assumptions: string[]
+    open_questions: string[]
+    glossary: Record<string, string>
+    stakeholders: string[]
+    updated_at: string
     through_sequence: number
   } | null>(null)
-  const [pmWorkingMemoryExpanded, setPmWorkingMemoryExpanded] = useState(false)
+  const [pmWorkingMemoryOpen, setPmWorkingMemoryOpen] = useState(false)
   const [pmWorkingMemoryLoading, setPmWorkingMemoryLoading] = useState(false)
-  const [pmWorkingMemoryError, setPmWorkingMemoryError] = useState<string | null>(null)
   const messageIdRef = useRef(0)
   const pmMaxSequenceRef = useRef(0) // Keep for backward compatibility during migration
   // Track max sequence per agent instance (e.g., "project-manager-1", "implementation-agent-2")
@@ -1469,16 +1454,15 @@ function App() {
     
     const convId = selectedConversationId || getConversationId('project-manager', 1)
     
-    setWorkingMemoryLoading(true)
-    setWorkingMemoryError(null)
+    setPmWorkingMemoryLoading(true)
     
     try {
       const supabase = getSupabaseClient(supabaseUrl, supabaseAnonKey)
       const { data, error } = await supabase
-        .from('hal_pm_working_memory')
-        .select('summary, goals, requirements, constraints, decisions, assumptions, open_questions, glossary, stakeholders, last_updated_at')
+        .from('hal_conversation_working_memory')
+        .select('*')
         .eq('project_id', connectedProject)
-        .eq('conversation_id', convId)
+        .eq('agent', convId)
         .single()
       
       if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
@@ -1486,7 +1470,7 @@ function App() {
       }
       
       if (data) {
-        setWorkingMemory({
+        setPmWorkingMemory({
           summary: data.summary || '',
           goals: Array.isArray(data.goals) ? data.goals : [],
           requirements: Array.isArray(data.requirements) ? data.requirements : [],
@@ -1494,79 +1478,98 @@ function App() {
           decisions: Array.isArray(data.decisions) ? data.decisions : [],
           assumptions: Array.isArray(data.assumptions) ? data.assumptions : [],
           open_questions: Array.isArray(data.open_questions) ? data.open_questions : [],
-          glossary: typeof data.glossary === 'object' && data.glossary !== null ? (data.glossary as Record<string, string>) : {},
+          glossary: data.glossary && typeof data.glossary === 'object' ? data.glossary as Record<string, string> : {},
           stakeholders: Array.isArray(data.stakeholders) ? data.stakeholders : [],
-          last_updated_at: data.last_updated_at || new Date().toISOString(),
+          updated_at: data.updated_at || new Date().toISOString(),
+          through_sequence: data.through_sequence || 0,
         })
       } else {
-        setWorkingMemory(null)
+        setPmWorkingMemory(null)
       }
     } catch (err) {
-      console.error('[HAL] Failed to fetch working memory:', err)
-      setWorkingMemoryError(err instanceof Error ? err.message : String(err))
-      setWorkingMemory(null)
+      console.error('[PM] Failed to fetch working memory:', err)
+      setPmWorkingMemory(null)
     } finally {
-      setWorkingMemoryLoading(false)
+      setPmWorkingMemoryLoading(false)
     }
-  }, [connectedProject, supabaseUrl, supabaseAnonKey, selectedChatTarget, selectedConversationId])
+  }, [connectedProject, supabaseUrl, supabaseAnonKey, selectedConversationId])
 
-  // Refresh working memory manually (0173)
-  const refreshWorkingMemory = useCallback(async () => {
+  // Fetch PM working memory (0173) - simplified version that uses current conversation
+  const fetchPmWorkingMemory = useCallback(async () => {
     if (!connectedProject || !supabaseUrl || !supabaseAnonKey) {
-      setWorkingMemoryError('Project not connected')
+      setPmWorkingMemory(null)
       return
     }
-    
-    if (selectedChatTarget !== 'project-manager') {
-      setWorkingMemoryError('Working memory is only available for PM conversations')
-      return
-    }
-    
-    const convId = selectedConversationId || getConversationId('project-manager', 1)
-    
-    setWorkingMemoryLoading(true)
-    setWorkingMemoryError(null)
-    
+
     try {
-      const res = await fetch('/api/pm/working-memory/refresh', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectId: connectedProject,
-          conversationId: convId,
-          supabaseUrl,
-          supabaseAnonKey,
-        }),
-      })
-      
-      const result = await res.json()
-      
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to refresh working memory')
+      setPmWorkingMemoryLoading(true)
+      const supabase = getSupabaseClient(supabaseUrl, supabaseAnonKey)
+      const convId = selectedConversationId || getConversationId('project-manager', 1)
+      const agentFilter = convId
+      const { data, error } = await supabase
+        .from('hal_conversation_working_memory')
+        .select('*')
+        .eq('project_id', connectedProject)
+        .eq('agent', agentFilter)
+        .single()
+
+      if (error && error.code !== 'PGRST116') {
+        throw error
       }
-      
-      // Update local state with refreshed data
-      if (result.data) {
-        setWorkingMemory({
-          summary: result.data.summary || '',
-          goals: Array.isArray(result.data.goals) ? result.data.goals : [],
-          requirements: Array.isArray(result.data.requirements) ? result.data.requirements : [],
-          constraints: Array.isArray(result.data.constraints) ? result.data.constraints : [],
-          decisions: Array.isArray(result.data.decisions) ? result.data.decisions : [],
-          assumptions: Array.isArray(result.data.assumptions) ? result.data.assumptions : [],
-          open_questions: Array.isArray(result.data.open_questions) ? result.data.open_questions : [],
-          glossary: typeof result.data.glossary === 'object' && result.data.glossary !== null ? result.data.glossary : {},
-          stakeholders: Array.isArray(result.data.stakeholders) ? result.data.stakeholders : [],
-          last_updated_at: result.data.last_updated_at || new Date().toISOString(),
+
+      if (data) {
+        setPmWorkingMemory({
+          summary: data.summary || '',
+          goals: Array.isArray(data.goals) ? data.goals : [],
+          requirements: Array.isArray(data.requirements) ? data.requirements : [],
+          constraints: Array.isArray(data.constraints) ? data.constraints : [],
+          decisions: Array.isArray(data.decisions) ? data.decisions : [],
+          assumptions: Array.isArray(data.assumptions) ? data.assumptions : [],
+          open_questions: Array.isArray(data.open_questions) ? data.open_questions : [],
+          glossary: data.glossary && typeof data.glossary === 'object' ? data.glossary as Record<string, string> : {},
+          stakeholders: Array.isArray(data.stakeholders) ? data.stakeholders : [],
+          updated_at: data.updated_at || new Date().toISOString(),
+          through_sequence: data.through_sequence || 0,
         })
+      } else {
+        setPmWorkingMemory(null)
       }
     } catch (err) {
-      console.error('[HAL] Failed to refresh working memory:', err)
-      setWorkingMemoryError(err instanceof Error ? err.message : String(err))
+      console.error('[PM] Failed to fetch working memory:', err)
+      setPmWorkingMemory(null)
     } finally {
-      setWorkingMemoryLoading(false)
+      setPmWorkingMemoryLoading(false)
     }
-  }, [connectedProject, supabaseUrl, supabaseAnonKey, selectedChatTarget, selectedConversationId])
+  }, [connectedProject, supabaseUrl, supabaseAnonKey, selectedConversationId])
+
+  // Legacy loadWorkingMemory function for compatibility
+  const loadWorkingMemory = useCallback(async () => {
+    await fetchPmWorkingMemory()
+  }, [fetchPmWorkingMemory])
+
+  // Legacy refreshWorkingMemory function  
+  const refreshWorkingMemory = useCallback(async () => {
+    const convId = selectedConversationId || getConversationId('project-manager', 1)
+    await refreshPmWorkingMemory(convId)
+  }, [selectedConversationId, refreshPmWorkingMemory])
+
+  // Alias workingMemory to pmWorkingMemory for UI compatibility
+  const workingMemory = pmWorkingMemory ? {
+    summary: pmWorkingMemory.summary,
+    goals: pmWorkingMemory.goals,
+    requirements: pmWorkingMemory.requirements,
+    constraints: pmWorkingMemory.constraints,
+    decisions: pmWorkingMemory.decisions,
+    assumptions: pmWorkingMemory.assumptions,
+    openQuestions: pmWorkingMemory.open_questions,
+    glossary: pmWorkingMemory.glossary,
+    stakeholders: pmWorkingMemory.stakeholders,
+    lastUpdatedAt: pmWorkingMemory.updated_at,
+  } : null
+  const workingMemoryOpen = pmWorkingMemoryOpen
+  const workingMemoryLoading = pmWorkingMemoryLoading
+  const workingMemoryError = null
+  const setWorkingMemoryOpen = setPmWorkingMemoryOpen
 
 
   // Load older messages for a conversation (pagination)
@@ -1672,7 +1675,7 @@ function App() {
   useEffect(() => {
     if (selectedChatTarget === 'project-manager' && connectedProject && supabaseUrl && supabaseAnonKey) {
       const convId = selectedConversationId || getConversationId('project-manager', 1)
-      fetchPmWorkingMemory(convId)
+      fetchPmWorkingMemory()
     } else {
       setPmWorkingMemory(null)
     }
@@ -2693,7 +2696,7 @@ function App() {
             if (connectedProject && supabaseUrl && supabaseAnonKey) {
               // Refresh working memory in the background (non-blocking)
               const convIdForRefresh = convId || getConversationId('project-manager', 1)
-              fetchPmWorkingMemory(convIdForRefresh).catch((err) => {
+              fetchPmWorkingMemory().catch((err) => {
                 console.warn('[PM] Failed to refresh working memory after response:', err)
               })
             }
@@ -3420,7 +3423,7 @@ function App() {
       // Use conversationId as the agent field (conversation IDs are stored in agent field)
       const agentFilter = conversationId || 'project-manager'
       const { data, error } = await supabase
-        .from('hal_pm_working_memory')
+        .from('hal_conversation_working_memory')
         .select('*')
         .eq('project_id', connectedProject)
         .eq('agent', agentFilter)
@@ -3433,15 +3436,15 @@ function App() {
       if (data) {
         setPmWorkingMemory({
           summary: data.summary || '',
-          goals: data.goals || '',
-          requirements: data.requirements || '',
-          constraints: data.constraints || '',
-          decisions: data.decisions || '',
-          assumptions: data.assumptions || '',
-          open_questions: data.open_questions || '',
-          glossary_terms: data.glossary_terms || '',
-          stakeholders: data.stakeholders || '',
-          last_updated: data.last_updated || new Date().toISOString(),
+          goals: Array.isArray(data.goals) ? data.goals : [],
+          requirements: Array.isArray(data.requirements) ? data.requirements : [],
+          constraints: Array.isArray(data.constraints) ? data.constraints : [],
+          decisions: Array.isArray(data.decisions) ? data.decisions : [],
+          assumptions: Array.isArray(data.assumptions) ? data.assumptions : [],
+          open_questions: Array.isArray(data.open_questions) ? data.open_questions : [],
+          glossary: data.glossary && typeof data.glossary === 'object' ? data.glossary as Record<string, string> : {},
+          stakeholders: Array.isArray(data.stakeholders) ? data.stakeholders : [],
+          updated_at: data.updated_at || new Date().toISOString(),
           through_sequence: data.through_sequence || 0,
         })
       } else {
@@ -3459,42 +3462,51 @@ function App() {
   // Refresh PM working memory (0173)
   const refreshPmWorkingMemory = useCallback(async (conversationId: string) => {
     if (!connectedProject || !supabaseUrl || !supabaseAnonKey) {
-      setPmWorkingMemoryError('Supabase not connected')
       return
     }
 
     try {
       setPmWorkingMemoryLoading(true)
-      setPmWorkingMemoryError(null)
       
       const url = supabaseUrl.trim()
       const key = supabaseAnonKey.trim()
       
-      const res = await fetch('/api/pm/refresh-working-memory', {
+      const res = await fetch('/api/pm/working-memory', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           projectId: connectedProject,
-          conversationId: conversationId || getConversationId('project-manager', 1),
           supabaseUrl: url,
           supabaseAnonKey: key,
+          force: true,
         }),
       })
 
-      const data = await res.json()
+      const data = await res.json() as { success: boolean; workingMemory?: any; error?: string }
       
       if (!data.success) {
         throw new Error(data.error || 'Failed to refresh working memory')
       }
 
       if (data.workingMemory) {
-        setPmWorkingMemory(data.workingMemory)
+        setPmWorkingMemory({
+          summary: data.workingMemory.summary || '',
+          goals: Array.isArray(data.workingMemory.goals) ? data.workingMemory.goals : [],
+          requirements: Array.isArray(data.workingMemory.requirements) ? data.workingMemory.requirements : [],
+          constraints: Array.isArray(data.workingMemory.constraints) ? data.workingMemory.constraints : [],
+          decisions: Array.isArray(data.workingMemory.decisions) ? data.workingMemory.decisions : [],
+          assumptions: Array.isArray(data.workingMemory.assumptions) ? data.workingMemory.assumptions : [],
+          open_questions: Array.isArray(data.workingMemory.open_questions) ? data.workingMemory.open_questions : [],
+          glossary: data.workingMemory.glossary && typeof data.workingMemory.glossary === 'object' ? data.workingMemory.glossary as Record<string, string> : {},
+          stakeholders: Array.isArray(data.workingMemory.stakeholders) ? data.workingMemory.stakeholders : [],
+          updated_at: data.workingMemory.updated_at || new Date().toISOString(),
+          through_sequence: data.workingMemory.through_sequence || 0,
+        })
       } else {
         setPmWorkingMemory(null)
       }
     } catch (err) {
       console.error('[PM] Failed to refresh working memory:', err)
-      setPmWorkingMemoryError(err instanceof Error ? err.message : String(err))
     } finally {
       setPmWorkingMemoryLoading(false)
     }
