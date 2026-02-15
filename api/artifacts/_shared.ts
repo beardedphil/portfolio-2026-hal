@@ -152,7 +152,7 @@ export function createCanonicalTitle(
     return 'Missing Artifact Explanation'
   }
   
-  const normalizedDisplayId = displayId || normalizeTicketId(displayId)
+  const normalizedDisplayId = normalizeTicketId(displayId || '')
   
   const titleMap: Record<string, string> = {
     'plan': `Plan for ticket ${normalizedDisplayId}`,
