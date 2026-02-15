@@ -248,7 +248,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           ? `- **Process Review ID**: ${reviewId}
 - **Suggestion Hash**: ${suggestionHash}${dedupeSection ? `\n${dedupeSection}` : ''}`
           : `- **Suggestion Hash**: ${suggestionHash}${dedupeSection ? `\n${dedupeSection}` : ''}`)
-      : (dedupeSection ? `\n${dedupeSection}` : '')
+      : ''
     
     let title: string
     let bodyMd: string
@@ -267,7 +267,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 ## Linkage (for tracking)
 
 - **Proposed from**: ${sourceRef} — Process Review
-${idempotencySection ? `\n${idempotencySection}` : ''}
+${idempotencySection ? `\n${idempotencySection}` : ''}${dedupeSection && !idempotencySection ? `\n${dedupeSection}` : ''}
 
 ## Goal (one sentence)
 
@@ -311,7 +311,7 @@ This ticket was automatically created from Process Review suggestion for ticket 
 ## Linkage (for tracking)
 
 - **Proposed from**: ${sourceRef} — Process Review
-${idempotencySection ? `\n${idempotencySection}` : ''}
+${idempotencySection ? `\n${idempotencySection}` : ''}${dedupeSection && !idempotencySection ? `\n${dedupeSection}` : ''}
 
 ## Goal (one sentence)
 
@@ -352,7 +352,7 @@ This ticket was automatically created from Process Review suggestion for ticket 
 ## Linkage (for tracking)
 
 - **Proposed from**: ${sourceRef} — Process Review
-${idempotencySection ? `\n${idempotencySection}` : ''}
+${idempotencySection ? `\n${idempotencySection}` : ''}${dedupeSection && !idempotencySection ? `\n${dedupeSection}` : ''}
 
 ## Goal (one sentence)
 
