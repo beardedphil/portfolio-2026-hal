@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { getServerSupabase, getCursorApiKey, humanReadableCursorError, appendProgress } from '../agent-runs/_shared.js'
+import { getOrigin } from '../_lib/github/config.js'
 
 const PM_CURSOR_MODEL = 'gpt-5.2'
 
@@ -48,6 +49,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
+    const halApiBaseUrl = getOrigin(req)
+
     const cursorKey = getCursorApiKey()
     const auth = Buffer.from(`${cursorKey}:`).toString('base64')
     const repoUrl = `https://github.com/${repoFullName}`
@@ -77,6 +80,15 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const promptText = [
       'You are the Project Manager agent for this repository. Use the codebase and any available tools to help with planning, prioritization, ticket creation, and project decisions.',
+      '',
+      '## Inputs (provided by HAL)',
+      `- **repoFullName**: ${repoFullName}`,
+      `- **defaultBranch**: ${defaultBranch}`,
+      `- **HAL API base URL**: ${halApiBaseUrl}`,
+      '',
+      '## Tools you can use',
+      '- Cursor Cloud Agent built-ins: read/search/edit files, run shell commands (git, npm), and use `gh` for GitHub.',
+      '- HAL server endpoints (no Supabase creds required for ticket moves): `POST /api/tickets/move`, `POST /api/tickets/get`, `POST /api/columns/list`.',
       '',
       '**User message:**',
       message,

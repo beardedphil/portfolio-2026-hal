@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { getSession } from '../_lib/github/session.js'
 import { listBranches, ensureInitialCommit } from '../_lib/github/githubApi.js'
+import { getOrigin } from '../_lib/github/config.js'
 import {
   getServerSupabase,
   getCursorApiKey,
@@ -50,6 +51,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const model = (typeof body.model === 'string' ? body.model.trim() : '') || ''
     const repoFullName = typeof body.repoFullName === 'string' ? body.repoFullName.trim() : ''
     const ticketNumber = typeof body.ticketNumber === 'number' ? body.ticketNumber : null
+    // Use connected repo's default branch (empty repos have no branches until first push)
+    const defaultBranch = (typeof body.defaultBranch === 'string' ? body.defaultBranch.trim() : '') || 'main'
     if (!repoFullName || !ticketNumber || !Number.isFinite(ticketNumber)) {
       json(res, 400, { error: 'agentType, repoFullName, and ticketNumber are required.' })
       return
@@ -76,6 +79,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const displayId = (ticket as any).display_id ?? String(ticketNumber).padStart(4, '0')
     const bodyMd = String((ticket as any).body_md ?? '')
     const currentColumnId = (ticket as any).kanban_column_id as string | null
+
+    const halApiBaseUrl = getOrigin(req)
 
     // Move QA ticket from QA column to Doing when QA agent starts (0088)
     if (agentType === 'qa' && currentColumnId === 'col-qa') {
@@ -118,6 +123,19 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         ? [
             'Implement this ticket.',
             '',
+            '## Inputs (provided by HAL)',
+            `- **agentType**: implementation`,
+            `- **repoFullName**: ${repoFullName}`,
+            `- **ticketNumber**: ${ticketNumber}`,
+            `- **displayId**: ${displayId}`,
+            `- **currentColumnId**: ${currentColumnId || 'col-unassigned'}`,
+            `- **defaultBranch**: ${defaultBranch}`,
+            `- **HAL API base URL**: ${halApiBaseUrl}`,
+            '',
+            '## Tools you can use',
+            '- Cursor Cloud Agent built-ins: read/search/edit files, run shell commands (git, npm), and use `gh` for GitHub.',
+            '- HAL server endpoints (no Supabase creds required): `POST /api/artifacts/insert-implementation`, `POST /api/artifacts/get`, `POST /api/tickets/move`.',
+            '',
             '## MANDATORY first step: pull latest from main',
             '',
             '**Before starting any work**, pull the latest code. Do not assume you have the latest code.',
@@ -139,6 +157,19 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           ].join('\n')
         : [
             'QA this ticket implementation. Review the code, generate a QA report, and complete the QA workflow.',
+            '',
+            '## Inputs (provided by HAL)',
+            `- **agentType**: qa`,
+            `- **repoFullName**: ${repoFullName}`,
+            `- **ticketNumber**: ${ticketNumber}`,
+            `- **displayId**: ${displayId}`,
+            `- **currentColumnId**: ${currentColumnId || 'col-unassigned'}`,
+            `- **defaultBranch**: ${defaultBranch}`,
+            `- **HAL API base URL**: ${halApiBaseUrl}`,
+            '',
+            '## Tools you can use',
+            '- Cursor Cloud Agent built-ins: read/search/edit files, run shell commands (git, npm), and use `gh` for GitHub.',
+            '- HAL server endpoints (no Supabase creds required): `POST /api/artifacts/insert-qa`, `POST /api/artifacts/get`, `POST /api/tickets/move`.',
             '',
             '## MANDATORY first step: pull latest from main',
             '',
@@ -215,9 +246,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     const runId = runRow.run_id as string
-
-    // Use connected repo's default branch (empty repos have no branches until first push)
-    const defaultBranch = (typeof body.defaultBranch === 'string' ? body.defaultBranch.trim() : '') || 'main'
 
     // If repo has no branches (new empty repo), create initial commit so Cursor API can run
     let ghToken: string | undefined

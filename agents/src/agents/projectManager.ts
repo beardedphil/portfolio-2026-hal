@@ -506,11 +506,94 @@ const PM_LOCAL_RULES = [
   'qa-audit-report.mdc',
 ] as const
 
+function formatPmInputsSummary(config: PmAgentConfig): string {
+  const hasSupabase =
+    typeof config.supabaseUrl === 'string' &&
+    config.supabaseUrl.trim() !== '' &&
+    typeof config.supabaseAnonKey === 'string' &&
+    config.supabaseAnonKey.trim() !== ''
+
+  const hasGitHubRepo =
+    typeof config.repoFullName === 'string' && config.repoFullName.trim() !== ''
+
+  const hasConversationContextPack =
+    typeof config.conversationContextPack === 'string' &&
+    config.conversationContextPack.trim() !== ''
+
+  const hasConversationHistory = Array.isArray(config.conversationHistory) && config.conversationHistory.length > 0
+
+  const hasWorkingMemoryText =
+    typeof config.workingMemoryText === 'string' && config.workingMemoryText.trim() !== ''
+
+  const imageCount = Array.isArray(config.images) ? config.images.length : 0
+  const openaiModel = String(config.openaiModel ?? '').trim()
+  const isVisionModel = openaiModel.includes('vision') || openaiModel.includes('gpt-4o')
+
+  const availableTools: Array<{ name: string; available: boolean }> = [
+    { name: 'get_instruction_set', available: true },
+    { name: 'list_directory', available: true },
+    { name: 'read_file', available: true },
+    { name: 'search_files', available: true },
+    { name: 'evaluate_ticket_ready', available: true },
+    { name: 'create_ticket', available: hasSupabase },
+    { name: 'fetch_ticket_content', available: hasSupabase },
+    { name: 'update_ticket_body', available: hasSupabase },
+    { name: 'sync_tickets', available: hasSupabase },
+    { name: 'kanban_move_ticket_to_todo', available: hasSupabase },
+    { name: 'list_tickets_by_column', available: hasSupabase },
+    { name: 'move_ticket_to_column', available: hasSupabase },
+    { name: 'list_available_repos', available: hasSupabase },
+    { name: 'kanban_move_ticket_to_other_repo_todo', available: hasSupabase },
+    { name: 'attach_image_to_ticket', available: hasSupabase && imageCount > 0 },
+  ]
+
+  const enabledTools = availableTools.filter((t) => t.available).map((t) => `- ${t.name}`)
+  const disabledTools = availableTools
+    .filter((t) => !t.available)
+    .map((t) => `- ${t.name}`)
+
+  const conversationSource = hasConversationContextPack
+    ? 'conversationContextPack (DB-derived)'
+    : hasConversationHistory
+      ? 'conversationHistory (client-provided)'
+      : 'none'
+
+  const lines: string[] = [
+    '## Inputs (provided by HAL)',
+    '',
+    `- **repoFullName**: ${hasGitHubRepo ? config.repoFullName!.trim() : '(not provided)'}`,
+    `- **repoRoot**: ${String(config.repoRoot ?? '').trim() || '(not provided)'}`,
+    `- **openaiModel**: ${openaiModel || '(not provided)'}`,
+    `- **previousResponseId**: ${String(config.previousResponseId ?? '').trim() ? 'present' : 'absent'}`,
+    `- **supabase**: ${hasSupabase ? 'available (ticket tools enabled)' : 'not provided (ticket tools disabled)'}`,
+    `- **conversation context**: ${conversationSource}`,
+    `- **working memory**: ${hasWorkingMemoryText ? 'present' : 'absent'}`,
+    `- **images**: ${imageCount} (${imageCount > 0 ? (isVisionModel ? 'included' : 'ignored by model') : 'none'})`,
+    '',
+    '## Tools available (this run)',
+    '',
+    ...(enabledTools.length > 0 ? enabledTools : ['- (none)']),
+    '',
+    ...(disabledTools.length > 0
+      ? [
+          '## Tools not available (missing required inputs)',
+          '',
+          ...disabledTools,
+        ]
+      : []),
+  ]
+
+  return lines.join('\n')
+}
+
 async function buildContextPack(config: PmAgentConfig, userMessage: string): Promise<string> {
   const rulesDir = config.rulesDir ?? '.cursor/rules'
   const rulesPath = path.resolve(config.repoRoot, rulesDir)
 
   const sections: string[] = []
+
+  // Always include a compact list of HAL-provided inputs and enabled tools (helps debugging while keeping context small).
+  sections.push(formatPmInputsSummary(config))
 
   // Local-first: try loading rules from repo
   let localLoaded = false
