@@ -99,10 +99,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const agentType = (run as any).agent_type as AgentType
 
     // Terminal states: return without calling Cursor (unless we need to enrich a placeholder summary)
+    // For all agent types, if summary is placeholder, fetch conversation to extract last assistant message
     const shouldEnrichTerminalSummary =
       status === 'finished' &&
       !!cursorAgentId &&
-      (agentType === 'project-manager' || agentType === 'qa' || agentType === 'process-review') &&
       isPlaceholderSummary((run as any).summary as string | null)
 
     if ((status === 'finished' || status === 'failed') && !shouldEnrichTerminalSummary) {
@@ -172,12 +172,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       if (!prUrl && agentType === 'implementation') console.warn('[agent-runs] FINISHED but no prUrl in Cursor response. target=', JSON.stringify(statusData.target))
       finishedAt = new Date().toISOString()
 
-      // For agents that don't reliably return statusData.summary (notably PM), fetch last assistant message from conversation.
+      // For all agent types: if summary is placeholder or empty, fetch last assistant message from conversation.
       // Also used by process-review to parse suggestions.
       const needsConversation =
         agentType === 'process-review' ||
         agentType === 'project-manager' ||
         agentType === 'qa' ||
+        agentType === 'implementation' ||
         isPlaceholderSummary(summary)
 
       if (needsConversation) {
