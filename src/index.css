@@ -1008,6 +1008,146 @@ body {
   overflow: hidden;
 }
 
+/* Working Memory panel (0173) */
+.chat-window-working-memory-toggle {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  background: var(--hal-surface);
+  color: var(--hal-text);
+  border: 1px solid var(--hal-border);
+  border-radius: 4px;
+  font-weight: 500;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.chat-window-working-memory-toggle:hover {
+  background: var(--hal-surface-alt);
+  border-color: var(--hal-primary);
+}
+
+.working-memory-panel {
+  border-bottom: 1px solid var(--hal-border);
+  background: var(--hal-surface-alt);
+  max-height: 400px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.working-memory-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--hal-border);
+  background: var(--hal-surface);
+}
+
+.working-memory-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--hal-text);
+}
+
+.working-memory-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.working-memory-refresh {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  background: var(--hal-primary);
+  color: white;
+  border: 1px solid var(--hal-primary);
+  border-radius: 4px;
+  font-weight: 500;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.working-memory-refresh:hover:not(:disabled) {
+  background: var(--hal-primary-hover);
+  border-color: var(--hal-primary-hover);
+}
+
+.working-memory-refresh:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.working-memory-timestamp {
+  font-size: 0.8rem;
+  color: var(--hal-text-muted);
+}
+
+.working-memory-content {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.working-memory-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.working-memory-section-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--hal-text);
+}
+
+.working-memory-text {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--hal-text);
+  line-height: 1.5;
+}
+
+.working-memory-list {
+  margin: 0;
+  padding-left: 1.5rem;
+  font-size: 0.9rem;
+  color: var(--hal-text);
+  line-height: 1.6;
+}
+
+.working-memory-list li {
+  margin-bottom: 0.4rem;
+}
+
+.working-memory-glossary {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--hal-text);
+}
+
+.working-memory-term {
+  font-weight: 600;
+  margin-top: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.working-memory-definition {
+  margin: 0 0 0.75rem 1rem;
+  line-height: 1.5;
+}
+
+.working-memory-empty {
+  padding: 2rem;
+  text-align: center;
+  color: var(--hal-text-muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
 /* Agent stub status banner (0041) */
 .agent-stub-banner {
   padding: 0.75rem 1rem;
