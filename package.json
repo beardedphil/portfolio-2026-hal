@@ -18,7 +18,9 @@
     "update-ticket-body": "node scripts/update-ticket-body-in-supabase.js",
     "supabase-list-tickets": "node scripts/supabase-list-tickets.js",
     "supabase-get-ticket": "node scripts/supabase-get-ticket.js",
-    "migrate-instructions": "node scripts/run-instructions-migration.js"
+    "migrate-instructions": "node scripts/run-instructions-migration.js",
+    "test": "vitest",
+    "test:ui": "vitest --ui"
   },
   "dependencies": {
     "@ai-sdk/openai": "^1.2.0",
@@ -35,12 +37,17 @@
     "zod": "^3.24.0"
   },
   "devDependencies": {
-    "supabase": "^2.76.8",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "@vitest/ui": "^4.0.18",
     "concurrently": "^9.1.2",
+    "jsdom": "^28.1.0",
+    "supabase": "^2.76.8",
     "typescript": "~5.6.3",
-    "vite": "^6.0.1"
+    "vite": "^6.0.1",
+    "vitest": "^4.0.18"
   }
 }
