@@ -385,15 +385,12 @@ body {
 }
 
 /* Override Kanban root styles when embedded in HAL - remove height constraint and scrolling */
-.kanban-frame-container #root {
-  min-height: 0 !important;
-  height: auto !important;
-  padding: 0 !important;
-  overflow: visible !important;
-  overflow-y: visible !important; /* Explicitly override overflow-y: auto from Kanban CSS */
+/* HAL's #root should never scroll (overflow: hidden), and .hal-main is the scroll container */
+/* Kanban CSS may set #root { overflow-y: auto }, so we ensure HAL's root keeps overflow: hidden */
+#root {
+  overflow: hidden !important; /* HAL's root never scrolls - .hal-main handles scrolling */
+  overflow-y: hidden !important;
   overflow-x: hidden !important;
-  display: flex;
-  flex-direction: column;
 }
 
 /* Ensure Kanban app container doesn't create its own scroll context */
@@ -404,6 +401,23 @@ body {
   overflow-x: hidden !important;
   display: flex;
   flex-direction: column;
+}
+
+/* Ensure all Kanban child elements don't create scroll containers (0190) */
+.kanban-frame-container .columns-section,
+.kanban-frame-container .columns-row,
+.kanban-frame-container .column-card,
+.kanban-frame-container .column-content,
+.kanban-frame-container .column-cards,
+.kanban-frame-container .active-work-row {
+  overflow-y: visible !important;
+  height: auto !important;
+  min-height: 0 !important;
+}
+
+/* Columns row can scroll horizontally (preserved) */
+.kanban-frame-container .columns-row {
+  overflow-x: auto;
 }
 
 /* Ensure columns section doesn't constrain height */
