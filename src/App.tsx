@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { getSupabaseClient } from './lib/supabase'
 import { saveConversationsToStorage, loadConversationsFromStorage, type Agent, type Message, type Conversation, type ImageAttachment } from './lib/conversationStorage'
+import { getChatWidth, setChatWidth, getChatCollapsed, setChatCollapsed } from './lib/persistedUiState'
 import * as Kanban from 'portfolio-2026-kanban'
 import type { KanbanTicketRow, KanbanColumnRow, KanbanAgentRunRow, KanbanBoardProps } from 'portfolio-2026-kanban'
 import 'portfolio-2026-kanban/style.css'
@@ -379,30 +380,9 @@ function App() {
   /** Raw completion summary for troubleshooting when agent type is missing (0067). */
   const [orphanedCompletionSummary, setOrphanedCompletionSummary] = useState<string | null>(null)
   /** Chat region width for resizable divider (0060). */
-  const [chatWidth, setChatWidth] = useState<number>(() => {
-    try {
-      const saved = localStorage.getItem('hal-chat-width')
-      if (saved) {
-        const parsed = parseInt(saved, 10)
-        if (!isNaN(parsed) && parsed >= 320 && parsed <= 800) return parsed
-      }
-    } catch {
-      // ignore localStorage errors
-    }
-    return 400 // default width
-  })
+  const [chatWidth, setChatWidthState] = useState<number>(getChatWidth)
   /** Whether chat is collapsed (0160). */
-  const [chatCollapsed, setChatCollapsed] = useState<boolean>(() => {
-    try {
-      const saved = localStorage.getItem('hal-chat-collapsed')
-      if (saved) {
-        return saved === 'true'
-      }
-    } catch {
-      // ignore localStorage errors
-    }
-    return false // default to expanded
-  })
+  const [chatCollapsed, setChatCollapsedState] = useState<boolean>(getChatCollapsed)
   /** Whether the divider is currently being dragged (0060). */
   const [isDragging, setIsDragging] = useState(false)
   const dividerRef = useRef<HTMLDivElement>(null)
@@ -921,20 +901,12 @@ function App() {
 
   // Persist chat width to localStorage (0060)
   useEffect(() => {
-    try {
-      localStorage.setItem('hal-chat-width', String(chatWidth))
-    } catch {
-      // ignore localStorage errors
-    }
+    setChatWidth(chatWidth)
   }, [chatWidth])
 
   // Persist chat collapsed state to localStorage (0160)
   useEffect(() => {
-    try {
-      localStorage.setItem('hal-chat-collapsed', String(chatCollapsed))
-    } catch {
-      // ignore localStorage errors
-    }
+    setChatCollapsed(chatCollapsed)
   }, [chatCollapsed])
 
   // Handle divider drag with smooth animation (0076)
@@ -966,7 +938,7 @@ function App() {
       const newWidth = mainRect.right - mouseXRef.current - 2
       // Clamp between min and max widths
       const clampedWidth = Math.max(320, Math.min(800, newWidth))
-      setChatWidth(clampedWidth)
+      setChatWidthState(clampedWidth)
       
       // Schedule next update
       rafIdRef.current = requestAnimationFrame(updateWidth)
@@ -3822,7 +3794,7 @@ function App() {
               <button
                 type="button"
                 className="chat-collapse-btn"
-                onClick={() => setChatCollapsed(true)}
+                onClick={() => setChatCollapsedState(true)}
                 aria-label="Collapse chat"
                 title="Collapse chat"
               >
@@ -4824,7 +4796,7 @@ function App() {
           <button
             type="button"
             className="chat-restore-btn"
-            onClick={() => setChatCollapsed(false)}
+            onClick={() => setChatCollapsedState(false)}
             aria-label="Restore chat"
             title="Restore chat"
           >
