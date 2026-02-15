@@ -3,6 +3,12 @@ import { createClient } from '@supabase/supabase-js'
 
 type TicketLookupResult<T> = { data: T | null; error: unknown | null }
 
+// `@supabase/supabase-js`'s `SupabaseClient` generic type has varied across versions.
+// For API handlers we only need the structural surface area we call (`from(...)`).
+type SupabaseClientLike = {
+  from: (table: string) => any
+}
+
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []
   for await (const chunk of req) {
@@ -19,7 +25,7 @@ function json(res: ServerResponse, statusCode: number, body: unknown) {
   res.end(JSON.stringify(body))
 }
 
-async function fetchTicketByIdOrDisplayId(supabase: ReturnType<typeof createClient>, ticketId: string) {
+async function fetchTicketByIdOrDisplayId(supabase: SupabaseClientLike, ticketId: string) {
   // Try multiple lookup strategies to handle different ticket ID formats:
   // - "581" (numeric id)
   // - "0581" (numeric id with leading zeros)
