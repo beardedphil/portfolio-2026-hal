@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { getSupabaseClient } from './lib/supabase'
+import { saveConversationsToStorage, loadConversationsFromStorage, type Agent, type Message, type Conversation, type ImageAttachment } from './lib/conversationStorage'
 import * as Kanban from 'portfolio-2026-kanban'
 import type { KanbanTicketRow, KanbanColumnRow, KanbanAgentRunRow, KanbanBoardProps } from 'portfolio-2026-kanban'
 import 'portfolio-2026-kanban/style.css'
@@ -21,35 +22,7 @@ type ArtifactRow = {
   updated_at: string
 }
 
-type Agent = 'project-manager' | 'implementation-agent' | 'qa-agent' | 'process-review-agent'
 type ChatTarget = Agent
-
-type ImageAttachment = {
-  file: File
-  dataUrl: string // base64 data URL for preview
-  filename: string
-}
-
-type Message = {
-  id: number
-  agent: Agent | 'user' | 'system'
-  content: string
-  timestamp: Date
-  imageAttachments?: ImageAttachment[] // Optional array of image attachments
-  /** Full prompt text sent to LLM for this message (0202) - only for assistant messages */
-  promptText?: string
-}
-
-// Conversation instance with unique ID (0070)
-type Conversation = {
-  id: string // e.g., "implementation-agent-1", "qa-agent-2"
-  agentRole: Agent // The agent role this conversation belongs to
-  instanceNumber: number // 1, 2, 3, etc.
-  messages: Message[]
-  createdAt: Date
-  oldestLoadedSequence?: number // Track oldest message sequence loaded (for pagination)
-  hasMoreMessages?: boolean // Whether there are more messages to load
-}
 
 type ToolCallRecord = {
   name: string
@@ -128,6 +101,8 @@ type DiagnosticsInfo = {
   repoInspectionAvailable: boolean
   /** Unit tests configuration status (0548). */
   unitTestsConfigured: boolean
+  /** Message shown when conversation history was reset due to corruption (0549). */
+  conversationHistoryResetMessage: string | null
 }
 
 type GithubAuthMe = {
@@ -151,27 +126,11 @@ type ConnectedGithubRepo = {
   private: boolean
 }
 
-// localStorage helpers for conversation persistence (fallback when no project DB)
-const CONVERSATION_STORAGE_PREFIX = 'hal-chat-conversations-'
 /** Cap on character count for recent conversation so long technical messages don't dominate (~3k tokens). */
 const CONVERSATION_RECENT_MAX_CHARS = 12_000
 
 // PM_AGENT_ID kept for reference but conversation IDs are used now (0124)
 // const PM_AGENT_ID = 'project-manager'
-
-function getStorageKey(projectName: string): string {
-  return `${CONVERSATION_STORAGE_PREFIX}${projectName}`
-}
-
-type SerializedImageAttachment = Omit<ImageAttachment, 'file'> // File objects can't be serialized
-type SerializedMessage = Omit<Message, 'timestamp' | 'imageAttachments'> & { 
-  timestamp: string
-  imageAttachments?: SerializedImageAttachment[]
-}
-type SerializedConversation = Omit<Conversation, 'messages' | 'createdAt'> & {
-  messages: SerializedMessage[]
-  createdAt: string
-}
 
 // Generate conversation ID for an agent role and instance number (0070)
 function getConversationId(agentRole: Agent, instanceNumber: number): string {
@@ -199,69 +158,7 @@ function getNextInstanceNumber(conversations: Map<string, Conversation>, agentRo
   return maxNumber + 1
 }
 
-function saveConversationsToStorage(
-  projectName: string,
-  conversations: Map<string, Conversation>
-): { success: boolean; error?: string } {
-  try {
-    const serialized: SerializedConversation[] = []
-    for (const conv of conversations.values()) {
-      serialized.push({
-        id: conv.id,
-        agentRole: conv.agentRole,
-        instanceNumber: conv.instanceNumber,
-        createdAt: conv.createdAt.toISOString(),
-        messages: conv.messages.map((msg) => ({
-          ...msg,
-          timestamp: msg.timestamp.toISOString(),
-          imageAttachments: msg.imageAttachments?.map((img) => ({
-            dataUrl: img.dataUrl,
-            filename: img.filename,
-          })),
-        })),
-      })
-    }
-    localStorage.setItem(getStorageKey(projectName), JSON.stringify(serialized))
-    return { success: true }
-  } catch (e) {
-    const errMsg = e instanceof Error ? e.message : String(e)
-    return { success: false, error: `Failed to save conversations: ${errMsg}` }
-  }
-}
-
-function loadConversationsFromStorage(
-  projectName: string
-): { success: boolean; conversations?: Map<string, Conversation>; error?: string } {
-  try {
-    const stored = localStorage.getItem(getStorageKey(projectName))
-    if (!stored) {
-      return { success: true, conversations: new Map() }
-    }
-    const serialized = JSON.parse(stored) as SerializedConversation[]
-    const conversations = new Map<string, Conversation>()
-    for (const ser of serialized) {
-      conversations.set(ser.id, {
-        id: ser.id,
-        agentRole: ser.agentRole,
-        instanceNumber: ser.instanceNumber,
-        createdAt: new Date(ser.createdAt),
-        messages: ser.messages.map((msg) => ({
-          id: msg.id,
-          agent: msg.agent,
-          content: msg.content,
-          timestamp: new Date(msg.timestamp),
-          ...(msg.promptText && { promptText: msg.promptText }),
-          // imageAttachments from serialized data don't have File objects, so omit them
-          // File objects can't be restored from localStorage
-        })),
-      })
-    }
-    return { success: true, conversations }
-  } catch (e) {
-    const errMsg = e instanceof Error ? e.message : String(e)
-    return { success: false, error: `Failed to load conversations: ${errMsg}` }
-  }
-}
+// saveConversationsToStorage and loadConversationsFromStorage are now imported from './lib/conversationStorage'
 
 function getEmptyConversations(): Map<string, Conversation> {
   return new Map()
@@ -316,6 +213,7 @@ function App() {
   const [lastError, setLastError] = useState<string | null>(null)
   const [lastAgentError, setLastAgentError] = useState<string | null>(null)
   const [persistenceError, setPersistenceError] = useState<string | null>(null)
+  const [conversationHistoryResetMessage, setConversationHistoryResetMessage] = useState<string | null>(null)
   const [openaiLastStatus, setOpenaiLastStatus] = useState<string | null>(null)
   const [openaiLastError, setOpenaiLastError] = useState<string | null>(null)
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
@@ -704,10 +602,20 @@ function App() {
       })
     }
     // Set conversations immediately from localStorage so they're visible right away
+    // App remains usable even if loading failed - we just start with empty conversations
     setConversations(restoredConversations)
-    if (loadResult.error) {
-      setPersistenceError(loadResult.error)
+    
+    // Handle conversation history reset (0549: resilient to corrupted data)
+    if (loadResult.wasReset && loadResult.error) {
+      setConversationHistoryResetMessage(loadResult.error)
     } else {
+      setConversationHistoryResetMessage(null)
+    }
+    
+    // Set persistence error for other errors (non-reset cases)
+    if (loadResult.error && !loadResult.wasReset) {
+      setPersistenceError(loadResult.error)
+    } else if (!loadResult.wasReset) {
       setPersistenceError(null)
     }
 
@@ -3561,6 +3469,7 @@ function App() {
     lastSendPayloadSummary,
     repoInspectionAvailable: !!connectedGithubRepo?.fullName,
     unitTestsConfigured: true,
+    conversationHistoryResetMessage,
   }
 
   const kanbanBoardProps: KanbanBoardProps = {
@@ -4824,6 +4733,14 @@ function App() {
                     {diagnostics.persistenceError ?? 'none'}
                   </span>
                 </div>
+                {diagnostics.conversationHistoryResetMessage && (
+                  <div className="diag-row">
+                    <span className="diag-label">Conversation history:</span>
+                    <span className="diag-value" data-status="error" style={{ color: 'var(--hal-status-error, #c62828)', fontWeight: '500' }}>
+                      {diagnostics.conversationHistoryResetMessage}
+                    </span>
+                  </div>
+                )}
                 <div className="diag-row">
                   <span className="diag-label">Unit tests:</span>
                   <span className="diag-value" data-status={diagnostics.unitTestsConfigured ? 'ok' : 'error'}>
