@@ -5332,7 +5332,12 @@ function App() {
                                 <div style={{ marginTop: '4px', whiteSpace: 'pre-wrap' }}>{workingMemory.assumptions}</div>
                               </div>
                             )}
-                            {workingMemory && workingMemory.openQuestions && workingMemory!.openQuestions.length > 0 && (() => {
+                            {workingMemory && workingMemory.openQuestions && (() => {
+                              const wm = workingMemory!
+                              return wm.openQuestions.length > 0
+                            })() && (() => {
+                              const wm = workingMemory!
+                              return (
                               const wm = workingMemory!
                               return (
                                 <div style={{ marginBottom: '12px' }}>
@@ -5354,7 +5359,7 @@ function App() {
                                 <div style={{ marginBottom: '12px' }}>
                                   <strong>Glossary:</strong>
                                   <dl style={{ marginTop: '4px', paddingLeft: '20px' }}>
-                                    {Object.entries(wm.glossary).map(([term, def]) => (
+                                    {Object.entries(wm.glossary || {}).map(([term, def]) => (
                                       <React.Fragment key={term}>
                                         <dt style={{ fontWeight: 'bold' }}>{term}:</dt>
                                         <dd style={{ marginLeft: '20px', marginBottom: '4px' }}>{def}</dd>
