@@ -91,6 +91,8 @@ type PmAgentResponse = {
   createTicketAvailable?: boolean
   /** Runner implementation label for diagnostics (e.g. "v2 (shared)"). */
   agentRunner?: string
+  /** Full prompt text sent to LLM for this message (0202) - only for assistant messages */
+  promptText?: string
 }
 
 type DiagnosticsInfo = {
@@ -271,32 +273,6 @@ const CHAT_OPTIONS: { id: ChatTarget; label: string }[] = [
 ]
 // DEBUG: QA option should be visible
 console.log('CHAT_OPTIONS:', CHAT_OPTIONS.map(o => o.label))
-
-// Removed formatPromptFromOutboundRequest - using promptText from message instead (0202)
-    if (req.system) {
-      promptText += `## System Instructions\n\n${req.system}\n\n`
-    }
-    promptText += `## Input\n\n${typeof req.input === 'string' ? req.input : JSON.stringify(req.input, null, 2)}\n\n`
-  } else {
-    // Fallback: show JSON structure with better formatting
-    promptText += `## Request Payload\n\n${JSON.stringify(req, null, 2)}`
-  }
-
-  // Add tools information if available
-  if (req.tools && Array.isArray(req.tools) && req.tools.length > 0) {
-    promptText += `\n## Tools Available (${req.tools.length})\n\n`
-    for (const tool of req.tools) {
-      if (tool.function) {
-        promptText += `- **${tool.function.name}**: ${tool.function.description || 'No description'}\n`
-      } else if (tool.name) {
-        promptText += `- **${tool.name}**: ${tool.description || 'No description'}\n`
-      }
-    }
-    promptText += '\n'
-  }
-
-  return promptText.trim()
-}
 
 function formatTime(date: Date): string {
   return date.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
@@ -507,9 +483,9 @@ function App() {
 
   useEffect(() => {
     selectedChatTargetRef.current = selectedChatTarget
-    // Close prompt view when switching away from Project Manager
+    // Close prompt modal when switching away from Project Manager (0202)
     if (selectedChatTarget !== 'project-manager') {
-      setShowPmPrompt(false)
+      setPromptModalMessage(null)
     }
   }, [selectedChatTarget])
 
@@ -3687,46 +3663,6 @@ function App() {
                         <p className="transcript-empty">No messages yet. Start a conversation.</p>
                       ) : (
                         <>
-<<<<<<< HEAD
-                          {displayMessages.map((msg) => {
-                            // Check if this is the most recent PM assistant message
-                            // Find the last PM assistant message in the displayMessages array
-                            const lastPmMsg = displayMessages
-                              .slice()
-                              .reverse()
-                              .find(m => m.agent === 'project-manager')
-                            const isMostRecentPmAssistant = 
-                              msg.agent === 'project-manager' &&
-                              selectedChatTarget === 'project-manager' &&
-                              lastPmMsg?.id === msg.id
-                            
-                            return (
-                              <div
-                                key={msg.id}
-                                className={`message-row message-row-${msg.agent}`}
-                                data-agent={msg.agent}
-                              >
-                                <div className={`message message-${msg.agent}`}>
-                                  <div className="message-header">
-                                    <span className="message-author">{getMessageAuthorLabel(msg.agent)}</span>
-                                    <span className="message-time">[{formatTime(msg.timestamp)}]</span>
-                                    {msg.imageAttachments && msg.imageAttachments.length > 0 && (
-                                      <span className="message-image-indicator" title={`${msg.imageAttachments.length} image${msg.imageAttachments.length > 1 ? 's' : ''} attached`}>
-                                        📎 {msg.imageAttachments.length}
-                                      </span>
-                                    )}
-                                    {isMostRecentPmAssistant && (
-                                      <button
-                                        type="button"
-                                        className="message-prompt-toggle"
-                                        onClick={() => setShowPmPrompt(!showPmPrompt)}
-                                        title={showPmPrompt ? 'Hide sent prompt' : 'Show sent prompt'}
-                                      >
-                                        {showPmPrompt ? '▼' : '▶'} {showPmPrompt ? 'Hide sent prompt' : 'Show sent prompt'}
-                                      </button>
-                                    )}
-                                  </div>
-=======
                           {displayMessages.map((msg) => (
                             <div
                               key={msg.id}
