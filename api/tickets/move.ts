@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'http'
 import { createClient } from '@supabase/supabase-js'
 import {
   getMissingRequiredImplementationArtifacts,
+  hasMissingArtifactExplanation,
   type ArtifactRowForCheck,
 } from '../artifacts/_shared.js'
 
@@ -180,6 +181,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const resolvedTicketPk = (ticket as any).pk as string
 
     // Gate: moving to Ready for QA requires all 8 implementation artifacts (substantive)
+    // OR a "Missing Artifact Explanation" artifact if artifacts are missing (0200)
     if (columnId === 'col-qa') {
       if (!resolvedTicketPk) {
         json(res, 200, {
@@ -189,11 +191,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         return
       }
       
+      // Fetch all artifacts (implementation and any other types, including Missing Artifact Explanation)
       const { data: artifactRows, error: artErr } = await supabase
         .from('agent_artifacts')
         .select('title, agent_type, body_md')
         .eq('ticket_pk', resolvedTicketPk)
-        .eq('agent_type', 'implementation')
 
       if (artErr) {
         json(res, 200, {
@@ -208,18 +210,26 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         agent_type: r.agent_type,
         body_md: r.body_md,
       }))
-      const missingArtifacts = getMissingRequiredImplementationArtifacts(artifactsForCheck)
+      
+      // Filter to implementation artifacts for missing check
+      const implementationArtifacts = artifactsForCheck.filter((a) => a.agent_type === 'implementation')
+      const missingArtifacts = getMissingRequiredImplementationArtifacts(implementationArtifacts)
 
       if (missingArtifacts.length > 0) {
-        json(res, 200, {
-          success: false,
-          error:
-            'Cannot move to Ready for QA: missing required implementation artifacts.',
-          missingArtifacts,
-          remedy:
-            'Store each listed artifact via POST /api/artifacts/insert-implementation with the corresponding artifactType, then retry POST /api/tickets/move.',
-        })
-        return
+        // Check if Missing Artifact Explanation exists
+        const hasExplanation = hasMissingArtifactExplanation(artifactsForCheck)
+        
+        if (!hasExplanation) {
+          json(res, 200, {
+            success: false,
+            error:
+              'Cannot move to Ready for QA: missing required implementation artifacts. You must add a "Missing Artifact Explanation" artifact that explains which artifact(s) are missing and why they were intentionally not created.',
+            missingArtifacts,
+            remedy:
+              'Add a "Missing Artifact Explanation" artifact via POST /api/artifacts/insert-implementation with artifactType "missing-artifact-explanation" and title "Missing Artifact Explanation". The artifact body_md must explain which artifact(s) are missing and why they were intentionally not created. Then retry POST /api/tickets/move.',
+          })
+          return
+        }
       }
     }
 
