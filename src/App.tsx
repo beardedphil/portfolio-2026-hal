@@ -6,6 +6,9 @@ import * as Kanban from 'portfolio-2026-kanban'
 import type { KanbanTicketRow, KanbanColumnRow, KanbanAgentRunRow, KanbanBoardProps } from 'portfolio-2026-kanban'
 import 'portfolio-2026-kanban/style.css'
 import { AgentInstructionsViewer } from './AgentInstructionsViewer'
+import { DiagnosticsPanel } from './components/diagnostics/DiagnosticsPanel'
+import { PmWorkingMemoryPanel } from './components/diagnostics/PmWorkingMemoryPanel'
+import { useDiagnostics } from './hooks/useDiagnostics'
 
 const KanbanBoard = Kanban.default
 const _kanbanBuild = (Kanban as unknown as { KANBAN_BUILD?: string }).KANBAN_BUILD
@@ -3232,17 +3235,12 @@ function App() {
     }
   })()
 
-  const diagnostics: DiagnosticsInfo = {
-    kanbanRenderMode: 'library',
-    kanbanBuild: KANBAN_BUILD,
+  const diagnostics = useDiagnostics({
     selectedChatTarget,
-    pmImplementationSource: selectedChatTarget === 'project-manager' ? 'hal-agents' : 'inline',
     lastAgentError,
     lastError,
     openaiLastStatus,
     openaiLastError,
-    kanbanLoaded: true,
-    kanbanUrl: 'library',
     connectedProject,
     lastPmOutboundRequest,
     lastPmToolCalls,
@@ -3256,10 +3254,10 @@ function App() {
     theme,
     themeSource,
     lastSendPayloadSummary,
-    repoInspectionAvailable: !!connectedGithubRepo?.fullName,
-    unitTestsConfigured: true,
+    connectedGithubRepo,
     conversationHistoryResetMessage,
-  }
+    kanbanBuild: KANBAN_BUILD,
+  })
 
   const kanbanBoardProps: KanbanBoardProps = {
     tickets: kanbanTickets,
@@ -4090,177 +4088,51 @@ function App() {
             </button>
             
             {/* Working Memory Panel (0173) */}
-            {selectedChatTarget === 'project-manager' && (
-              <button
-                type="button"
-                className="diagnostics-toggle"
-                onClick={() => {
-                  setWorkingMemoryOpen(!workingMemoryOpen)
-                  if (!workingMemoryOpen && !workingMemory && !workingMemoryLoading) {
-                    fetchWorkingMemory()
-                  }
-                }}
-                aria-expanded={workingMemoryOpen}
-              >
-                PM Working Memory {workingMemoryOpen ? '▼' : '▶'}
-              </button>
-            )}
+            <PmWorkingMemoryPanel
+              selectedChatTarget={selectedChatTarget}
+              workingMemory={workingMemory}
+              workingMemoryOpen={workingMemoryOpen}
+              setWorkingMemoryOpen={setWorkingMemoryOpen}
+              workingMemoryLoading={workingMemoryLoading}
+              workingMemoryError={workingMemoryError}
+              onRefresh={refreshWorkingMemory}
+              onFetch={fetchWorkingMemory}
+            />
             
-            {workingMemoryOpen && selectedChatTarget === 'project-manager' && (
-              <div className="diagnostics-panel" role="region" aria-label="PM Working Memory">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold' }}>PM Working Memory</h3>
-                  <button
-                    type="button"
-                    onClick={refreshWorkingMemory}
-                    disabled={workingMemoryLoading}
-                    style={{
-                      padding: '4px 12px',
-                      fontSize: '12px',
-                      cursor: workingMemoryLoading ? 'not-allowed' : 'pointer',
-                      opacity: workingMemoryLoading ? 0.6 : 1,
-                    }}
-                  >
-                    {workingMemoryLoading ? 'Refreshing...' : 'Refresh now'}
-                  </button>
-                </div>
-                
-                {workingMemoryError && (
-                  <div style={{ color: '#d32f2f', marginBottom: '12px', fontSize: '12px' }}>
-                    Error: {workingMemoryError}
-                    <br />
-                    <span style={{ fontSize: '11px', fontStyle: 'italic' }}>
-                      PM agent will continue using recent messages only.
-                    </span>
-                  </div>
-                )}
-                
-                {workingMemoryLoading && !workingMemory && (
-                  <div style={{ color: '#666', fontSize: '12px' }}>Loading working memory...</div>
-                )}
-                
-                {!workingMemoryLoading && !workingMemory && !workingMemoryError && (
-                  <div style={{ color: '#666', fontSize: '12px' }}>
-                    No working memory available yet. Start a conversation to build working memory.
-                    <br />
-                    <span style={{ fontSize: '11px', fontStyle: 'italic' }}>
-                      PM agent will use recent messages only until working memory is generated.
-                    </span>
-                  </div>
-                )}
-                
-                {workingMemory && (() => {
-                  const wm = workingMemory!
-                  return (
-                    <div style={{ fontSize: '12px' }}>
-                      <div style={{ marginBottom: '8px', color: '#666' }}>
-                        Last updated: {new Date(wm.lastUpdatedAt).toLocaleString()}
-                      </div>
-                      
-                      {wm.summary && (
-                        <div style={{ marginBottom: '16px' }}>
-                          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Summary</div>
-                          <div style={{ color: '#333', lineHeight: '1.5' }}>{wm.summary}</div>
-                        </div>
-                      )}
-                      
-                      {wm.goals.length > 0 && (
-                        <div style={{ marginBottom: '16px' }}>
-                          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Goals</div>
-                          <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
-                            {wm.goals.map((goal, idx) => (
-                              <li key={idx} style={{ marginBottom: '4px' }}>{goal}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      
-                      {wm.requirements.length > 0 && (
-                        <div style={{ marginBottom: '16px' }}>
-                          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Requirements</div>
-                          <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
-                            {wm.requirements.map((req, idx) => (
-                              <li key={idx} style={{ marginBottom: '4px' }}>{req}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      
-                      {wm.constraints.length > 0 && (
-                        <div style={{ marginBottom: '16px' }}>
-                          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Constraints</div>
-                          <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
-                            {wm.constraints.map((constraint, idx) => (
-                              <li key={idx} style={{ marginBottom: '4px' }}>{constraint}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      
-                      {wm.decisions.length > 0 && (
-                        <div style={{ marginBottom: '16px' }}>
-                          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Decisions</div>
-                          <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
-                            {wm.decisions.map((decision, idx) => (
-                              <li key={idx} style={{ marginBottom: '4px' }}>{decision}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      
-                      {wm.assumptions.length > 0 && (
-                        <div style={{ marginBottom: '16px' }}>
-                          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Assumptions</div>
-                          <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
-                            {wm.assumptions.map((assumption, idx) => (
-                              <li key={idx} style={{ marginBottom: '4px' }}>{assumption}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      
-                      {wm.openQuestions && wm.openQuestions.length > 0 && (
-                        <div style={{ marginBottom: '16px' }}>
-                          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Open Questions</div>
-                          <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
-                            {wm.openQuestions.map((question, idx) => (
-                              <li key={idx} style={{ marginBottom: '4px' }}>{question}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      
-                      {Object.keys(wm.glossary).length > 0 && (
-                        <div style={{ marginBottom: '16px' }}>
-                          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Glossary</div>
-                          <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
-                            {Object.entries(wm.glossary).map(([term, def]) => (
-                              <li key={term} style={{ marginBottom: '4px' }}>
-                                <strong>{term}:</strong> {def}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      
-                      {wm.stakeholders.length > 0 && (
-                        <div style={{ marginBottom: '16px' }}>
-                          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Stakeholders</div>
-                          <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
-                            {wm.stakeholders.map((stakeholder, idx) => (
-                              <li key={idx} style={{ marginBottom: '4px' }}>{stakeholder}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
+            <DiagnosticsPanel
+              diagnostics={diagnostics}
+              diagnosticsOpen={diagnosticsOpen}
+              setDiagnosticsOpen={setDiagnosticsOpen}
+              selectedChatTarget={selectedChatTarget}
+              chatWidth={chatWidth}
+              isDragging={isDragging}
+              lastWorkButtonClick={lastWorkButtonClick}
+              outboundRequestExpanded={outboundRequestExpanded}
+              setOutboundRequestExpanded={setOutboundRequestExpanded}
+              toolCallsExpanded={toolCallsExpanded}
+              setToolCallsExpanded={setToolCallsExpanded}
+              formatTime={formatTime}
+            />
+            {/* Orphaned completion summary (0067) - kept separate from diagnostics panel */}
+            {orphanedCompletionSummary && diagnosticsOpen && (
+              <div className="diagnostics-panel" role="region" aria-label="Orphaned completion summary">
+                <div className="diag-section">
+                  <div className="diag-section-header">Orphaned completion summary</div>
+                  <div className="diag-section-content">
+                    <div className="diag-auto-move-entry diag-auto-move-error">
+                      <span className="diag-auto-move-message">
+                        Completion summary received but agent type could not be determined. Raw summary retained for troubleshooting:
+                      </span>
                     </div>
-                  )
-                })()}
+                    <pre className="diag-json" style={{ marginTop: '8px', whiteSpace: 'pre-wrap' }}>
+                      {orphanedCompletionSummary}
+                    </pre>
+                  </div>
+                </div>
               </div>
             )}
-            
-            {diagnosticsOpen && (
-              <div className="diagnostics-panel" role="region" aria-label="Diagnostics">
+            {false && (
+              <div className="diagnostics-panel" role="region" aria-label="Diagnostics (old - removed)">
                 <div className="diag-row">
                   <span className="diag-label">Chat width (px):</span>
                   <span className="diag-value">{chatWidth}</span>
