@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Reports overcomplication metrics for QA reports:
+ * Reports simplicity metrics for QA reports:
  * - Max allowed lines (from allowlist)
  * - Whether the gate passed
  * - Count of allowlisted files
@@ -189,7 +189,7 @@ function getAllSourceFiles() {
 /**
  * Main function
  */
-function reportOvercomplication() {
+function reportSimplicity() {
   const allowlist = loadAllowlist()
   const maxLines = allowlist.maxLines
   const allowlistCount = allowlist.files.length
@@ -198,7 +198,7 @@ function reportOvercomplication() {
   const top10 = allFiles.slice(0, 10)
   
   // Output markdown format
-  console.log('## Overcomplication')
+  console.log('## Simplicity')
   console.log('')
   console.log(`**Max allowed lines:** ${maxLines}`)
   console.log(`**Gate passed:** ${gatePassed ? '✅ Yes' : '❌ No'}`)
@@ -215,4 +215,4 @@ function reportOvercomplication() {
 }
 
 // Run the report
-reportOvercomplication()
+reportSimplicity()
