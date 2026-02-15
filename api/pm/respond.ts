@@ -1,393 +1,115 @@
 import type { IncomingMessage, ServerResponse } from 'http'
-import path from 'path'
-import { pathToFileURL } from 'url'
-import { fetchFileContents, searchCode, listDirectoryContents } from '../_lib/github/githubApi.js'
 import { getSession } from '../_lib/github/session.js'
-import {
-  getWorkingMemory,
-  updateWorkingMemoryIfNeeded,
-  formatWorkingMemoryForPrompt,
-} from './working-memory.js'
-
-type PmAgentResponse = {
-  reply: string
-  toolCalls: Array<{ name: string; input: unknown; output: unknown }>
-  outboundRequest: object | null
-  responseId?: string
-  error?: string
-  errorPhase?: 'context-pack' | 'openai' | 'tool' | 'not-implemented'
-  ticketCreationResult?: {
-    id: string
-    filename: string
-    filePath: string
-    syncSuccess: boolean
-    syncError?: string
-    retried?: boolean
-    attempts?: number
-    /** True when ticket was automatically moved to To Do (0083). */
-    movedToTodo?: boolean
-    /** Error message if auto-move to To Do failed (0083). */
-    moveError?: string
-    /** True if ticket is ready to start (0083). */
-    ready?: boolean
-    /** Missing items if ticket is not ready (0083). */
-    missingItems?: string[]
-    /** True if ticket was auto-fixed (formatting issues resolved) (0095). */
-    autoFixed?: boolean
-  }
-  createTicketAvailable?: boolean
-  agentRunner?: string
-  /** Full prompt text sent to the LLM (0202) */
-  promptText?: string
-}
-
-async function readJsonBody(req: IncomingMessage): Promise<unknown> {
-  const chunks: Uint8Array[] = []
-  for await (const chunk of req) {
-    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk)
-  }
-  const raw = Buffer.concat(chunks).toString('utf8').trim()
-  if (!raw) return {}
-  return JSON.parse(raw) as unknown
-}
-
-function json(res: ServerResponse, statusCode: number, body: unknown) {
-  res.statusCode = statusCode
-  res.setHeader('Content-Type', 'application/json')
-  res.end(JSON.stringify(body))
-}
+import { readJsonBody, validateMethod, parseRequestBody, validateMessageOrImages } from './respond/request-parsing.js'
+import { validateOpenAiConfig } from './respond/config-validation.js'
+import { createGitHubFunctions } from './respond/github-gating.js'
+import { loadRunnerModule, getRunner } from './respond/runner-loading.js'
+import { buildContextPack } from './respond/context-pack.js'
+import { extractTicketCreationResult } from './respond/ticket-result.js'
+import { updateWorkingMemoryAfterResponse } from './respond/working-memory-update.js'
+import { json, formatResponse } from './respond/response-formatting.js'
+import type { PmAgentResponse } from './respond/types.js'
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
-  if (req.method !== 'POST') {
+  // Validate HTTP method
+  if (!validateMethod(req.method)) {
     res.statusCode = 405
     res.end('Method Not Allowed')
     return
   }
 
   try {
-    const body = (await readJsonBody(req)) as {
-      message?: string
-      conversationHistory?: Array<{ role: string; content: string }>
-      previous_response_id?: string
-      projectId?: string
-      conversationId?: string // e.g., "project-manager-1"
-      repoFullName?: string
-      supabaseUrl?: string
-      supabaseAnonKey?: string
-      images?: Array<{ dataUrl: string; filename: string; mimeType: string }>
+    // Parse request body
+    const rawBody = await readJsonBody(req)
+    const body = parseRequestBody(rawBody)
+
+    // Validate message or images
+    const messageError = validateMessageOrImages(body.message ?? '', body.images)
+    if (messageError) {
+      json(res, 400, { error: messageError })
+      return
     }
 
-    const message = body.message ?? ''
-    let conversationHistory = Array.isArray(body.conversationHistory)
-      ? body.conversationHistory
-      : undefined
+    // Validate OpenAI config
+    const configResult = validateOpenAiConfig()
+    if (!configResult.valid) {
+      json(res, 503, configResult.errorResponse)
+      return
+    }
+    const { key, model } = configResult
 
-    const previousResponseId =
-      typeof body.previous_response_id === 'string'
-        ? body.previous_response_id
-        : undefined
-
-    const projectId =
-      typeof body.projectId === 'string' ? body.projectId.trim() || undefined : undefined
-    const conversationId =
-      typeof body.conversationId === 'string'
-        ? body.conversationId.trim() || undefined
-        : undefined
-    const repoFullName =
-      typeof body.repoFullName === 'string' ? body.repoFullName.trim() || undefined : undefined
-    const supabaseUrl =
-      typeof body.supabaseUrl === 'string' ? body.supabaseUrl.trim() || undefined : undefined
-    const supabaseAnonKey =
-      typeof body.supabaseAnonKey === 'string'
-        ? body.supabaseAnonKey.trim() || undefined
-        : undefined
-
-    // GitHub API for repo inspection: need token (from session) + repoFullName
+    // Get GitHub session and create GitHub functions
     const session = await getSession(req, res)
     const githubToken = session.github?.accessToken
-    // Debug logging (0119: fix PM agent repo selection) - use console.warn for visibility
-    const hasCookie = !!req.headers.cookie
     const cookieHeader = req.headers.cookie ? 'present' : 'missing'
-    console.warn(`[PM] Request received - repoFullName: ${repoFullName || 'NOT PROVIDED'}, hasToken: ${!!githubToken}, tokenLength: ${githubToken?.length || 0}, cookieHeader: ${cookieHeader}`)
-    if (repoFullName && !githubToken) {
-      console.warn(`[PM] ⚠️ repoFullName provided (${repoFullName}) but no GitHub token in session. Cookie header: ${cookieHeader}`)
-      console.warn(`[PM] Session data:`, JSON.stringify({ hasGithub: !!session.github, githubKeys: session.github ? Object.keys(session.github) : [] }))
+    console.warn(
+      `[PM] Request received - repoFullName: ${body.repoFullName || 'NOT PROVIDED'}, hasToken: ${!!githubToken}, tokenLength: ${githubToken?.length || 0}, cookieHeader: ${cookieHeader}`
+    )
+    if (body.repoFullName && !githubToken) {
+      console.warn(
+        `[PM] ⚠️ repoFullName provided (${body.repoFullName}) but no GitHub token in session. Cookie header: ${cookieHeader}`
+      )
+      console.warn(
+        `[PM] Session data:`,
+        JSON.stringify({
+          hasGithub: !!session.github,
+          githubKeys: session.github ? Object.keys(session.github) : [],
+        })
+      )
     }
-    if (githubToken && !repoFullName) {
+    if (githubToken && !body.repoFullName) {
       console.warn(`[PM] GitHub token available but no repoFullName provided`)
     }
-    const githubReadFile =
-      githubToken && repoFullName
-        ? (filePath: string, maxLines = 500) => {
-            console.log(`[PM] Using GitHub API to read file: ${repoFullName}/${filePath}`)
-            return fetchFileContents(githubToken, repoFullName, filePath, maxLines)
-          }
-        : undefined
-    const githubSearchCode =
-      githubToken && repoFullName
-        ? (pattern: string, glob?: string) => {
-            console.log(`[PM] Using GitHub API to search: ${repoFullName} pattern: ${pattern}`)
-            return searchCode(githubToken, repoFullName, pattern, glob)
-          }
-        : undefined
-    const githubListDirectory =
-      githubToken && repoFullName
-        ? (dirPath: string) => {
-            console.log(`[PM] Using GitHub API to list directory: ${repoFullName}/${dirPath}`)
-            return listDirectoryContents(githubToken, repoFullName, dirPath)
-          }
-        : undefined
-    if (!githubReadFile && repoFullName) {
-      console.warn(`[PM] githubReadFile is undefined even though repoFullName=${repoFullName} - token missing?`)
-    }
 
-    // Allow empty message if images are present
-    const hasImages = Array.isArray(body.images) && body.images.length > 0
-    if (!message.trim() && !hasImages) {
-      json(res, 400, { error: 'Message is required (or attach an image)' })
-      return
-    }
+    const { githubReadFile, githubSearchCode, githubListDirectory } = createGitHubFunctions(
+      session,
+      body.repoFullName
+    )
 
-    const key = process.env.OPENAI_API_KEY?.trim()
-    const model = process.env.OPENAI_MODEL?.trim()
+    // Load runner module
+    const runnerModule = await loadRunnerModule()
+    const runner = getRunner(runnerModule)
 
-    if (!key || !model) {
-      json(res, 503, {
-        reply: '',
-        toolCalls: [],
-        outboundRequest: null,
-        error: 'OpenAI API is not configured. Set OPENAI_API_KEY and OPENAI_MODEL in env.',
-        errorPhase: 'openai',
-      } satisfies PmAgentResponse)
-      return
-    }
-
-    // Load hal-agents runner (prefer dist output).
-    // On Vercel, repo root is process.cwd().
-    const repoRoot = process.cwd()
-    let runnerModule:
-      | {
-          getSharedRunner?: () => {
-            label: string
-            run: (msg: string, config: object) => Promise<any>
-          }
-          summarizeForContext?: (msgs: unknown[], key: string, model: string) => Promise<string>
-          generateWorkingMemory?: (
-            msgs: unknown[],
-            existing: unknown,
-            key: string,
-            model: string
-          ) => Promise<unknown>
-        }
-      | null = null
-
-    try {
-      const runnerDistPath = path.resolve(repoRoot, 'agents/dist/agents/runner.js')
-      runnerModule = await import(pathToFileURL(runnerDistPath).href)
-    } catch {
-      // If dist isn't present, we'll fall through and return stub.
-      runnerModule = null
-    }
-
-    // When project DB (Supabase) is provided, fetch full history and build bounded context pack (summary + recent by content size)
-    const RECENT_MAX_CHARS = 12_000
+    // Build context pack if Supabase is available
     let conversationContextPack: string | undefined
     let workingMemoryText: string | undefined
     let recentImagesFromDb: Array<{ dataUrl: string; filename: string; mimeType: string }> = []
-    if (projectId && supabaseUrl && supabaseAnonKey && runnerModule) {
+    let conversationHistory = body.conversationHistory
+
+    if (body.projectId && body.supabaseUrl && body.supabaseAnonKey && runnerModule) {
       try {
         const { createClient } = await import('@supabase/supabase-js')
-        const supabase = createClient(supabaseUrl, supabaseAnonKey)
-        
-        // Use conversationId if provided, otherwise fall back to 'project-manager' for backward compatibility
-        const agentFilter = conversationId || 'project-manager'
-        
-        const { data: rows } = await supabase
-          .from('hal_conversation_messages')
-          .select('role, content, sequence, images')
-          .eq('project_id', projectId)
-          .eq('agent', agentFilter)
-          .order('sequence', { ascending: true })
-
-        const messages = (rows ?? []).map((r: any) => ({
-          role: r.role as 'user' | 'assistant',
-          content: r.content ?? '',
-          sequence: r.sequence ?? 0,
-          images: r.images || null,
-        }))
-
-        const recentFromEnd: typeof messages = []
-        let recentLen = 0
-        for (let i = messages.length - 1; i >= 0; i--) {
-          const t = messages[i]
-          const lineLen = (t.role?.length ?? 0) + (t.content?.length ?? 0) + 12
-          if (recentLen + lineLen > RECENT_MAX_CHARS && recentFromEnd.length > 0) break
-          recentFromEnd.unshift(t)
-          recentLen += lineLen
-          // Collect images from recent messages (0157: persist images to DB)
-          if (t.images && Array.isArray(t.images)) {
-            for (const img of t.images) {
-              if (img && typeof img === 'object' && img.dataUrl && img.filename && img.mimeType) {
-                // Avoid duplicates by dataUrl
-                if (!recentImagesFromDb.some(existing => existing.dataUrl === img.dataUrl)) {
-                  recentImagesFromDb.push({
-                    dataUrl: img.dataUrl,
-                    filename: img.filename,
-                    mimeType: img.mimeType,
-                  })
-                }
-              }
-            }
-          }
-        }
-
-        // Update working memory if needed (0173: PM working memory)
-        // Use agentFilter (conversationId or 'project-manager') as the agent field
-        if (messages.length > 0) {
-          try {
-            await updateWorkingMemoryIfNeeded(
-              supabase,
-              projectId,
-              agentFilter, // Use agentFilter which is conversationId or 'project-manager'
-              messages,
-              key,
-              model,
-              false // Don't force update unless explicitly requested
-            )
-          } catch (wmError) {
-            console.error('[PM] Failed to update working memory:', wmError)
-            // Continue without working memory if update fails
-          }
-        }
-        
-        // Get working memory for prompt inclusion
-        try {
-          const workingMemory = await getWorkingMemory(supabase, projectId, agentFilter)
-          if (workingMemory) {
-            workingMemoryText = formatWorkingMemoryForPrompt(workingMemory)
-          }
-        } catch (wmError) {
-          console.error('[PM] Failed to load working memory:', wmError)
-          // Continue without working memory if load fails
-        }
-        
-        const olderCount = messages.length - recentFromEnd.length
-        if (olderCount > 0) {
-          const older = messages.slice(0, olderCount)
-          const { data: summaryRow } = await supabase
-            .from('hal_conversation_summaries')
-            .select('summary_text, through_sequence')
-            .eq('project_id', projectId)
-            .eq('agent', agentFilter)
-            .maybeSingle()
-
-          const needNewSummary =
-            !summaryRow || (summaryRow.through_sequence ?? 0) < olderCount
-          let summaryText: string
-
-          if (needNewSummary && typeof runnerModule.summarizeForContext === 'function') {
-            summaryText = await runnerModule.summarizeForContext(older, key, model)
-            await supabase.from('hal_conversation_summaries').upsert(
-              {
-                project_id: projectId,
-                agent: agentFilter,
-                summary_text: summaryText,
-                through_sequence: olderCount,
-                updated_at: new Date().toISOString(),
-              },
-              { onConflict: 'project_id,agent' }
-            )
-          } else if (summaryRow?.summary_text) {
-            summaryText = summaryRow.summary_text
-          } else {
-            summaryText = `(${older.length} older messages)`
-          }
-
-          const contextParts: string[] = []
-          if (workingMemoryText) {
-            contextParts.push(workingMemoryText)
-          }
-          contextParts.push(`Summary of earlier conversation:\n\n${summaryText}\n\nRecent conversation (within ${RECENT_MAX_CHARS.toLocaleString()} characters):\n\n${recentFromEnd
-            .map((t) => `**${t.role}**: ${t.content}`)
-            .join('\n\n')}`)
-          
-          conversationContextPack = contextParts.join('\n\n')
-        } else if (messages.length > 0) {
-          const contextParts: string[] = []
-          if (workingMemoryText) {
-            contextParts.push(workingMemoryText)
-          }
-          contextParts.push(messages.map((t) => `**${t.role}**: ${t.content}`).join('\n\n'))
-          conversationContextPack = contextParts.join('\n\n')
-        } else if (workingMemoryText) {
-          conversationContextPack = workingMemoryText
-        }
-        
-        // Prepend working memory to context pack if available (0173)
-        if (workingMemoryText) {
-          conversationContextPack = workingMemoryText + '\n\n' + (conversationContextPack || '')
-        }
-
-        // Fetch working memory (0173: PM working memory)
-        try {
-          const { data: memoryRow } = await supabase
-            .from('hal_pm_working_memory')
-            .select('*')
-            .eq('project_id', projectId)
-            .eq('agent', 'project-manager')
-            .maybeSingle()
-
-          if (memoryRow) {
-            const parts: string[] = []
-            if (memoryRow.summary) parts.push(`**Summary:** ${memoryRow.summary}`)
-            if (memoryRow.goals && memoryRow.goals.length > 0)
-              parts.push(`**Goals:** ${memoryRow.goals.join(', ')}`)
-            if (memoryRow.requirements && memoryRow.requirements.length > 0)
-              parts.push(`**Requirements:** ${memoryRow.requirements.join(', ')}`)
-            if (memoryRow.constraints && memoryRow.constraints.length > 0)
-              parts.push(`**Constraints:** ${memoryRow.constraints.join(', ')}`)
-            if (memoryRow.decisions && memoryRow.decisions.length > 0)
-              parts.push(`**Decisions:** ${memoryRow.decisions.join(', ')}`)
-            if (memoryRow.assumptions && memoryRow.assumptions.length > 0)
-              parts.push(`**Assumptions:** ${memoryRow.assumptions.join(', ')}`)
-            if (memoryRow.open_questions && memoryRow.open_questions.length > 0)
-              parts.push(`**Open Questions:** ${memoryRow.open_questions.join(', ')}`)
-            if (memoryRow.glossary && memoryRow.glossary.length > 0)
-              parts.push(`**Glossary:** ${memoryRow.glossary.join('; ')}`)
-            if (memoryRow.stakeholders && memoryRow.stakeholders.length > 0)
-              parts.push(`**Stakeholders:** ${memoryRow.stakeholders.join(', ')}`)
-
-            if (parts.length > 0) {
-              workingMemoryText = `## Working Memory\n\n${parts.join('\n\n')}\n\n*Last updated: ${new Date(memoryRow.updated_at).toLocaleString()}*\n`
-            }
-          }
-        } catch (memoryErr) {
-          // Working memory fetch failed, continue without it (graceful degradation)
-          console.warn('[PM] Failed to fetch working memory:', memoryErr)
-          // Set a note that memory is unavailable (for UI display)
-          workingMemoryText = undefined
-        }
-
-        // Use DB-derived context pack instead of client-provided history
-        conversationHistory = undefined
+        const supabase = createClient(body.supabaseUrl, body.supabaseAnonKey)
+        const contextResult = await buildContextPack(
+          supabase,
+          body.projectId,
+          body.conversationId,
+          runnerModule,
+          key,
+          model
+        )
+        conversationContextPack = contextResult.conversationContextPack
+        workingMemoryText = contextResult.workingMemoryText
+        recentImagesFromDb = contextResult.recentImagesFromDb
+        conversationHistory = contextResult.conversationHistory
       } catch {
         // If DB context fails, fall back to client history.
       }
     }
 
-    const runner = runnerModule?.getSharedRunner?.()
+    // Check if runner is available
     if (!runner?.run) {
       const stubResponse: PmAgentResponse = {
         reply:
           '[PM Agent] The PM agent core is not yet available on this deployment (hal-agents runner not found).\n\nYour message was: "' +
-          message +
+          (body.message ?? '') +
           '"',
         toolCalls: [],
         outboundRequest: {
           _stub: true,
           _note: 'hal-agents runner dist not available',
           model,
-          message,
+          message: body.message ?? '',
         },
         error: 'PM agent runner not available (missing hal-agents dist)',
         errorPhase: 'not-implemented',
@@ -396,271 +118,97 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
-    const createTicketAvailable = !!(supabaseUrl && supabaseAnonKey)
-    const currentRequestImages = Array.isArray(body.images) ? body.images : undefined
-    
-    // Merge current request images with images from recent messages (0157: persist images to DB)
-    // Current request images take precedence (most recent), but we include images from recent messages too
+    // Merge images from DB and current request
+    const createTicketAvailable = !!(body.supabaseUrl && body.supabaseAnonKey)
+    const currentRequestImages = body.images
     const allImages: Array<{ dataUrl: string; filename: string; mimeType: string }> = []
-    
-    // First add images from recent DB messages (older)
+
     if (recentImagesFromDb.length > 0) {
       allImages.push(...recentImagesFromDb)
     }
-    
-    // Then add current request images (newer), avoiding duplicates by dataUrl
+
     if (currentRequestImages && currentRequestImages.length > 0) {
       for (const img of currentRequestImages) {
-        if (!allImages.some(existing => existing.dataUrl === img.dataUrl)) {
+        if (!allImages.some((existing) => existing.dataUrl === img.dataUrl)) {
           allImages.push(img)
         }
       }
     }
-    
+
     const images = allImages.length > 0 ? allImages : undefined
 
+    // Prepare config for runner
+    const repoRoot = process.cwd()
     const config = {
       repoRoot,
       openaiApiKey: key,
       openaiModel: model,
       conversationHistory,
       conversationContextPack,
-      workingMemoryText, // 0173: Include working memory in PM agent context
-      previousResponseId,
+      workingMemoryText,
+      previousResponseId: body.previous_response_id,
       ...(createTicketAvailable
-        ? { supabaseUrl: supabaseUrl!, supabaseAnonKey: supabaseAnonKey! }
+        ? { supabaseUrl: body.supabaseUrl!, supabaseAnonKey: body.supabaseAnonKey! }
         : {}),
-      ...(projectId ? { projectId } : {}),
-      ...(conversationId ? { conversationId } : {}),
-      ...(repoFullName ? { repoFullName } : {}),
+      ...(body.projectId ? { projectId: body.projectId } : {}),
+      ...(body.conversationId ? { conversationId: body.conversationId } : {}),
+      ...(body.repoFullName ? { repoFullName: body.repoFullName } : {}),
       ...(githubReadFile ? { githubReadFile } : {}),
       ...(githubSearchCode ? { githubSearchCode } : {}),
       ...(githubListDirectory ? { githubListDirectory } : {}),
       ...(images ? { images } : {}),
     }
-    // Debug: log what's being passed to PM agent (0119) - use console.warn for visibility
-    console.warn(`[PM] Config passed to runner: repoFullName=${config.repoFullName || 'NOT SET'}, hasGithubReadFile=${typeof config.githubReadFile === 'function'}, hasGithubSearchCode=${typeof config.githubSearchCode === 'function'}, hasGithubListDirectory=${typeof config.githubListDirectory === 'function'}, hasImages=${!!config.images}, imageCount=${config.images?.length || 0}`)
-    const result = (await runner.run(message, config)) as PmAgentResponse & {
+
+    console.warn(
+      `[PM] Config passed to runner: repoFullName=${config.repoFullName || 'NOT SET'}, hasGithubReadFile=${typeof config.githubReadFile === 'function'}, hasGithubSearchCode=${typeof config.githubSearchCode === 'function'}, hasGithubListDirectory=${typeof config.githubListDirectory === 'function'}, hasImages=${!!config.images}, imageCount=${config.images?.length || 0}`
+    )
+
+    // Run the agent
+    const result = (await runner.run(body.message ?? '', config)) as PmAgentResponse & {
       toolCalls: Array<{ name: string; input: unknown; output: unknown }>
     }
 
-    // Update working memory automatically after PM agent responds (0173)
-    if (projectId && supabaseUrl && supabaseAnonKey && runnerModule && typeof runnerModule.extractWorkingMemory === 'function') {
-      try {
-        const { createClient } = await import('@supabase/supabase-js')
-        const supabase = createClient(supabaseUrl, supabaseAnonKey)
-        
-        // Fetch current working memory
-        const { data: existingWm } = await supabase
-          .from('hal_pm_working_memory')
-          .select('*')
-          .eq('project_id', projectId)
-          .eq('agent', 'project-manager')
-          .maybeSingle()
-        
-        // Fetch all messages to extract working memory from
-        const { data: allMessages } = await supabase
-          .from('hal_conversation_messages')
-          .select('role, content, sequence')
-          .eq('project_id', projectId)
-          .eq('agent', 'project-manager')
-          .order('sequence', { ascending: true })
-        
-        if (allMessages && allMessages.length > 0) {
-          const conversationTurns = allMessages.map((m: any) => ({
-            role: m.role as 'user' | 'assistant',
-            content: m.content ?? '',
-          }))
-          
-          const existingWmData = existingWm ? {
-            summary: existingWm.summary || '',
-            goals: existingWm.goals || '',
-            requirements: existingWm.requirements || '',
-            constraints: existingWm.constraints || '',
-            decisions: existingWm.decisions || '',
-            assumptions: existingWm.assumptions || '',
-            open_questions: existingWm.open_questions || '',
-            glossary_terms: existingWm.glossary_terms || '',
-            stakeholders: existingWm.stakeholders || '',
-          } : null
-          
-          // Extract working memory (only update if we have new messages beyond what's already processed)
-          const lastSequence = existingWm?.through_sequence || 0
-          const newMessages = conversationTurns.slice(lastSequence)
-          
-          if (newMessages.length > 0 || !existingWm) {
-            const updatedWm = await runnerModule.extractWorkingMemory(
-              conversationTurns,
-              existingWmData,
-              key,
-              model
-            )
-            
-            // Update working memory in database
-            const maxSequence = Math.max(...allMessages.map((m: any) => m.sequence || 0), 0)
-            await supabase
-              .from('hal_pm_working_memory')
-              .upsert(
-                {
-                  project_id: projectId,
-                  agent: 'project-manager',
-                  ...updatedWm,
-                  through_sequence: maxSequence,
-                  last_updated: new Date().toISOString(),
-                },
-                { onConflict: 'project_id,agent' }
-              )
-          }
-        }
-      } catch (wmErr) {
-        // Working memory update failed - log but don't fail the request
-        // This is a non-fatal error: PM agent can still respond using recent messages
-        console.warn('[PM] Working memory update failed (non-fatal):', wmErr)
-        // Note: We don't set an error flag here because working memory is optional
-        // The PM agent will still work correctly using recent messages if working memory fails
-      }
-    }
-
-    // Supabase-only (0065): no docs/tickets sync in serverless.
-    // Still provide ticketCreationResult so UI can show a summary message.
-    let ticketCreationResult: PmAgentResponse['ticketCreationResult']
-    const createTicketCall = result.toolCalls?.find(
-      (c) =>
-        c.name === 'create_ticket' &&
-        typeof c.output === 'object' &&
-        c.output !== null &&
-        (c.output as { success?: boolean }).success === true
-    )
-    if (createTicketCall) {
-      const out = createTicketCall.output as any
-      ticketCreationResult = {
-        id: String(out.display_id ?? out.id ?? ''),
-        filename: String(out.filename ?? ''),
-        filePath: String(out.filePath ?? ''),
-        syncSuccess: true,
-        ...(out.retried && out.attempts != null && { retried: true, attempts: out.attempts }),
-        ...(out.movedToTodo && { movedToTodo: true }),
-        ...(out.moveError && { moveError: String(out.moveError) }),
-        ...(typeof out.ready === 'boolean' && { ready: out.ready }),
-        ...(Array.isArray(out.missingItems) && out.missingItems.length > 0 && { missingItems: out.missingItems }),
-        ...(out.autoFixed && { autoFixed: true }),
-      }
-    }
-
-    // Auto-update working memory after response (0173: PM working memory)
+    // Update working memory after response (0173: PM working memory)
     if (
-      projectId &&
-      supabaseUrl &&
-      supabaseAnonKey &&
+      body.projectId &&
+      body.supabaseUrl &&
+      body.supabaseAnonKey &&
       runnerModule &&
-      typeof runnerModule.generateWorkingMemory === 'function' &&
       !result.error
     ) {
       try {
         const { createClient } = await import('@supabase/supabase-js')
-        const supabase = createClient(supabaseUrl, supabaseAnonKey)
-        const { data: allMessages } = await supabase
-          .from('hal_conversation_messages')
-          .select('role, content, sequence')
-          .eq('project_id', projectId)
-          .eq('agent', 'project-manager')
-          .order('sequence', { ascending: true })
-
-        if (allMessages && allMessages.length > 0) {
-          const messages = allMessages.map((r: any) => ({
-            role: r.role as 'user' | 'assistant',
-            content: r.content ?? '',
-          }))
-
-          const { data: existingMemory } = await supabase
-            .from('hal_pm_working_memory')
-            .select('*')
-            .eq('project_id', projectId)
-            .eq('agent', 'project-manager')
-            .maybeSingle()
-
-          // Only update if we have new messages (check last_sequence)
-          const maxSequence = Math.max(...allMessages.map((m: any) => m.sequence ?? 0))
-          const shouldUpdate =
-            !existingMemory || (existingMemory.last_sequence ?? 0) < maxSequence
-
-          if (shouldUpdate) {
-            const newMemory = (await runnerModule.generateWorkingMemory(
-              messages,
-              existingMemory,
-              key,
-              model
-            )) as {
-              summary: string
-              goals: string[]
-              requirements: string[]
-              constraints: string[]
-              decisions: string[]
-              assumptions: string[]
-              open_questions: string[]
-              glossary: string[]
-              stakeholders: string[]
-            }
-
-            await supabase.from('hal_pm_working_memory').upsert(
-              {
-                project_id: projectId,
-                agent: 'project-manager',
-                summary: newMemory.summary,
-                goals: newMemory.goals,
-                requirements: newMemory.requirements,
-                constraints: newMemory.constraints,
-                decisions: newMemory.decisions,
-                assumptions: newMemory.assumptions,
-                open_questions: newMemory.open_questions,
-                glossary: newMemory.glossary,
-                stakeholders: newMemory.stakeholders,
-                last_sequence: maxSequence,
-                updated_at: new Date().toISOString(),
-              },
-              { onConflict: 'project_id,agent' }
-            )
-          }
-        }
+        const supabase = createClient(body.supabaseUrl, body.supabaseAnonKey)
+        await updateWorkingMemoryAfterResponse(supabase, body.projectId, runnerModule, key, model)
       } catch (memoryUpdateErr) {
-        // Working memory update failed, but don't fail the response (graceful degradation)
         console.warn('[PM] Failed to update working memory:', memoryUpdateErr)
-        // The PM agent will continue using recent messages and existing working memory
       }
     }
 
-    const response: PmAgentResponse = {
-      reply: result.reply,
-      toolCalls: result.toolCalls ?? [],
-      outboundRequest: result.outboundRequest ?? null,
-      ...(result.responseId != null && { responseId: result.responseId }),
-      ...(result.error != null && { error: result.error }),
-      ...(result.errorPhase != null && { errorPhase: result.errorPhase }),
-      ...(ticketCreationResult != null && { ticketCreationResult }),
-      createTicketAvailable,
-      agentRunner: runner.label,
-      ...(result.promptText != null && { promptText: result.promptText }),
-    }
+    // Extract ticket creation result
+    const ticketCreationResult = extractTicketCreationResult(result.toolCalls)
 
-    // Debug: log what we're returning (0119) - include in response for frontend debugging
+    // Format and send response
     const debugInfo = {
-      repoFullName: repoFullName || 'NOT SET',
+      repoFullName: body.repoFullName || 'NOT SET',
       hasGithubToken: !!githubToken,
       hasGithubReadFile: typeof githubReadFile === 'function',
       hasGithubSearchCode: typeof githubSearchCode === 'function',
       hasGithubListDirectory: typeof githubListDirectory === 'function',
       cookieHeaderPresent: !!req.headers.cookie,
-      repoUsage: (result as any)._repoUsage || [], // Which repo was actually used for each tool call
+      repoUsage: (result as any)._repoUsage || [],
     }
     console.warn(`[PM] Response - ${JSON.stringify(debugInfo)}`)
-    
-    // Include debug info in response for frontend (0119)
-    const responseWithDebug = {
-      ...response,
-      _debug: debugInfo, // Frontend can check this in Network tab
-    }
 
-    json(res, 200, responseWithDebug)
+    const response = formatResponse(
+      result,
+      createTicketAvailable,
+      runner.label,
+      ticketCreationResult,
+      debugInfo
+    )
+
+    json(res, 200, response)
   } catch (err) {
     json(res, 500, {
       reply: '',
@@ -671,4 +219,3 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     } satisfies PmAgentResponse)
   }
 }
-
