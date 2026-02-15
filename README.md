@@ -9,3 +9,20 @@ This repo assembles the portfolio projects. **Edit agents code only here** so th
 
 See [docs/process/single-source-agents.md](docs/process/single-source-agents.md) for why hal-agents is in-repo and how to optionally sync to an external repo.
 
+## Scripts
+
+### `npm run report:lines`
+
+Reports source code files exceeding 250 lines, sorted by line count (descending). Targets source directories (`src/`, `api/`, `agents/`, `scripts/`, `projects/*/src`) and excludes generated/vendor output (`dist/`, `build/`, `node_modules/`). Exits with code 0 (non-blocking).
+
+Example output:
+```
+Found 35 source file(s) exceeding 250 lines:
+
+Lines | Path
+------|------------------------------------------------------------
+ 5498 | projects/kanban/src/App.tsx
+ 5051 | src/App.tsx
+ ...
+```
+
