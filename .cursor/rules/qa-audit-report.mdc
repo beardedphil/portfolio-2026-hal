@@ -29,9 +29,49 @@ When you **QA a ticket** (verify, check a ticket that is allegedly complete), st
 3. Audit artifacts present (if all present)
 4. Code review — PASS/FAIL with evidence
 5. Build verification — **MANDATORY:** `npm run build:hal`; TypeScript errors = FAIL
-6. UI verification — automated and/or manual steps
-7. AC Confirmation Checklist — enumerate each AC, Met/Not met with evidence; see `ac-confirmation-checklist.mdc`
-8. Verdict — PASS or FAIL
+6. Coverage — **MANDATORY:** Test coverage report with 4-metric table (lines/functions/branches/statements) and command used; see "Coverage section" below
+7. UI verification — automated and/or manual steps
+8. AC Confirmation Checklist — enumerate each AC, Met/Not met with evidence; see `ac-confirmation-checklist.mdc`
+9. Verdict — PASS or FAIL
+
+## Coverage section
+
+**MANDATORY:** Every QA report **MUST** include a **Coverage** section with:
+
+1. **A 4-metric table** showing overall coverage percentages:
+   - Lines
+   - Functions
+   - Branches
+   - Statements
+
+2. **The command used** to generate the coverage numbers
+
+**How to generate coverage:**
+
+Run the following command to generate test coverage:
+
+```bash
+npm run test:coverage
+```
+
+This command runs vitest with coverage enabled and outputs a text summary with coverage percentages. Extract the overall coverage percentages from the output and include them in a table in the QA report.
+
+**Coverage section format:**
+
+```markdown
+## Coverage
+
+| Metric | Coverage |
+|--------|----------|
+| Lines | XX% |
+| Functions | XX% |
+| Branches | XX% |
+| Statements | XX% |
+
+**Command used:** `npm run test:coverage`
+```
+
+**Note:** Coverage numbers must reflect the current commit under test (not hardcoded). Run the command on the branch/commit being verified.
 
 ## Storing QA report
 

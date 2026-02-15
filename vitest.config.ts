@@ -31,6 +31,25 @@ export default defineConfig(({ mode }) => {
         VITE_SUPABASE_URL: env.VITE_SUPABASE_URL || '',
         VITE_SUPABASE_ANON_KEY: env.VITE_SUPABASE_ANON_KEY || '',
       },
+      coverage: {
+        provider: 'v8',
+        reporter: ['text', 'text-summary', 'json-summary'],
+        include: ['src/**/*.{ts,tsx}', 'api/**/*.ts', 'agents/**/*.ts', 'projects/**/*.{ts,tsx}'],
+        exclude: [
+          '**/node_modules/**',
+          '**/dist/**',
+          '**/*.test.ts',
+          '**/*.test.tsx',
+          '**/test/**',
+          '**/test-setup.ts',
+          '**/setup.ts',
+          '**/vitest.config.ts',
+          '**/vite.config.ts',
+          '**/*.md',
+          '**/*.json',
+          '**/hal-template/**',
+        ],
+      },
     },
   }
 })
