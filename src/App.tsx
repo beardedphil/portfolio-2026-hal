@@ -348,7 +348,7 @@ function App() {
     decisions: string[]
     assumptions: string[]
     open_questions: string[]
-    glossary: Record<string, string>
+    glossary: string[] // Array of "term: definition" strings (matches remote implementation)
     stakeholders: string[]
     updated_at: string
   } | null>(null)
@@ -4566,6 +4566,9 @@ function App() {
                                 No working memory yet. It will be created automatically as the conversation grows.
                               </div>
                             )}
+                          </div>
+                        )}
+                    </div>
 
                     {/* Chat transcript */}
                     <div className="chat-transcript" ref={transcriptRef}>
@@ -5269,15 +5272,15 @@ function App() {
                       </div>
                     )}
                     
-                    {Object.keys(workingMemory.glossary).length > 0 && (
+                    {workingMemory.glossary && workingMemory.glossary.length > 0 && (
                       <div style={{ marginBottom: '16px' }}>
                         <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Glossary</div>
                         <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
-                          {Object.entries(workingMemory.glossary).map(([term, def]) => (
-                            <li key={term} style={{ marginBottom: '4px' }}>
-                              <strong>{term}:</strong> {def}
+                          {workingMemory.glossary.map((entry, idx) => (
+                            <li key={idx} style={{ marginBottom: '4px' }}>
+                              {entry}
                             </li>
-                          )))}
+                          ))}
                         </ul>
                       </div>
                     )}
@@ -5692,170 +5695,6 @@ function App() {
                 )}
 
                 {/* PM Diagnostics: Ticket readiness evaluation (0066) */}
-                {/* PM Working Memory Panel (0173) */}
-                {selectedChatTarget === 'project-manager' && connectedProject && (
-                  <div className="diag-section">
-                    <div className="diag-section-header">
-                      <button
-                        type="button"
-                        className="diag-section-toggle"
-                        onClick={() => setPmWorkingMemoryOpen(!pmWorkingMemoryOpen)}
-                        aria-expanded={pmWorkingMemoryOpen}
-                      >
-                        PM Working Memory {pmWorkingMemoryOpen ? '▼' : '▶'}
-                      </button>
-                      <button
-                        type="button"
-                        className="diag-refresh-button"
-                        onClick={refreshPmWorkingMemory}
-                        disabled={pmWorkingMemoryLoading}
-                        title="Refresh working memory now"
-                        aria-label="Refresh working memory"
-                      >
-                        {pmWorkingMemoryLoading ? '⏳' : '🔄'}
-                      </button>
-                    </div>
-                    {pmWorkingMemoryOpen && (
-                      <div className="diag-section-content">
-                        {pmWorkingMemoryLoading && !pmWorkingMemory && (
-                          <div className="diag-row">
-                            <span className="diag-value">Loading working memory...</span>
-                          </div>
-                        )}
-                        {pmWorkingMemoryError && (
-                          <div className="diag-row">
-                            <span className="diag-value" data-status="error">
-                              Error: {pmWorkingMemoryError}
-                            </span>
-                          </div>
-                        )}
-                        {!pmWorkingMemory && !pmWorkingMemoryLoading && !pmWorkingMemoryError && (
-                          <div className="diag-row">
-                            <span className="diag-value">No working memory yet. Send some messages to build context.</span>
-                          </div>
-                        )}
-                        {pmWorkingMemory && (
-                          <>
-                            {pmWorkingMemory.summary && (
-                              <div className="diag-row">
-                                <span className="diag-label">Summary:</span>
-                                <span className="diag-value">{pmWorkingMemory.summary}</span>
-                              </div>
-                            )}
-                            {pmWorkingMemory.goals && pmWorkingMemory.goals.length > 0 && (
-                              <div className="diag-row">
-                                <span className="diag-label">Goals:</span>
-                                <span className="diag-value">
-                                  <ul style={{ margin: '0.25em 0', paddingLeft: '1.5em' }}>
-                                    {pmWorkingMemory.goals.map((goal, idx) => (
-                                      <li key={idx}>{goal}</li>
-                                    ))}
-                                  </ul>
-                                </span>
-                              </div>
-                            )}
-                            {pmWorkingMemory.requirements && pmWorkingMemory.requirements.length > 0 && (
-                              <div className="diag-row">
-                                <span className="diag-label">Requirements:</span>
-                                <span className="diag-value">
-                                  <ul style={{ margin: '0.25em 0', paddingLeft: '1.5em' }}>
-                                    {pmWorkingMemory.requirements.map((req, idx) => (
-                                      <li key={idx}>{req}</li>
-                                    ))}
-                                  </ul>
-                                </span>
-                              </div>
-                            )}
-                            {pmWorkingMemory.constraints && pmWorkingMemory.constraints.length > 0 && (
-                              <div className="diag-row">
-                                <span className="diag-label">Constraints:</span>
-                                <span className="diag-value">
-                                  <ul style={{ margin: '0.25em 0', paddingLeft: '1.5em' }}>
-                                    {pmWorkingMemory.constraints.map((constraint, idx) => (
-                                      <li key={idx}>{constraint}</li>
-                                    ))}
-                                  </ul>
-                                </span>
-                              </div>
-                            )}
-                            {pmWorkingMemory.decisions && pmWorkingMemory.decisions.length > 0 && (
-                              <div className="diag-row">
-                                <span className="diag-label">Decisions:</span>
-                                <span className="diag-value">
-                                  <ul style={{ margin: '0.25em 0', paddingLeft: '1.5em' }}>
-                                    {pmWorkingMemory.decisions.map((decision, idx) => (
-                                      <li key={idx}>{decision}</li>
-                                    ))}
-                                  </ul>
-                                </span>
-                              </div>
-                            )}
-                            {pmWorkingMemory.assumptions && pmWorkingMemory.assumptions.length > 0 && (
-                              <div className="diag-row">
-                                <span className="diag-label">Assumptions:</span>
-                                <span className="diag-value">
-                                  <ul style={{ margin: '0.25em 0', paddingLeft: '1.5em' }}>
-                                    {pmWorkingMemory.assumptions.map((assumption, idx) => (
-                                      <li key={idx}>{assumption}</li>
-                                    ))}
-                                  </ul>
-                                </span>
-                              </div>
-                            )}
-                            {pmWorkingMemory.open_questions && pmWorkingMemory.open_questions.length > 0 && (
-                              <div className="diag-row">
-                                <span className="diag-label">Open Questions:</span>
-                                <span className="diag-value">
-                                  <ul style={{ margin: '0.25em 0', paddingLeft: '1.5em' }}>
-                                    {pmWorkingMemory.open_questions.map((question, idx) => (
-                                      <li key={idx}>{question}</li>
-                                    ))}
-                                  </ul>
-                                </span>
-                              </div>
-                            )}
-                            {pmWorkingMemory.stakeholders && pmWorkingMemory.stakeholders.length > 0 && (
-                              <div className="diag-row">
-                                <span className="diag-label">Stakeholders:</span>
-                                <span className="diag-value">
-                                  <ul style={{ margin: '0.25em 0', paddingLeft: '1.5em' }}>
-                                    {pmWorkingMemory.stakeholders.map((stakeholder, idx) => (
-                                      <li key={idx}>{stakeholder}</li>
-                                    ))}
-                                  </ul>
-                                </span>
-                              </div>
-                            )}
-                            {pmWorkingMemory.glossary && Object.keys(pmWorkingMemory.glossary).length > 0 && (
-                              <div className="diag-row">
-                                <span className="diag-label">Glossary:</span>
-                                <span className="diag-value">
-                                  <dl style={{ margin: '0.25em 0', paddingLeft: '1.5em' }}>
-                                    {Object.entries(pmWorkingMemory.glossary).map(([term, def]) => (
-                                      <React.Fragment key={term}>
-                                        <dt style={{ fontWeight: 'bold', marginTop: '0.5em' }}>{term}</dt>
-                                        <dd style={{ marginLeft: '1em', marginBottom: '0.5em' }}>{def}</dd>
-                                      </React.Fragment>
-                                    ))}
-                                  </dl>
-                                </span>
-                              </div>
-                            )}
-                            {pmWorkingMemory.updated_at && (
-                              <div className="diag-row">
-                                <span className="diag-label">Last updated:</span>
-                                <span className="diag-value">
-                                  {new Date(pmWorkingMemory.updated_at).toLocaleString()}
-                                </span>
-                              </div>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-
                 {selectedChatTarget === 'project-manager' && diagnostics.lastPmToolCalls && (() => {
                   const createTicketCall = diagnostics.lastPmToolCalls!.find(c => c.name === 'create_ticket')
                   const updateTicketCall = diagnostics.lastPmToolCalls!.find(c => c.name === 'update_ticket_body')
