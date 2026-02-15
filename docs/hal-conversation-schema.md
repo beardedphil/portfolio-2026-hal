@@ -50,6 +50,43 @@ create table if not exists public.hal_conversation_summaries (
 - `summary_text`: short summary of messages with `sequence < through_sequence`.
 - `through_sequence`: this summary covers messages where `sequence < through_sequence`.
 
+## hal_conversation_working_memory
+
+Durable, queryable working memory for PM agent conversations. Stores structured facts (goals, requirements, constraints, decisions, etc.) extracted from conversation history. This enables long conversations without performance degradation by providing a compact, queryable summary of key facts.
+
+```sql
+create table if not exists public.hal_conversation_working_memory (
+  project_id text not null,
+  agent text not null,
+  summary text not null default '',
+  goals text[] default array[]::text[],
+  requirements text[] default array[]::text[],
+  constraints text[] default array[]::text[],
+  decisions text[] default array[]::text[],
+  assumptions text[] default array[]::text[],
+  open_questions text[] default array[]::text[],
+  glossary jsonb default '{}'::jsonb, -- Map of term -> definition
+  stakeholders text[] default array[]::text[],
+  last_updated_at timestamptz not null default now(),
+  through_sequence int not null default 0, -- Last sequence number processed for this memory
+  primary key (project_id, agent)
+);
+
+create index if not exists hal_conv_wm_project_agent
+  on public.hal_conversation_working_memory (project_id, agent);
+```
+
+- `summary`: Concise summary of the conversation context
+- `goals`: Array of project goals discussed
+- `requirements`: Array of requirements identified
+- `constraints`: Array of constraints or limitations
+- `decisions`: Array of decisions made during the conversation
+- `assumptions`: Array of assumptions stated or implied
+- `open_questions`: Array of open questions that need answers
+- `glossary`: JSON object mapping terms to definitions
+- `stakeholders`: Array of stakeholders mentioned
+- `through_sequence`: Last message sequence number that was processed when generating this memory
+
 ## RLS (optional)
 
 If you use Row Level Security, allow anon to read/write these tables for the app (same as your tickets/kanban usage), or restrict by `project_id` if you have per-project auth.
