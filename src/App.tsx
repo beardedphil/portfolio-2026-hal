@@ -442,6 +442,22 @@ function App() {
   const [processReviewAgentProgress, setProcessReviewAgentProgress] = useState<Array<{ timestamp: Date; message: string }>>([])
   /** Last error message for Process Review Agent (0111). */
   const [processReviewAgentError, setProcessReviewAgentError] = useState<string | null>(null)
+  /** Duplicate detection state for Process Review suggestions (0221). */
+  const [processReviewDuplicates, setProcessReviewDuplicates] = useState<Array<{
+    suggestionIndex: number
+    suggestionText: string
+    duplicates: Array<{ ticketId: string; displayId: string; title: string; similarity: number }>
+    action: 'pending' | 'link' | 'create'
+    linkedTicketId?: string
+    dedupeConfirmed?: boolean
+  }>>([])
+  const [processReviewShowDuplicates, setProcessReviewShowDuplicates] = useState(false)
+  /** Stored reviewId and source ticket info for proceeding with ticket creation after duplicates review (0221). */
+  const [processReviewPendingInfo, setProcessReviewPendingInfo] = useState<{
+    reviewId: string | null
+    sourceTicketPk: string
+    sourceTicketId: string | undefined
+  } | null>(null)
   /** Auto-move diagnostics entries (0061). */
   const [autoMoveDiagnostics, setAutoMoveDiagnostics] = useState<Array<{ timestamp: Date; message: string; type: 'error' | 'info' }>>([])
   /** Agent type that initiated the current Cursor run (0067). Used to route completion summaries to the correct chat. */
@@ -2876,7 +2892,7 @@ function App() {
           return
         }
 
-        // Success - Process Review completed, now create tickets from suggestions (0167)
+        // Success - Process Review completed, now check for duplicates and create tickets (0221)
         const suggestionCount = result.suggestions?.length || 0
         const reviewId = result.reviewId || null
         
@@ -2892,7 +2908,97 @@ function App() {
           return fullHash.slice(0, 16)
         }
         
-        addProgress('Process Review completed. Creating suggestion tickets...')
+        addProgress('Process Review completed. Checking for duplicate tickets...')
+        
+        // Check for duplicates for each suggestion (0221)
+        const duplicatesData: Array<{
+          suggestionIndex: number
+          suggestionText: string
+          duplicates: Array<{ ticketId: string; displayId: string; title: string; similarity: number }>
+          action: 'pending' | 'link' | 'create'
+          linkedTicketId?: string
+          dedupeConfirmed?: boolean
+        }> = []
+        
+        if (suggestionCount > 0 && result.suggestions) {
+          const sourceTicket = kanbanTickets.find(t => t.pk === data.ticketPk)
+          const repoFullName = sourceTicket?.repo_full_name || 'legacy/unknown'
+          
+          for (let i = 0; i < result.suggestions.length; i++) {
+            const suggestion = result.suggestions[i] as { text: string; justification: string }
+            const suggestionText = suggestion.text || ''
+            
+            if (!suggestionText.trim()) {
+              continue
+            }
+            
+            // Generate a title for the suggestion (similar to what create.ts does)
+            const suggestionTitle = suggestionText.length > 100 ? `${suggestionText.slice(0, 97)}...` : suggestionText
+            
+            try {
+              addProgress(`Checking duplicates for suggestion ${i + 1}/${suggestionCount}...`)
+              
+              const duplicatesResponse = await fetch('/api/tickets/find-duplicates', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  title: suggestionTitle,
+                  bodyText: suggestionText,
+                  repoFullName: repoFullName,
+                  excludeTicketPk: data.ticketPk,
+                  supabaseUrl: supabaseUrl ?? (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? undefined,
+                  supabaseAnonKey: supabaseAnonKey ?? (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? undefined,
+                }),
+              })
+              
+              const duplicatesResult = await duplicatesResponse.json()
+              
+              if (duplicatesResult.success) {
+                duplicatesData.push({
+                  suggestionIndex: i,
+                  suggestionText: suggestionText,
+                  duplicates: duplicatesResult.duplicates || [],
+                  action: duplicatesResult.duplicates && duplicatesResult.duplicates.length > 0 ? 'pending' : 'create',
+                })
+              } else {
+                // If duplicate check fails, default to create
+                duplicatesData.push({
+                  suggestionIndex: i,
+                  suggestionText: suggestionText,
+                  duplicates: [],
+                  action: 'create',
+                })
+              }
+            } catch (err) {
+              // If duplicate check fails, default to create
+              duplicatesData.push({
+                suggestionIndex: i,
+                suggestionText: suggestionText,
+                duplicates: [],
+                action: 'create',
+              })
+            }
+          }
+        }
+        
+        // If any suggestions have duplicates, show the duplicates panel
+        const hasDuplicates = duplicatesData.some(d => d.duplicates.length > 0)
+        if (hasDuplicates) {
+          setProcessReviewDuplicates(duplicatesData)
+          setProcessReviewShowDuplicates(true)
+          setProcessReviewPendingInfo({
+            reviewId: reviewId,
+            sourceTicketPk: data.ticketPk,
+            sourceTicketId: data.ticketId,
+          })
+          addProgress('Found potential duplicates. Please review and confirm actions...')
+          addMessage(convId, 'process-review-agent', `[Process Review] ⚠️ Found potential duplicate tickets. Please review the "Possible duplicates" panel and choose to link to existing tickets or confirm creating new ones.`)
+          // Don't proceed with ticket creation yet - wait for user action
+          return
+        }
+        
+        // No duplicates found, proceed with ticket creation
+        addProgress('No duplicates found. Creating suggestion tickets...')
         
         let createdCount = 0
         let skippedCount = 0
@@ -2924,6 +3030,7 @@ function App() {
                   suggestion: suggestionText, // Single suggestion per ticket
                   reviewId: reviewId, // For idempotency
                   suggestionHash: suggestionHash, // For idempotency
+                  dedupeConfirmed: true, // No duplicates found (0221)
                   supabaseUrl: supabaseUrl ?? (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? undefined,
                   supabaseAnonKey: supabaseAnonKey ?? (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? undefined,
                 }),
@@ -2999,6 +3106,129 @@ function App() {
       }
     },
     [supabaseUrl, supabaseAnonKey, getOrCreateConversation, formatTicketId, addMessage, kanbanTickets, handleKanbanMoveTicket]
+  )
+
+  /** Proceed with ticket creation after duplicates are reviewed (0221). */
+  const handleProcessReviewProceedWithTickets = useCallback(
+    async (duplicatesData: typeof processReviewDuplicates, reviewId: string | null, sourceTicketPk: string, sourceTicketId: string | undefined) => {
+      const addProgress = (message: string) => {
+        setProcessReviewAgentProgress((prev) => [...prev, { timestamp: new Date(), message }])
+        const convId = getOrCreateConversation('process-review-agent')
+        addMessage(convId, 'process-review-agent', `[Progress] ${message}`)
+      }
+      
+      addProgress('Creating suggestion tickets...')
+      
+      let createdCount = 0
+      let skippedCount = 0
+      const creationErrors: string[] = []
+      
+      // Helper function to hash suggestion text for idempotency
+      const hashSuggestion = async (text: string): Promise<string> => {
+        const encoder = new TextEncoder()
+        const data = encoder.encode(text)
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+        const hashArray = Array.from(new Uint8Array(hashBuffer))
+        const fullHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+        return fullHash.slice(0, 16)
+      }
+      
+      // Process each suggestion based on user's decision
+      for (const dupData of duplicatesData) {
+        const suggestionText = dupData.suggestionText
+        if (!suggestionText.trim()) {
+          continue
+        }
+        
+        try {
+          if (dupData.action === 'link' && dupData.linkedTicketId) {
+            // Link to existing ticket
+            addProgress(`Linking suggestion to existing ticket ${dupData.linkedTicketId}...`)
+            skippedCount++
+            addProgress(`Suggestion linked to ticket ${dupData.linkedTicketId}`)
+          } else {
+            // Create new ticket
+            addProgress(`Creating ticket for suggestion: ${suggestionText.slice(0, 50)}...`)
+            
+            const suggestionHash = await hashSuggestion(suggestionText)
+            
+            const createResponse = await fetch('/api/tickets/create', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                sourceTicketPk: sourceTicketPk,
+                sourceTicketId: sourceTicketId,
+                suggestion: suggestionText,
+                reviewId: reviewId,
+                suggestionHash: suggestionHash,
+                dedupeConfirmed: dupData.dedupeConfirmed || false,
+                supabaseUrl: supabaseUrl ?? (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? undefined,
+                supabaseAnonKey: supabaseAnonKey ?? (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? undefined,
+              }),
+            })
+            
+            const createResult = await createResponse.json()
+            
+            if (createResult.success) {
+              if (createResult.duplicate) {
+                skippedCount++
+                addProgress(`Ticket already exists (skipped duplicate)`)
+              } else {
+                createdCount++
+                addProgress(`Ticket created: ${createResult.ticketId || 'unknown'}`)
+              }
+            } else {
+              const errorMsg = createResult.error || 'Unknown error'
+              creationErrors.push(`Suggestion: ${errorMsg}`)
+              addProgress(`Failed to create ticket: ${errorMsg}`)
+            }
+          }
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : String(err)
+          creationErrors.push(`Suggestion: ${errorMsg}`)
+          addProgress(`Failed to process suggestion: ${errorMsg}`)
+        }
+      }
+      
+      // Determine final status
+      const hasErrors = creationErrors.length > 0
+      const allSucceeded = createdCount > 0 && creationErrors.length === 0
+      const convId = getOrCreateConversation('process-review-agent')
+      const sourceTicket = kanbanTickets.find(t => t.pk === sourceTicketPk)
+      const ticketDisplayId = sourceTicket?.display_id || sourceTicketId || sourceTicketPk
+      
+      if (hasErrors && !allSucceeded) {
+        setProcessReviewStatus('failed')
+        setProcessReviewAgentRunStatus('failed')
+        const errorMsg = `Failed to create ${creationErrors.length} ticket(s). ${createdCount} created, ${skippedCount} skipped.`
+        setProcessReviewMessage(`Process Review completed but ticket creation failed: ${errorMsg}`)
+        setProcessReviewAgentError(creationErrors.join('; '))
+        addMessage(convId, 'process-review-agent', `[Process Review] ⚠️ Completed with errors: ${errorMsg}\n\n**Errors:**\n${creationErrors.map(e => `- ${e}`).join('\n')}`)
+      } else {
+        setProcessReviewStatus('completed')
+        setProcessReviewAgentRunStatus('completed')
+        const successMsg = `Process Review completed for ticket ${ticketDisplayId}. ${createdCount} ticket${createdCount !== 1 ? 's' : ''} created${skippedCount > 0 ? `, ${skippedCount} skipped/linked` : ''}.`
+        setProcessReviewMessage(successMsg)
+        addMessage(convId, 'process-review-agent', `[Process Review] ✅ ${successMsg}`)
+        
+        // Move Process Review ticket to Done after successful completion (0167)
+        const doneCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-done').length
+        await handleKanbanMoveTicket(sourceTicketPk, 'col-done', doneCount)
+        addProgress('Process Review ticket moved to Done')
+        
+        // Reset after 5 seconds (Kanban banner only)
+        setTimeout(() => {
+          setProcessReviewStatus('idle')
+          setProcessReviewMessage(null)
+          setProcessReviewTicketPk(null)
+        }, 5000)
+      }
+      
+      // Clear duplicates UI
+      setProcessReviewShowDuplicates(false)
+      setProcessReviewDuplicates([])
+    },
+    [supabaseUrl, supabaseAnonKey, kanbanTickets, handleKanbanMoveTicket, getOrCreateConversation, addMessage]
   )
 
   const handleImageSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -3433,6 +3663,195 @@ function App() {
               {processReviewStatus === 'completed' && '✅ '}
               {processReviewStatus === 'failed' && '❌ '}
               {processReviewMessage}
+            </div>
+          )}
+          {/* Process Review duplicates panel (0221) */}
+          {processReviewShowDuplicates && processReviewDuplicates.length > 0 && processReviewPendingInfo && (
+            <div
+              className="process-review-duplicates-panel"
+              style={{
+                margin: '1rem',
+                padding: '1rem',
+                border: '2px solid var(--hal-border, #ccc)',
+                borderRadius: '8px',
+                background: 'var(--hal-surface, #fff)',
+                maxWidth: '800px',
+              }}
+            >
+              <h3 style={{ marginTop: 0, marginBottom: '1rem' }}>Possible duplicates</h3>
+              <p style={{ marginBottom: '1rem', fontSize: '0.9rem', color: 'var(--hal-text-secondary, #666)' }}>
+                Review the suggestions below and choose to link to existing tickets or create new ones.
+              </p>
+              {processReviewDuplicates.map((dupData, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    marginBottom: '1.5rem',
+                    padding: '1rem',
+                    border: '1px solid var(--hal-border, #ddd)',
+                    borderRadius: '6px',
+                    background: 'var(--hal-surface-alt, #f9f9f9)',
+                  }}
+                >
+                  <div style={{ marginBottom: '0.5rem', fontWeight: 500 }}>
+                    Suggestion {dupData.suggestionIndex + 1}: {dupData.suggestionText.slice(0, 100)}
+                    {dupData.suggestionText.length > 100 ? '...' : ''}
+                  </div>
+                  {dupData.duplicates.length > 0 ? (
+                    <>
+                      <div style={{ marginBottom: '0.75rem', fontSize: '0.9rem', color: 'var(--hal-text-secondary, #666)' }}>
+                        Found {dupData.duplicates.length} potential duplicate ticket{dupData.duplicates.length !== 1 ? 's' : ''}:
+                      </div>
+                      <ul style={{ marginBottom: '0.75rem', paddingLeft: '1.5rem' }}>
+                        {dupData.duplicates.map((dup, dupIdx) => (
+                          <li key={dupIdx} style={{ marginBottom: '0.25rem' }}>
+                            <strong>{dup.displayId}</strong> — {dup.title} ({(dup.similarity * 100).toFixed(0)}% similar)
+                          </li>
+                        ))}
+                      </ul>
+                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.5rem' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                          <input
+                            type="radio"
+                            name={`dup-action-${idx}`}
+                            checked={dupData.action === 'link'}
+                            onChange={() => {
+                              setProcessReviewDuplicates((prev) => {
+                                const updated = [...prev]
+                                updated[idx] = { ...updated[idx], action: 'link' }
+                                return updated
+                              })
+                            }}
+                          />
+                          <span>Use existing ticket:</span>
+                        </label>
+                        <select
+                          value={dupData.linkedTicketId || ''}
+                          onChange={(e) => {
+                            setProcessReviewDuplicates((prev) => {
+                              const updated = [...prev]
+                              updated[idx] = { ...updated[idx], linkedTicketId: e.target.value, action: 'link' }
+                              return updated
+                            })
+                          }}
+                          style={{
+                            padding: '0.25rem 0.5rem',
+                            borderRadius: '4px',
+                            border: '1px solid var(--hal-border, #ccc)',
+                            fontSize: '0.9rem',
+                          }}
+                        >
+                          <option value="">Select ticket...</option>
+                          {dupData.duplicates.map((dup, dupIdx) => (
+                            <option key={dupIdx} value={dup.ticketId}>
+                              {dup.displayId} — {dup.title.slice(0, 50)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                          <input
+                            type="radio"
+                            name={`dup-action-${idx}`}
+                            checked={dupData.action === 'create'}
+                            onChange={() => {
+                              setProcessReviewDuplicates((prev) => {
+                                const updated = [...prev]
+                                updated[idx] = { ...updated[idx], action: 'create' }
+                                return updated
+                              })
+                            }}
+                          />
+                          <span>Create new ticket</span>
+                        </label>
+                        {dupData.action === 'create' && (
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', marginLeft: '1rem' }}>
+                            <input
+                              type="checkbox"
+                              checked={dupData.dedupeConfirmed || false}
+                              onChange={(e) => {
+                                setProcessReviewDuplicates((prev) => {
+                                  const updated = [...prev]
+                                  updated[idx] = { ...updated[idx], dedupeConfirmed: e.target.checked }
+                                  return updated
+                                })
+                              }}
+                            />
+                            <span style={{ fontSize: '0.85rem', color: 'var(--hal-text-secondary, #666)' }}>
+                              I checked for duplicates and none match
+                            </span>
+                          </label>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ fontSize: '0.9rem', color: 'var(--hal-text-secondary, #666)' }}>
+                      No duplicates found. This ticket will be created.
+                    </div>
+                  )}
+                </div>
+              ))}
+              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '1rem' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setProcessReviewShowDuplicates(false)
+                    setProcessReviewDuplicates([])
+                    setProcessReviewPendingInfo(null)
+                  }}
+                  style={{
+                    padding: '0.5rem 1rem',
+                    borderRadius: '6px',
+                    border: '1px solid var(--hal-border, #ccc)',
+                    background: 'var(--hal-surface, #fff)',
+                    color: 'var(--hal-text, #333)',
+                    cursor: 'pointer',
+                    fontSize: '0.9rem',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    // Validate that all suggestions have an action selected
+                    const allActionsSet = processReviewDuplicates.every((d) => {
+                      if (d.action === 'link') {
+                        return !!d.linkedTicketId
+                      } else if (d.action === 'create') {
+                        return d.dedupeConfirmed === true
+                      }
+                      return false
+                    })
+                    
+                    if (!allActionsSet) {
+                      alert('Please select an action for each suggestion and confirm duplicate checks where needed.')
+                      return
+                    }
+                    
+                    // Proceed with ticket creation
+                    await handleProcessReviewProceedWithTickets(
+                      processReviewDuplicates,
+                      processReviewPendingInfo.reviewId,
+                      processReviewPendingInfo.sourceTicketPk,
+                      processReviewPendingInfo.sourceTicketId
+                    )
+                  }}
+                  style={{
+                    padding: '0.5rem 1rem',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: 'var(--hal-primary, #007bff)',
+                    color: 'white',
+                    cursor: 'pointer',
+                    fontSize: '0.9rem',
+                    fontWeight: 500,
+                  }}
+                >
+                  Proceed with ticket creation
+                </button>
+              </div>
             </div>
           )}
           {/* Chat Window (0087) - overlays Kanban when a chat is open (0096: keep Kanban mounted) */}

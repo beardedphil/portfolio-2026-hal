@@ -78,6 +78,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       suggestions?: string[]
       suggestion?: string // Single suggestion for one-ticket-per-suggestion mode (0167)
       reviewId?: string // Process Review run ID for idempotency (0167)
+      linkToExistingTicketId?: string // Link to existing ticket instead of creating (0221)
+      linkToExistingTicketPk?: string // Link to existing ticket instead of creating (0221)
+      dedupeConfirmed?: boolean // Confirmation that duplicates were checked (0221)
       supabaseUrl?: string
       supabaseAnonKey?: string
     }
@@ -85,6 +88,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const sourceTicketPk = typeof body.sourceTicketPk === 'string' ? body.sourceTicketPk.trim() : undefined
     const sourceTicketId = typeof body.sourceTicketId === 'string' ? body.sourceTicketId.trim() : undefined
     const reviewId = typeof body.reviewId === 'string' ? body.reviewId.trim() : undefined
+    const linkToExistingTicketPk = typeof body.linkToExistingTicketPk === 'string' ? body.linkToExistingTicketPk.trim() : undefined
+    const linkToExistingTicketId = typeof body.linkToExistingTicketId === 'string' ? body.linkToExistingTicketId.trim() : undefined
+    const dedupeConfirmed = body.dedupeConfirmed === true
     // Support both single suggestion (new) and array of suggestions (legacy)
     const singleSuggestion = typeof body.suggestion === 'string' ? body.suggestion.trim() : undefined
     const suggestions = singleSuggestion 
@@ -109,6 +115,34 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       json(res, 400, {
         success: false,
         error: 'sourceTicketPk (preferred) or sourceTicketId, and Supabase credentials are required.',
+      })
+      return
+    }
+
+    // If linking to existing ticket, handle that instead of creating
+    if (linkToExistingTicketPk || linkToExistingTicketId) {
+      const supabase = createClient(supabaseUrl, supabaseAnonKey)
+      
+      // Fetch the existing ticket to verify it exists
+      const existingTicketQuery = linkToExistingTicketPk
+        ? await supabase.from('tickets').select('pk, id, display_id').eq('pk', linkToExistingTicketPk).maybeSingle()
+        : await supabase.from('tickets').select('pk, id, display_id').eq('id', linkToExistingTicketId!).maybeSingle()
+      
+      if (existingTicketQuery.error || !existingTicketQuery.data) {
+        json(res, 200, {
+          success: false,
+          error: `Existing ticket not found: ${existingTicketQuery.error?.message || 'Unknown error'}`,
+        })
+        return
+      }
+      
+      // Return the existing ticket info (linking is handled on the client side)
+      json(res, 200, {
+        success: true,
+        ticketId: existingTicketQuery.data.display_id || existingTicketQuery.data.id,
+        id: existingTicketQuery.data.id,
+        pk: existingTicketQuery.data.pk,
+        linked: true,
       })
       return
     }
@@ -207,12 +241,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       ? crypto.createHash('sha256').update(normalizedSuggestion).digest('hex').slice(0, 16)
       : null
     // Always include hash in body when available (for idempotency), reviewId is optional
+    // Include dedupe confirmation if provided (0221)
+    const dedupeSection = dedupeConfirmed ? `- **Dedupe check confirmed**: I checked for duplicates and none match` : ''
     const idempotencySection = suggestionHash
       ? (reviewId 
           ? `- **Process Review ID**: ${reviewId}
-- **Suggestion Hash**: ${suggestionHash}`
-          : `- **Suggestion Hash**: ${suggestionHash}`)
-      : ''
+- **Suggestion Hash**: ${suggestionHash}${dedupeSection ? `\n${dedupeSection}` : ''}`
+          : `- **Suggestion Hash**: ${suggestionHash}${dedupeSection ? `\n${dedupeSection}` : ''}`)
+      : (dedupeSection ? `\n${dedupeSection}` : '')
     
     let title: string
     let bodyMd: string
