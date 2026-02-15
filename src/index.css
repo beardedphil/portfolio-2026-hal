@@ -386,10 +386,11 @@ body {
 /* Override Kanban root styles when embedded in HAL - remove height constraint and scrolling */
 /* Active Work and Kanban board scroll together in the outer container */
 /* 0499: Ensure scrollbar appears on .kanban-frame-container, not inside Kanban */
+/* 0499: Remove padding so scrollbar starts at top edge of Active Work section */
 .kanban-frame-container #root {
   min-height: 0 !important;
   height: auto !important;
-  padding: 1rem !important; /* Restore padding for spacing */
+  padding: 0 !important; /* Remove padding so scrollbar starts at top of Active Work section */
   overflow: visible !important;
   overflow-y: visible !important; /* Explicitly override overflow-y: auto from Kanban CSS */
   overflow-x: hidden !important;
@@ -411,7 +412,11 @@ body {
 
 /* Ensure Active Work and columns section don't constrain height or create scroll context */
 /* They should both be children of the scrollable container and move together */
+<<<<<<< HEAD
 /* 0499: Active Work section scrolls with the container, scrollbar appears at top */
+=======
+/* 0499: Active Work section starts at top of scroll container, its own padding provides spacing */
+>>>>>>> c78ad97 (feat(0499): make scrollbar cover entire Active Work section)
 .kanban-frame-container .active-work-row {
   flex: 0 0 auto !important; /* Don't grow or shrink, use natural height */
   overflow: visible !important;
