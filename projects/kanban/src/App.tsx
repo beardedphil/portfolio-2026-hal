@@ -2333,6 +2333,144 @@ function _DraggableSupabaseTicketItem({
   )
 }
 
+/** Map agent run status to user-friendly status info (0203) */
+function getTicketStatusInfo(
+  agentRun: SupabaseAgentRunRow | undefined,
+  agentName: string | null
+): { label: string; description: string; state: 'starting' | 'in-progress' | 'blocked' | 'done' | 'unassigned' } {
+  if (!agentRun) {
+    return {
+      label: 'Unassigned',
+      description: 'No agent is currently working on this ticket.',
+      state: 'unassigned',
+    }
+  }
+
+  switch (agentRun.status) {
+    case 'created':
+    case 'launching':
+      return {
+        label: 'Starting',
+        description: `The ${agentName || 'agent'} is being launched and initialized.`,
+        state: 'starting',
+      }
+    case 'polling':
+      return {
+        label: 'In Progress',
+        description: `The ${agentName || 'agent'} is actively working on this ticket.`,
+        state: 'in-progress',
+      }
+    case 'failed':
+      return {
+        label: 'Blocked',
+        description: `The ${agentName || 'agent'} encountered an error and cannot proceed.`,
+        state: 'blocked',
+      }
+    case 'finished':
+      return {
+        label: 'Done',
+        description: `The ${agentName || 'agent'} has completed work on this ticket.`,
+        state: 'done',
+      }
+    default:
+      return {
+        label: 'In Progress',
+        description: `The ${agentName || 'agent'} is working on this ticket.`,
+        state: 'in-progress',
+      }
+  }
+}
+
+/** Multi-dot status indicator component with tooltip (0203) */
+function StatusIndicator({
+  agentRun,
+  agentName,
+}: {
+  agentRun?: SupabaseAgentRunRow
+  agentName: string | null
+}) {
+  const [isHovered, setIsHovered] = useState(false)
+  const [isFocused, setIsFocused] = useState(false)
+  const tooltipRef = useRef<HTMLDivElement>(null)
+  const indicatorRef = useRef<HTMLDivElement>(null)
+
+  const statusInfo = getTicketStatusInfo(agentRun, agentName)
+  const showTooltip = isHovered || isFocused
+
+  // Position tooltip to avoid clipping
+  useEffect(() => {
+    if (showTooltip && tooltipRef.current && indicatorRef.current) {
+      const tooltip = tooltipRef.current
+      const indicator = indicatorRef.current
+      const rect = indicator.getBoundingClientRect()
+      const tooltipRect = tooltip.getBoundingClientRect()
+      
+      // Check if tooltip would be clipped on the right
+      if (rect.right + tooltipRect.width > window.innerWidth) {
+        tooltip.style.left = 'auto'
+        tooltip.style.right = '0'
+      } else {
+        tooltip.style.left = '0'
+        tooltip.style.right = 'auto'
+      }
+      
+      // Check if tooltip would be clipped on the bottom
+      if (rect.bottom + tooltipRect.height > window.innerHeight) {
+        tooltip.style.top = 'auto'
+        tooltip.style.bottom = '100%'
+        tooltip.style.marginBottom = '4px'
+        tooltip.style.marginTop = '0'
+      } else {
+        tooltip.style.top = '100%'
+        tooltip.style.bottom = 'auto'
+        tooltip.style.marginTop = '4px'
+        tooltip.style.marginBottom = '0'
+      }
+    }
+  }, [showTooltip])
+
+  return (
+    <div
+      className="active-work-status-indicator-wrapper"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      <div
+        ref={indicatorRef}
+        className={`active-work-status-indicator status-indicator-${statusInfo.state}`}
+        tabIndex={0}
+        role="button"
+        aria-label={`Status: ${statusInfo.label}`}
+        aria-describedby={showTooltip ? `status-tooltip-${agentRun?.run_id || 'none'}` : undefined}
+        onFocus={() => setIsFocused(true)}
+        onBlur={() => setIsFocused(false)}
+      >
+        <span className="status-dot status-dot-1" />
+        <span className="status-dot status-dot-2" />
+        <span className="status-dot status-dot-3" />
+      </div>
+      {showTooltip && (
+        <div
+          ref={tooltipRef}
+          id={`status-tooltip-${agentRun?.run_id || 'none'}`}
+          className="active-work-status-tooltip"
+          role="tooltip"
+        >
+          <div className="active-work-status-tooltip-header">
+            <span className="active-work-status-tooltip-label">Status:</span>
+            <span className={`active-work-status-tooltip-value status-value-${statusInfo.state}`}>
+              {statusInfo.label}
+            </span>
+          </div>
+          <div className="active-work-status-tooltip-description">
+            {statusInfo.description}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function App() {
   const [debugOpen, setDebugOpen] = useState(false)
   const [actionLog, setActionLog] = useState<LogEntry[]>([])
@@ -4935,10 +5073,8 @@ ${notes || '(none provided)'}
               doingTickets.map((ticket) => {
                 // Use simple string storage from button click (0135) - no DB lookup
                 const agentName = activeWorkAgentTypes[ticket.pk] || null
-                // Status label for tooltip (no status tracking needed, just show agent name or Unassigned)
-                const statusLabel = agentName || 'Unassigned'
-                // Status dot is always gray since we're not tracking status
-                const statusDotColor = 'gray'
+                // Get agent run data from context (0203)
+                const agentRun = halCtx?.agentRunsByTicketPk?.[ticket.pk] || agentRunsByTicketPk[ticket.pk]
                 const timestamp = ticket.kanban_moved_at
                   ? new Date(ticket.kanban_moved_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                   : ticket.updated_at
@@ -4966,11 +5102,7 @@ ${notes || '(none provided)'}
                     <div className="active-work-item-meta">
                       <span className="active-work-item-agent">{agentName || 'Unassigned'}</span>
                       <div className="active-work-item-status-row">
-                        <span 
-                          className={`active-work-item-status-dot status-dot-${statusDotColor}`}
-                          title={statusLabel}
-                          aria-label={`Status: ${statusLabel}`}
-                        />
+                        <StatusIndicator agentRun={agentRun} agentName={agentName} />
                         {timestamp && (
                           <span className="active-work-item-timestamp" title={`Updated ${timestamp}`}>
                             {timestamp}
