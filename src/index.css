@@ -170,35 +170,6 @@ body {
   border-color: rgba(255, 255, 255, 0.4);
 }
 
-.cancel-all-agents-btn {
-  padding: 0.4rem 0.8rem;
-  font-size: 0.9rem;
-  cursor: pointer;
-  background: rgba(255, 255, 255, 0.12);
-  color: var(--hal-header-text);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 6px;
-  font-weight: 500;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
-}
-.cancel-all-agents-btn:hover:not(:disabled) {
-  background: rgba(220, 80, 80, 0.25);
-  border-color: rgba(220, 80, 80, 0.5);
-}
-.cancel-all-agents-btn:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
-}
-.cancel-all-agents-message {
-  font-size: 0.85rem;
-  color: var(--hal-header-text);
-  opacity: 0.95;
-  max-width: 220px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .agent-instructions-btn {
   padding: 0.4rem 0.8rem;
   font-size: 0.9rem;

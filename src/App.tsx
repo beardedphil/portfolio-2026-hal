@@ -204,8 +204,6 @@ function App() {
   const [connectedGithubRepo, setConnectedGithubRepo] = useState<ConnectedGithubRepo | null>(null)
   const [githubConnectError, setGithubConnectError] = useState<string | null>(null)
   const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false)
-  const [cancelAllAgentsLoading, setCancelAllAgentsLoading] = useState(false)
-  const [cancelAllAgentsMessage, setCancelAllAgentsMessage] = useState<string | null>(null)
   const [agentInstructionsOpen, setAgentInstructionsOpen] = useState(false)
   const [promptModalMessage, setPromptModalMessage] = useState<Message | null>(null)
   /** QA quality metrics (0667) */
@@ -3182,27 +3180,6 @@ function App() {
     }, 0)
   }, [])
 
-  /** Cancel all active Cursor cloud agents (implementation, QA, PM, Process Review). Uses HAL endpoint so HAL env is used. */
-  const handleCancelAllAgents = useCallback(async () => {
-    setCancelAllAgentsMessage(null)
-    setCancelAllAgentsLoading(true)
-    try {
-      const res = await fetch('/api/agent-runs/cancel?cancelAll=true', { method: 'GET', credentials: 'include' })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        setCancelAllAgentsMessage(data.error ?? `Failed (${res.status})`)
-        return
-      }
-      const msg = data.message ?? `Cancelled ${data.cancelled ?? 0} agent run(s).`
-      setCancelAllAgentsMessage(msg)
-      setTimeout(() => setCancelAllAgentsMessage(null), 8000)
-    } catch (err) {
-      setCancelAllAgentsMessage(err instanceof Error ? err.message : 'Request failed')
-    } finally {
-      setCancelAllAgentsLoading(false)
-    }
-  }, [])
-
   // Handle Esc key and focus management for disconnect confirmation modal (0142)
   useEffect(() => {
     if (!disconnectConfirmOpen) return
@@ -3544,21 +3521,6 @@ function App() {
             <button type="button" className="github-logout" onClick={handleGithubDisconnect} title="Sign out of GitHub">
               Sign out
             </button>
-          )}
-          <button
-            type="button"
-            className="cancel-all-agents-btn"
-            onClick={handleCancelAllAgents}
-            disabled={cancelAllAgentsLoading}
-            aria-label="Cancel all Cursor agents (implementation, QA, PM, Process Review)"
-            title="Stop all running Cursor cloud agents"
-          >
-            {cancelAllAgentsLoading ? 'Cancelling…' : 'Cancel all agents'}
-          </button>
-          {cancelAllAgentsMessage && (
-            <span className="cancel-all-agents-message" role="status">
-              {cancelAllAgentsMessage}
-            </span>
           )}
           <button
             type="button"
