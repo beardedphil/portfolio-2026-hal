@@ -118,6 +118,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         ? [
             'Implement this ticket.',
             '',
+            '## MANDATORY first step: pull latest from main',
+            '',
+            '**Before starting any work**, pull the latest code. Do not assume you have the latest code.',
+            'Run: `git checkout main && git pull origin main`',
+            'Then create or checkout your feature branch and proceed.',
+            '',
             '## Ticket',
             `**ID**: ${displayId}`,
             `**Repo**: ${repoFullName}`,
@@ -133,6 +139,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           ].join('\n')
         : [
             'QA this ticket implementation. Review the code, generate a QA report, and complete the QA workflow.',
+            '',
+            '## MANDATORY first step: pull latest from main',
+            '',
+            '**Before starting any QA work**, pull the latest code. Do not assume you have the latest code.',
+            'Run: `git checkout main && git pull origin main`',
             '',
             '## MANDATORY: Load Your Instructions First',
             '',

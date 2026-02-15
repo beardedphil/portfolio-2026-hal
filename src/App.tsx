@@ -51,23 +51,6 @@ type TicketCreationResult = {
   autoFixed?: boolean
 }
 
-type PmAgentResponse = {
-  reply: string
-  toolCalls: ToolCallRecord[]
-  outboundRequest: object | null
-  responseId?: string
-  error?: string
-  errorPhase?: 'context-pack' | 'openai' | 'tool' | 'not-implemented'
-  /** When create_ticket succeeded: id, file path, sync status (0011). */
-  ticketCreationResult?: TicketCreationResult
-  /** True when create_ticket was available for this request (Supabase creds sent). */
-  createTicketAvailable?: boolean
-  /** Runner implementation label for diagnostics (e.g. "v2 (shared)"). */
-  agentRunner?: string
-  /** Full prompt text sent to LLM for this message (0202) - only for assistant messages */
-  promptText?: string
-}
-
 type DiagnosticsInfo = {
   kanbanRenderMode: string
   selectedChatTarget: ChatTarget
@@ -2952,6 +2935,13 @@ function App() {
           const successMsg = `Process Review completed for ticket ${ticketDisplayId}. ${suggestionCount} recommendation${suggestionCount !== 1 ? 's' : ''} ready for review.`
           setProcessReviewMessage(successMsg)
           addMessage(convId, 'process-review-agent', `[Process Review] ✅ ${successMsg}\n\nReview the recommendations in the modal and click "Implement" to create tickets.`)
+
+          // Process Review is done when the suggestion modal appears; move ticket to Done so the board reflects that (0484)
+          const doneCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-done').length
+          handleKanbanMoveTicket(data.ticketPk, 'col-done', doneCount).catch((moveErr) => {
+            console.error('Failed to move Process Review ticket to Done:', moveErr)
+          })
+          addProgress('Process Review ticket moved to Done')
         } else {
           setProcessReviewStatus('completed')
           setProcessReviewAgentRunStatus('completed')

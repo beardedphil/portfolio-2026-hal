@@ -1,0 +1,28 @@
+---
+description: Cloud agents must pull from main before starting work; do not assume latest code
+alwaysApply: true
+---
+
+# Cloud Agents: Pull from Main Before Starting
+
+**MANDATORY:** Cloud agents (Implementation and QA) **MUST** pull the latest code from `main` before starting any work. Do not assume you have the latest code.
+
+## Required first step
+
+Before making changes, running tests, or loading instructions:
+
+```bash
+git checkout main && git pull origin main
+```
+
+- **Implementation agents:** Then create or checkout your feature branch and proceed.
+- **QA agents:** Then proceed with loading instructions and QA workflow.
+
+## Why
+
+Cloud agents run in an environment that may have cloned the repo earlier or from a different ref. The board and tickets reflect the current state of `main`; working from a stale clone can cause merge conflicts, duplicate work, or missed changes. Always start from an up-to-date `main`.
+
+## Scope
+
+- Applies to: implementation-agent, qa-agent (any agent that runs as a Cursor Cloud Agent on the repo).
+- When: Before any other work on the ticket (first step after the agent starts).
