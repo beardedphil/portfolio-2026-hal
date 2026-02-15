@@ -180,11 +180,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const currentColumnId = (ticket as any).kanban_column_id
     const resolvedTicketPk = (ticket as any).pk as string
 
-    // Track if move was allowed due to explanation artifact (0201)
-    let allowedWithExplanation = false
-
     // Gate: moving to Ready for QA requires all 8 implementation artifacts (substantive)
-    // Exception: if a "Missing Artifact Explanation" artifact exists, allow move when only missing artifacts are the issue (0201)
+    // OR a "Missing Artifact Explanation" artifact if artifacts are missing (0200)
     if (columnId === 'col-qa') {
       if (!resolvedTicketPk) {
         json(res, 200, {
@@ -194,7 +191,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         return
       }
       
-      // Fetch all artifacts (both implementation and any explanation artifacts)
+      // Fetch all artifacts (implementation and any other types, including Missing Artifact Explanation)
       const { data: artifactRows, error: artErr } = await supabase
         .from('agent_artifacts')
         .select('title, agent_type, body_md')
@@ -214,20 +211,15 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         body_md: r.body_md,
       }))
       
-      // Filter to implementation artifacts for the missing check
+      // Filter to implementation artifacts for missing check
       const implementationArtifacts = artifactsForCheck.filter((a) => a.agent_type === 'implementation')
       const missingArtifacts = getMissingRequiredImplementationArtifacts(implementationArtifacts)
-      
-      // Check if explanation artifact exists (can be any agent_type)
-      const hasExplanation = hasMissingArtifactExplanation(artifactsForCheck)
 
       if (missingArtifacts.length > 0) {
-        // If explanation exists and missing artifacts are the only issue, allow the move
-        if (hasExplanation) {
-          // Allow the move, track that explanation was used
-          allowedWithExplanation = true
-        } else {
-          // No explanation, fail the move
+        // Check if Missing Artifact Explanation exists
+        const hasExplanation = hasMissingArtifactExplanation(artifactsForCheck)
+        
+        if (!hasExplanation) {
           json(res, 200, {
             success: false,
             error:

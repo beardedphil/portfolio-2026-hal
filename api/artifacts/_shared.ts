@@ -171,26 +171,6 @@ export function createCanonicalTitle(
   return titleMap[artifactType] || `Artifact for ticket ${normalizedDisplayId}`
 }
 
-/**
- * Checks if a "Missing Artifact Explanation" artifact exists for a ticket.
- * The artifact can be identified by title containing "Missing Artifact Explanation"
- * or by artifact_type being "missing-artifact-explanation".
- * Used by the move-to-QA gate to allow tickets with missing artifacts when an explanation is provided.
- */
-export function hasMissingArtifactExplanation(
-  artifacts: ArtifactRowForCheck[]
-): boolean {
-  return artifacts.some((a) => {
-    const titleLower = (a.title || '').toLowerCase().trim()
-    // Check if title contains "missing artifact explanation"
-    if (titleLower.includes('missing artifact explanation')) {
-      return true
-    }
-    // Also check for artifact_type field if it exists (for future extensibility)
-    // Note: ArtifactRowForCheck doesn't include artifact_type, but we can check title patterns
-    return false
-  })
-}
 
 /**
  * Finds existing artifacts by canonical identifier (ticket_pk + agent_type + artifact_type)
