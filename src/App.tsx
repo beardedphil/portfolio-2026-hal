@@ -482,13 +482,16 @@ function App() {
   /** Last error message for Process Review Agent (0111). */
   const [_processReviewAgentError, setProcessReviewAgentError] = useState<string | null>(null)
   /** Process Review recommendations modal state (0484). */
-  const [processReviewRecommendations, setProcessReviewRecommendations] = useState<Array<{ text: string; justification: string; id: string }>>([])
-  const [processReviewModalOpen, setProcessReviewModalOpen] = useState(false)
+  const [processReviewRecommendations, setProcessReviewRecommendations] = useState<Array<{
+    text: string
+    justification: string
+    id: string // Unique ID for tracking
+    error?: string // Error state for failed ticket creation
+    isCreating?: boolean // Loading state for Implement button
+  }> | null>(null)
   const [processReviewModalTicketPk, setProcessReviewModalTicketPk] = useState<string | null>(null)
   const [processReviewModalTicketId, setProcessReviewModalTicketId] = useState<string | null>(null)
   const [processReviewModalReviewId, setProcessReviewModalReviewId] = useState<string | null>(null)
-  const [processReviewRecommendationErrors, setProcessReviewRecommendationErrors] = useState<Record<string, string>>({})
-  const [processReviewRecommendationLoading, setProcessReviewRecommendationLoading] = useState<Record<string, boolean>>({})
   /** Auto-move diagnostics entries (0061). */
   const [autoMoveDiagnostics, setAutoMoveDiagnostics] = useState<Array<{ timestamp: Date; message: string; type: 'error' | 'info' }>>([])
   /** Agent type that initiated the current Cursor run (0067). Used to route completion summaries to the correct chat. */
@@ -3133,27 +3136,24 @@ function App() {
         const suggestionCount = result.suggestions?.length || 0
         const reviewId = result.reviewId || null
         
-        addProgress('Process Review completed.')
-        
         if (suggestionCount > 0 && result.suggestions) {
           // Show recommendations in modal instead of auto-creating tickets (0484)
-          const recommendationsWithIds = result.suggestions.map((s: { text: string; justification: string }, idx: number) => ({
-            text: s.text || '',
-            justification: s.justification || '',
-            id: `rec-${Date.now()}-${idx}`, // Generate unique ID for each recommendation
-          })).filter((r: { text: string; justification: string; id: string }) => r.text.trim())
+          const recommendations = result.suggestions.map((s: { text: string; justification: string }, idx: number) => ({
+            text: s.text,
+            justification: s.justification,
+            id: `rec-${Date.now()}-${idx}`, // Unique ID for tracking
+            error: undefined,
+            isCreating: false,
+          }))
           
-          setProcessReviewRecommendations(recommendationsWithIds)
+          setProcessReviewRecommendations(recommendations)
           setProcessReviewModalTicketPk(data.ticketPk)
           setProcessReviewModalTicketId(data.ticketId || null)
           setProcessReviewModalReviewId(reviewId)
-          setProcessReviewRecommendationErrors({})
-          setProcessReviewRecommendationLoading({})
-          setProcessReviewModalOpen(true)
           
           setProcessReviewStatus('completed')
           setProcessReviewAgentRunStatus('completed')
-          const successMsg = `Process Review completed for ticket ${ticketDisplayId}. ${suggestionCount} recommendation${suggestionCount !== 1 ? 's' : ''} found.`
+          const successMsg = `Process Review completed for ticket ${ticketDisplayId}. ${suggestionCount} recommendation${suggestionCount !== 1 ? 's' : ''} ready for review.`
           setProcessReviewMessage(successMsg)
           addMessage(convId, 'process-review-agent', `[Process Review] ✅ ${successMsg}\n\nReview the recommendations in the modal and click "Implement" to create tickets.`)
         } else {
@@ -3164,7 +3164,7 @@ function App() {
           setProcessReviewMessage(successMsg)
           addMessage(convId, 'process-review-agent', `[Process Review] ✅ ${successMsg}`)
           
-          // Move Process Review ticket to Done if no suggestions (0167)
+          // Move Process Review ticket to Done after completion (0167)
           const doneCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-done').length
           await handleKanbanMoveTicket(data.ticketPk, 'col-done', doneCount)
           addProgress('Process Review ticket moved to Done')
@@ -3191,16 +3191,15 @@ function App() {
   /** Handle Implement button click for Process Review recommendation (0484). */
   const handleProcessReviewImplement = useCallback(
     async (recommendationId: string) => {
+      if (!processReviewRecommendations || !processReviewModalTicketPk || !processReviewModalReviewId) return
+
       const recommendation = processReviewRecommendations.find((r) => r.id === recommendationId)
-      if (!recommendation || !processReviewModalTicketPk) return
+      if (!recommendation) return
 
       // Set loading state
-      setProcessReviewRecommendationLoading((prev) => ({ ...prev, [recommendationId]: true }))
-      setProcessReviewRecommendationErrors((prev) => {
-        const next = { ...prev }
-        delete next[recommendationId]
-        return next
-      })
+      setProcessReviewRecommendations((prev) =>
+        prev ? prev.map((r) => (r.id === recommendationId ? { ...r, isCreating: true, error: undefined } : r)) : null
+      )
 
       try {
         // Helper function to hash suggestion text for idempotency
@@ -3220,9 +3219,9 @@ function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             sourceTicketPk: processReviewModalTicketPk,
-            sourceTicketId: processReviewModalTicketId || undefined,
+            sourceTicketId: processReviewModalTicketId,
             suggestion: recommendation.text,
-            reviewId: processReviewModalReviewId || undefined,
+            reviewId: processReviewModalReviewId,
             suggestionHash: suggestionHash,
             supabaseUrl: supabaseUrl ?? (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? undefined,
             supabaseAnonKey: supabaseAnonKey ?? (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? undefined,
@@ -3232,77 +3231,62 @@ function App() {
         const createResult = await createResponse.json()
 
         if (createResult.success) {
-          // Remove recommendation from modal
-          setProcessReviewRecommendations((prev) => prev.filter((r) => r.id !== recommendationId))
-          
-          // Refresh Kanban data to show new ticket
-          fetchKanbanData().catch((err) => {
-            console.error('Failed to refresh Kanban data after ticket creation:', err)
+          // Remove recommendation from modal on success and check if all are processed
+          setProcessReviewRecommendations((prev) => {
+            const remaining = prev?.filter((r) => r.id !== recommendationId) || null
+            
+            // If all recommendations are processed, close modal and move ticket to Done
+            if (!remaining || remaining.length === 0) {
+              // Move ticket to Done asynchronously
+              const doneCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-done').length
+              handleKanbanMoveTicket(processReviewModalTicketPk, 'col-done', doneCount).catch((moveError) => {
+                console.error('Failed to move ticket to Done:', moveError)
+              })
+              // Close modal
+              setProcessReviewModalTicketPk(null)
+              setProcessReviewModalTicketId(null)
+              setProcessReviewModalReviewId(null)
+              return null
+            }
+            
+            return remaining
           })
         } else {
-          // Show error but keep recommendation visible
+          // Show error state for this recommendation
           const errorMsg = createResult.error || 'Unknown error'
-          setProcessReviewRecommendationErrors((prev) => ({ ...prev, [recommendationId]: errorMsg }))
+          setProcessReviewRecommendations((prev) =>
+            prev ? prev.map((r) => (r.id === recommendationId ? { ...r, isCreating: false, error: errorMsg } : r)) : null
+          )
         }
       } catch (err) {
-        // Show error but keep recommendation visible
         const errorMsg = err instanceof Error ? err.message : String(err)
-        setProcessReviewRecommendationErrors((prev) => ({ ...prev, [recommendationId]: errorMsg }))
-      } finally {
-        setProcessReviewRecommendationLoading((prev) => {
-          const next = { ...prev }
-          delete next[recommendationId]
-          return next
-        })
+        setProcessReviewRecommendations((prev) =>
+          prev ? prev.map((r) => (r.id === recommendationId ? { ...r, isCreating: false, error: errorMsg } : r)) : null
+        )
       }
     },
-    [processReviewRecommendations, processReviewModalTicketPk, processReviewModalTicketId, processReviewModalReviewId, supabaseUrl, supabaseAnonKey, fetchKanbanData]
+    [processReviewRecommendations, processReviewModalTicketPk, processReviewModalTicketId, processReviewModalReviewId, supabaseUrl, supabaseAnonKey, kanbanTickets, handleKanbanMoveTicket]
   )
 
   /** Handle Ignore button click for Process Review recommendation (0484). */
   const handleProcessReviewIgnore = useCallback(
     (recommendationId: string) => {
-      // Remove recommendation from modal without creating ticket
-      setProcessReviewRecommendations((prev) => prev.filter((r) => r.id !== recommendationId))
-      setProcessReviewRecommendationErrors((prev) => {
-        const next = { ...prev }
-        delete next[recommendationId]
-        return next
+      setProcessReviewRecommendations((prev) => {
+        const remaining = prev?.filter((r) => r.id !== recommendationId) || null
+        
+        // If all recommendations are processed, close modal
+        if (!remaining || remaining.length === 0) {
+          setProcessReviewModalTicketPk(null)
+          setProcessReviewModalTicketId(null)
+          setProcessReviewModalReviewId(null)
+          return null
+        }
+        
+        return remaining
       })
     },
     []
   )
-
-  /** Handle closing Process Review recommendations modal (0484). */
-  const handleProcessReviewModalClose = useCallback(() => {
-    const recommendationsLength = processReviewRecommendations.length
-    const ticketPk = processReviewModalTicketPk
-    
-    setProcessReviewModalOpen(false)
-    
-    // If all recommendations are gone, move ticket to Done
-    if (recommendationsLength === 0 && ticketPk) {
-      const doneCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-done').length
-      handleKanbanMoveTicket(ticketPk, 'col-done', doneCount).catch((err) => {
-        console.error('Failed to move ticket to Done:', err)
-      })
-      
-      // Reset status
-      setTimeout(() => {
-        setProcessReviewStatus('idle')
-        setProcessReviewMessage(null)
-        setProcessReviewTicketPk(null)
-      }, 5000)
-    }
-    
-    // Clear modal state when closing
-    setProcessReviewModalTicketPk(null)
-    setProcessReviewModalTicketId(null)
-    setProcessReviewModalReviewId(null)
-    setProcessReviewRecommendations([])
-    setProcessReviewRecommendationErrors({})
-    setProcessReviewRecommendationLoading({})
-  }, [processReviewRecommendations.length, processReviewModalTicketPk, kanbanTickets, handleKanbanMoveTicket])
 
   const handleImageSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -5321,66 +5305,118 @@ function App() {
       )}
 
       {/* Process Review Recommendations Modal (0484) */}
-      {processReviewModalOpen && (
-        <div className="conversation-modal-overlay" onClick={handleProcessReviewModalClose}>
-          <div className="conversation-modal process-review-recommendations-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '90vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+      {processReviewRecommendations && processReviewRecommendations.length > 0 && (
+        <div 
+          className="conversation-modal-overlay" 
+          onClick={() => {
+            // Only close if all recommendations are processed
+            if (processReviewRecommendations.length === 0) {
+              setProcessReviewRecommendations(null)
+              setProcessReviewModalTicketPk(null)
+              setProcessReviewModalTicketId(null)
+              setProcessReviewModalReviewId(null)
+            }
+          }}
+        >
+          <div 
+            className="conversation-modal" 
+            onClick={(e) => e.stopPropagation()} 
+            style={{ maxWidth: '800px', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}
+          >
             <div className="conversation-modal-header">
               <h3>Process Review Recommendations</h3>
               <button 
                 type="button" 
                 className="conversation-modal-close" 
-                onClick={handleProcessReviewModalClose} 
+                onClick={() => {
+                  setProcessReviewRecommendations(null)
+                  setProcessReviewModalTicketPk(null)
+                  setProcessReviewModalTicketId(null)
+                  setProcessReviewModalReviewId(null)
+                }} 
                 aria-label="Close recommendations modal"
               >
                 ×
               </button>
             </div>
             <div className="conversation-modal-content" style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
-              {processReviewRecommendations.length === 0 ? (
-                <p>All recommendations have been processed.</p>
-              ) : (
-                <div className="process-review-recommendations-list">
-                  {processReviewRecommendations.map((recommendation) => (
-                    <div key={recommendation.id} className="process-review-recommendation-card">
-                      <div className="process-review-recommendation-content">
-                        <div className="process-review-recommendation-text">
-                          <strong>{recommendation.text}</strong>
-                        </div>
-                        {recommendation.justification && (
-                          <div className="process-review-recommendation-justification">
-                            {recommendation.justification}
-                          </div>
-                        )}
-                        {processReviewRecommendationErrors[recommendation.id] && (
-                          <div className="process-review-recommendation-error">
-                            ❌ Error: {processReviewRecommendationErrors[recommendation.id]}
-                          </div>
-                        )}
-                      </div>
-                      <div className="process-review-recommendation-actions">
-                        <button
-                          type="button"
-                          className="process-review-btn-implement"
-                          onClick={() => handleProcessReviewImplement(recommendation.id)}
-                          disabled={processReviewRecommendationLoading[recommendation.id]}
-                          aria-label={`Implement: ${recommendation.text}`}
-                        >
-                          {processReviewRecommendationLoading[recommendation.id] ? 'Creating...' : 'Implement'}
-                        </button>
-                        <button
-                          type="button"
-                          className="process-review-btn-ignore"
-                          onClick={() => handleProcessReviewIgnore(recommendation.id)}
-                          disabled={processReviewRecommendationLoading[recommendation.id]}
-                          aria-label={`Ignore: ${recommendation.text}`}
-                        >
-                          Ignore
-                        </button>
-                      </div>
+              <p style={{ marginBottom: '16px', color: 'var(--hal-text-muted)' }}>
+                Review the recommendations below. Click "Implement" to create a ticket, or "Ignore" to dismiss.
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {processReviewRecommendations.map((recommendation) => (
+                  <div
+                    key={recommendation.id}
+                    style={{
+                      border: '1px solid var(--hal-border)',
+                      borderRadius: '8px',
+                      padding: '16px',
+                      background: recommendation.error ? 'var(--hal-surface-alt)' : 'var(--hal-surface)',
+                    }}
+                  >
+                    <div style={{ marginBottom: '12px' }}>
+                      <h4 style={{ margin: '0 0 8px 0', fontSize: '16px', fontWeight: '600' }}>
+                        {recommendation.text}
+                      </h4>
+                      {recommendation.justification && (
+                        <p style={{ margin: 0, fontSize: '14px', color: 'var(--hal-text-muted)', fontStyle: 'italic' }}>
+                          {recommendation.justification}
+                        </p>
+                      )}
                     </div>
-                  ))}
-                </div>
-              )}
+                    {recommendation.error && (
+                      <div
+                        style={{
+                          marginBottom: '12px',
+                          padding: '8px 12px',
+                          background: 'var(--hal-status-error, #c62828)',
+                          color: 'white',
+                          borderRadius: '4px',
+                          fontSize: '14px',
+                        }}
+                      >
+                        Error: {recommendation.error}
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                      <button
+                        type="button"
+                        onClick={() => handleProcessReviewIgnore(recommendation.id)}
+                        disabled={recommendation.isCreating}
+                        style={{
+                          padding: '8px 16px',
+                          background: 'var(--hal-surface)',
+                          color: 'var(--hal-text)',
+                          border: '1px solid var(--hal-border)',
+                          borderRadius: '4px',
+                          cursor: recommendation.isCreating ? 'not-allowed' : 'pointer',
+                          fontSize: '14px',
+                          opacity: recommendation.isCreating ? 0.6 : 1,
+                        }}
+                      >
+                        Ignore
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleProcessReviewImplement(recommendation.id)}
+                        disabled={recommendation.isCreating}
+                        style={{
+                          padding: '8px 16px',
+                          background: recommendation.isCreating ? 'var(--hal-text-muted)' : 'var(--hal-primary)',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '4px',
+                          cursor: recommendation.isCreating ? 'not-allowed' : 'pointer',
+                          fontSize: '14px',
+                          opacity: recommendation.isCreating ? 0.7 : 1,
+                        }}
+                      >
+                        {recommendation.isCreating ? 'Creating...' : 'Implement'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
