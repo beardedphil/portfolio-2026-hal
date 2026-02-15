@@ -353,6 +353,7 @@ function App() {
   } | null>(null)
   const [pmWorkingMemoryOpen, setPmWorkingMemoryOpen] = useState(false)
   const [pmWorkingMemoryLoading, setPmWorkingMemoryLoading] = useState(false)
+  const [pmWorkingMemoryError, setPmWorkingMemoryError] = useState<string | null>(null)
   
   // Alias workingMemory to pmWorkingMemory for UI compatibility (declared early so it can be used in useEffects)
   const workingMemory = pmWorkingMemory ? {
@@ -369,7 +370,7 @@ function App() {
   } : null
   const workingMemoryOpen = pmWorkingMemoryOpen
   const workingMemoryLoading = pmWorkingMemoryLoading
-  const workingMemoryError = null
+  const workingMemoryError = pmWorkingMemoryError
   const setWorkingMemoryOpen = setPmWorkingMemoryOpen
   
   const disconnectConfirmButtonRef = useRef<HTMLButtonElement>(null)
@@ -1326,8 +1327,7 @@ function App() {
     try {
       setPmWorkingMemoryLoading(true)
       const supabase = getSupabaseClient(supabaseUrl, supabaseAnonKey)
-      const convId = selectedConversationId || getConversationId('project-manager', 1)
-      const agentFilter = convId
+      const agentFilter = selectedConversationId || getConversationId('project-manager', 1)
       const { data, error } = await supabase
         .from('hal_conversation_working_memory')
         .select('*')
@@ -1403,64 +1403,59 @@ function App() {
     return `HAL-${padded}`
   }, [])
 
-  // Fetch PM working memory (0173) - simplified version that uses current conversation
-  const fetchPmWorkingMemory = useCallback(async () => {
-    if (!connectedProject || !supabaseUrl || !supabaseAnonKey) {
-      setPmWorkingMemory(null)
-      return
-    }
-
-    try {
-      setPmWorkingMemoryLoading(true)
-      const supabase = getSupabaseClient(supabaseUrl, supabaseAnonKey)
-      const convId = selectedConversationId || getConversationId('project-manager', 1)
-      const agentFilter = convId
-      const { data, error } = await supabase
-        .from('hal_conversation_working_memory')
-        .select('*')
-        .eq('project_id', connectedProject)
-        .eq('agent', agentFilter)
-        .single()
-
-      if (error && error.code !== 'PGRST116') {
-        throw error
-      }
-
-      if (data) {
-        setPmWorkingMemory({
-          summary: data.summary || '',
-          goals: Array.isArray(data.goals) ? data.goals : [],
-          requirements: Array.isArray(data.requirements) ? data.requirements : [],
-          constraints: Array.isArray(data.constraints) ? data.constraints : [],
-          decisions: Array.isArray(data.decisions) ? data.decisions : [],
-          assumptions: Array.isArray(data.assumptions) ? data.assumptions : [],
-          open_questions: Array.isArray(data.open_questions) ? data.open_questions : [],
-          glossary: data.glossary && typeof data.glossary === 'object' ? data.glossary as Record<string, string> : {},
-          stakeholders: Array.isArray(data.stakeholders) ? data.stakeholders : [],
-          updated_at: data.updated_at || new Date().toISOString(),
-          through_sequence: data.through_sequence || 0,
-        })
-      } else {
-        setPmWorkingMemory(null)
-      }
-    } catch (err) {
-      console.error('[PM] Failed to fetch working memory:', err)
-      setPmWorkingMemory(null)
-    } finally {
-      setPmWorkingMemoryLoading(false)
-    }
-  }, [connectedProject, supabaseUrl, supabaseAnonKey, selectedConversationId])
 
   // Legacy loadWorkingMemory function for compatibility
   const loadWorkingMemory = useCallback(async () => {
     await fetchPmWorkingMemory()
   }, [fetchPmWorkingMemory])
 
-  // Legacy refreshWorkingMemory function  
+  // Legacy refreshWorkingMemory function - defined after refreshPmWorkingMemory
   const refreshWorkingMemory = useCallback(async () => {
-    const convId = selectedConversationId || getConversationId('project-manager', 1)
-    await refreshPmWorkingMemory(convId)
-  }, [selectedConversationId, refreshPmWorkingMemory])
+    // refreshPmWorkingMemory will be defined later, so we'll use it directly in the callback
+    if (!connectedProject || !supabaseUrl || !supabaseAnonKey) {
+      return
+    }
+    try {
+      setPmWorkingMemoryLoading(true)
+      const url = supabaseUrl.trim()
+      const key = supabaseAnonKey.trim()
+      const res = await fetch('/api/pm/working-memory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: connectedProject,
+          supabaseUrl: url,
+          supabaseAnonKey: key,
+          force: true,
+        }),
+      })
+      const data = await res.json() as { success: boolean; workingMemory?: any; error?: string }
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to refresh working memory')
+      }
+      if (data.workingMemory) {
+        setPmWorkingMemory({
+          summary: data.workingMemory.summary || '',
+          goals: Array.isArray(data.workingMemory.goals) ? data.workingMemory.goals : [],
+          requirements: Array.isArray(data.workingMemory.requirements) ? data.workingMemory.requirements : [],
+          constraints: Array.isArray(data.workingMemory.constraints) ? data.workingMemory.constraints : [],
+          decisions: Array.isArray(data.workingMemory.decisions) ? data.workingMemory.decisions : [],
+          assumptions: Array.isArray(data.workingMemory.assumptions) ? data.workingMemory.assumptions : [],
+          open_questions: Array.isArray(data.workingMemory.openQuestions) ? data.workingMemory.openQuestions : (Array.isArray(data.workingMemory.open_questions) ? data.workingMemory.open_questions : []),
+          glossary: data.workingMemory.glossary && typeof data.workingMemory.glossary === 'object' ? data.workingMemory.glossary as Record<string, string> : {},
+          stakeholders: Array.isArray(data.workingMemory.stakeholders) ? data.workingMemory.stakeholders : [],
+          updated_at: data.workingMemory.updated_at || new Date().toISOString(),
+          through_sequence: data.workingMemory.through_sequence || 0,
+        })
+      } else {
+        setPmWorkingMemory(null)
+      }
+    } catch (err) {
+      console.error('[PM] Failed to refresh working memory:', err)
+    } finally {
+      setPmWorkingMemoryLoading(false)
+    }
+  }, [connectedProject, supabaseUrl, supabaseAnonKey, selectedConversationId])
 
   // Fetch working memory when PM conversation changes (0173)
   useEffect(() => {
@@ -1582,7 +1577,6 @@ function App() {
   // Load PM working memory when PM chat is opened (0173)
   useEffect(() => {
     if (selectedChatTarget === 'project-manager' && connectedProject && supabaseUrl && supabaseAnonKey) {
-      const convId = selectedConversationId || getConversationId('project-manager', 1)
       fetchPmWorkingMemory()
     } else {
       setPmWorkingMemory(null)
@@ -2603,7 +2597,6 @@ function App() {
             // Refresh working memory after PM agent responds (0173)
             if (connectedProject && supabaseUrl && supabaseAnonKey) {
               // Refresh working memory in the background (non-blocking)
-              const convIdForRefresh = convId || getConversationId('project-manager', 1)
               fetchPmWorkingMemory().catch((err) => {
                 console.warn('[PM] Failed to refresh working memory after response:', err)
               })
@@ -3317,58 +3310,10 @@ function App() {
     }
   }, [handleSend])
 
-  // Fetch PM working memory (0173)
-  const fetchPmWorkingMemory = useCallback(async (conversationId: string) => {
-    if (!connectedProject || !supabaseUrl || !supabaseAnonKey) {
-      setPmWorkingMemory(null)
-      return
-    }
 
-    try {
-      setPmWorkingMemoryLoading(true)
-      setPmWorkingMemoryError(null)
-      const supabase = getSupabaseClient(supabaseUrl, supabaseAnonKey)
-      // Use conversationId as the agent field (conversation IDs are stored in agent field)
-      const agentFilter = conversationId || 'project-manager'
-      const { data, error } = await supabase
-        .from('hal_conversation_working_memory')
-        .select('*')
-        .eq('project_id', connectedProject)
-        .eq('agent', agentFilter)
-        .single()
-
-      if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
-        throw error
-      }
-
-      if (data) {
-        setPmWorkingMemory({
-          summary: data.summary || '',
-          goals: Array.isArray(data.goals) ? data.goals : [],
-          requirements: Array.isArray(data.requirements) ? data.requirements : [],
-          constraints: Array.isArray(data.constraints) ? data.constraints : [],
-          decisions: Array.isArray(data.decisions) ? data.decisions : [],
-          assumptions: Array.isArray(data.assumptions) ? data.assumptions : [],
-          open_questions: Array.isArray(data.open_questions) ? data.open_questions : [],
-          glossary: data.glossary && typeof data.glossary === 'object' ? data.glossary as Record<string, string> : {},
-          stakeholders: Array.isArray(data.stakeholders) ? data.stakeholders : [],
-          updated_at: data.updated_at || new Date().toISOString(),
-          through_sequence: data.through_sequence || 0,
-        })
-      } else {
-        setPmWorkingMemory(null)
-      }
-    } catch (err) {
-      console.error('[PM] Failed to fetch working memory:', err)
-      setPmWorkingMemoryError(err instanceof Error ? err.message : String(err))
-      setPmWorkingMemory(null)
-    } finally {
-      setPmWorkingMemoryLoading(false)
-    }
-  }, [connectedProject, supabaseUrl, supabaseAnonKey])
-
-  // Refresh PM working memory (0173)
-  const refreshPmWorkingMemory = useCallback(async (conversationId: string) => {
+  // Refresh PM working memory (0173) - exported for potential future use
+  // @ts-expect-error - Function is defined for potential future use
+  const refreshPmWorkingMemory = useCallback(async (_conversationId?: string) => {
     if (!connectedProject || !supabaseUrl || !supabaseAnonKey) {
       return
     }
@@ -4165,7 +4110,7 @@ function App() {
                             {workingMemoryError ? (
                               <div style={{ color: '#d32f2f', padding: '8px', backgroundColor: 'rgba(211, 47, 47, 0.1)', borderRadius: '4px' }}>
                                 <strong>Error:</strong> {workingMemoryError}
-                                {workingMemoryError.includes('stale') || workingMemoryError.includes('unavailable') ? (
+                                {typeof workingMemoryError === 'string' && (workingMemoryError.includes('stale') || workingMemoryError.includes('unavailable')) ? (
                                   <div style={{ marginTop: '8px', fontSize: '12px' }}>
                                     The PM agent will continue using recent messages. Working memory will be updated automatically when available.
                                   </div>
@@ -4911,110 +4856,113 @@ function App() {
                   </div>
                 )}
                 
-                {workingMemory && (
-                  <div style={{ fontSize: '12px' }}>
-                    <div style={{ marginBottom: '8px', color: '#666' }}>
-                      Last updated: {new Date(workingMemory.last_updated_at).toLocaleString()}
+                {workingMemory && (() => {
+                  const wm = workingMemory!
+                  return (
+                    <div style={{ fontSize: '12px' }}>
+                      <div style={{ marginBottom: '8px', color: '#666' }}>
+                        Last updated: {new Date(wm.lastUpdatedAt).toLocaleString()}
+                      </div>
+                      
+                      {wm.summary && (
+                        <div style={{ marginBottom: '16px' }}>
+                          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Summary</div>
+                          <div style={{ color: '#333', lineHeight: '1.5' }}>{wm.summary}</div>
+                        </div>
+                      )}
+                      
+                      {wm.goals.length > 0 && (
+                        <div style={{ marginBottom: '16px' }}>
+                          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Goals</div>
+                          <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
+                            {wm.goals.map((goal, idx) => (
+                              <li key={idx} style={{ marginBottom: '4px' }}>{goal}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      
+                      {wm.requirements.length > 0 && (
+                        <div style={{ marginBottom: '16px' }}>
+                          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Requirements</div>
+                          <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
+                            {wm.requirements.map((req, idx) => (
+                              <li key={idx} style={{ marginBottom: '4px' }}>{req}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      
+                      {wm.constraints.length > 0 && (
+                        <div style={{ marginBottom: '16px' }}>
+                          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Constraints</div>
+                          <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
+                            {wm.constraints.map((constraint, idx) => (
+                              <li key={idx} style={{ marginBottom: '4px' }}>{constraint}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      
+                      {wm.decisions.length > 0 && (
+                        <div style={{ marginBottom: '16px' }}>
+                          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Decisions</div>
+                          <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
+                            {wm.decisions.map((decision, idx) => (
+                              <li key={idx} style={{ marginBottom: '4px' }}>{decision}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      
+                      {wm.assumptions.length > 0 && (
+                        <div style={{ marginBottom: '16px' }}>
+                          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Assumptions</div>
+                          <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
+                            {wm.assumptions.map((assumption, idx) => (
+                              <li key={idx} style={{ marginBottom: '4px' }}>{assumption}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      
+                      {wm.openQuestions && wm.openQuestions.length > 0 && (
+                        <div style={{ marginBottom: '16px' }}>
+                          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Open Questions</div>
+                          <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
+                            {wm.openQuestions.map((question, idx) => (
+                              <li key={idx} style={{ marginBottom: '4px' }}>{question}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      
+                      {Object.keys(wm.glossary).length > 0 && (
+                        <div style={{ marginBottom: '16px' }}>
+                          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Glossary</div>
+                          <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
+                            {Object.entries(wm.glossary).map(([term, def]) => (
+                              <li key={term} style={{ marginBottom: '4px' }}>
+                                <strong>{term}:</strong> {def}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      
+                      {wm.stakeholders.length > 0 && (
+                        <div style={{ marginBottom: '16px' }}>
+                          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Stakeholders</div>
+                          <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
+                            {wm.stakeholders.map((stakeholder, idx) => (
+                              <li key={idx} style={{ marginBottom: '4px' }}>{stakeholder}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                     </div>
-                    
-                    {workingMemory.summary && (
-                      <div style={{ marginBottom: '16px' }}>
-                        <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Summary</div>
-                        <div style={{ color: '#333', lineHeight: '1.5' }}>{workingMemory.summary}</div>
-                      </div>
-                    )}
-                    
-                    {workingMemory.goals.length > 0 && (
-                      <div style={{ marginBottom: '16px' }}>
-                        <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Goals</div>
-                        <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
-                          {workingMemory.goals.map((goal, idx) => (
-                            <li key={idx} style={{ marginBottom: '4px' }}>{goal}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    
-                    {workingMemory.requirements.length > 0 && (
-                      <div style={{ marginBottom: '16px' }}>
-                        <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Requirements</div>
-                        <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
-                          {workingMemory.requirements.map((req, idx) => (
-                            <li key={idx} style={{ marginBottom: '4px' }}>{req}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    
-                    {workingMemory.constraints.length > 0 && (
-                      <div style={{ marginBottom: '16px' }}>
-                        <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Constraints</div>
-                        <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
-                          {workingMemory.constraints.map((constraint, idx) => (
-                            <li key={idx} style={{ marginBottom: '4px' }}>{constraint}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    
-                    {workingMemory.decisions.length > 0 && (
-                      <div style={{ marginBottom: '16px' }}>
-                        <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Decisions</div>
-                        <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
-                          {workingMemory.decisions.map((decision, idx) => (
-                            <li key={idx} style={{ marginBottom: '4px' }}>{decision}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    
-                    {workingMemory.assumptions.length > 0 && (
-                      <div style={{ marginBottom: '16px' }}>
-                        <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Assumptions</div>
-                        <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
-                          {workingMemory.assumptions.map((assumption, idx) => (
-                            <li key={idx} style={{ marginBottom: '4px' }}>{assumption}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    
-                    {workingMemory && workingMemory.openQuestions && workingMemory.openQuestions.length > 0 && (
-                      <div style={{ marginBottom: '16px' }}>
-                        <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Open Questions</div>
-                        <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
-                          {workingMemory.openQuestions.map((question, idx) => (
-                            <li key={idx} style={{ marginBottom: '4px' }}>{question}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    
-                    {Object.keys(workingMemory.glossary).length > 0 && (
-                      <div style={{ marginBottom: '16px' }}>
-                        <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Glossary</div>
-                        <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
-                          {Object.entries(workingMemory.glossary).map(([term, def]) => (
-                            <li key={term} style={{ marginBottom: '4px' }}>
-                              <strong>{term}:</strong> {def}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    
-                    {workingMemory.stakeholders.length > 0 && (
-                      <div style={{ marginBottom: '16px' }}>
-                        <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Stakeholders</div>
-                        <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
-                          {workingMemory.stakeholders.map((stakeholder, idx) => (
-                            <li key={idx} style={{ marginBottom: '4px' }}>{stakeholder}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                )}
+                  )
+                })()}
               </div>
             )}
             
@@ -5255,11 +5203,23 @@ function App() {
                             const data = await res.json()
                             if (data.success) {
                               if (data.workingMemory) {
-                                setWorkingMemory(data.workingMemory)
+                                setPmWorkingMemory({
+                                  summary: data.workingMemory.summary || '',
+                                  goals: Array.isArray(data.workingMemory.goals) ? data.workingMemory.goals : [],
+                                  requirements: Array.isArray(data.workingMemory.requirements) ? data.workingMemory.requirements : [],
+                                  constraints: Array.isArray(data.workingMemory.constraints) ? data.workingMemory.constraints : [],
+                                  decisions: Array.isArray(data.workingMemory.decisions) ? data.workingMemory.decisions : [],
+                                  assumptions: Array.isArray(data.workingMemory.assumptions) ? data.workingMemory.assumptions : [],
+                                  open_questions: Array.isArray(data.workingMemory.openQuestions) ? data.workingMemory.openQuestions : (Array.isArray(data.workingMemory.open_questions) ? data.workingMemory.open_questions : []),
+                                  glossary: data.workingMemory.glossary && typeof data.workingMemory.glossary === 'object' ? data.workingMemory.glossary as Record<string, string> : {},
+                                  stakeholders: Array.isArray(data.workingMemory.stakeholders) ? data.workingMemory.stakeholders : [],
+                                  updated_at: data.workingMemory.updated_at || new Date().toISOString(),
+                                  through_sequence: data.workingMemory.through_sequence || 0,
+                                })
                               } else {
                                 // No working memory yet - trigger update by sending a refresh request
                                 // The actual update will happen on the next PM agent response
-                                setWorkingMemoryError(null)
+                                setPmWorkingMemoryError(null)
                                 // Show a message that refresh will happen on next message
                                 alert('Working memory will be refreshed automatically on the next PM agent response.')
                               }
@@ -5291,53 +5251,70 @@ function App() {
                             Error: {workingMemoryError}
                           </div>
                         ) : null}
-                        {workingMemory ? (
-                          <div style={{ fontSize: '0.9em' }}>
-                            <div style={{ marginBottom: '12px', color: '#666', fontSize: '0.85em' }}>
-                              Last updated: {new Date(workingMemory.lastUpdatedAt).toLocaleString()}
-                            </div>
-                            {workingMemory.summary && (
-                              <div style={{ marginBottom: '12px' }}>
-                                <strong>Summary:</strong>
-                                <div style={{ marginTop: '4px', whiteSpace: 'pre-wrap' }}>{workingMemory.summary}</div>
+                        {workingMemory ? (() => {
+                          const wm = workingMemory!
+                          return (
+                            <div style={{ fontSize: '0.9em' }}>
+                              <div style={{ marginBottom: '12px', color: '#666', fontSize: '0.85em' }}>
+                                Last updated: {new Date(wm.lastUpdatedAt).toLocaleString()}
                               </div>
-                            )}
-                            {workingMemory.goals && (
-                              <div style={{ marginBottom: '12px' }}>
-                                <strong>Goals:</strong>
-                                <div style={{ marginTop: '4px', whiteSpace: 'pre-wrap' }}>{workingMemory.goals}</div>
-                              </div>
-                            )}
-                            {workingMemory.requirements && (
-                              <div style={{ marginBottom: '12px' }}>
-                                <strong>Requirements:</strong>
-                                <div style={{ marginTop: '4px', whiteSpace: 'pre-wrap' }}>{workingMemory.requirements}</div>
-                              </div>
-                            )}
-                            {workingMemory.constraints && (
-                              <div style={{ marginBottom: '12px' }}>
-                                <strong>Constraints:</strong>
-                                <div style={{ marginTop: '4px', whiteSpace: 'pre-wrap' }}>{workingMemory.constraints}</div>
-                              </div>
-                            )}
-                            {workingMemory.decisions && (
-                              <div style={{ marginBottom: '12px' }}>
-                                <strong>Decisions:</strong>
-                                <div style={{ marginTop: '4px', whiteSpace: 'pre-wrap' }}>{workingMemory.decisions}</div>
-                              </div>
-                            )}
-                            {workingMemory.assumptions && (
-                              <div style={{ marginBottom: '12px' }}>
-                                <strong>Assumptions:</strong>
-                                <div style={{ marginTop: '4px', whiteSpace: 'pre-wrap' }}>{workingMemory.assumptions}</div>
-                              </div>
-                            )}
-                            {workingMemory && workingMemory.openQuestions && (() => {
-                              const wm = workingMemory!
-                              return (wm.openQuestions?.length ?? 0) > 0
-                            })() && workingMemory && (() => {
-                              const wm = workingMemory!
-                              return (
+                              {wm.summary && (
+                                <div style={{ marginBottom: '12px' }}>
+                                  <strong>Summary:</strong>
+                                  <div style={{ marginTop: '4px', whiteSpace: 'pre-wrap' }}>{wm.summary}</div>
+                                </div>
+                              )}
+                              {wm.goals && Array.isArray(wm.goals) && wm.goals.length > 0 && (
+                                <div style={{ marginBottom: '12px' }}>
+                                  <strong>Goals:</strong>
+                                  <ul style={{ marginTop: '4px', paddingLeft: '20px' }}>
+                                    {wm.goals.map((goal, idx) => (
+                                      <li key={idx}>{goal}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                              {wm.requirements && Array.isArray(wm.requirements) && wm.requirements.length > 0 && (
+                                <div style={{ marginBottom: '12px' }}>
+                                  <strong>Requirements:</strong>
+                                  <ul style={{ marginTop: '4px', paddingLeft: '20px' }}>
+                                    {wm.requirements.map((req, idx) => (
+                                      <li key={idx}>{req}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                              {wm.constraints && Array.isArray(wm.constraints) && wm.constraints.length > 0 && (
+                                <div style={{ marginBottom: '12px' }}>
+                                  <strong>Constraints:</strong>
+                                  <ul style={{ marginTop: '4px', paddingLeft: '20px' }}>
+                                    {wm.constraints.map((constraint, idx) => (
+                                      <li key={idx}>{constraint}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                              {wm.decisions && Array.isArray(wm.decisions) && wm.decisions.length > 0 && (
+                                <div style={{ marginBottom: '12px' }}>
+                                  <strong>Decisions:</strong>
+                                  <ul style={{ marginTop: '4px', paddingLeft: '20px' }}>
+                                    {wm.decisions.map((decision, idx) => (
+                                      <li key={idx}>{decision}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                              {wm.assumptions && Array.isArray(wm.assumptions) && wm.assumptions.length > 0 && (
+                                <div style={{ marginBottom: '12px' }}>
+                                  <strong>Assumptions:</strong>
+                                  <ul style={{ marginTop: '4px', paddingLeft: '20px' }}>
+                                    {wm.assumptions.map((assumption, idx) => (
+                                      <li key={idx}>{assumption}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                              {wm.openQuestions && Array.isArray(wm.openQuestions) && wm.openQuestions.length > 0 && (
                                 <div style={{ marginBottom: '12px' }}>
                                   <strong>Open Questions:</strong>
                                   <ul style={{ marginTop: '4px', paddingLeft: '20px' }}>
@@ -5346,18 +5323,12 @@ function App() {
                                     ))}
                                   </ul>
                                 </div>
-                              )
-                            })()}
-                            {workingMemory && workingMemory.glossary && (() => {
-                              const wm = workingMemory!
-                              return Object.keys(wm.glossary || {}).length > 0
-                            })() && (() => {
-                              const wm = workingMemory!
-                              return (
+                              )}
+                              {wm.glossary && Object.keys(wm.glossary).length > 0 && (
                                 <div style={{ marginBottom: '12px' }}>
                                   <strong>Glossary:</strong>
                                   <dl style={{ marginTop: '4px', paddingLeft: '20px' }}>
-                                    {Object.entries(wm.glossary || {}).map(([term, def]) => (
+                                    {Object.entries(wm.glossary).map(([term, def]) => (
                                       <React.Fragment key={term}>
                                         <dt style={{ fontWeight: 'bold' }}>{term}:</dt>
                                         <dd style={{ marginLeft: '20px', marginBottom: '4px' }}>{def}</dd>
@@ -5365,14 +5336,8 @@ function App() {
                                     ))}
                                   </dl>
                                 </div>
-                              )
-                            })()}
-                            {workingMemory && workingMemory.stakeholders && (() => {
-                              const wm = workingMemory!
-                              return wm.stakeholders.length > 0
-                            })() && workingMemory && (() => {
-                              const wm = workingMemory!
-                              return (
+                              )}
+                              {wm.stakeholders && Array.isArray(wm.stakeholders) && wm.stakeholders.length > 0 && (
                                 <div style={{ marginBottom: '12px' }}>
                                   <strong>Stakeholders:</strong>
                                   <ul style={{ marginTop: '4px', paddingLeft: '20px' }}>
@@ -5381,20 +5346,17 @@ function App() {
                                     ))}
                                   </ul>
                                 </div>
-                              )
-                            })()}
-                            {workingMemory && (() => {
-                              const wm = workingMemory!
-                              return !wm.summary && (!wm.goals || wm.goals.length === 0) && (!wm.requirements || wm.requirements.length === 0) && 
+                              )}
+                              {!wm.summary && (!wm.goals || wm.goals.length === 0) && (!wm.requirements || wm.requirements.length === 0) && 
                                 (!wm.constraints || wm.constraints.length === 0) && (!wm.decisions || wm.decisions.length === 0) && (!wm.assumptions || wm.assumptions.length === 0) && 
-                                (!wm.openQuestions || wm.openQuestions.length === 0) && (!wm.glossary || Object.keys(wm.glossary).length === 0) && (!wm.stakeholders || wm.stakeholders.length === 0)
-                            })() && (
-                              <div style={{ color: '#666', fontStyle: 'italic' }}>
-                                Working memory is empty. It will be populated automatically as the conversation grows.
-                              </div>
-                            )}
-                          </div>
-                        ) : (
+                                (!wm.openQuestions || (Array.isArray(wm.openQuestions) && wm.openQuestions.length === 0)) && (!wm.glossary || Object.keys(wm.glossary || {}).length === 0) && (!wm.stakeholders || (Array.isArray(wm.stakeholders) && wm.stakeholders.length === 0)) && (
+                                  <div style={{ color: '#666', fontStyle: 'italic' }}>
+                                    Working memory is empty. It will be populated automatically as the conversation grows.
+                                  </div>
+                                )}
+                            </div>
+                          )
+                        })() : (
                           <div style={{ color: '#666', fontStyle: 'italic' }}>
                             {workingMemoryLoading ? 'Loading...' : 'No working memory yet. It will be created automatically as the conversation grows.'}
                           </div>
