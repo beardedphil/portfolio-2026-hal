@@ -3669,17 +3669,22 @@ function App() {
                               className={`message-row message-row-${msg.agent}`}
                               data-agent={msg.agent}
                             >
-                              <div 
-                                className={`message message-${msg.agent} ${selectedChatTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText ? 'message-clickable' : ''}`}
-                                onClick={selectedChatTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText ? () => setPromptModalMessage(msg) : undefined}
-                                style={selectedChatTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText ? { cursor: 'pointer' } : undefined}
-                                title={selectedChatTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText ? 'Click to view sent prompt' : undefined}
-                              >
+                              <div className={`message message-${msg.agent}`}>
                                 <div className="message-header">
                                   <span className="message-author">{getMessageAuthorLabel(msg.agent)}</span>
                                   <span className="message-time">[{formatTime(msg.timestamp)}]</span>
                                   {selectedChatTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText && (
-                                    <span className="message-prompt-indicator" title="Click to view sent prompt">📋</span>
+                                    <button
+                                      type="button"
+                                      className="message-prompt-button"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        setPromptModalMessage(msg)
+                                      }}
+                                      title="Show sent prompt"
+                                    >
+                                      Show sent prompt
+                                    </button>
                                   )}
                                   {msg.imageAttachments && msg.imageAttachments.length > 0 && (
                                     <div className="message-images">
