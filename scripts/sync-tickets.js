@@ -19,6 +19,8 @@ import { createClient } from '@supabase/supabase-js'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
+// Import shared helper from compiled agents module (requires npm run build:agents)
+import { normalizeTitleLineInBody } from '../agents/dist/lib/ticketBodyNormalization.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 /** When set (e.g. by repo-write-runner for an isolated worktree), use this as project root. */
@@ -67,27 +69,7 @@ function extractTitle(content, filename) {
   return filename.replace(/\.md$/i, '')
 }
 
-/** Normalize Title line in body_md to include ID prefix: "<ID> — <title>". Returns normalized body_md. */
-function normalizeTitleLineInBody(bodyMd, ticketId) {
-  if (!bodyMd || !ticketId) return bodyMd
-  const idPrefix = `${ticketId} — `
-  // Match the Title line: "- **Title**: ..."
-  const titleLineRegex = /(- \*\*Title\*\*:\s*)(.+?)(?:\n|$)/
-  const match = bodyMd.match(titleLineRegex)
-  if (!match) return bodyMd // No Title line found, return as-is
-  
-  const prefix = match[1] // "- **Title**: "
-  let titleValue = match[2].trim()
-  
-  // Remove any existing ID prefix (e.g. "0048 — " or "0048 - ")
-  titleValue = titleValue.replace(/^\d{4}\s*[—–-]\s*/, '')
-  
-  // Prepend the correct ID prefix
-  const normalizedTitle = `${idPrefix}${titleValue}`
-  const normalizedLine = `${prefix}${normalizedTitle}${match[0].endsWith('\n') ? '\n' : ''}`
-  
-  return bodyMd.replace(titleLineRegex, normalizedLine)
-}
+// normalizeTitleLineInBody is now imported from shared module (agents/src/lib/ticketBodyNormalization.ts)
 
 /** Return body only (strip frontmatter if present). */
 function getBodyOnly(content) {
