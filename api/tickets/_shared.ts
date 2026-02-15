@@ -4,6 +4,7 @@
  */
 
 import type { IncomingMessage, ServerResponse } from 'http'
+import { generateTicketLookupAttempts } from './_resolveTicketRef.js'
 
 /**
  * Reads and parses JSON body from an HTTP request.
@@ -101,12 +102,14 @@ export function parseSupabaseCredentials(body: {
 /**
  * Fetches a ticket by PK or ID using multiple lookup strategies.
  * Handles different ticket ID formats: numeric id, display_id, etc.
+ * Uses the resolution helper to generate lookup attempts in the correct order.
  */
 export async function fetchTicketByPkOrId(
   supabase: any,
   ticketPk?: string,
   ticketId?: string
 ): Promise<{ data: any; error: any } | null> {
+  // Fast path: if ticketPk is provided, use it directly
   if (ticketPk) {
     return await supabase
       .from('tickets')
@@ -117,47 +120,36 @@ export async function fetchTicketByPkOrId(
 
   if (!ticketId) return null
 
-  // Strategy 1: Try by id field as-is (e.g., "172")
-  let ticketFetch = await supabase
-    .from('tickets')
-    .select('pk, repo_full_name, kanban_column_id, kanban_position')
-    .eq('id', ticketId)
-    .maybeSingle()
+  // Generate lookup attempts using the pure helper
+  const attempts = generateTicketLookupAttempts(ticketId)
 
-  // Strategy 2: If not found, try by display_id (e.g., "HAL-0172")
-  if (ticketFetch && (ticketFetch.error || !ticketFetch.data)) {
-    ticketFetch = await supabase
+  // Try each lookup attempt in order until one succeeds
+  for (const attempt of attempts) {
+    let query = supabase
       .from('tickets')
       .select('pk, repo_full_name, kanban_column_id, kanban_position')
-      .eq('display_id', ticketId)
-      .maybeSingle()
-  }
 
-  // Strategy 3: If ticketId looks like display_id (e.g., "HAL-0172"), extract numeric part and try by id
-  if (ticketFetch && (ticketFetch.error || !ticketFetch.data) && /^[A-Z]+-/.test(ticketId)) {
-    const numericPart = ticketId.replace(/^[A-Z]+-/, '')
-    // Remove leading zeros to get the actual id value (e.g., "0172" -> "172")
-    const idValue = numericPart.replace(/^0+/, '') || numericPart
-    if (idValue !== ticketId) {
-      ticketFetch = await supabase
-        .from('tickets')
-        .select('pk, repo_full_name, kanban_column_id, kanban_position')
-        .eq('id', idValue)
-        .maybeSingle()
+    if (attempt.strategy.type === 'id') {
+      query = query.eq('id', attempt.strategy.value)
+    } else if (attempt.strategy.type === 'display_id') {
+      query = query.eq('display_id', attempt.strategy.value)
     }
-  }
 
-  // Strategy 4: If ticketId is numeric with leading zeros (e.g., "0172"), try without leading zeros
-  if (ticketFetch && (ticketFetch.error || !ticketFetch.data) && /^\d+$/.test(ticketId) && ticketId.startsWith('0')) {
-    const withoutLeadingZeros = ticketId.replace(/^0+/, '') || ticketId
-    if (withoutLeadingZeros !== ticketId) {
-      ticketFetch = await supabase
-        .from('tickets')
-        .select('pk, repo_full_name, kanban_column_id, kanban_position')
-        .eq('id', withoutLeadingZeros)
-        .maybeSingle()
+    const ticketFetch = await query.maybeSingle()
+
+    // If we found a ticket (no error and data exists), return it
+    if (ticketFetch && !ticketFetch.error && ticketFetch.data) {
+      return ticketFetch
     }
+
+    // If there was an error (not just "not found"), return the error
+    if (ticketFetch && ticketFetch.error) {
+      return ticketFetch
+    }
+
+    // Otherwise, continue to next attempt
   }
 
-  return ticketFetch
+  // If all attempts failed, return null (no ticket found)
+  return null
 }
