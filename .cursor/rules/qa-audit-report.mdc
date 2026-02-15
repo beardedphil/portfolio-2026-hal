@@ -77,9 +77,16 @@ Brief note if implementation is otherwise correct.
 - **PASS:** 
   1. Store QA report
   2. **MANDATORY:** If feature branch exists (not already on main), merge feature branch to `main` and push to remote: `git checkout main && git merge <feature-branch> && git push origin main`
-  3. **MANDATORY:** Delete feature branch (local and remote): `git branch -d <feature-branch> && git push origin --delete <feature-branch>` (only if branch exists)
-  4. Move ticket to `col-human-in-the-loop`
+     - **CRITICAL:** Both `git merge` and `git push origin main` must succeed. If either fails:
+       - **Retry with exponential backoff:** Attempt up to 4 times with delays (4s, 8s, 16s, 32s)
+       - **If all retries fail:** Surface the error in the final summary message and **DO NOT** move the ticket to `col-human-in-the-loop`
+       - **Keep ticket in QA:** The ticket must remain in its current column (or move to `col-todo` if appropriate) until merge/push succeeds
+     - **Only after confirmed successful merge + push:** Proceed to step 3
+  3. **MANDATORY:** Delete feature branch (local and remote): `git branch -d <feature-branch> && git push origin --delete <feature-branch>` (only if branch exists and merge/push succeeded)
+     - **CRITICAL:** Branch deletion only happens after confirmed successful merge + push. If merge/push failed, do not delete the branch.
+  4. **MANDATORY:** Move ticket to `col-human-in-the-loop` **ONLY IF** merge and push both succeeded. If merge/push failed, do not move the ticket forward.
   5. Send summary. Final message must include: `QA RESULT: PASS — <ticket-id>`
+     - **If merge/push failed:** Include error details in summary and state that ticket was not moved to HITL due to merge/push failure
 - **FAIL:** 
   1. Store full QA report
   2. **MANDATORY:** Store Implementation agent note
