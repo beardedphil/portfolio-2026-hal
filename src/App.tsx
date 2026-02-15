@@ -5362,8 +5362,6 @@ function App() {
                             })()}
                             {workingMemory && workingMemory.stakeholders && workingMemory.stakeholders.length > 0 && (() => {
                               const wm = workingMemory!
-                              return (() => {
-                              const wm = workingMemory!
                               return (
                                 <div style={{ marginBottom: '12px' }}>
                                   <strong>Stakeholders:</strong>
