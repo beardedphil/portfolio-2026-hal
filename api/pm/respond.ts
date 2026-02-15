@@ -162,6 +162,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             run: (msg: string, config: object) => Promise<any>
           }
           summarizeForContext?: (msgs: unknown[], key: string, model: string) => Promise<string>
+          generateWorkingMemory?: (
+            msgs: unknown[],
+            existing: unknown,
+            key: string,
+            model: string
+          ) => Promise<unknown>
         }
       | null = null
 
@@ -177,6 +183,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const RECENT_MAX_CHARS = 12_000
     let conversationContextPack: string | undefined
     let recentImagesFromDb: Array<{ dataUrl: string; filename: string; mimeType: string }> = []
+    let workingMemoryText: string | undefined
     if (projectId && supabaseUrl && supabaseAnonKey && runnerModule) {
       try {
         const { createClient } = await import('@supabase/supabase-js')
@@ -260,6 +267,46 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             .join('\n\n')
         }
 
+        // Fetch working memory (0173: PM working memory)
+        try {
+          const { data: memoryRow } = await supabase
+            .from('hal_pm_working_memory')
+            .select('*')
+            .eq('project_id', projectId)
+            .eq('agent', 'project-manager')
+            .single()
+
+          if (memoryRow) {
+            const parts: string[] = []
+            if (memoryRow.summary) parts.push(`**Summary:** ${memoryRow.summary}`)
+            if (memoryRow.goals && memoryRow.goals.length > 0)
+              parts.push(`**Goals:** ${memoryRow.goals.join(', ')}`)
+            if (memoryRow.requirements && memoryRow.requirements.length > 0)
+              parts.push(`**Requirements:** ${memoryRow.requirements.join(', ')}`)
+            if (memoryRow.constraints && memoryRow.constraints.length > 0)
+              parts.push(`**Constraints:** ${memoryRow.constraints.join(', ')}`)
+            if (memoryRow.decisions && memoryRow.decisions.length > 0)
+              parts.push(`**Decisions:** ${memoryRow.decisions.join(', ')}`)
+            if (memoryRow.assumptions && memoryRow.assumptions.length > 0)
+              parts.push(`**Assumptions:** ${memoryRow.assumptions.join(', ')}`)
+            if (memoryRow.open_questions && memoryRow.open_questions.length > 0)
+              parts.push(`**Open Questions:** ${memoryRow.open_questions.join(', ')}`)
+            if (memoryRow.glossary && memoryRow.glossary.length > 0)
+              parts.push(`**Glossary:** ${memoryRow.glossary.join('; ')}`)
+            if (memoryRow.stakeholders && memoryRow.stakeholders.length > 0)
+              parts.push(`**Stakeholders:** ${memoryRow.stakeholders.join(', ')}`)
+
+            if (parts.length > 0) {
+              workingMemoryText = `## Working Memory\n\n${parts.join('\n\n')}\n\n*Last updated: ${new Date(memoryRow.updated_at).toLocaleString()}*\n`
+            }
+          }
+        } catch (memoryErr) {
+          // Working memory fetch failed, continue without it (graceful degradation)
+          console.warn('[PM] Failed to fetch working memory:', memoryErr)
+          // Set a note that memory is unavailable (for UI display)
+          workingMemoryText = undefined
+        }
+
         // Use DB-derived context pack instead of client-provided history
         conversationHistory = undefined
       } catch {
@@ -317,6 +364,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       openaiModel: model,
       conversationHistory,
       conversationContextPack,
+      workingMemoryText, // 0173: Include working memory in PM agent context
       previousResponseId,
       ...(createTicketAvailable
         ? { supabaseUrl: supabaseUrl!, supabaseAnonKey: supabaseAnonKey! }
@@ -357,6 +405,88 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         ...(typeof out.ready === 'boolean' && { ready: out.ready }),
         ...(Array.isArray(out.missingItems) && out.missingItems.length > 0 && { missingItems: out.missingItems }),
         ...(out.autoFixed && { autoFixed: true }),
+      }
+    }
+
+    // Auto-update working memory after response (0173: PM working memory)
+    if (
+      projectId &&
+      supabaseUrl &&
+      supabaseAnonKey &&
+      runnerModule &&
+      typeof runnerModule.generateWorkingMemory === 'function' &&
+      !result.error
+    ) {
+      try {
+        const { createClient } = await import('@supabase/supabase-js')
+        const supabase = createClient(supabaseUrl, supabaseAnonKey)
+        const { data: allMessages } = await supabase
+          .from('hal_conversation_messages')
+          .select('role, content, sequence')
+          .eq('project_id', projectId)
+          .eq('agent', 'project-manager')
+          .order('sequence', { ascending: true })
+
+        if (allMessages && allMessages.length > 0) {
+          const messages = allMessages.map((r: any) => ({
+            role: r.role as 'user' | 'assistant',
+            content: r.content ?? '',
+          }))
+
+          const { data: existingMemory } = await supabase
+            .from('hal_pm_working_memory')
+            .select('*')
+            .eq('project_id', projectId)
+            .eq('agent', 'project-manager')
+            .single()
+
+          // Only update if we have new messages (check last_sequence)
+          const maxSequence = Math.max(...allMessages.map((m: any) => m.sequence ?? 0))
+          const shouldUpdate =
+            !existingMemory || (existingMemory.last_sequence ?? 0) < maxSequence
+
+          if (shouldUpdate) {
+            const newMemory = (await runnerModule.generateWorkingMemory(
+              messages,
+              existingMemory,
+              key,
+              model
+            )) as {
+              summary: string
+              goals: string[]
+              requirements: string[]
+              constraints: string[]
+              decisions: string[]
+              assumptions: string[]
+              open_questions: string[]
+              glossary: string[]
+              stakeholders: string[]
+            }
+
+            await supabase.from('hal_pm_working_memory').upsert(
+              {
+                project_id: projectId,
+                agent: 'project-manager',
+                summary: newMemory.summary,
+                goals: newMemory.goals,
+                requirements: newMemory.requirements,
+                constraints: newMemory.constraints,
+                decisions: newMemory.decisions,
+                assumptions: newMemory.assumptions,
+                open_questions: newMemory.open_questions,
+                glossary: newMemory.glossary,
+                stakeholders: newMemory.stakeholders,
+                last_sequence: maxSequence,
+                updated_at: new Date().toISOString(),
+              },
+              { onConflict: 'project_id,agent' }
+            )
+          }
+        }
+      } catch (memoryUpdateErr) {
+        // Working memory update failed, but don't fail the response (graceful degradation)
+        console.warn('[PM] Failed to update working memory:', memoryUpdateErr)
+        // The PM agent will continue using recent messages and existing working memory
       }
     }
 

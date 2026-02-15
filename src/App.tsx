@@ -337,6 +337,22 @@ function App() {
   const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false)
   const [agentInstructionsOpen, setAgentInstructionsOpen] = useState(false)
   const [promptModalMessage, setPromptModalMessage] = useState<Message | null>(null)
+  // Working memory state (0173: PM working memory)
+  const [workingMemory, setWorkingMemory] = useState<{
+    summary: string
+    goals: string[]
+    requirements: string[]
+    constraints: string[]
+    decisions: string[]
+    assumptions: string[]
+    open_questions: string[]
+    glossary: string[]
+    stakeholders: string[]
+    updated_at: string
+  } | null>(null)
+  const [workingMemoryExpanded, setWorkingMemoryExpanded] = useState(false)
+  const [workingMemoryLoading, setWorkingMemoryLoading] = useState(false)
+  const [workingMemoryError, setWorkingMemoryError] = useState<string | null>(null)
   const disconnectConfirmButtonRef = useRef<HTMLButtonElement>(null)
   const disconnectButtonRef = useRef<HTMLButtonElement>(null)
   /** Kanban data (HAL owns DB; fetches and passes to KanbanBoard). */
@@ -1274,6 +1290,79 @@ function App() {
     const firstLine = lastMsg.content.split('\n')[0]
     return firstLine.length > 100 ? firstLine.substring(0, 100) + '...' : firstLine
   }, [])
+
+  // Fetch working memory (0173: PM working memory)
+  const fetchWorkingMemory = useCallback(async () => {
+    if (!connectedProject || !supabaseUrl || !supabaseAnonKey || selectedChatTarget !== 'project-manager') {
+      return
+    }
+    setWorkingMemoryLoading(true)
+    setWorkingMemoryError(null)
+    try {
+      const res = await fetch('/api/pm/working-memory/get', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: connectedProject,
+          supabaseUrl,
+          supabaseAnonKey,
+          agent: 'project-manager',
+        }),
+      })
+      const data = await res.json()
+      if (data.success && data.workingMemory) {
+        setWorkingMemory(data.workingMemory)
+      } else {
+        setWorkingMemory(null)
+        if (data.error && !data.error.includes('not found')) {
+          setWorkingMemoryError(data.error)
+        }
+      }
+    } catch (err) {
+      setWorkingMemoryError(err instanceof Error ? err.message : String(err))
+      setWorkingMemory(null)
+    } finally {
+      setWorkingMemoryLoading(false)
+    }
+  }, [connectedProject, supabaseUrl, supabaseAnonKey, selectedChatTarget])
+
+  // Refresh working memory (0173: PM working memory)
+  const refreshWorkingMemory = useCallback(async () => {
+    if (!connectedProject || !supabaseUrl || !supabaseAnonKey || selectedChatTarget !== 'project-manager') {
+      return
+    }
+    setWorkingMemoryLoading(true)
+    setWorkingMemoryError(null)
+    try {
+      const res = await fetch('/api/pm/working-memory/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: connectedProject,
+          supabaseUrl,
+          supabaseAnonKey,
+          agent: 'project-manager',
+        }),
+      })
+      const data = await res.json()
+      if (data.success && data.workingMemory) {
+        setWorkingMemory(data.workingMemory)
+      } else {
+        setWorkingMemoryError(data.error || 'Failed to refresh working memory')
+      }
+    } catch (err) {
+      setWorkingMemoryError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setWorkingMemoryLoading(false)
+    }
+  }, [connectedProject, supabaseUrl, supabaseAnonKey, selectedChatTarget])
+
+  // Auto-fetch working memory when PM chat is opened and project is connected
+  useEffect(() => {
+    if (selectedChatTarget === 'project-manager' && connectedProject && supabaseUrl && supabaseAnonKey) {
+      fetchWorkingMemory()
+    }
+  }, [selectedChatTarget, connectedProject, supabaseUrl, supabaseAnonKey, fetchWorkingMemory])
 
   // Get preview text for PM chat (0087)
   const getChatTargetPreview = useCallback((target: ChatTarget): string => {
@@ -3633,6 +3722,189 @@ function App() {
                           </div>
                         )}
                       </>
+                    )}
+
+                    {/* PM Working Memory Panel (0173) */}
+                    {displayTarget === 'project-manager' && (
+                      <div className="pm-working-memory-panel" style={{ borderBottom: '1px solid rgba(0,0,0,0.1)', padding: '12px', backgroundColor: 'rgba(0,0,0,0.02)' }}>
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            cursor: 'pointer',
+                            marginBottom: workingMemoryExpanded ? '12px' : '0',
+                          }}
+                          onClick={() => setWorkingMemoryExpanded(!workingMemoryExpanded)}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              setWorkingMemoryExpanded(!workingMemoryExpanded)
+                            }
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontWeight: 600, fontSize: '14px' }}>PM Working Memory</span>
+                            {workingMemoryLoading && <span style={{ fontSize: '12px', color: '#666' }}>Loading...</span>}
+                            {workingMemoryError && (
+                              <span style={{ fontSize: '12px', color: '#d32f2f' }} title={workingMemoryError}>
+                                Error
+                              </span>
+                            )}
+                            {workingMemory && !workingMemoryLoading && (
+                              <span style={{ fontSize: '12px', color: '#666' }}>
+                                Last updated: {new Date(workingMemory.updated_at).toLocaleString()}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                refreshWorkingMemory()
+                              }}
+                              disabled={workingMemoryLoading}
+                              style={{
+                                padding: '4px 8px',
+                                fontSize: '12px',
+                                border: '1px solid rgba(0,0,0,0.2)',
+                                borderRadius: '4px',
+                                background: 'white',
+                                cursor: workingMemoryLoading ? 'not-allowed' : 'pointer',
+                              }}
+                              title="Refresh working memory now"
+                            >
+                              Refresh
+                            </button>
+                            <span style={{ fontSize: '12px' }}>{workingMemoryExpanded ? '▼' : '▶'}</span>
+                          </div>
+                        </div>
+                        {workingMemoryExpanded && (
+                          <div style={{ marginTop: '12px', fontSize: '13px', lineHeight: '1.6' }}>
+                            {workingMemoryError ? (
+                              <div style={{ color: '#d32f2f', padding: '8px', backgroundColor: 'rgba(211, 47, 47, 0.1)', borderRadius: '4px' }}>
+                                <strong>Error:</strong> {workingMemoryError}
+                                {workingMemoryError.includes('stale') || workingMemoryError.includes('unavailable') ? (
+                                  <div style={{ marginTop: '8px', fontSize: '12px' }}>
+                                    The PM agent will continue using recent messages. Working memory will be updated automatically when available.
+                                  </div>
+                                ) : null}
+                              </div>
+                            ) : workingMemory ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                {workingMemory.summary && (
+                                  <div>
+                                    <strong>Summary:</strong>
+                                    <div style={{ marginTop: '4px', padding: '8px', backgroundColor: 'white', borderRadius: '4px' }}>
+                                      {workingMemory.summary}
+                                    </div>
+                                  </div>
+                                )}
+                                {workingMemory.goals && workingMemory.goals.length > 0 && (
+                                  <div>
+                                    <strong>Goals:</strong>
+                                    <ul style={{ margin: '4px 0 0 0', paddingLeft: '20px' }}>
+                                      {workingMemory.goals.map((goal, idx) => (
+                                        <li key={idx}>{goal}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                                {workingMemory.requirements && workingMemory.requirements.length > 0 && (
+                                  <div>
+                                    <strong>Requirements:</strong>
+                                    <ul style={{ margin: '4px 0 0 0', paddingLeft: '20px' }}>
+                                      {workingMemory.requirements.map((req, idx) => (
+                                        <li key={idx}>{req}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                                {workingMemory.constraints && workingMemory.constraints.length > 0 && (
+                                  <div>
+                                    <strong>Constraints:</strong>
+                                    <ul style={{ margin: '4px 0 0 0', paddingLeft: '20px' }}>
+                                      {workingMemory.constraints.map((constraint, idx) => (
+                                        <li key={idx}>{constraint}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                                {workingMemory.decisions && workingMemory.decisions.length > 0 && (
+                                  <div>
+                                    <strong>Decisions:</strong>
+                                    <ul style={{ margin: '4px 0 0 0', paddingLeft: '20px' }}>
+                                      {workingMemory.decisions.map((decision, idx) => (
+                                        <li key={idx}>{decision}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                                {workingMemory.assumptions && workingMemory.assumptions.length > 0 && (
+                                  <div>
+                                    <strong>Assumptions:</strong>
+                                    <ul style={{ margin: '4px 0 0 0', paddingLeft: '20px' }}>
+                                      {workingMemory.assumptions.map((assumption, idx) => (
+                                        <li key={idx}>{assumption}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                                {workingMemory.open_questions && workingMemory.open_questions.length > 0 && (
+                                  <div>
+                                    <strong>Open Questions:</strong>
+                                    <ul style={{ margin: '4px 0 0 0', paddingLeft: '20px' }}>
+                                      {workingMemory.open_questions.map((question, idx) => (
+                                        <li key={idx}>{question}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                                {workingMemory.glossary && workingMemory.glossary.length > 0 && (
+                                  <div>
+                                    <strong>Glossary:</strong>
+                                    <ul style={{ margin: '4px 0 0 0', paddingLeft: '20px' }}>
+                                      {workingMemory.glossary.map((term, idx) => (
+                                        <li key={idx}>{term}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                                {workingMemory.stakeholders && workingMemory.stakeholders.length > 0 && (
+                                  <div>
+                                    <strong>Stakeholders:</strong>
+                                    <ul style={{ margin: '4px 0 0 0', paddingLeft: '20px' }}>
+                                      {workingMemory.stakeholders.map((stakeholder, idx) => (
+                                        <li key={idx}>{stakeholder}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                                {!workingMemory.summary &&
+                                  (!workingMemory.goals || workingMemory.goals.length === 0) &&
+                                  (!workingMemory.requirements || workingMemory.requirements.length === 0) &&
+                                  (!workingMemory.constraints || workingMemory.constraints.length === 0) &&
+                                  (!workingMemory.decisions || workingMemory.decisions.length === 0) &&
+                                  (!workingMemory.assumptions || workingMemory.assumptions.length === 0) &&
+                                  (!workingMemory.open_questions || workingMemory.open_questions.length === 0) &&
+                                  (!workingMemory.glossary || workingMemory.glossary.length === 0) &&
+                                  (!workingMemory.stakeholders || workingMemory.stakeholders.length === 0) && (
+                                    <div style={{ color: '#666', fontStyle: 'italic' }}>
+                                      Working memory is empty. It will be populated automatically as the conversation grows.
+                                    </div>
+                                  )}
+                              </div>
+                            ) : (
+                              <div style={{ color: '#666', fontStyle: 'italic' }}>
+                                No working memory yet. It will be created automatically as the conversation grows.
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     )}
 
                     {/* Chat transcript */}
