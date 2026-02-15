@@ -24,244 +24,33 @@ import {
   searchFiles,
   type ToolContext,
 } from './tools.js'
+import {
+  evaluateTicketReady,
+  checkUnassignedTickets,
+  type ReadyCheckResult,
+  type CheckUnassignedResult,
+  PLACEHOLDER_RE,
+  COL_TODO,
+  COL_UNASSIGNED,
+} from './readyCheck.js'
+import {
+  slugFromTitle,
+  parseTicketNumber,
+  repoHintPrefix,
+  isUnknownColumnError,
+} from './ticketIds.js'
+import {
+  summarizeForContext,
+  generateWorkingMemory,
+  type ConversationTurn,
+  type WorkingMemory,
+} from './contextPack.js'
 
 const execAsync = promisify(exec)
 
-/** Slug for ticket filename: lowercase, spaces to hyphens, strip non-alphanumeric except hyphen. */
-function slugFromTitle(title: string): string {
-  return title
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, '-')
-    .replace(/[^a-z0-9-]/g, '')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '') || 'ticket'
-}
-
-function isUnknownColumnError(err: unknown): boolean {
-  const e = err as { code?: string; message?: string }
-  const msg = (e?.message ?? '').toLowerCase()
-  return e?.code === '42703' || (msg.includes('column') && msg.includes('does not exist'))
-}
-
-function repoHintPrefix(repoFullName: string): string {
-  const repo = repoFullName.split('/').pop() ?? repoFullName
-  const tokens = repo
-    .toLowerCase()
-    .split(/[^a-z0-9]+/g)
-    .filter(Boolean)
-
-  for (let i = tokens.length - 1; i >= 0; i--) {
-    const t = tokens[i]
-    if (!/[a-z]/.test(t)) continue
-    if (t.length >= 2 && t.length <= 6) return t.toUpperCase()
-  }
-
-  const letters = repo.replace(/[^a-zA-Z]/g, '').toUpperCase()
-  return (letters.slice(0, 4) || 'PRJ').toUpperCase()
-}
-
-function parseTicketNumber(ref: string): number | null {
-  const s = String(ref ?? '').trim()
-  if (!s) return null
-  const m = s.match(/(\d{1,4})(?!.*\d)/) // last 1-4 digit run
-  if (!m) return null
-  const n = parseInt(m[1], 10)
-  return Number.isFinite(n) ? n : null
-}
-
-/** Placeholder-like pattern: angle brackets with content (e.g. <AC 1>, <task-id>). */
-const PLACEHOLDER_RE = /<[A-Za-z0-9\s\-_]+>/g
-
-export interface ReadyCheckResult {
-  ready: boolean
-  missingItems: string[]
-  checklistResults: {
-    goal: boolean
-    deliverable: boolean
-    acceptanceCriteria: boolean
-    constraintsNonGoals: boolean
-    noPlaceholders: boolean
-  }
-}
-
-/**
- * Evaluate ticket body against the Ready-to-start checklist (Definition of Ready).
- * Simplified check: ticket has content beyond the template (is bigger than template).
- * 
- * The template is approximately 1500-2000 characters. A ticket is ready if:
- * - It has substantial content (longer than template baseline)
- * - It's not just template placeholders
- */
-export function evaluateTicketReady(bodyMd: string): ReadyCheckResult {
-  const body = bodyMd.trim()
-  
-  // Template baseline: approximately 1500-2000 chars for a filled template
-  // A ticket with actual content should be substantially larger
-  const TEMPLATE_BASELINE = 1500
-  const hasSubstantialContent = body.length > TEMPLATE_BASELINE
-  
-  // Check if it's mostly placeholders (simple heuristic: if >50% of content is placeholders, it's not ready)
-  const placeholders = body.match(PLACEHOLDER_RE) ?? []
-  const placeholderChars = placeholders.join('').length
-  const isMostlyPlaceholders = placeholderChars > body.length * 0.5
-
-  const ready = hasSubstantialContent && !isMostlyPlaceholders
-  const missingItems: string[] = []
-  
-  if (!ready) {
-    if (!hasSubstantialContent) {
-      missingItems.push('Ticket content is too short (needs more content beyond template)')
-    }
-    if (isMostlyPlaceholders) {
-      missingItems.push('Ticket contains too many unresolved placeholders')
-    }
-  }
-
-  return {
-    ready,
-    missingItems,
-    checklistResults: {
-      goal: hasSubstantialContent,
-      deliverable: hasSubstantialContent,
-      acceptanceCriteria: hasSubstantialContent,
-      constraintsNonGoals: hasSubstantialContent,
-      noPlaceholders: !isMostlyPlaceholders,
-    },
-  }
-}
-
-export interface CheckUnassignedResult {
-  moved: string[]
-  notReady: Array<{ id: string; title?: string; missingItems: string[] }>
-  error?: string
-}
-
-const COL_UNASSIGNED = 'col-unassigned'
-const COL_TODO = 'col-todo'
-
-/**
- * Check all tickets in Unassigned: evaluate readiness, move ready ones to To Do.
- * Returns list of moved ticket ids and list of not-ready tickets with missing items.
- * Used on app load and after sync so the PM can post a summary to chat.
- */
-export async function checkUnassignedTickets(
-  supabaseUrl: string,
-  supabaseAnonKey: string
-): Promise<CheckUnassignedResult> {
-  const supabase = createClient(supabaseUrl.trim(), supabaseAnonKey.trim())
-  const moved: string[] = []
-  const notReady: Array<{ id: string; title?: string; missingItems: string[] }> = []
-
-  try {
-    // Repo-scoped safe mode (0079): use pk for updates; keep legacy fallback if schema isn't migrated.
-    const r = await supabase
-      .from('tickets')
-      .select('pk, id, display_id, repo_full_name, ticket_number, title, body_md, kanban_column_id')
-      .order('repo_full_name', { ascending: true })
-      .order('ticket_number', { ascending: true })
-    let rows = r.data as any[] | null
-    let fetchError = r.error as any
-    if (fetchError && isUnknownColumnError(fetchError)) {
-      const legacy = await supabase
-        .from('tickets')
-        .select('id, title, body_md, kanban_column_id')
-        .order('id', { ascending: true })
-      rows = legacy.data as any[] | null
-      fetchError = legacy.error as any
-    }
-
-    if (fetchError) {
-      return { moved: [], notReady: [], error: `Supabase fetch: ${fetchError.message}` }
-    }
-
-    const unassigned = (rows ?? []).filter(
-      (r: { kanban_column_id?: string | null }) =>
-        r.kanban_column_id === COL_UNASSIGNED ||
-        r.kanban_column_id == null ||
-        r.kanban_column_id === ''
-    )
-
-    const now = new Date().toISOString()
-    // Group by repo when available; otherwise treat as single bucket.
-    const groups = new Map<string, any[]>()
-    for (const row of unassigned) {
-      const repo = (row as any).repo_full_name ?? 'legacy/unknown'
-      const arr = groups.get(repo) ?? []
-      arr.push(row)
-      groups.set(repo, arr)
-    }
-
-    for (const [repo, rowsInRepo] of groups.entries()) {
-      // Compute next position within this repo's To Do column if schema supports repo scoping; else global.
-      let nextTodoPosition = 0
-      const todoQ = supabase
-        .from('tickets')
-        .select('kanban_position')
-        .eq('kanban_column_id', COL_TODO)
-      const hasRepoCol = (rowsInRepo[0] as any).repo_full_name != null
-      const todoR = hasRepoCol
-        ? await todoQ.eq('repo_full_name', repo).order('kanban_position', { ascending: false }).limit(1)
-        : await todoQ.order('kanban_position', { ascending: false }).limit(1)
-      if (todoR.error && isUnknownColumnError(todoR.error)) {
-        // Legacy schema: ignore repo filter
-        const legacyTodo = await supabase
-          .from('tickets')
-          .select('kanban_position')
-          .eq('kanban_column_id', COL_TODO)
-          .order('kanban_position', { ascending: false })
-          .limit(1)
-        if (legacyTodo.error) {
-          return { moved: [], notReady: [], error: `Supabase fetch: ${legacyTodo.error.message}` }
-        }
-        const max = (legacyTodo.data ?? []).reduce(
-          (acc, r) => Math.max(acc, (r as { kanban_position?: number }).kanban_position ?? 0),
-          0
-        )
-        nextTodoPosition = max + 1
-      } else if (todoR.error) {
-        return { moved: [], notReady: [], error: `Supabase fetch: ${todoR.error.message}` }
-      } else {
-        const max = (todoR.data ?? []).reduce(
-          (acc, r) => Math.max(acc, (r as { kanban_position?: number }).kanban_position ?? 0),
-          0
-        )
-        nextTodoPosition = max + 1
-      }
-
-      for (const row of rowsInRepo) {
-        const id = (row as { id: string }).id
-        const displayId = (row as any).display_id
-        const title = (row as { title?: string }).title
-        const bodyMd = (row as { body_md?: string }).body_md ?? ''
-        const result = evaluateTicketReady(bodyMd)
-        if (result.ready) {
-          const updateQ = supabase
-            .from('tickets')
-            .update({
-              kanban_column_id: COL_TODO,
-              kanban_position: nextTodoPosition++,
-              kanban_moved_at: now,
-            })
-          const upd = (row as any).pk
-            ? await updateQ.eq('pk', (row as any).pk)
-            : await updateQ.eq('id', id)
-          if (!upd.error) moved.push(displayId ?? id)
-        } else {
-          notReady.push({ id: displayId ?? id, title, missingItems: result.missingItems })
-        }
-      }
-    }
-
-    return { moved, notReady }
-  } catch (err) {
-    return {
-      moved: [],
-      notReady: [],
-      error: err instanceof Error ? err.message : String(err),
-    }
-  }
-}
+// Re-export public APIs for backward compatibility
+export type { ReadyCheckResult, CheckUnassignedResult }
+export { evaluateTicketReady, checkUnassignedTickets }
 
 const SIGNATURE = '[PM@hal-agents]'
 
@@ -315,7 +104,8 @@ export function respond(input: RespondInput): RespondOutput {
 
 // --- runPmAgent (0003) ---
 
-export type ConversationTurn = { role: 'user' | 'assistant'; content: string }
+// Re-export ConversationTurn for backward compatibility
+export type { ConversationTurn }
 
 export interface PmAgentConfig {
   repoRoot: string
@@ -1996,8 +1786,6 @@ export async function runPmAgent(
         config.supabaseUrl!.trim(),
         config.supabaseAnonKey!.trim()
       )
-      const COL_UNASSIGNED = 'col-unassigned'
-      const COL_TODO = 'col-todo'
       return tool({
         description:
           'Move a ticket from Unassigned to To Do on the kanban board. Only call after evaluate_ticket_ready returns ready: true. Fails if the ticket is not in Unassigned.',
@@ -2424,7 +2212,6 @@ export async function runPmAgent(
         config.supabaseUrl!.trim(),
         config.supabaseAnonKey!.trim()
       )
-      const COL_TODO = 'col-todo'
       return tool({
         description:
           'Move a ticket to the To Do column of another repository. Works from any Kanban column (not only Unassigned). The ticket will be moved to the target repository and placed in its To Do column. Validates that both the ticket and target repository exist.',
@@ -3439,151 +3226,6 @@ export async function runPmAgent(
   }
 }
 
-/**
- * Summarize older conversation turns using the external LLM (OpenAI).
- * HAL is encouraged to use this whenever building a bounded context pack from long
- * history: the LLM produces a short summary so the main PM turn receives summary + recent
- * messages instead of unbounded transcript.
- * Used when full history is in DB and we send summary + last N to the PM model.
- */
-export async function summarizeForContext(
-  messages: ConversationTurn[],
-  openaiApiKey: string,
-  openaiModel: string
-): Promise<string> {
-  if (messages.length === 0) return ''
-  const openai = createOpenAI({ apiKey: openaiApiKey })
-  const model = openai.responses(openaiModel)
-  const transcript = messages.map((t) => `${t.role}: ${t.content}`).join('\n\n')
-  const prompt = `Summarize this conversation in 2-4 sentences. Preserve key decisions, topics, and context so the next turn can continue naturally.\n\nConversation:\n\n${transcript}`
-  const result = await generateText({ model, prompt })
-  return (result.text ?? '').trim() || '(No summary generated)'
-}
-
-/**
- * Extract and update working memory from conversation messages (0173).
- * Uses LLM to extract key facts (goals, requirements, constraints, decisions, etc.)
- * from the conversation and update the working memory.
- */
-export interface WorkingMemory {
-  summary: string
-  goals: string[]
-  requirements: string[]
-  constraints: string[]
-  decisions: string[]
-  assumptions: string[]
-  open_questions: string[]
-  glossary: string[] // Array of "term: definition" strings
-  stakeholders: string[]
-}
-
-export async function generateWorkingMemory(
-  messages: ConversationTurn[],
-  existingMemory: WorkingMemory | null,
-  openaiApiKey: string,
-  openaiModel: string
-): Promise<WorkingMemory> {
-  if (messages.length === 0) {
-    return (
-      existingMemory || {
-        summary: '',
-        goals: [],
-        requirements: [],
-        constraints: [],
-        decisions: [],
-        assumptions: [],
-        open_questions: [],
-        glossary: [],
-        stakeholders: [],
-      }
-    )
-  }
-
-  const openai = createOpenAI({ apiKey: openaiApiKey })
-  const model = openai.responses(openaiModel)
-  const transcript = messages.map((t) => `${t.role}: ${t.content}`).join('\n\n')
-
-  const existingMemoryText = existingMemory
-    ? `\n\nExisting working memory:\n- Summary: ${existingMemory.summary}\n- Goals: ${existingMemory.goals.join(', ')}\n- Requirements: ${existingMemory.requirements.join(', ')}\n- Constraints: ${existingMemory.constraints.join(', ')}\n- Decisions: ${existingMemory.decisions.join(', ')}\n- Assumptions: ${existingMemory.assumptions.join(', ')}\n- Open questions: ${existingMemory.open_questions.join(', ')}\n- Glossary: ${existingMemory.glossary.join(', ')}\n- Stakeholders: ${existingMemory.stakeholders.join(', ')}`
-    : ''
-
-  const prompt = `You are maintaining a structured "working memory" for a Project Manager agent conversation. Extract and update key information from the conversation below.
-
-${existingMemoryText ? 'Update the existing working memory with new information from the conversation.' : 'Create initial working memory from the conversation.'}
-
-Return a JSON object with this exact structure:
-{
-  "summary": "A concise 2-3 sentence summary of the conversation and project context",
-  "goals": ["array", "of", "project goals", "discussed"],
-  "requirements": ["array", "of", "requirements", "identified"],
-  "constraints": ["array", "of", "constraints", "or limitations"],
-  "decisions": ["array", "of", "decisions", "made"],
-  "assumptions": ["array", "of", "assumptions", "stated"],
-  "open_questions": ["array", "of", "open questions", "or unresolved items"],
-  "glossary": ["term1: definition1", "term2: definition2"],
-  "stakeholders": ["array", "of", "stakeholders", "mentioned"]
-}
-
-Guidelines:
-- Merge new information with existing memory (don't duplicate)
-- Keep arrays concise (3-10 items each, most important first)
-- For glossary, use format "term: definition" (one string per entry)
-- Remove items that are no longer relevant or have been resolved
-- Summary should be current and reflect the full conversation context
-
-Conversation:
-${transcript}
-
-Return only valid JSON, no markdown formatting or code blocks.`
-
-  try {
-    const result = await generateText({ model, prompt })
-    const text = (result.text ?? '').trim()
-    // Remove markdown code blocks if present
-    const jsonText = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim()
-    const parsed = JSON.parse(jsonText) as WorkingMemory
-
-    // Validate and normalize
-    return {
-      summary: typeof parsed.summary === 'string' ? parsed.summary : '',
-      goals: Array.isArray(parsed.goals) ? parsed.goals.filter((g): g is string => typeof g === 'string') : [],
-      requirements: Array.isArray(parsed.requirements)
-        ? parsed.requirements.filter((r): r is string => typeof r === 'string')
-        : [],
-      constraints: Array.isArray(parsed.constraints)
-        ? parsed.constraints.filter((c): c is string => typeof c === 'string')
-        : [],
-      decisions: Array.isArray(parsed.decisions)
-        ? parsed.decisions.filter((d): d is string => typeof d === 'string')
-        : [],
-      assumptions: Array.isArray(parsed.assumptions)
-        ? parsed.assumptions.filter((a): a is string => typeof a === 'string')
-        : [],
-      open_questions: Array.isArray(parsed.open_questions)
-        ? parsed.open_questions.filter((q): q is string => typeof q === 'string')
-        : [],
-      glossary: Array.isArray(parsed.glossary)
-        ? parsed.glossary.filter((g): g is string => typeof g === 'string')
-        : [],
-      stakeholders: Array.isArray(parsed.stakeholders)
-        ? parsed.stakeholders.filter((s): s is string => typeof s === 'string')
-        : [],
-    }
-  } catch (err) {
-    // If generation fails, return existing memory or empty structure
-    console.warn('[PM] Working memory generation failed:', err)
-    return (
-      existingMemory || {
-        summary: '',
-        goals: [],
-        requirements: [],
-        constraints: [],
-        decisions: [],
-        assumptions: [],
-        open_questions: [],
-        glossary: [],
-        stakeholders: [],
-      }
-    )
-  }
-}
+// Re-export context pack functions for backward compatibility
+export { summarizeForContext, generateWorkingMemory }
+export type { WorkingMemory }
