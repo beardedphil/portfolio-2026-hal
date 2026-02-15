@@ -24,53 +24,92 @@ When you **QA a ticket** (verify, check a ticket that is allegedly complete), st
 
 ## QA report template
 
-**MANDATORY:** QA agents **MUST** use the canonical QA report template when publishing QA artifacts via `/api/artifacts/insert-qa`.
+**MANDATORY:** QA agents **MUST** use the canonical QA report template when publishing QA artifacts.
 
 **Template location:** `docs/templates/qa-report.template.md`
 
-**Instructions:**
-1. Copy the template from `docs/templates/qa-report.template.md`
-2. Fill in all sections with actual content (remove all placeholder text)
+**Usage:**
+1. Copy the entire template from `docs/templates/qa-report.template.md`
+2. Fill in all sections with actual content (do not leave placeholder text)
 3. Ensure all required headings are present:
-   - **Verdict (PASS/FAIL)** — Required
-   - **Acceptance Criteria verification** — Required (enumerate each AC, Met/Not met with evidence)
-   - **Test matrix / scenarios executed** — Required
-   - **Evidence (what was observed)** — Required
-   - **Repro steps (for failures)** — Required for FAIL verdicts
-   - **Environment** (app version/branch + browser) — Required
-   - **Notes / Risks** — Required
-4. The template supports both PASS and FAIL outcomes:
-   - **PASS reports:** Must contain explicit "AC1/AC2/…" statements with evidence for each AC
-   - **FAIL reports:** Must contain clear repro steps + expected vs actual + suspected area
-5. Ensure the report contains substantive content (no placeholder-only sections) to pass artifact validation
+   - **Verdict** (PASS/FAIL) — must appear at the top
+   - **Acceptance Criteria verification** — enumerate each AC with Met/Not met status and evidence
+   - **Test matrix / scenarios executed** — table or list of all test scenarios
+   - **Evidence** — what was observed during QA
+   - **Repro steps** (for FAIL verdicts) — clear reproduction steps for each issue
+   - **Environment** — app version/branch + browser/platform
+   - **Notes / Risks** — additional observations and identified risks
+4. Replace all placeholder text with substantive content
+5. Ensure minimum 100 characters total (validation requirement)
+6. See template file for complete structure and detailed instructions
 
-**Example:** See `docs/templates/qa-report.example.md` for a filled example demonstrating correct usage.
+**Template supports both outcomes:**
+- **PASS report:** Contains explicit "AC1/AC2/…" statements with evidence for each AC
+- **FAIL report:** Contains clear repro steps + expected vs actual + suspected area for each issue
+
+**Example filled reports:** See `docs/templates/qa-report-example-pass.md` and `docs/templates/qa-report-example-fail.md` for demonstration of correct usage.
 
 ## QA report structure
 
-The template includes all required sections. When using the template, ensure you complete:
+The template includes all required sections. Key sections:
 
-1. Ticket & deliverable
-2. Missing artifacts (if any) — list them, then fail
-3. Audit artifacts present (if all present)
+1. **Verdict** (PASS/FAIL) — at the top for immediate visibility
+2. **Ticket & deliverable** — goal, deliverable, and acceptance criteria from ticket
+3. **Environment** — app version/branch + browser/platform
+4. **Audit artifacts** — status of 8 required implementation artifacts
    - **Changed Files artifact verification (MANDATORY):** Verify that the Changed Files artifact is non-empty and follows requirements:
      - If files changed: Must list file paths with brief per-file descriptions (one line each)
      - If no files changed: Must explicitly state "No files changed." followed by a brief reason (e.g., "Docs-only ticket handled via Supabase updates", "Investigation only", "Repro failed; no code changes made")
      - If Changed Files artifact is blank, empty, or omitted: QA **MUST FAIL** — this is a process failure
-4. Code review — PASS/FAIL with evidence
-5. Build verification — **MANDATORY:** `npm run build:hal`; TypeScript errors = FAIL
-6. UI verification — automated and/or manual steps
-7. AC Confirmation Checklist — enumerate each AC, Met/Not met with evidence; see `ac-confirmation-checklist.mdc`
-8. Test Matrix / Scenarios Executed — List all test scenarios that were executed during QA with status
-9. Evidence — What was observed during QA verification (code, artifacts, UI)
-10. Repro Steps (For Failures Only) — Clear repro steps, expected vs actual, suspected area (FAIL reports only)
-11. Environment — App version/branch + browser/runtime + OS
-12. Notes / Risks — Additional notes, risks, blocking issues, recommendations
-13. Verdict — PASS or FAIL
+5. **Code review** — PASS/FAIL with evidence, file citations per `.cursor/rules/code-location-citations.mdc`
+6. **Build verification** — **MANDATORY:** `npm run build:hal`; TypeScript errors = FAIL
+7. **UI verification** — automated and/or manual steps
+8. **Acceptance Criteria verification** — enumerate each AC, Met/Not met with evidence; see `ac-confirmation-checklist.mdc`
+9. **Test matrix / scenarios executed** — table of all test scenarios
+10. **Evidence** — what was observed during QA
+11. **Repro steps** (for FAIL verdicts) — clear reproduction steps
+12. **Notes / Risks** — additional observations and identified risks
+13. **Verdict** — PASS or FAIL
 
 ## Storing QA report
 
 Make actual HTTP calls: `POST ${baseUrl}/api/artifacts/insert-qa` with `{ ticketId, title, body_md }`. Use `curl` or run_terminal_cmd. Do not just include JSON in your message.
+
+<<<<<<< HEAD
+## Implementation Agent Note (for FAIL verdicts)
+
+**MANDATORY:** When a ticket fails QA (or HITL), you **MUST** create a separate, concise "Implementation agent note" artifact that explains why the ticket failed. This note is for implementation agents to quickly understand what needs to be fixed.
+
+**Format:**
+- Title: `Implementation agent note for ticket HAL-XXXX` (preferred) or `Note for implementation agent: HAL-XXXX`
+- Keep it short (2-4 bullet points max)
+- Focus on actionable items
+- No detailed analysis—just what's wrong and what to fix
+- Implementation agents are required to check for this artifact first before starting work
+
+**Example structure:**
+```markdown
+# Implementation Agent Note: HAL-XXXX
+
+## Status: FAIL
+
+## Why This Ticket Failed
+
+1. **Issue 1:** Brief description
+2. **Issue 2:** Brief description
+
+## Required Actions
+
+1. Action item 1
+2. Action item 2
+3. Action item 3
+
+## Code Review Notes
+
+Brief note if implementation is otherwise correct.
+```
+
+**Store via:** `POST ${baseUrl}/api/artifacts/insert-qa` with `{ ticketId, title: "Implementation agent note for ticket HAL-XXXX", body_md }`
 
 ## Implementation Agent Note (for FAIL verdicts)
 
