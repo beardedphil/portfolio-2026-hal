@@ -68,11 +68,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
     // Fetch all messages for this conversation
+    // Use conversationId as the agent field (conversation IDs are stored in agent field)
+    const agentFilter = conversationId || 'project-manager'
+    
     const { data: rows, error: fetchError } = await supabase
       .from('hal_conversation_messages')
       .select('role, content, sequence')
       .eq('project_id', projectId)
-      .eq('agent', conversationId)
+      .eq('agent', agentFilter)
       .order('sequence', { ascending: true })
 
     if (fetchError) {
@@ -99,10 +102,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }))
 
     // Force update working memory
+    // Use conversationId as the agent field (conversation IDs are stored in agent field)
+    const agentFilter = conversationId || 'project-manager'
     const workingMemory = await updateWorkingMemoryIfNeeded(
       supabase,
       projectId,
-      conversationId,
+      agentFilter,
       messages,
       key,
       model,

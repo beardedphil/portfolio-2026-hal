@@ -7,11 +7,12 @@
 import {
   runPmAgent,
   summarizeForContext,
+  extractWorkingMemory,
   type PmAgentConfig,
   type PmAgentResult,
 } from './projectManager.js'
 
-export { summarizeForContext }
+export { summarizeForContext, extractWorkingMemory }
 
 /** Human-visible label for the runner implementation (e.g. shown in Diagnostics). */
 export const SHARED_RUNNER_LABEL = 'v2 (shared)'

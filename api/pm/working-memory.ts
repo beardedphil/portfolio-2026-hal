@@ -13,7 +13,8 @@ export interface WorkingMemory {
   decisions: string
   assumptions: string
   open_questions: string
-  glossary_terms: string // JSON array
+  glossary_terms: string // JSON array or plain text
+  stakeholders: string
   through_sequence: number
 }
 
@@ -45,7 +46,8 @@ export async function generateWorkingMemory(
       `Decisions: ${existingMemory.decisions}\n` +
       `Assumptions: ${existingMemory.assumptions}\n` +
       `Open Questions: ${existingMemory.open_questions}\n` +
-      `Glossary: ${existingMemory.glossary_terms}\n`
+      `Glossary: ${existingMemory.glossary_terms}\n` +
+      `Stakeholders: ${existingMemory.stakeholders}\n`
     : ''
   
   const prompt = `You are analyzing a Project Manager conversation to extract and maintain working memory—key facts that should persist across long conversations.
@@ -59,7 +61,8 @@ Extract and organize the following information from the conversation:
 5. **Decisions**: Key decisions made during the conversation (bullet points)
 6. **Assumptions**: Assumptions and premises established (bullet points)
 7. **Open Questions**: Open questions or unresolved items (bullet points)
-8. **Glossary/Terms**: Important terminology and definitions (JSON array format: [{"term": "...", "definition": "..."}, ...])
+8. **Glossary/Terms**: Important terminology and definitions (plain text or JSON array format)
+9. **Stakeholders**: Stakeholders mentioned or involved (bullet points)
 
 ${existingMemoryText}
 
@@ -75,10 +78,11 @@ Provide the working memory in the following JSON format:
   "decisions": "...",
   "assumptions": "...",
   "open_questions": "...",
-  "glossary_terms": "[{\"term\": \"...\", \"definition\": \"...\"}, ...]"
+  "glossary_terms": "...",
+  "stakeholders": "..."
 }
 
-Only include information that is explicitly mentioned or clearly implied. If a field has no relevant information, use an empty string. For glossary_terms, use a valid JSON array (even if empty: []).`
+Only include information that is explicitly mentioned or clearly implied. If a field has no relevant information, use an empty string.`
 
   try {
     const result = await generateText({
@@ -106,7 +110,8 @@ Only include information that is explicitly mentioned or clearly implied. If a f
       decisions: parsed.decisions || '',
       assumptions: parsed.assumptions || '',
       open_questions: parsed.open_questions || '',
-      glossary_terms: parsed.glossary_terms || '[]',
+      glossary_terms: parsed.glossary_terms || '',
+      stakeholders: parsed.stakeholders || '',
       through_sequence: messages.length - 1, // Last message index
     }
   } catch (error) {
@@ -120,7 +125,8 @@ Only include information that is explicitly mentioned or clearly implied. If a f
       decisions: existingMemory?.decisions || '',
       assumptions: existingMemory?.assumptions || '',
       open_questions: existingMemory?.open_questions || '',
-      glossary_terms: existingMemory?.glossary_terms || '[]',
+      glossary_terms: existingMemory?.glossary_terms || '',
+      stakeholders: existingMemory?.stakeholders || '',
       through_sequence: existingMemory?.through_sequence ?? messages.length - 1,
     }
   }
@@ -128,17 +134,18 @@ Only include information that is explicitly mentioned or clearly implied. If a f
 
 /**
  * Get working memory from database
+ * Uses 'agent' field (which stores conversation ID like "project-manager-1")
  */
 export async function getWorkingMemory(
   supabase: SupabaseClient,
   projectId: string,
-  conversationId: string
+  agent: string // conversation ID like "project-manager-1"
 ): Promise<WorkingMemory | null> {
   const { data, error } = await supabase
     .from('hal_pm_working_memory')
     .select('*')
     .eq('project_id', projectId)
-    .eq('conversation_id', conversationId)
+    .eq('agent', agent)
     .single()
   
   if (error || !data) return null
@@ -151,18 +158,20 @@ export async function getWorkingMemory(
     decisions: data.decisions || '',
     assumptions: data.assumptions || '',
     open_questions: data.open_questions || '',
-    glossary_terms: data.glossary_terms || '[]',
+    glossary_terms: data.glossary_terms || '',
+    stakeholders: data.stakeholders || '',
     through_sequence: data.through_sequence || 0,
   }
 }
 
 /**
  * Save working memory to database
+ * Uses 'agent' field (which stores conversation ID like "project-manager-1")
  */
 export async function saveWorkingMemory(
   supabase: SupabaseClient,
   projectId: string,
-  conversationId: string,
+  agent: string, // conversation ID like "project-manager-1"
   memory: WorkingMemory
 ): Promise<void> {
   await supabase
@@ -170,7 +179,7 @@ export async function saveWorkingMemory(
     .upsert(
       {
         project_id: projectId,
-        conversation_id: conversationId,
+        agent: agent,
         summary: memory.summary,
         goals: memory.goals,
         requirements: memory.requirements,
@@ -179,20 +188,22 @@ export async function saveWorkingMemory(
         assumptions: memory.assumptions,
         open_questions: memory.open_questions,
         glossary_terms: memory.glossary_terms,
+        stakeholders: memory.stakeholders,
         through_sequence: memory.through_sequence,
         last_updated: new Date().toISOString(),
       },
-      { onConflict: 'project_id,conversation_id' }
+      { onConflict: 'project_id,agent' }
     )
 }
 
 /**
  * Update working memory if needed (when new messages arrive)
+ * Uses 'agent' field (which stores conversation ID like "project-manager-1")
  */
 export async function updateWorkingMemoryIfNeeded(
   supabase: SupabaseClient,
   projectId: string,
-  conversationId: string,
+  agent: string, // conversation ID like "project-manager-1"
   messages: Array<{ role: string; content: string; sequence: number }>,
   openaiApiKey: string,
   openaiModel: string,
@@ -200,7 +211,7 @@ export async function updateWorkingMemoryIfNeeded(
 ): Promise<WorkingMemory | null> {
   if (messages.length === 0) return null
   
-  const existingMemory = await getWorkingMemory(supabase, projectId, conversationId)
+  const existingMemory = await getWorkingMemory(supabase, projectId, agent)
   const lastSequence = Math.max(...messages.map(m => m.sequence))
   
   // Check if update is needed
@@ -226,7 +237,7 @@ export async function updateWorkingMemoryIfNeeded(
   newMemory.through_sequence = lastSequence
   
   // Save to database
-  await saveWorkingMemory(supabase, projectId, conversationId, newMemory)
+  await saveWorkingMemory(supabase, projectId, agent, newMemory)
   
   return newMemory
 }
@@ -267,10 +278,15 @@ export function formatWorkingMemoryForPrompt(memory: WorkingMemory | null): stri
     formatted += `**Open Questions:**\n${memory.open_questions}\n\n`
   }
   
-  if (memory.glossary_terms && memory.glossary_terms !== '[]') {
+  if (memory.stakeholders) {
+    formatted += `**Stakeholders:**\n${memory.stakeholders}\n\n`
+  }
+  
+  if (memory.glossary_terms && memory.glossary_terms.trim() !== '') {
+    // Try to parse as JSON array, otherwise treat as plain text
     try {
       const terms = JSON.parse(memory.glossary_terms) as Array<{ term: string; definition: string }>
-      if (terms.length > 0) {
+      if (Array.isArray(terms) && terms.length > 0) {
         formatted += `**Glossary/Terms:**\n`
         for (const { term, definition } of terms) {
           formatted += `- **${term}**: ${definition}\n`
@@ -278,7 +294,8 @@ export function formatWorkingMemoryForPrompt(memory: WorkingMemory | null): stri
         formatted += '\n'
       }
     } catch {
-      // Invalid JSON, skip glossary
+      // Not JSON, treat as plain text
+      formatted += `**Glossary/Terms:**\n${memory.glossary_terms}\n\n`
     }
   }
   

@@ -351,10 +351,45 @@ export default defineConfig({
             // When project DB (Supabase) is provided, fetch full history and build bounded context pack (summary + recent by content size)
             const RECENT_MAX_CHARS = 12_000
             let conversationContextPack: string | undefined
+            let workingMemoryText: string | undefined
             if (projectId && supabaseUrl && supabaseAnonKey && runnerModule) {
               try {
                 const { createClient } = await import('@supabase/supabase-js')
                 const supabase = createClient(supabaseUrl, supabaseAnonKey)
+                
+                // Fetch working memory (0173)
+                try {
+                  const { data: wmData } = await supabase
+                    .from('hal_conversation_working_memory')
+                    .select('*')
+                    .eq('project_id', projectId)
+                    .eq('agent', 'project-manager')
+                    .maybeSingle()
+                  
+                  if (wmData) {
+                    const wmParts: string[] = []
+                    if (wmData.summary) wmParts.push(`**Summary**: ${wmData.summary}`)
+                    if (wmData.goals && wmData.goals.length > 0) wmParts.push(`**Goals**: ${wmData.goals.join('; ')}`)
+                    if (wmData.requirements && wmData.requirements.length > 0) wmParts.push(`**Requirements**: ${wmData.requirements.join('; ')}`)
+                    if (wmData.constraints && wmData.constraints.length > 0) wmParts.push(`**Constraints**: ${wmData.constraints.join('; ')}`)
+                    if (wmData.decisions && wmData.decisions.length > 0) wmParts.push(`**Decisions**: ${wmData.decisions.join('; ')}`)
+                    if (wmData.assumptions && wmData.assumptions.length > 0) wmParts.push(`**Assumptions**: ${wmData.assumptions.join('; ')}`)
+                    if (wmData.open_questions && wmData.open_questions.length > 0) wmParts.push(`**Open Questions**: ${wmData.open_questions.join('; ')}`)
+                    if (wmData.stakeholders && wmData.stakeholders.length > 0) wmParts.push(`**Stakeholders**: ${wmData.stakeholders.join('; ')}`)
+                    if (wmData.glossary && typeof wmData.glossary === 'object') {
+                      const glossaryEntries = Object.entries(wmData.glossary as Record<string, string>)
+                        .map(([term, def]) => `${term}: ${def}`)
+                        .join('; ')
+                      if (glossaryEntries) wmParts.push(`**Glossary**: ${glossaryEntries}`)
+                    }
+                    if (wmParts.length > 0) {
+                      workingMemoryText = `PM Working Memory (last updated: ${new Date(wmData.last_updated_at).toLocaleString()}):\n\n${wmParts.join('\n\n')}`
+                    }
+                  }
+                } catch (wmErr) {
+                  console.warn('[HAL PM] Failed to fetch working memory, continuing without it:', wmErr)
+                }
+                
                 const { data: rows } = await supabase
                   .from('hal_conversation_messages')
                   .select('role, content, sequence')
@@ -400,13 +435,23 @@ export default defineConfig({
                   } else {
                     summaryText = `(${older.length} older messages)`
                   }
-                  conversationContextPack = `Summary of earlier conversation:\n\n${summaryText}\n\nRecent conversation (within ${RECENT_MAX_CHARS.toLocaleString()} characters):\n\n${recentFromEnd.map((t) => `**${t.role}**: ${t.content}`).join('\n\n')}`
+                  const parts: string[] = []
+                  if (workingMemoryText) parts.push(workingMemoryText)
+                  parts.push(`Summary of earlier conversation:\n\n${summaryText}\n\nRecent conversation (within ${RECENT_MAX_CHARS.toLocaleString()} characters):\n\n${recentFromEnd.map((t) => `**${t.role}**: ${t.content}`).join('\n\n')}`)
+                  conversationContextPack = parts.join('\n\n---\n\n')
                 } else if (messages.length > 0) {
-                  conversationContextPack = messages.map((t) => `**${t.role}**: ${t.content}`).join('\n\n')
+                  const parts: string[] = []
+                  if (workingMemoryText) parts.push(workingMemoryText)
+                  parts.push(messages.map((t) => `**${t.role}**: ${t.content}`).join('\n\n'))
+                  conversationContextPack = parts.join('\n\n---\n\n')
+                } else if (workingMemoryText) {
+                  conversationContextPack = workingMemoryText
                 }
                 conversationHistory = undefined
               } catch (dbErr) {
                 console.error('[HAL PM] DB context pack failed, falling back to client history:', dbErr)
+                // If working memory fetch fails, continue without it (safe failure mode) (0173)
+                workingMemoryText = undefined
               }
             }
 
@@ -521,6 +566,151 @@ export default defineConfig({
             res.statusCode = 200
             res.setHeader('Content-Type', 'application/json')
             res.end(JSON.stringify(response))
+
+            // Automatically update working memory after response (0173) - non-blocking
+            if (projectId && supabaseUrl && supabaseAnonKey && key && model) {
+              // Update asynchronously so it doesn't block the response
+              ;(async () => {
+                try {
+                  const { createClient } = await import('@supabase/supabase-js')
+                  const supabase = createClient(supabaseUrl, supabaseAnonKey)
+                  
+                  // Fetch conversation messages to check if update is needed
+                  const { data: messages } = await supabase
+                    .from('hal_conversation_messages')
+                    .select('role, content, sequence')
+                    .eq('project_id', projectId)
+                    .eq('agent', 'project-manager')
+                    .order('sequence', { ascending: true })
+                  
+                  if (!messages || messages.length === 0) return
+                  
+                  // Check if we need to update
+                  const { data: existingMemory } = await supabase
+                    .from('hal_conversation_working_memory')
+                    .select('through_sequence')
+                    .eq('project_id', projectId)
+                    .eq('agent', 'project-manager')
+                    .maybeSingle()
+                  
+                  const currentSequence = messages[messages.length - 1]?.sequence ?? 0
+                  const lastProcessedSequence = existingMemory?.through_sequence ?? 0
+                  
+                  // Only update if there are new messages
+                  if (currentSequence <= lastProcessedSequence) return
+                  
+                  // Generate working memory using OpenAI
+                  const conversationText = messages
+                    .map((m) => `**${m.role}**: ${m.content}`)
+                    .join('\n\n')
+                  
+                  const prompt = `You are analyzing a conversation between a user and a Project Manager agent. Extract and structure key information into a working memory format.
+
+Conversation:
+${conversationText}
+
+Extract the following structured information:
+1. **Summary**: A concise 2-3 sentence summary of the conversation context
+2. **Goals**: Array of project goals discussed (one per line, be specific)
+3. **Requirements**: Array of requirements identified (one per line, be specific)
+4. **Constraints**: Array of constraints or limitations mentioned (one per line, be specific)
+5. **Decisions**: Array of decisions made during the conversation (one per line, be specific)
+6. **Assumptions**: Array of assumptions stated or implied (one per line, be specific)
+7. **Open Questions**: Array of open questions that need answers (one per line, be specific)
+8. **Glossary**: JSON object mapping terms to definitions (format: {"term": "definition", ...})
+9. **Stakeholders**: Array of stakeholders mentioned (one per line, be specific)
+
+Return ONLY a valid JSON object with this exact structure:
+{
+  "summary": "concise summary here",
+  "goals": ["goal1", "goal2"],
+  "requirements": ["req1", "req2"],
+  "constraints": ["constraint1", "constraint2"],
+  "decisions": ["decision1", "decision2"],
+  "assumptions": ["assumption1", "assumption2"],
+  "openQuestions": ["question1", "question2"],
+  "glossary": {"term1": "definition1", "term2": "definition2"},
+  "stakeholders": ["stakeholder1", "stakeholder2"]
+}
+
+Return ONLY the JSON object, no other text.`
+                  
+                  const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      Authorization: `Bearer ${key}`,
+                    },
+                    body: JSON.stringify({
+                      model,
+                      messages: [{ role: 'user', content: prompt }],
+                      temperature: 0.3,
+                      max_tokens: 2000,
+                    }),
+                  })
+                  
+                  if (!openaiResponse.ok) {
+                    console.warn('[HAL PM] Working memory OpenAI API error (non-blocking):', openaiResponse.status)
+                    return
+                  }
+                  
+                  const openaiData = (await openaiResponse.json()) as {
+                    choices?: Array<{ message?: { content?: string } }>
+                  }
+                  const content = openaiData.choices?.[0]?.message?.content?.trim()
+                  
+                  if (!content) {
+                    console.warn('[HAL PM] Working memory OpenAI returned empty response (non-blocking)')
+                    return
+                  }
+                  
+                  // Parse JSON from response
+                  let jsonStr = content
+                  const jsonMatch = content.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/s)
+                  if (jsonMatch) {
+                    jsonStr = jsonMatch[1]
+                  }
+                  
+                  const workingMemory = JSON.parse(jsonStr) as {
+                    summary?: string
+                    goals?: string[]
+                    requirements?: string[]
+                    constraints?: string[]
+                    decisions?: string[]
+                    assumptions?: string[]
+                    openQuestions?: string[]
+                    glossary?: Record<string, string>
+                    stakeholders?: string[]
+                  }
+                  
+                  // Upsert working memory
+                  await supabase
+                    .from('hal_conversation_working_memory')
+                    .upsert(
+                      {
+                        project_id: projectId,
+                        agent: 'project-manager',
+                        summary: workingMemory.summary || '',
+                        goals: workingMemory.goals || [],
+                        requirements: workingMemory.requirements || [],
+                        constraints: workingMemory.constraints || [],
+                        decisions: workingMemory.decisions || [],
+                        assumptions: workingMemory.assumptions || [],
+                        open_questions: workingMemory.openQuestions || [],
+                        glossary: workingMemory.glossary || {},
+                        stakeholders: workingMemory.stakeholders || [],
+                        through_sequence: currentSequence,
+                        last_updated_at: new Date().toISOString(),
+                      },
+                      { onConflict: 'project_id,agent' }
+                    )
+                } catch (updateErr) {
+                  console.warn('[HAL PM] Working memory update error (non-blocking):', updateErr)
+                }
+              })().catch((err) => {
+                console.warn('[HAL PM] Working memory update promise rejected (non-blocking):', err)
+              })
+            }
           } catch (err) {
             res.statusCode = 500
             res.setHeader('Content-Type', 'application/json')
@@ -2229,6 +2419,54 @@ export default defineConfig({
             return
           }
           next()
+        })
+      },
+    },
+    {
+      name: 'conversations-working-memory-get-endpoint',
+      configureServer(server) {
+        server.middlewares.use(async (req, res, next) => {
+          if (req.url !== '/api/conversations/working-memory/get' || (req.method !== 'POST' && req.method !== 'OPTIONS')) {
+            next()
+            return
+          }
+          try {
+            const getHandler = await import('./api/conversations/working-memory/get')
+            await getHandler.default(req, res)
+          } catch (err) {
+            res.statusCode = 500
+            res.setHeader('Content-Type', 'application/json')
+            res.end(
+              JSON.stringify({
+                success: false,
+                error: err instanceof Error ? err.message : String(err),
+              })
+            )
+          }
+        })
+      },
+    },
+    {
+      name: 'conversations-working-memory-update-endpoint',
+      configureServer(server) {
+        server.middlewares.use(async (req, res, next) => {
+          if (req.url !== '/api/conversations/working-memory/update' || (req.method !== 'POST' && req.method !== 'OPTIONS')) {
+            next()
+            return
+          }
+          try {
+            const updateHandler = await import('./api/conversations/working-memory/update')
+            await updateHandler.default(req, res)
+          } catch (err) {
+            res.statusCode = 500
+            res.setHeader('Content-Type', 'application/json')
+            res.end(
+              JSON.stringify({
+                success: false,
+                error: err instanceof Error ? err.message : String(err),
+              })
+            )
+          }
         })
       },
     },
