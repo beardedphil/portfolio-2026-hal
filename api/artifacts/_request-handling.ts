@@ -72,7 +72,8 @@ export function createSupabaseClient(url: string, anonKey: string): SupabaseClie
  */
 export function validateBodyMd(body_md: unknown, endpointName: string): { valid: boolean; error?: string } {
   if (body_md === undefined || (typeof body_md !== 'string' || body_md.length === 0)) {
-    console.error(`[${endpointName}] Invalid body_md: type=${typeof body_md}, value=${body_md?.substring(0, 100) ?? 'null/undefined'}`)
+    const preview = typeof body_md === 'string' ? body_md.substring(0, 100) : 'null/undefined'
+    console.error(`[${endpointName}] Invalid body_md: type=${typeof body_md}, value=${preview}`)
     return {
       valid: false,
       error: 'body_md must be a non-empty string. Received invalid or empty body_md.',

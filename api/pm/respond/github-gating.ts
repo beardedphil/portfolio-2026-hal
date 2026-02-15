@@ -1,10 +1,10 @@
 import type { Session } from '../../_lib/github/session.js'
-import { fetchFileContents, searchCode, listDirectoryContents } from '../../_lib/github/githubApi.js'
+import { fetchFileContents, searchCode, listDirectoryContents, type CodeSearchMatch } from '../../_lib/github/githubApi.js'
 
 export type GitHubFunctions = {
-  githubReadFile?: (filePath: string, maxLines?: number) => Promise<string>
-  githubSearchCode?: (pattern: string, glob?: string) => Promise<unknown[]>
-  githubListDirectory?: (dirPath: string) => Promise<unknown[]>
+  githubReadFile?: (filePath: string, maxLines?: number) => Promise<{ content: string } | { error: string }>
+  githubSearchCode?: (pattern: string, glob?: string) => Promise<{ matches: CodeSearchMatch[] } | { error: string }>
+  githubListDirectory?: (dirPath: string) => Promise<{ entries: string[] } | { error: string }>
 }
 
 /**

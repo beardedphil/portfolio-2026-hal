@@ -76,7 +76,7 @@ async function handleWebRequest(request: Request): Promise<Response> {
     end() {},
   } as ServerResponse & { _headers: Record<string, string | string[]> }
 
-  const session = await getSession(req as IncomingMessage, res as ServerResponse)
+  const session = await getSession(req as unknown as IncomingMessage, res as ServerResponse)
   const state = crypto.randomBytes(16).toString('hex')
   session.oauthState = state
   await session.save()

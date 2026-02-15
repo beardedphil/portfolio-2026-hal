@@ -34,7 +34,7 @@ async function checkFailureEscalationIfNeeded(
     // Trigger escalation check asynchronously (don't block the response)
     setTimeout(async () => {
       try {
-        const { checkFailureEscalation } = await import('../tickets/_failure-escalation')
+        const { checkFailureEscalation } = await import('../tickets/_failure-escalation.js')
         await checkFailureEscalation(supabase, ticketPk, 'qa')
       } catch (err) {
         // Log but don't fail - escalation check is best effort
