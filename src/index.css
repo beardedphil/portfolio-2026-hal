@@ -454,8 +454,9 @@ body {
 }
 
 /* Kanban column content - no individual vertical scrolling (0165: unified scroll) */
+/* 0499: Change flex: 1 to flex: 0 1 auto to prevent height constraints */
 .kanban-frame-container .column-content {
-  flex: 1;
+  flex: 0 1 auto !important; /* 0499: Don't grow, use natural height - prevents scroll context */
   min-height: 0;
   overflow-y: visible !important;
   overflow-x: hidden !important;
@@ -499,15 +500,18 @@ body {
   /* Keep horizontal scrolling for columns */
   overflow-x: auto !important; /* 0499: Only horizontal scrolling */
   overflow-y: visible !important; /* 0499: No vertical scrolling - kanban-frame-container handles it */
+  overflow: visible !important; /* 0499: Ensure no scroll context */
   max-height: none !important;
   height: auto !important;
-  flex: 0 1 auto !important; /* 0499: Don't grow, allow natural height */
+  flex: 0 1 auto !important; /* 0499: Override Kanban's flex: 1 - don't grow, allow natural height */
+  min-height: 0 !important; /* 0499: Allow shrinking */
 }
 
-/* Ensure columns-section doesn't create scroll context */
+/* Ensure columns-section doesn't create scroll context (0499) */
 .kanban-frame-container .columns-section {
   max-height: none !important;
   height: auto !important;
+  flex: 0 1 auto !important; /* 0499: Override Kanban's flex: 1 - don't grow, use natural height */
 }
 
 .kanban-loading-overlay {
