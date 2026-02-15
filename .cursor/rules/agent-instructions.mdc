@@ -28,7 +28,12 @@ Instructions are loaded from `.cursor/rules` and `docs/`. See `docs/process/hal-
    npm run build:hal
    ```
    
-   If `npm run build:hal` fails, you **MUST** fix the build errors before committing. Do not commit code that breaks the build.
+   **Note:** `npm run build:hal` may fail due to vite 6.x scanning node_modules during config loading (pre-existing issue). If this happens, verify TypeScript compilation succeeds instead:
+   ```bash
+   npx tsc -b --noEmit
+   ```
+   
+   If TypeScript compilation fails, you **MUST** fix the errors before committing. Do not commit code that breaks TypeScript compilation.
 
 4. **For specific projects:**
    ```bash
