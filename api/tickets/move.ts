@@ -2,9 +2,14 @@ import type { IncomingMessage, ServerResponse } from 'http'
 import { createClient } from '@supabase/supabase-js'
 import {
   getMissingRequiredImplementationArtifacts,
+<<<<<<< HEAD
   hasMissingArtifactExplanation,
   type ArtifactRowForCheck,
 } from '../artifacts/_shared.js'
+=======
+  type ArtifactRowForCheck,
+} from '../artifacts/_shared'
+>>>>>>> fde93a669772e375c1ba7d6b4415a499be4e2bf1
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []
@@ -181,6 +186,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const resolvedTicketPk = (ticket as any).pk as string
 
     // Gate: moving to Ready for QA requires all 8 implementation artifacts (substantive)
+<<<<<<< HEAD
     // OR a "Missing Artifact Explanation" artifact if artifacts are missing (0200)
     if (columnId === 'col-qa') {
       if (!resolvedTicketPk) {
@@ -192,10 +198,17 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       }
       
       // Fetch all artifacts (implementation and any other types, including Missing Artifact Explanation)
+=======
+    if (columnId === 'col-qa') {
+>>>>>>> fde93a669772e375c1ba7d6b4415a499be4e2bf1
       const { data: artifactRows, error: artErr } = await supabase
         .from('agent_artifacts')
         .select('title, agent_type, body_md')
         .eq('ticket_pk', resolvedTicketPk)
+<<<<<<< HEAD
+=======
+        .eq('agent_type', 'implementation')
+>>>>>>> fde93a669772e375c1ba7d6b4415a499be4e2bf1
 
       if (artErr) {
         json(res, 200, {
@@ -210,6 +223,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         agent_type: r.agent_type,
         body_md: r.body_md,
       }))
+<<<<<<< HEAD
       
       // Filter to implementation artifacts for missing check
       const implementationArtifacts = artifactsForCheck.filter((a) => a.agent_type === 'implementation')
@@ -230,6 +244,20 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           })
           return
         }
+=======
+      const missingArtifacts = getMissingRequiredImplementationArtifacts(artifactsForCheck)
+
+      if (missingArtifacts.length > 0) {
+        json(res, 200, {
+          success: false,
+          error:
+            'Cannot move to Ready for QA: missing required implementation artifacts.',
+          missingArtifacts,
+          remedy:
+            'Store each listed artifact via POST /api/artifacts/insert-implementation with the corresponding artifactType, then retry POST /api/tickets/move.',
+        })
+        return
+>>>>>>> fde93a669772e375c1ba7d6b4415a499be4e2bf1
       }
     }
 

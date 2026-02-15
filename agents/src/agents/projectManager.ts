@@ -3394,6 +3394,11 @@ export async function summarizeForContext(
   return (result.text ?? '').trim() || '(No summary generated)'
 }
 
+/**
+ * Extract and update working memory from conversation messages (0173).
+ * Uses LLM to extract key facts (goals, requirements, constraints, decisions, etc.)
+ * from the conversation and update the working memory.
+ */
 export interface WorkingMemory {
   summary: string
   goals: string[]
@@ -3515,4 +3520,5 @@ Return only valid JSON, no markdown formatting or code blocks.`
       }
     )
   }
+}
 }
