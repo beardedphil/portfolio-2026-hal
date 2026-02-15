@@ -10,7 +10,7 @@
     "build:agents": "tsc -p agents/tsconfig.build.json",
     "build:kanban": "npm run build:lib --prefix projects/kanban",
     "fix:rxjs": "node -e \"const fs=require('fs');const p='node_modules/rxjs/src/Rx.global.js';if(fs.existsSync(p)){const c=fs.readFileSync(p,'utf8').replace(\\\"require('../dist/package/Rx')\\\",\\\"require('../dist/cjs/index')\\\");fs.writeFileSync(p,c);}\"",
-    "fix:vitest-browser": "node -e \"const fs=require('fs');const p='node_modules/vitest/browser/context.js';if(fs.existsSync(p)){const c=fs.readFileSync(p,'utf8');if(!c.includes('Allow import outside of Vitest')){const patched=c.replace(/throw new Error\\([^)]+\\)/s,'// Allow import outside of Vitest (e.g., during Vite config bundling)\\n// Only throw if actually running in a test context\\nif (pool && globalThis.__vitest_worker__) {\\n  throw new Error(\\n    \\'vitest/browser can be imported only inside the Browser Mode. \\'\\n    + `Your test is running in ${pool} pool. Make sure your regular tests are excluded from the \\\"test.include\\\" glob pattern.`\\n  )\\n}\\n// Otherwise, silently allow the import (for Vite config bundling)');fs.writeFileSync(p,patched);}}\"",
+    "fix:vitest-browser": "node scripts/fix-vitest-browser.js",
     "build:hal": "npm run check:lines && node scripts/bundle-docs-instructions.js && node scripts/bundle-instructions.js && npm run fix:rxjs && npm run fix:vitest-browser && tsc -b && vite build",
     "build": "node scripts/build-vercel.js",
     "bundle-instructions": "node scripts/bundle-instructions.js",
