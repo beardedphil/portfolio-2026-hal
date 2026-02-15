@@ -1749,6 +1749,77 @@ function ArtifactsSection({
     (missingVerification && qaReport.body_md.toLowerCase().includes('verification'))
   )
 
+  // Gate logic for QA/Ready-for-QA: check for Missing Artifact Explanation and other failures (0201)
+  const isSubstantiveBody = (body_md: string | null | undefined): boolean => {
+    if (body_md == null) return false
+    const trimmed = body_md.trim()
+    if (trimmed.length <= 50) return false
+    if (trimmed.includes('(none)')) return false
+    if (trimmed.includes('(No files changed')) return false
+    return true
+  }
+
+  const extractArtifactTypeFromTitle = (title: string): string | null => {
+    const normalized = title.toLowerCase().trim()
+    // Missing Artifact Explanation (0200)
+    if (normalized === 'missing artifact explanation' || normalized.startsWith('missing artifact explanation')) {
+      return 'missing-artifact-explanation'
+    }
+    // Implementation artifact types
+    if (normalized.startsWith('plan for ticket')) return 'plan'
+    if (normalized.startsWith('worklog for ticket')) return 'worklog'
+    if (normalized.startsWith('changed files for ticket')) return 'changed-files'
+    if (normalized.startsWith('decisions for ticket')) return 'decisions'
+    if (normalized.startsWith('verification for ticket')) return 'verification'
+    if (normalized.startsWith('pm review for ticket')) return 'pm-review'
+    if (normalized.startsWith('git diff for ticket') || normalized.startsWith('git-diff for ticket')) return 'git-diff'
+    if (normalized.startsWith('instructions used for ticket')) return 'instructions-used'
+    return null
+  }
+
+  const hasMissingArtifactExplanation = artifacts.some((a) => {
+    const extracted = extractArtifactTypeFromTitle(a.title || '')
+    if (extracted !== 'missing-artifact-explanation') return false
+    return isSubstantiveBody(a.body_md)
+  })
+
+  // Check for other gate failures (duplicates, blank artifacts, malformed QA report)
+  // Check for duplicate artifacts (same type, only count substantive ones)
+  const artifactTypeCounts = new Map<string, number>()
+  artifacts.forEach((a) => {
+    if (a.agent_type === 'implementation') {
+      const type = extractArtifactTypeFromTitle(a.title || '')
+      if (type && type !== 'missing-artifact-explanation' && isSubstantiveBody(a.body_md)) {
+        artifactTypeCounts.set(type, (artifactTypeCounts.get(type) || 0) + 1)
+      }
+    }
+  })
+  const hasDuplicateArtifacts = Array.from(artifactTypeCounts.values()).some(count => count > 1)
+
+  // Check for blank artifacts (implementation artifacts with non-substantive body)
+  const hasBlankArtifacts = artifacts.some((a) => {
+    if (a.agent_type !== 'implementation') return false
+    const type = extractArtifactTypeFromTitle(a.title || '')
+    if (type === 'missing-artifact-explanation') return false // Skip explanation artifact
+    // Check if it's a required artifact type
+    const isRequiredType = type !== null && requiredArtifactTypes.some(rt => rt.key === type)
+    return isRequiredType && !isSubstantiveBody(a.body_md)
+  })
+
+  // Check for malformed QA report (basic check: should have verdict section)
+  const hasMalformedQaReport = qaReport && qaReport.body_md && (
+    !qaReport.body_md.toLowerCase().includes('verdict') &&
+    !qaReport.body_md.toLowerCase().includes('qa result')
+  )
+
+  // Calculate gate status (0201)
+  const hasOtherGateFailures = hasDuplicateArtifacts || hasBlankArtifacts || hasMalformedQaReport
+  const gateStatus = isImplementationTicket && isInQaOrLater
+    ? (missingArtifacts.length > 0
+        ? (hasMissingArtifactExplanation && !hasOtherGateFailures ? 'pass' : 'fail')
+        : (hasOtherGateFailures ? 'fail' : 'pass'))
+    : null
+
   if (isLoading) {
     return (
       <div className="artifacts-section">
@@ -1792,19 +1863,61 @@ function ArtifactsSection({
         </div>
       )}
 
-      {/* Error states for missing expected artifacts (0196) */}
-      {/* Show note if explanation exists, otherwise show error (0201) */}
-      {missingArtifacts.length > 0 && hasMissingArtifactExplanation && (
-        <div className="artifacts-warning-banner" role="alert" style={{ backgroundColor: '#e8f5e9', borderLeft: '4px solid #4caf50' }}>
-          <strong>Allowed due to Missing Artifact Explanation:</strong> The following {missingArtifacts.length} required artifact{missingArtifacts.length > 1 ? 's are' : ' is'} missing, but a "Missing Artifact Explanation" artifact is attached explaining why:
-          <ul style={{ marginTop: '0.5em', marginBottom: '0.5em', paddingLeft: '1.5em' }}>
-            {missingArtifacts.map(({ title }) => (
-              <li key={title}>{title}</li>
-            ))}
-          </ul>
+      {/* Gate status for QA/Ready-for-QA (0201) */}
+      {gateStatus && (
+        <div 
+          className={gateStatus === 'pass' ? 'artifacts-success-state' : 'artifacts-error-state'} 
+          role="alert"
+        >
+          <strong>Artifact Gate Status: {gateStatus === 'pass' ? 'PASS' : 'FAIL'}</strong>
+          {gateStatus === 'pass' && hasMissingArtifactExplanation && missingArtifacts.length > 0 && (
+            <p style={{ marginTop: '0.5em', marginBottom: '0' }}>
+              Allowed due to Missing Artifact Explanation. The following {missingArtifacts.length} required artifact{missingArtifacts.length > 1 ? 's are' : ' is'} missing:
+              <ul style={{ marginTop: '0.5em', marginBottom: '0.5em', paddingLeft: '1.5em' }}>
+                {missingArtifacts.map(({ title }) => (
+                  <li key={title}>{title}</li>
+                ))}
+              </ul>
+            </p>
+          )}
+          {gateStatus === 'fail' && (
+            <div style={{ marginTop: '0.5em' }}>
+              {missingArtifacts.length > 0 && (
+                <div>
+                  <strong>Missing required implementation artifacts:</strong> The following {missingArtifacts.length} required artifact{missingArtifacts.length > 1 ? 's are' : ' is'} missing or empty:
+                  <ul style={{ marginTop: '0.5em', marginBottom: '0.5em', paddingLeft: '1.5em' }}>
+                    {missingArtifacts.map(({ title }) => (
+                      <li key={title}>{title}</li>
+                    ))}
+                  </ul>
+                  {!hasMissingArtifactExplanation && (
+                    <p style={{ marginTop: '0.5em', marginBottom: '0' }}>
+                      Add a "Missing Artifact Explanation" artifact to explain why these artifacts are missing.
+                    </p>
+                  )}
+                </div>
+              )}
+              {hasOtherGateFailures && (
+                <div style={{ marginTop: missingArtifacts.length > 0 ? '1em' : '0' }}>
+                  <strong>Other gate failures:</strong>
+                  <ul style={{ marginTop: '0.5em', marginBottom: '0.5em', paddingLeft: '1.5em' }}>
+                    {hasDuplicateArtifacts && <li>Duplicate artifacts detected</li>}
+                    {hasBlankArtifacts && <li>Blank or non-substantive artifacts detected</li>}
+                    {hasMalformedQaReport && <li>Malformed QA report (missing verdict section)</li>}
+                  </ul>
+                  {hasMissingArtifactExplanation && missingArtifacts.length > 0 && (
+                    <p style={{ marginTop: '0.5em', marginBottom: '0' }}>
+                      Note: Missing Artifact Explanation cannot override these failures.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
-      {missingArtifacts.length > 0 && !hasMissingArtifactExplanation && (
+      {/* Legacy error states for backward compatibility (0137) - only show if gate status is not calculated */}
+      {!gateStatus && missingArtifacts.length > 0 && (
         <div className="artifacts-error-state" role="alert">
           <strong>Missing required implementation artifacts:</strong> The following {missingArtifacts.length} required artifact{missingArtifacts.length > 1 ? 's are' : ' is'} missing or empty:
           <ul style={{ marginTop: '0.5em', marginBottom: '0.5em', paddingLeft: '1.5em' }}>

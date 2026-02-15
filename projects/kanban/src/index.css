@@ -1191,6 +1191,24 @@ h1 {
   font-weight: 600;
 }
 
+/* Success state for artifact gate (0201) */
+.artifacts-success-state {
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  background: #efe;
+  border: 1px solid #cfc;
+  border-radius: 4px;
+  color: #3c3;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.artifacts-success-state strong {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-weight: 600;
+}
+
 [data-theme="dark"] .artifacts-error-state {
   background: #300;
   border-color: #600;
@@ -1201,6 +1219,12 @@ h1 {
   background: #420;
   border-color: #640;
   color: #fd8;
+}
+
+[data-theme="dark"] .artifacts-success-state {
+  background: #030;
+  border-color: #060;
+  color: #afa;
 }
 
 .artifacts-refresh-btn {
