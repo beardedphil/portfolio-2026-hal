@@ -37,6 +37,8 @@ import {
 } from './lib/ticketBody'
 import { normalizeTicketRow } from './lib/normalizeTicketRow'
 import { canonicalizeColumnRows, type SupabaseKanbanColumnRow } from './lib/canonicalizeColumns'
+import { fetchWithRetry } from './lib/fetchWithRetry'
+import { stableColumnId } from './lib/stableColumnId'
 import { TicketDetailModal } from './components/TicketDetailModal'
 import { QAInfoSection } from './components/QAInfoSection'
 import { AutoDismissMessage } from './components/AutoDismissMessage'
@@ -200,52 +202,10 @@ function formatTime(): string {
   return d.toLocaleTimeString('en-US', { hour12: false }) + '.' + String(d.getMilliseconds()).padStart(3, '0')
 }
 
-/**
- * Retry a fetch request with exponential backoff.
- * @param fetchFn Function that returns a Promise resolving to a Response
- * @param maxRetries Maximum number of retries (default: 3)
- * @param initialDelayMs Initial delay in milliseconds (default: 1000)
- * @returns Promise resolving to the Response
- */
-async function fetchWithRetry(
-  fetchFn: () => Promise<Response>,
-  maxRetries: number = 3,
-  initialDelayMs: number = 1000
-): Promise<Response> {
-  let lastError: Error | null = null
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      const response = await fetchFn()
-      // Retry on 5xx errors and network errors (but not 4xx client errors)
-      if (response.status >= 500 || response.status === 0) {
-        if (attempt < maxRetries) {
-          const delay = initialDelayMs * Math.pow(2, attempt)
-          await new Promise(resolve => setTimeout(resolve, delay))
-          continue
-        }
-      }
-      return response
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error))
-      if (attempt < maxRetries) {
-        const delay = initialDelayMs * Math.pow(2, attempt)
-        await new Promise(resolve => setTimeout(resolve, delay))
-        continue
-      }
-      throw lastError
-    }
-  }
-  throw lastError || new Error('Fetch failed after retries')
-}
-
 /** Auto-dismiss component for success messages (0047) */
 // AutoDismissMessage extracted to components/AutoDismissMessage.tsx
-
-function stableColumnId(): string {
-  return typeof crypto !== 'undefined' && crypto.randomUUID
-    ? crypto.randomUUID()
-    : `col-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
-}
+// fetchWithRetry extracted to lib/fetchWithRetry.ts
+// stableColumnId extracted to lib/stableColumnId.ts
 
 function normalizeTitle(title: string): string {
   return title.trim().toLowerCase()
