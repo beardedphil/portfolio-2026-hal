@@ -5342,19 +5342,22 @@ function App() {
                                 </ul>
                               </div>
                             )}
-                            {workingMemory && workingMemory.glossary && Object.keys(workingMemory.glossary).length > 0 && (
-                              <div style={{ marginBottom: '12px' }}>
-                                <strong>Glossary:</strong>
-                                <dl style={{ marginTop: '4px', paddingLeft: '20px' }}>
-                                  {Object.entries(workingMemory.glossary).map(([term, def]) => (
-                                    <React.Fragment key={term}>
-                                      <dt style={{ fontWeight: 'bold' }}>{term}:</dt>
-                                      <dd style={{ marginLeft: '20px', marginBottom: '4px' }}>{def}</dd>
-                                    </React.Fragment>
-                                  ))}
-                                </dl>
-                              </div>
-                            )}
+                            {workingMemory && workingMemory.glossary && Object.keys(workingMemory.glossary).length > 0 && (() => {
+                              const wm = workingMemory!
+                              return (
+                                <div style={{ marginBottom: '12px' }}>
+                                  <strong>Glossary:</strong>
+                                  <dl style={{ marginTop: '4px', paddingLeft: '20px' }}>
+                                    {Object.entries(wm.glossary).map(([term, def]) => (
+                                      <React.Fragment key={term}>
+                                        <dt style={{ fontWeight: 'bold' }}>{term}:</dt>
+                                        <dd style={{ marginLeft: '20px', marginBottom: '4px' }}>{def}</dd>
+                                      </React.Fragment>
+                                    ))}
+                                  </dl>
+                                </div>
+                              )
+                            })()}
                             {workingMemory && workingMemory.stakeholders && workingMemory.stakeholders.length > 0 && (() => {
                               const wm = workingMemory!
                               return (
