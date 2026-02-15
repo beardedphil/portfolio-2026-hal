@@ -1336,6 +1336,37 @@ function ArtifactsSection({
     { key: 'instructions-used', title: 'Instructions Used' },
   ]
   
+  // Helper function to extract artifact type from title (matches _shared.ts logic)
+  const extractArtifactTypeFromTitle = (title: string): string | null => {
+    const normalized = title.toLowerCase().trim()
+    if (normalized.startsWith('plan for ticket')) return 'plan'
+    if (normalized.startsWith('worklog for ticket')) return 'worklog'
+    if (normalized.startsWith('changed files for ticket')) return 'changed-files'
+    if (normalized.startsWith('decisions for ticket')) return 'decisions'
+    if (normalized.startsWith('verification for ticket')) return 'verification'
+    if (normalized.startsWith('pm review for ticket')) return 'pm-review'
+    if (normalized.startsWith('git diff for ticket') || normalized.startsWith('git-diff for ticket')) return 'git-diff'
+    if (normalized.startsWith('instructions used for ticket')) return 'instructions-used'
+    if (normalized === 'missing artifact explanation' || normalized.startsWith('missing artifact explanation')) return 'missing-artifact-explanation'
+    return null
+  }
+  
+  // Helper function to check if artifact has substantive content
+  const isSubstantiveBody = (body_md: string | null | undefined): boolean => {
+    if (!body_md) return false
+    const trimmed = body_md.trim()
+    if (trimmed.length <= 50) return false
+    if (trimmed.includes('(none)')) return false
+    if (trimmed.includes('(No files changed')) return false
+    return true
+  }
+  
+  // Check for "Missing Artifact Explanation" artifact (0201)
+  const hasMissingArtifactExplanation = artifacts.some((a) => {
+    const extracted = extractArtifactTypeFromTitle(a.title || '')
+    return extracted === 'missing-artifact-explanation' && isSubstantiveBody(a.body_md)
+  })
+  
   const hasArtifact = (type: string) => {
     const typeLower = type.toLowerCase()
     return artifacts.some((a) => {
@@ -1363,12 +1394,6 @@ function ArtifactsSection({
     ? requiredArtifactTypes.filter(({ key }) => !hasArtifact(key))
     : []
   
-  // Check for "Missing Artifact Explanation" artifact (0201)
-  const hasMissingArtifactExplanation = artifacts.some((a) => {
-    const titleLower = (a.title || '').toLowerCase().trim()
-    return titleLower.includes('missing artifact explanation')
-  })
-  
   // Legacy checks for backward compatibility
   const hasChangedFiles = hasArtifact('changed-files')
   const hasVerification = hasArtifact('verification')
@@ -1384,77 +1409,50 @@ function ArtifactsSection({
     (missingChangedFiles && qaReport.body_md.toLowerCase().includes('changed files')) ||
     (missingVerification && qaReport.body_md.toLowerCase().includes('verification'))
   )
-
-  // Gate logic for QA/Ready-for-QA: check for Missing Artifact Explanation and other failures (0201)
-  const isSubstantiveBody = (body_md: string | null | undefined): boolean => {
-    if (body_md == null) return false
-    const trimmed = body_md.trim()
-    if (trimmed.length <= 50) return false
-    if (trimmed.includes('(none)')) return false
-    if (trimmed.includes('(No files changed')) return false
-    return true
-  }
-
-  const extractArtifactTypeFromTitle = (title: string): string | null => {
-    const normalized = title.toLowerCase().trim()
-    // Missing Artifact Explanation (0200)
-    if (normalized === 'missing artifact explanation' || normalized.startsWith('missing artifact explanation')) {
-      return 'missing-artifact-explanation'
+  
+  // Check for other gate failures (0201)
+  // 1. Duplicate artifacts: multiple artifacts of the same required type
+  const hasDuplicateArtifacts = (() => {
+    if (!isImplementationTicket || !isInQaOrLater) return false
+    for (const { key } of requiredArtifactTypes) {
+      const matchingArtifacts = artifacts.filter((a) => {
+        if (a.agent_type !== 'implementation') return false
+        const extracted = extractArtifactTypeFromTitle(a.title || '')
+        return extracted === key && isSubstantiveBody(a.body_md)
+      })
+      if (matchingArtifacts.length > 1) return true
     }
-    // Implementation artifact types
-    if (normalized.startsWith('plan for ticket')) return 'plan'
-    if (normalized.startsWith('worklog for ticket')) return 'worklog'
-    if (normalized.startsWith('changed files for ticket')) return 'changed-files'
-    if (normalized.startsWith('decisions for ticket')) return 'decisions'
-    if (normalized.startsWith('verification for ticket')) return 'verification'
-    if (normalized.startsWith('pm review for ticket')) return 'pm-review'
-    if (normalized.startsWith('git diff for ticket') || normalized.startsWith('git-diff for ticket')) return 'git-diff'
-    if (normalized.startsWith('instructions used for ticket')) return 'instructions-used'
-    return null
-  }
-
-  const hasMissingArtifactExplanation = artifacts.some((a) => {
-    const extracted = extractArtifactTypeFromTitle(a.title || '')
-    if (extracted !== 'missing-artifact-explanation') return false
-    return isSubstantiveBody(a.body_md)
-  })
-
-  // Check for other gate failures (duplicates, blank artifacts, malformed QA report)
-  // Check for duplicate artifacts (same type, only count substantive ones)
-  const artifactTypeCounts = new Map<string, number>()
-  artifacts.forEach((a) => {
-    if (a.agent_type === 'implementation') {
-      const type = extractArtifactTypeFromTitle(a.title || '')
-      if (type && type !== 'missing-artifact-explanation' && isSubstantiveBody(a.body_md)) {
-        artifactTypeCounts.set(type, (artifactTypeCounts.get(type) || 0) + 1)
-      }
-    }
-  })
-  const hasDuplicateArtifacts = Array.from(artifactTypeCounts.values()).some(count => count > 1)
-
-  // Check for blank artifacts (implementation artifacts with non-substantive body)
-  const hasBlankArtifacts = artifacts.some((a) => {
-    if (a.agent_type !== 'implementation') return false
-    const type = extractArtifactTypeFromTitle(a.title || '')
-    if (type === 'missing-artifact-explanation') return false // Skip explanation artifact
-    // Check if it's a required artifact type
-    const isRequiredType = type !== null && requiredArtifactTypes.some(rt => rt.key === type)
-    return isRequiredType && !isSubstantiveBody(a.body_md)
-  })
-
-  // Check for malformed QA report (basic check: should have verdict section)
-  const hasMalformedQaReport = qaReport && qaReport.body_md && (
-    !qaReport.body_md.toLowerCase().includes('verdict') &&
-    !qaReport.body_md.toLowerCase().includes('qa result')
-  )
-
-  // Calculate gate status (0201)
+    return false
+  })()
+  
+  // 2. Blank artifacts: artifacts with empty or placeholder content
+  const hasBlankArtifacts = (() => {
+    if (!isImplementationTicket || !isInQaOrLater) return false
+    return artifacts.some((a) => {
+      if (a.agent_type !== 'implementation') return false
+      const extracted = extractArtifactTypeFromTitle(a.title || '')
+      if (!extracted || !requiredArtifactTypes.some(rt => rt.key === extracted)) return false
+      return !isSubstantiveBody(a.body_md)
+    })
+  })()
+  
+  // 3. Malformed QA report: QA report that doesn't have proper structure (missing verdict, too short, etc.)
+  const hasMalformedQaReport = (() => {
+    if (!qaReport || !qaReport.body_md) return false
+    const bodyLower = qaReport.body_md.toLowerCase()
+    // Check for basic QA report structure: should have "verdict" and be at least 100 characters
+    if (qaReport.body_md.trim().length < 100) return true
+    // Check if it has a verdict (PASS or FAIL)
+    if (!bodyLower.includes('verdict') && !bodyLower.includes('pass') && !bodyLower.includes('fail')) return true
+    return false
+  })()
+  
+  // Determine gate result (0201)
+  // Gate passes if: missing artifacts exist AND explanation exists AND no other failures
+  // Gate fails if: missing artifacts exist AND (no explanation OR other failures exist)
   const hasOtherGateFailures = hasDuplicateArtifacts || hasBlankArtifacts || hasMalformedQaReport
-  const gateStatus = isImplementationTicket && isInQaOrLater
-    ? (missingArtifacts.length > 0
-        ? (hasMissingArtifactExplanation && !hasOtherGateFailures ? 'pass' : 'fail')
-        : (hasOtherGateFailures ? 'fail' : 'pass'))
-    : null
+  const gatePasses = isImplementationTicket && isInQaOrLater && missingArtifacts.length > 0 && hasMissingArtifactExplanation && !hasOtherGateFailures
+  const gateFails = isImplementationTicket && isInQaOrLater && missingArtifacts.length > 0 && (!hasMissingArtifactExplanation || hasOtherGateFailures)
 
   if (isLoading) {
     return (
@@ -1499,70 +1497,73 @@ function ArtifactsSection({
         </div>
       )}
 
-      {/* Gate status for QA/Ready-for-QA (0201) */}
-      {gateStatus && (
-        <div 
-          className={gateStatus === 'pass' ? 'artifacts-success-state' : 'artifacts-error-state'} 
-          role="alert"
-        >
-          <strong>Artifact Gate Status: {gateStatus === 'pass' ? 'PASS' : 'FAIL'}</strong>
-          {gateStatus === 'pass' && hasMissingArtifactExplanation && missingArtifacts.length > 0 && (
-            <p style={{ marginTop: '0.5em', marginBottom: '0' }}>
-              Allowed due to Missing Artifact Explanation. The following {missingArtifacts.length} required artifact{missingArtifacts.length > 1 ? 's are' : ' is'} missing:
+<<<<<<< HEAD
+      {/* Artifact gate result display (0201) */}
+      {isImplementationTicket && isInQaOrLater && missingArtifacts.length > 0 && (
+        <>
+          {gatePasses ? (
+            <div className="artifacts-success-state" role="status" style={{ 
+              padding: '1em', 
+              marginBottom: '1em', 
+              backgroundColor: '#d4edda', 
+              border: '1px solid #c3e6cb', 
+              borderRadius: '4px',
+              color: '#155724'
+            }}>
+              <strong>✓ Artifact Gate: Pass</strong>
+              <p style={{ marginTop: '0.5em', marginBottom: '0' }}>
+                <em>Allowed due to Missing Artifact Explanation</em>
+              </p>
+              <p style={{ marginTop: '0.5em', marginBottom: '0', fontSize: '0.9em' }}>
+                The following {missingArtifacts.length} required artifact{missingArtifacts.length > 1 ? 's are' : ' is'} missing, but a "Missing Artifact Explanation" artifact is present that explains why.
+              </p>
+            </div>
+          ) : gateFails ? (
+            <div className="artifacts-error-state" role="alert">
+              <strong>✗ Artifact Gate: Fail</strong>
+              <p style={{ marginTop: '0.5em', marginBottom: '0.5em' }}>
+                Missing required implementation artifacts:
+              </p>
               <ul style={{ marginTop: '0.5em', marginBottom: '0.5em', paddingLeft: '1.5em' }}>
                 {missingArtifacts.map(({ title }) => (
                   <li key={title}>{title}</li>
                 ))}
               </ul>
-            </p>
-          )}
-          {gateStatus === 'fail' && (
-            <div style={{ marginTop: '0.5em' }}>
-              {missingArtifacts.length > 0 && (
-                <div>
-                  <strong>Missing required implementation artifacts:</strong> The following {missingArtifacts.length} required artifact{missingArtifacts.length > 1 ? 's are' : ' is'} missing or empty:
-                  <ul style={{ marginTop: '0.5em', marginBottom: '0.5em', paddingLeft: '1.5em' }}>
-                    {missingArtifacts.map(({ title }) => (
-                      <li key={title}>{title}</li>
-                    ))}
-                  </ul>
-                  {!hasMissingArtifactExplanation && (
-                    <p style={{ marginTop: '0.5em', marginBottom: '0' }}>
-                      Add a "Missing Artifact Explanation" artifact to explain why these artifacts are missing.
-                    </p>
-                  )}
-                </div>
+              {hasOtherGateFailures && (
+                <p style={{ marginTop: '0.5em', marginBottom: '0.5em', fontWeight: 'bold' }}>
+                  Additional gate failures detected:
+                </p>
               )}
               {hasOtherGateFailures && (
-                <div style={{ marginTop: missingArtifacts.length > 0 ? '1em' : '0' }}>
-                  <strong>Other gate failures:</strong>
-                  <ul style={{ marginTop: '0.5em', marginBottom: '0.5em', paddingLeft: '1.5em' }}>
-                    {hasDuplicateArtifacts && <li>Duplicate artifacts detected</li>}
-                    {hasBlankArtifacts && <li>Blank or non-substantive artifacts detected</li>}
-                    {hasMalformedQaReport && <li>Malformed QA report (missing verdict section)</li>}
-                  </ul>
-                  {hasMissingArtifactExplanation && missingArtifacts.length > 0 && (
-                    <p style={{ marginTop: '0.5em', marginBottom: '0' }}>
-                      Note: Missing Artifact Explanation cannot override these failures.
-                    </p>
-                  )}
-                </div>
+                <ul style={{ marginTop: '0.5em', marginBottom: '0.5em', paddingLeft: '1.5em' }}>
+                  {hasDuplicateArtifacts && <li>Duplicate artifacts detected</li>}
+                  {hasBlankArtifacts && <li>Blank or placeholder artifacts detected</li>}
+                  {hasMalformedQaReport && <li>Malformed QA report detected</li>}
+                </ul>
+              )}
+              {!hasMissingArtifactExplanation && (
+                <p style={{ marginTop: '0.5em', marginBottom: '0' }}>
+                  This may indicate that artifact insertion failed (API error, validation error, or network error). Check the implementation agent logs for error messages.
+                </p>
+              )}
+              {hasMissingArtifactExplanation && hasOtherGateFailures && (
+                <p style={{ marginTop: '0.5em', marginBottom: '0' }}>
+                  A "Missing Artifact Explanation" artifact is present, but other gate failures prevent the ticket from passing.
+                </p>
               )}
             </div>
+          ) : (
+            <div className="artifacts-error-state" role="alert">
+              <strong>Missing required implementation artifacts:</strong> The following {missingArtifacts.length} required artifact{missingArtifacts.length > 1 ? 's are' : ' is'} missing or empty:
+              <ul style={{ marginTop: '0.5em', marginBottom: '0.5em', paddingLeft: '1.5em' }}>
+                {missingArtifacts.map(({ title }) => (
+                  <li key={title}>{title}</li>
+                ))}
+              </ul>
+              This may indicate that artifact insertion failed (API error, validation error, or network error). Check the implementation agent logs for error messages.
+            </div>
           )}
-        </div>
-      )}
-      {/* Legacy error states for backward compatibility (0137) - only show if gate status is not calculated */}
-      {!gateStatus && missingArtifacts.length > 0 && (
-        <div className="artifacts-error-state" role="alert">
-          <strong>Missing required implementation artifacts:</strong> The following {missingArtifacts.length} required artifact{missingArtifacts.length > 1 ? 's are' : ' is'} missing or empty:
-          <ul style={{ marginTop: '0.5em', marginBottom: '0.5em', paddingLeft: '1.5em' }}>
-            {missingArtifacts.map(({ title }) => (
-              <li key={title}>{title}</li>
-            ))}
-          </ul>
-          This may indicate that artifact insertion failed (API error, validation error, or network error). Check the implementation agent logs for error messages.
-        </div>
+        </>
       )}
       {/* Legacy error states for backward compatibility (0137) */}
       {missingChangedFiles && !missingArtifacts.some(a => a.key === 'changed-files') && (
