@@ -1,4 +1,3 @@
-import React from 'react'
 import { extractFeatureBranch, checkMergedToMain } from '../lib/ticketBody'
 
 /** QA Info Section: displays feature branch when ticket is in QA column (0113, 0148) */

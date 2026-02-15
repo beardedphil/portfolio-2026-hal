@@ -1,4 +1,3 @@
-import React from 'react'
 import type { SupabaseAgentArtifactRow } from './types'
 import { getAgentTypeDisplayName } from './utils'
 

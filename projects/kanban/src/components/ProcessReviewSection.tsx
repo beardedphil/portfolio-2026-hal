@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext, useRef } from 'react'
+import React, { useState, useEffect, useContext } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { HalKanbanContext } from '../HalKanbanContext'
 import type { SupabaseAgentArtifactRow } from './types'

@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 
 export function AutoDismissMessage({ onDismiss, delay }: { onDismiss: () => void; delay: number }) {
   useEffect(() => {
