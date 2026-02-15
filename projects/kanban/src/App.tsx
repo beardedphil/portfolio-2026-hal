@@ -2273,6 +2273,8 @@ function App() {
   }, [supabaseProjectUrl, supabaseAnonKey, connectedRepoFullName])
 
   // Resolve ticket detail modal content when modal opens (0033); Supabase-only (0065)
+  // Only re-fetch when ticketId changes, not when tickets list updates (0619)
+  const currentTicketId = detailModal?.ticketId
   useEffect(() => {
     if (!detailModal) {
       setDetailModalBody(null)
@@ -2494,7 +2496,8 @@ function App() {
       setDetailModalAttachments([])
       setDetailModalAttachmentsLoading(false)
     }
-  }, [detailModal, halCtx, sourceTickets, supabaseBoardActive, supabaseTickets, supabaseProjectUrl, supabaseAnonKey, detailModalRetryTrigger, addLog, fetchTicketArtifacts, fetchTicketAttachments])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTicketId, halCtx, supabaseBoardActive, supabaseProjectUrl, supabaseAnonKey, detailModalRetryTrigger, addLog, fetchTicketArtifacts, fetchTicketAttachments])
 
   /** Re-run artifact fetch for the currently open ticket (library or Supabase mode). */
   const refreshDetailModalArtifacts = useCallback(() => {
