@@ -123,6 +123,12 @@ This command outputs JSON with the required data. Parse the JSON and include it 
 ```
 
 **Note:** Overcomplication numbers must reflect the current commit under test (not hardcoded). Run the command on the branch/commit being verified.
+=======
+6. UI verification — automated and/or manual steps
+7. Overcomplication — **MANDATORY:** Run `node scripts/generate-overcomplication-section.js` and include the output. This section shows: max allowed lines, gate pass/fail status, count of allowlisted files, and top 10 largest source files by line count.
+8. AC Confirmation Checklist — enumerate each AC, Met/Not met with evidence; see `ac-confirmation-checklist.mdc`
+9. Verdict — PASS or FAIL
+>>>>>>> 3ca79676b620ce71bf2d6918760cfb690775f39d
 
 ## Storing QA report
 
