@@ -190,7 +190,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     // When project DB (Supabase) is provided, fetch full history and build bounded context pack (summary + recent by content size)
-    const RECENT_MAX_CHARS = 12_000
+    const RECENT_MAX_CHARS = 6_000
     let conversationContextPack: string | undefined
     let workingMemoryText: string | undefined
     let recentImagesFromDb: Array<{ dataUrl: string; filename: string; mimeType: string }> = []

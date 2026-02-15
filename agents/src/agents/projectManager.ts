@@ -418,47 +418,24 @@ export interface PmAgentResult {
   promptText?: string
 }
 
-const PM_SYSTEM_INSTRUCTIONS = `You are the Project Manager agent for HAL. Your job is to help users understand the codebase, review tickets, and provide project guidance.
+const PM_SYSTEM_INSTRUCTIONS = `You are the Project Manager agent for HAL. Help users understand the codebase, review tickets, and provide project guidance.
 
-**Instruction loading:** Start with the global bootstrap instructions (shared by all agent types). Before executing agent-specific workflows, request your full agent instruction set with \`get_instruction_set({ agentType: "<your-agent-type>" })\`. After that, request specific topic details only when needed using \`get_instruction_set({ topicId: "<topic-id>" })\`.
+**Instructions:** Load detailed instructions on-demand using \`get_instruction_set({ agentType: "project-manager" })\` for agent-specific workflows, or \`get_instruction_set({ topicId: "<topic-id>" })\` for specific topics. Don't load everything upfront.
 
-You have access to read-only tools to explore the repository. Use them to answer questions about code, tickets, and project state.
+**Repository access:** When a GitHub repo is connected, use read_file/search_files to inspect the connected repo (NOT HAL). If no repo is connected, tools access HAL only. Always cite file paths (e.g., "src/App.tsx:42").
 
-**Repository access:** 
-- **CRITICAL**: When a GitHub repo is connected (user clicked "Connect GitHub Repo"), you MUST use read_file and search_files to inspect the connected repo via GitHub API (committed code on the default branch). The connected repo is NOT the HAL repository.
-- If a GitHub repo is connected, the tool descriptions will say "connected GitHub repo" - use those tools to access the user's project, NOT the HAL repo.
-- When answering questions about the user's project, you MUST use the connected GitHub repo. Do NOT reference or use files from the HAL repository (portfolio-2026-hal) when a GitHub repo is connected.
-- If no repo is connected, these tools will only access the HAL repository itself (the workspace where HAL runs).
-- If the user's question is about their project and no repo is connected, explain: "Connect a GitHub repository in the HAL app to enable repository inspection. Once connected, I can search and read files from your repo."
-- Always cite specific file paths when referencing code or content (e.g., "In src/App.tsx line 42...").
-- **When a GitHub repo is connected, do NOT answer questions using HAL repo files. Use the connected repo instead.**
-- **When a GitHub repo is connected, do NOT mention "HAL repo" or "portfolio-2026-hal" in your responses unless the user explicitly asks about HAL itself.**
+**Working Memory:** Use the "Working Memory" section for long-term context (goals, decisions, constraints). It replaces verbose conversation history.
 
-**Conversation context:** When "Conversation so far" is present, the "User message" is the user's latest reply in that conversation. Short replies (e.g. "Entirely, in all states", "Yes", "The first one", "inside the embedded kanban UI") are almost always answers to the question you (the assistant) just asked—interpret them in that context. Do not treat short user replies as a new top-level request about repo rules, process, or "all states" enforcement unless the conversation clearly indicates otherwise.
+**Conversation context:** Short user replies are usually answers to your last question—interpret them in that context.
 
-**Working Memory:** When "Working Memory" is present, it contains structured context from the conversation history (goals, requirements, constraints, decisions, assumptions, open questions, glossary, stakeholders). Use this information to maintain continuity across long conversations. When generating tickets or making recommendations, incorporate relevant information from working memory even if it's not in the recent message window. If working memory indicates constraints or decisions were made earlier, respect them in your responses.
+**Key workflows (details in instructions):**
+- Create tickets: Use create_ticket when user explicitly asks. Don't infer from casual messages.
+- Move to To Do: Fetch ticket → evaluate readiness → move if ready.
+- Prepare ticket: Fetch → evaluate → fix formatting → re-evaluate → move if ready.
+- Edit tickets: Use update_ticket_body (Supabase is source of truth).
+- List/move tickets: Use list_tickets_by_column, move_ticket_to_column, etc.
 
-**Creating tickets:** When the user **explicitly** asks to create a ticket (e.g. "create a ticket", "create ticket for that", "create a new ticket for X"), you MUST call the create_ticket tool if it is available. Do NOT call create_ticket for short, non-actionable messages such as: "test", "ok", "hi", "hello", "thanks", "cool", "checking", "asdf", or similar—these are usually the user testing the UI, acknowledging, or typing casually. Do not infer a ticket-creation request from context alone (e.g. if the user sends "Test" while testing the chat UI, that does NOT mean create the chat UI ticket). Calling the tool is what actually creates the ticket—do not only write the ticket content in your message. Use create_ticket with a short title (without the ID prefix—the tool assigns the next repo-scoped ID and normalizes the Title line to "PREFIX-NNNN — ..."). Provide a full markdown body following the repo ticket template. Do not invent an ID—the tool assigns it. Do not write secrets or API keys into the ticket body. If create_ticket is not in your tool list, tell the user: "I don't have the create-ticket tool for this request. In the HAL app, connect the project folder (with VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in its .env), then try again. Check Diagnostics to confirm 'Create ticket (this request): Available'." After creating a ticket via the tool, report the exact ticket display ID (e.g. HAL-0079) and the returned filePath (Supabase-only).
-
-**Moving a ticket to To Do:** When the user asks to move a ticket to To Do (e.g. "move this to To Do", "move ticket 0012 to To Do"), you MUST (1) fetch the ticket content with fetch_ticket_content (by ticket id), (2) evaluate readiness with evaluate_ticket_ready (pass the body_md from the fetch result). If the ticket is NOT ready, do NOT call kanban_move_ticket_to_todo; instead reply with a clear list of what is missing (use the missingItems from the evaluate_ticket_ready result). If the ticket IS ready, call kanban_move_ticket_to_todo with the ticket id. Then confirm in chat that the ticket was moved. The readiness checklist is in your instructions (topic: ready-to-start-checklist): Goal, Human-verifiable deliverable, Acceptance criteria checkboxes, Constraints, Non-goals, no unresolved placeholders.
-
-**Preparing a ticket (Definition of Ready):** When the user asks to "prepare ticket X" or "get ticket X ready" (e.g. from "Prepare top ticket" button), you MUST (1) fetch the ticket content with fetch_ticket_content, (2) evaluate readiness with evaluate_ticket_ready. If the ticket is NOT ready, use update_ticket_body to fix formatting issues (normalize headings, convert bullets to checkboxes in Acceptance criteria if needed, ensure all required sections exist). After updating, re-evaluate with evaluate_ticket_ready. If the ticket IS ready (after fixes if needed), automatically call kanban_move_ticket_to_todo to move it to To Do. Then confirm in chat that the ticket is Ready-to-start and has been moved to To Do. If the ticket cannot be made ready (e.g. missing required content that cannot be auto-generated), clearly explain what is missing and that the ticket remains in Unassigned.
-
-**Listing tickets by column:** When the user asks to see tickets in a specific Kanban column (e.g. "list tickets in QA column", "what tickets are in QA", "show me tickets in the QA column"), use list_tickets_by_column with the appropriate column_id (e.g. "col-qa" for QA, "col-todo" for To Do, "col-unassigned" for Unassigned, "col-human-in-the-loop" for Human in the Loop). Format the results clearly in your reply, showing ticket ID and title for each ticket. This helps you see which tickets are currently in a given column so you can update other tickets without asking the user for IDs.
-
-**Moving tickets to named columns:** When the user asks to move a ticket to a column by name (e.g. "move HAL-0121 to Ready to Do", "put ticket 0121 in QA", "move this to Human in the Loop"), use move_ticket_to_column with the ticket_id and column_name. You can also specify position: "top" (move to top of column), "bottom" (move to bottom, default), or a number (0-based index, e.g. 0 for first position, 1 for second). The tool automatically resolves column names to column IDs. After moving, confirm the ticket appears in the specified column and position in the Kanban UI.
-
-**Moving tickets to other repositories:** When the user asks to move a ticket to another repository's To Do column (e.g. "Move ticket HAL-0012 to owner/other-repo To Do"), use kanban_move_ticket_to_other_repo_todo with the ticket_id and target_repo_full_name. This tool works from any Kanban column (not only Unassigned). The ticket will be moved to the target repository and placed in its To Do column, and the ticket's display_id will be updated to match the target repo's prefix. If the target repo does not exist or the user lacks access, the tool will return a clear error message. If the ticket ID is invalid or not found, the tool will return a clear error message. After a successful move, confirm in chat the target repository and that the ticket is now in To Do.
-
-**Listing available repositories:** When the user asks "what repos can I move tickets to?" or similar questions about available target repositories, use list_available_repos to get a list of all repositories (repo_full_name) that have tickets in the database. Format the results clearly in your reply, showing the repository names.
-
-**Supabase is the source of truth for ticket content.** When the user asks to edit or fix a ticket, you must update the ticket in the database (do not suggest editing docs/tickets/*.md only). Use update_ticket_body to write the corrected body_md directly to Supabase. The change propagates out: the Kanban UI reflects it within ~10 seconds (poll interval). To propagate the same content to docs/tickets/*.md in the repo, use the sync_tickets tool (if available) after updating—sync writes from DB to docs so the repo files match Supabase.
-
-**Editing ticket body in Supabase:** When a ticket in Unassigned fails the Definition of Ready (missing sections, placeholders, etc.) and the user asks to fix it or make it ready, use update_ticket_body to write the corrected body_md directly to Supabase. Provide the full markdown body with all required sections: Goal (one sentence), Human-verifiable deliverable (UI-only), Acceptance criteria (UI-only) with - [ ] checkboxes, Constraints, Non-goals. Replace every placeholder with concrete content. The Kanban UI reflects updates within ~10 seconds. Optionally call sync_tickets afterward so docs/tickets/*.md match the database.
-
-**Attaching images to tickets:** When a user uploads an image in chat and asks to attach it to a ticket (e.g. "Add this image to ticket HAL-0143"), use attach_image_to_ticket with the ticket ID. Images are available from recent conversation messages (persisted to database) as well as the current request. The tool automatically accesses images from recent messages and the current conversation turn. If multiple images are available, you can specify image_index (0-based) to select which image to attach. The image will appear in the ticket's Artifacts section. The tool prevents duplicate attachments of the same image.
-
-Always cite file paths when referencing specific content.`
+Always cite file paths when referencing code.`
 
 const MAX_TOOL_ITERATIONS = 10
 /** Cap on create_ticket retries when insert fails with unique/duplicate (id or filename). */
@@ -471,8 +448,8 @@ function isUniqueViolation(err: { code?: string; message?: string } | null): boo
   const msg = (err.message ?? '').toLowerCase()
   return msg.includes('duplicate key') || msg.includes('unique constraint')
 }
-/** Cap on character count for "recent conversation" so long technical messages don't dominate. (~3k tokens) */
-const CONVERSATION_RECENT_MAX_CHARS = 12_000
+/** Cap on character count for "recent conversation" so long technical messages don't dominate. (~1.5k tokens) */
+const CONVERSATION_RECENT_MAX_CHARS = 6_000
 
 function recentTurnsWithinCharBudget(
   turns: ConversationTurn[],
@@ -555,24 +532,11 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
     // local load failed, will use HAL/Supabase fallback
   }
 
-  if (localLoaded) {
-    sections.push(
-      '## Instructions\n\n' +
-        '**Your instructions are in the "Repo rules (local)" section below.** Use them directly; no need to load from Supabase.\n'
-    )
-  } else {
-    sections.push(
-      '## MANDATORY: Load Your Instructions First\n\n' +
-        '**BEFORE responding to the user, you MUST load your basic instructions from Supabase using the `get_instruction_set` tool.**\n\n' +
-        '**Use the tool:** `get_instruction_set({ topicId: "project-manager-basic" })` or load all basic instructions for project-manager agent type.\n\n' +
-        '**The instructions from Supabase contain:**\n' +
-        '- Required workflows and procedures\n' +
-        '- How to evaluate ticket readiness\n' +
-        '- Code citation requirements\n' +
-        '- All other mandatory PM agent workflows\n\n' +
-        '**DO NOT proceed with responding until you have loaded and read your instructions from Supabase.**\n'
-    )
-  }
+  // Only include minimal instruction loading hint - don't load everything upfront
+  sections.push(
+    '## Instructions\n\n' +
+      '**Load instructions on-demand:** Use `get_instruction_set({ agentType: "project-manager" })` for agent workflows, or `get_instruction_set({ topicId: "<topic-id>" })` for specific topics. Only load what you need for the current task.\n'
+  )
 
   // Working Memory (0173: PM working memory) - include before conversation context
   if (config.workingMemoryText && config.workingMemoryText.trim() !== '') {
@@ -604,12 +568,17 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
     sections.push('## User message\n\n' + userMessage)
   }
 
-  if (localLoaded) {
+  // Don't load all instructions upfront - agent should load on-demand
+  // Only include essential local rules if available, otherwise skip
+  if (localLoaded && localRulesContent.length < 5000) {
+    // Only include local rules if they're reasonably sized
     sections.push('## Repo rules (local)\n\n' + localRulesContent)
   } else {
-    sections.push('## Repo rules (from Supabase)')
+    sections.push('## Repo rules\n\nLoad specific instructions on-demand using `get_instruction_set` tool when needed.')
   }
 
+  // Skip loading all Supabase instructions - agent should load on-demand
+  /*
   if (!localLoaded) {
   try {
     type TopicMeta = {
@@ -867,11 +836,13 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
           }
         }
 
-        bootstrapLoaded = appendInstructionBootstrap(
-          'HAL API',
-          basicInstructions,
-          situationalInstructions
-        )
+        // Don't load all instructions upfront - agent should load on-demand
+        // bootstrapLoaded = appendInstructionBootstrap(
+        //   'HAL API',
+        //   basicInstructions,
+        //   situationalInstructions
+        // )
+        bootstrapLoaded = false // Skip loading all instructions
         const templateInst = basicInstructions.find((i) => i.topicId === 'ticket-template')
         const checklistInst = basicInstructions.find((i) => i.topicId === 'ready-to-start-checklist')
         if (templateInst?.contentMd) ticketTemplateContent = templateInst.contentMd
@@ -910,11 +881,13 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
             )
           : []
 
-      bootstrapLoaded = appendInstructionBootstrap(
-        'Direct Supabase fallback',
-        basicInstructions,
-        situationalInstructions
-      )
+      // Don't load all instructions upfront - agent should load on-demand
+      // bootstrapLoaded = appendInstructionBootstrap(
+      //   'Direct Supabase fallback',
+      //   basicInstructions,
+      //   situationalInstructions
+      // )
+      bootstrapLoaded = false // Skip loading all instructions
       const templateInst = basicInstructions.find((i) => i.topicId === 'ticket-template')
       const checklistInst = basicInstructions.find((i) => i.topicId === 'ready-to-start-checklist')
       if (templateInst?.contentMd) ticketTemplateContent = templateInst.contentMd
@@ -947,26 +920,9 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
   }
   }
 
-  sections.push('## Ticket template (required structure for create_ticket)')
-  if (ticketTemplateContent) {
-    sections.push(
-      ticketTemplateContent +
-        '\n\nWhen creating a ticket, use this exact section structure. Replace every placeholder in angle brackets (e.g. `<what we want to achieve>`, `<AC 1>`) with concrete content—the resulting ticket must pass the Ready-to-start checklist (no unresolved placeholders, all required sections filled).'
-    )
-  } else {
-    sections.push(
-      '(Ticket template not found in instructions. Ensure migrate-docs has been run and instructions are loaded from Supabase.)'
-    )
-  }
-
-  sections.push('## Ready-to-start checklist (Definition of Ready)')
-  if (checklistContent) {
-    sections.push(checklistContent)
-  } else {
-    sections.push(
-      '(Ready-to-start checklist not found in instructions. Ensure migrate-docs has been run and instructions are loaded from Supabase.)'
-    )
-  }
+  // Don't include full ticket template and checklist - agent should load on-demand
+  // Only include minimal hint
+  sections.push('## Ticket template & checklist\n\nLoad ticket template and ready-to-start checklist on-demand using `get_instruction_set({ topicId: "ticket-template" })` and `get_instruction_set({ topicId: "ready-to-start-checklist" })` when creating or evaluating tickets.')
 
   sections.push('## Git status (git status -sb)')
   try {
