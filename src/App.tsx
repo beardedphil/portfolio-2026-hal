@@ -3736,7 +3736,7 @@ function App() {
                         <p className="transcript-empty">No messages yet. Start a conversation.</p>
                       ) : (
                         <>
-                          {displayMessages.map((msg, msgIdx) => {
+                          {displayMessages.map((msg) => {
                             // Check if this is the most recent PM assistant message
                             // Find the last PM assistant message in the displayMessages array
                             const lastPmMsg = displayMessages
