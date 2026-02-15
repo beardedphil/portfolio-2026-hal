@@ -365,8 +365,22 @@ export default defineConfig({
               return
             }
 
-            // Import shared runner (and summarizeForContext) from hal-agents built dist (0043)
-            let runnerModule: { getSharedRunner?: () => { label: string; run: (msg: string, config: object) => Promise<object> }; summarizeForContext?: (msgs: unknown[], key: string, model: string) => Promise<string> } | null = null
+            // Import shared runner (and summarizeForContext, extractWorkingMemory) from hal-agents built dist (0043, 0173)
+            let runnerModule: { 
+              getSharedRunner?: () => { label: string; run: (msg: string, config: object) => Promise<object> }
+              summarizeForContext?: (msgs: unknown[], key: string, model: string) => Promise<string>
+              extractWorkingMemory?: (msgs: unknown[], key: string, model: string) => Promise<{
+                summary?: string
+                goals?: string[]
+                requirements?: string[]
+                constraints?: string[]
+                decisions?: string[]
+                assumptions?: string[]
+                open_questions?: string[]
+                glossary?: Record<string, string>
+                stakeholders?: string[]
+              }>
+            } | null = null
             const runnerDistPath = path.resolve(__dirname, 'agents/dist/agents/runner.js')
             try {
               runnerModule = await import(pathToFileURL(runnerDistPath).href)
