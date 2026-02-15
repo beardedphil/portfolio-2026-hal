@@ -4281,22 +4281,22 @@ function App() {
 
                     {/* PM Working Memory Panel (0173) */}
                     {displayTarget === 'project-manager' && (
-                      <div className="pm-working-memory-panel" style={{ borderBottom: '1px solid rgba(0,0,0,0.1)', padding: '12px', backgroundColor: 'rgba(0,0,0,0.02)' }}>
+                      <div className="pm-working-memory-panel" style={{ borderBottom: '1px solid rgba(0,0,0,0.1)', padding: '12px', backgroundColor: 'rgba(0,0,0,0.02)' }} key="pm-working-memory-panel">
                         <div
                           style={{
                             display: 'flex',
                             justifyContent: 'space-between',
                             alignItems: 'center',
                             cursor: 'pointer',
-                            marginBottom: workingMemoryExpanded ? '12px' : '0',
+                            marginBottom: workingMemoryOpen ? '12px' : '0',
                           }}
-                          onClick={() => setWorkingMemoryExpanded(!workingMemoryExpanded)}
+                          onClick={() => setPmWorkingMemoryOpen(!pmWorkingMemoryOpen)}
                           role="button"
                           tabIndex={0}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' || e.key === ' ') {
                               e.preventDefault()
-                              setWorkingMemoryExpanded(!workingMemoryExpanded)
+                              setPmWorkingMemoryOpen(!pmWorkingMemoryOpen)
                             }
                           }}
                         >
@@ -4310,7 +4310,7 @@ function App() {
                             )}
                             {workingMemory && !workingMemoryLoading && (
                               <span style={{ fontSize: '12px', color: '#666' }}>
-                                Last updated: {new Date(workingMemory.updated_at).toLocaleString()}
+                                Last updated: {new Date(workingMemory.lastUpdatedAt).toLocaleString()}
                               </span>
                             )}
                           </div>
@@ -4334,10 +4334,10 @@ function App() {
                             >
                               Refresh
                             </button>
-                            <span style={{ fontSize: '12px' }}>{workingMemoryExpanded ? '▼' : '▶'}</span>
+                            <span style={{ fontSize: '12px' }}>{workingMemoryOpen ? '▼' : '▶'}</span>
                           </div>
                         </div>
-                        {workingMemoryExpanded && (
+                        {workingMemoryOpen && (
                           <div style={{ marginTop: '12px', fontSize: '13px', lineHeight: '1.6' }}>
                             {workingMemoryError ? (
                               <div style={{ color: '#d32f2f', padding: '8px', backgroundColor: 'rgba(211, 47, 47, 0.1)', borderRadius: '4px' }}>
@@ -4418,14 +4418,17 @@ function App() {
                                     </ul>
                                   </div>
                                 )}
-                                {workingMemory.glossary && workingMemory.glossary.length > 0 && (
+                                {workingMemory.glossary && Object.keys(workingMemory.glossary).length > 0 && (
                                   <div>
                                     <strong>Glossary:</strong>
-                                    <ul style={{ margin: '4px 0 0 0', paddingLeft: '20px' }}>
-                                      {workingMemory.glossary.map((term, idx) => (
-                                        <li key={idx}>{term}</li>
+                                    <dl style={{ margin: '4px 0 0 0', paddingLeft: '20px' }}>
+                                      {Object.entries(workingMemory.glossary).map(([term, def]) => (
+                                        <React.Fragment key={term}>
+                                          <dt style={{ fontWeight: 'bold', marginTop: '4px' }}>{term}:</dt>
+                                          <dd style={{ marginLeft: '20px', marginBottom: '4px' }}>{def}</dd>
+                                        </React.Fragment>
                                       ))}
-                                    </ul>
+                                    </dl>
                                   </div>
                                 )}
                                 {workingMemory.stakeholders && workingMemory.stakeholders.length > 0 && (
@@ -4445,7 +4448,7 @@ function App() {
                                   (!workingMemory.decisions || workingMemory.decisions.length === 0) &&
                                   (!workingMemory.assumptions || workingMemory.assumptions.length === 0) &&
                                   (!workingMemory.open_questions || workingMemory.open_questions.length === 0) &&
-                                  (!workingMemory.glossary || workingMemory.glossary.length === 0) &&
+                                  (!workingMemory.glossary || Object.keys(workingMemory.glossary).length === 0) &&
                                   (!workingMemory.stakeholders || workingMemory.stakeholders.length === 0) && (
                                     <div style={{ color: '#666', fontStyle: 'italic' }}>
                                       Working memory is empty. It will be populated automatically as the conversation grows.
@@ -4457,6 +4460,10 @@ function App() {
                                 No working memory yet. It will be created automatically as the conversation grows.
                               </div>
                             )}
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Chat transcript */}
                     <div className="chat-transcript" ref={transcriptRef}>
@@ -5168,7 +5175,7 @@ function App() {
                             <li key={term} style={{ marginBottom: '4px' }}>
                               <strong>{term}:</strong> {def}
                             </li>
-                          )))}
+                          ))}
                         </ul>
                       </div>
                     )}
@@ -5404,10 +5411,10 @@ function App() {
                       <button
                         type="button"
                         className="diag-section-toggle"
-                        onClick={() => setWorkingMemoryExpanded(!workingMemoryExpanded)}
-                        aria-expanded={workingMemoryExpanded}
+                        onClick={() => setPmWorkingMemoryOpen(!pmWorkingMemoryOpen)}
+                        aria-expanded={workingMemoryOpen}
                       >
-                        PM Working Memory {workingMemoryExpanded ? '▼' : '▶'}
+                        PM Working Memory {workingMemoryOpen ? '▼' : '▶'}
                       </button>
                       <button
                         type="button"
@@ -5455,7 +5462,7 @@ function App() {
                         {workingMemoryLoading ? 'Loading...' : 'Refresh'}
                       </button>
                     </div>
-                    {workingMemoryExpanded && (
+                    {workingMemoryOpen && (
                       <div className="diag-section-content">
                         {workingMemoryError ? (
                           <div style={{ color: '#d32f2f', fontSize: '0.9em', marginBottom: '8px' }}>

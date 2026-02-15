@@ -666,7 +666,7 @@ Return ONLY valid JSON, no markdown formatting, no explanation. Example format:
                         })
                         
                         if (openaiRes.ok) {
-                          const openaiData = await openaiRes.json()
+                          const openaiData = await openaiRes.json() as { choices?: Array<{ message?: { content?: string } }> }
                           const content = openaiData.choices?.[0]?.message?.content?.trim()
                           if (content) {
                             // Parse JSON response (may be wrapped in markdown code blocks)
@@ -1007,7 +1007,7 @@ Return ONLY valid JSON, no markdown formatting, no explanation. Example format:
               return
             }
 
-            const openaiData = await openaiRes.json()
+            const openaiData = await openaiRes.json() as { choices?: Array<{ message?: { content?: string } }> }
             const content = openaiData.choices?.[0]?.message?.content?.trim()
             if (!content) {
               res.statusCode = 500
