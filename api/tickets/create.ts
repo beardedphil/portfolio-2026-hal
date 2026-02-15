@@ -305,7 +305,7 @@ Updated agent instructions, rules, templates, or process documentation that impl
 
 This ticket was automatically created from Process Review suggestion for ticket ${sourceRef}. Review the Goal above and implement the appropriate improvement to agent instructions, rules, or process documentation.
 `
-      : `# Ticket
+      bodyMd = `# Ticket
 
 - **ID**: (auto-assigned)
 - **Title**: (auto-assigned)
@@ -384,7 +384,7 @@ This ticket was automatically created from Process Review suggestions for ticket
             success: true,
             ticketId: displayId,
             id,
-            pk: insert.data?.[0]?.pk || crypto.randomUUID(),
+            pk: insert.data && insert.data[0] ? insert.data[0].pk : crypto.randomUUID(),
           })
           return
         }

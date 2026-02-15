@@ -180,7 +180,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             success: true,
             ticketId: displayId,
             id,
-            pk: insert.data?.[0]?.pk || crypto.randomUUID(),
+            pk: insert.data && insert.data[0] ? insert.data[0].pk : crypto.randomUUID(),
           })
           return
         }
