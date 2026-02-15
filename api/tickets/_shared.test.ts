@@ -3,13 +3,14 @@
  * Tests the shared logic extracted from create.ts and move.ts.
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import {
   readJsonBody,
   json,
   slugFromTitle,
   repoHintPrefix,
   isUniqueViolation,
+  parseSupabaseCredentials,
 } from './_shared.js'
 import type { IncomingMessage, ServerResponse } from 'http'
 
@@ -250,5 +251,84 @@ describe('json', () => {
 
     expect(mockRes.statusCode).toBe(400)
     expect(JSON.parse(mockRes.data)).toEqual({ success: false, error: 'Bad request' })
+  })
+})
+
+describe('parseSupabaseCredentials', () => {
+  const originalEnv = process.env
+
+  beforeEach(() => {
+    process.env = { ...originalEnv }
+  })
+
+  afterEach(() => {
+    process.env = originalEnv
+  })
+
+  it('extracts credentials from request body', () => {
+    const body = {
+      supabaseUrl: 'https://example.supabase.co',
+      supabaseAnonKey: 'test-anon-key',
+    }
+    const result = parseSupabaseCredentials(body)
+    expect(result.supabaseUrl).toBe('https://example.supabase.co')
+    expect(result.supabaseAnonKey).toBe('test-anon-key')
+  })
+
+  it('trims whitespace from credentials', () => {
+    const body = {
+      supabaseUrl: '  https://example.supabase.co  ',
+      supabaseAnonKey: '  test-anon-key  ',
+    }
+    const result = parseSupabaseCredentials(body)
+    expect(result.supabaseUrl).toBe('https://example.supabase.co')
+    expect(result.supabaseAnonKey).toBe('test-anon-key')
+  })
+
+  it('falls back to SUPABASE_URL environment variable', () => {
+    process.env.SUPABASE_URL = 'https://env.supabase.co'
+    process.env.SUPABASE_ANON_KEY = 'env-anon-key'
+    const body = {}
+    const result = parseSupabaseCredentials(body)
+    expect(result.supabaseUrl).toBe('https://env.supabase.co')
+    expect(result.supabaseAnonKey).toBe('env-anon-key')
+  })
+
+  it('falls back to VITE_SUPABASE_URL environment variable', () => {
+    process.env.VITE_SUPABASE_URL = 'https://vite.supabase.co'
+    process.env.VITE_SUPABASE_ANON_KEY = 'vite-anon-key'
+    const body = {}
+    const result = parseSupabaseCredentials(body)
+    expect(result.supabaseUrl).toBe('https://vite.supabase.co')
+    expect(result.supabaseAnonKey).toBe('vite-anon-key')
+  })
+
+  it('prefers request body over environment variables', () => {
+    process.env.SUPABASE_URL = 'https://env.supabase.co'
+    process.env.SUPABASE_ANON_KEY = 'env-anon-key'
+    const body = {
+      supabaseUrl: 'https://body.supabase.co',
+      supabaseAnonKey: 'body-anon-key',
+    }
+    const result = parseSupabaseCredentials(body)
+    expect(result.supabaseUrl).toBe('https://body.supabase.co')
+    expect(result.supabaseAnonKey).toBe('body-anon-key')
+  })
+
+  it('returns undefined when no credentials are provided', () => {
+    const body = {}
+    const result = parseSupabaseCredentials(body)
+    expect(result.supabaseUrl).toBeUndefined()
+    expect(result.supabaseAnonKey).toBeUndefined()
+  })
+
+  it('handles non-string values in body', () => {
+    const body = {
+      supabaseUrl: 123,
+      supabaseAnonKey: null,
+    }
+    const result = parseSupabaseCredentials(body)
+    expect(result.supabaseUrl).toBeUndefined()
+    expect(result.supabaseAnonKey).toBeUndefined()
   })
 })

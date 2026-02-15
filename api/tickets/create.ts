@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'node:crypto'
-import { readJsonBody, json, repoHintPrefix } from './_shared.js'
+import { readJsonBody, json, repoHintPrefix, parseSupabaseCredentials } from './_shared.js'
 import {
   generateSingleSuggestionBody,
   generateMultipleSuggestionsBody,
@@ -51,16 +51,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         : []
 
     // Use credentials from request body if provided, otherwise fall back to server environment variables
-    const supabaseUrl =
-      (typeof body.supabaseUrl === 'string' ? body.supabaseUrl.trim() : undefined) ||
-      process.env.SUPABASE_URL?.trim() ||
-      process.env.VITE_SUPABASE_URL?.trim() ||
-      undefined
-    const supabaseAnonKey =
-      (typeof body.supabaseAnonKey === 'string' ? body.supabaseAnonKey.trim() : undefined) ||
-      process.env.SUPABASE_ANON_KEY?.trim() ||
-      process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
-      undefined
+    const { supabaseUrl, supabaseAnonKey } = parseSupabaseCredentials(body)
 
     if ((!sourceTicketPk && !sourceTicketId) || !supabaseUrl || !supabaseAnonKey) {
       json(res, 400, {
@@ -116,12 +107,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     // Generate ticket content from suggestions
     // Support both single suggestion field (new) and single-item array (backward compatibility) (0167)
-    const sourceRef = sourceTicket.display_id || sourceTicket.id
     const isSingleSuggestion = singleSuggestion !== undefined || suggestions.length === 1
     const actualSuggestion = singleSuggestion || (suggestions.length === 1 ? suggestions[0] : '')
     // Normalize suggestion text (trim) to ensure consistent hashing with idempotency check (0172)
     const normalizedSuggestion = actualSuggestion.trim()
-    const suggestionText = isSingleSuggestion ? normalizedSuggestion : suggestions.map((s, i) => `- ${s}`).join('\n')
+    const suggestionText = isSingleSuggestion ? normalizedSuggestion : suggestions.map((s) => `- ${s}`).join('\n')
     
     // Generate suggestion hash for idempotency tracking (0167, 0172)
     // Always generate hash for single suggestions to enable duplicate detection

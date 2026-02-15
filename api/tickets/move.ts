@@ -5,8 +5,8 @@ import {
   hasMissingArtifactExplanation,
   type ArtifactRowForCheck,
 } from '../artifacts/_shared.js'
-import { readJsonBody, json } from './_shared.js'
-import { resolveColumnId, lookupTicket, calculateTargetPosition } from './_move-helpers.js'
+import { readJsonBody, json, parseSupabaseCredentials, fetchTicketByPkOrId } from './_shared.js'
+import { resolveColumnId, calculateTargetPosition } from './_move-helpers.js'
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   // CORS: Allow cross-origin requests (for scripts calling from different origins)
@@ -43,16 +43,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const columnName = typeof body.columnName === 'string' ? body.columnName.trim() || undefined : undefined
     const position = body.position
     // Use credentials from request body if provided, otherwise fall back to server environment variables
-    const supabaseUrl =
-      (typeof body.supabaseUrl === 'string' ? body.supabaseUrl.trim() : undefined) ||
-      process.env.SUPABASE_URL?.trim() ||
-      process.env.VITE_SUPABASE_URL?.trim() ||
-      undefined
-    const supabaseAnonKey =
-      (typeof body.supabaseAnonKey === 'string' ? body.supabaseAnonKey.trim() : undefined) ||
-      process.env.SUPABASE_ANON_KEY?.trim() ||
-      process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
-      undefined
+    const { supabaseUrl, supabaseAnonKey } = parseSupabaseCredentials(body)
 
     if (!ticketId && !ticketPk) {
       json(res, 400, {
@@ -95,7 +86,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     // Fetch current ticket to get repo_full_name for scoped queries
-    const ticketFetch = await lookupTicket(supabase, ticketId, ticketPk)
+    // Try multiple lookup strategies to handle different ticket ID formats
+    const ticketFetch = await fetchTicketByPkOrId(supabase, ticketPk, ticketId)
 
     if (!ticketFetch || ticketFetch.error || !ticketFetch.data) {
       json(res, 200, {
