@@ -19,7 +19,6 @@
     "bundle-instructions": "node scripts/bundle-instructions.js",
     "bundle-docs-instructions": "node scripts/bundle-docs-instructions.js",
     "preview": "vite preview",
-    "cancel-agents": "node scripts/cancel-all-agents.js",
     "sync-tickets": "node scripts/sync-tickets.js",
     "update-ticket-body": "node scripts/update-ticket-body-in-supabase.js",
     "supabase-list-tickets": "node scripts/supabase-list-tickets.js",
