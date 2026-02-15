@@ -360,9 +360,8 @@ body {
   position: relative;
   min-height: 0;
   min-width: 0;
-  overflow: visible;
-  overflow-y: visible;
   overflow-x: hidden;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
 }
