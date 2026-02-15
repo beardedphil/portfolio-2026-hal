@@ -18,7 +18,6 @@ import { createClient } from '@supabase/supabase-js'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
-// Import shared helper from compiled agents module (requires npm run build:agents)
 import { normalizeBodyForReady } from '../agents/dist/lib/ticketBodyNormalization.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -27,7 +26,7 @@ const projectRoot = process.env.PROJECT_ROOT
   : path.resolve(__dirname, '..')
 const ticketsDir = path.join(projectRoot, 'docs', 'tickets')
 
-// normalizeBodyForReady is now imported from shared module (agents/src/lib/ticketBodyNormalization.ts)
+// normalizeBodyForReady is now imported from shared module: agents/dist/lib/ticketBodyNormalization.js
 
 function extractTicketId(filename) {
   const match = filename.match(/^(\d{4})/)

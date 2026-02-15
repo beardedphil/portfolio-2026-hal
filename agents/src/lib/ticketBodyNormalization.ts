@@ -3,10 +3,7 @@
  * Extracted from projectManager.ts to reduce duplication and monolith risk.
  */
 
-/**
- * Normalize body so Ready-to-start evaluator finds sections: ## and exact titles (LLMs often output # or shortened titles).
- * Maps headings like `# Goal` → `## Goal (one sentence)` etc.
- */
+/** Normalize body so Ready-to-start evaluator finds sections: ## and exact titles (LLMs often output # or shortened titles). */
 export function normalizeBodyForReady(bodyMd: string): string {
   let out = bodyMd.trim()
   const replacements: [RegExp, string][] = [
@@ -22,28 +19,31 @@ export function normalizeBodyForReady(bodyMd: string): string {
   return out
 }
 
-/**
- * Extract section body after a ## Section Title line (first line after blank line or next ##).
- * Returns the content between the section heading and the next ## heading (or end of string).
- */
+/** Extract section body after a ## Section Title line (first line after blank line or next ##). */
 export function sectionContent(body: string, sectionTitle: string): string {
   // Escape special regex characters in the section title
   const escapedTitle = sectionTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  // Match: ## followed by whitespace, then exact section title, optional whitespace, newline
-  // Capture content until next ## heading (with flexible spacing: allows 0+ spaces after ##) or end of string
-  // Use case-sensitive matching for exact heading match (no 'i' flag)
-  // Lookahead: (?=\\n##\\s*[^\\s#\\n]|$) matches next heading (## with optional space) or end
-  const re = new RegExp(
-    `##\\s+${escapedTitle}\\s*\\n([\\s\\S]*?)(?=\\n##\\s*[^\\s#\\n]|$)`
-  )
-  const m = body.match(re)
-  return (m?.[1] ?? '').trim()
+  // Find the section heading
+  const headingPattern = new RegExp(`^##\\s+${escapedTitle}\\s*$`, 'm')
+  const headingMatch = body.match(headingPattern)
+  if (!headingMatch) return ''
+  
+  // Find the position after the heading line (including its newline)
+  const headingEnd = headingMatch.index! + headingMatch[0].length
+  const afterHeading = body.slice(headingEnd)
+  
+  // Find the next ## heading (must be at start of line, so look for \n##)
+  const nextHeadingMatch = afterHeading.match(/\n##/m)
+  if (nextHeadingMatch) {
+    // Return content up to the newline before the next heading
+    return afterHeading.slice(0, nextHeadingMatch.index).trim()
+  }
+  
+  // No next heading, return all content after this heading
+  return afterHeading.trim()
 }
 
-/**
- * Normalize Title line in body_md to include ID prefix: "<ID> — <title>". Returns normalized body_md.
- * Removes any existing ID prefix and prepends the correct one.
- */
+/** Normalize Title line in body_md to include ID prefix: "<ID> — <title>". Returns normalized body_md. */
 export function normalizeTitleLineInBody(bodyMd: string, ticketId: string): string {
   if (!bodyMd || !ticketId) return bodyMd
   const idPrefix = `${ticketId} — `

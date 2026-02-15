@@ -19,7 +19,6 @@ import { createClient } from '@supabase/supabase-js'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
-// Import shared helper from compiled agents module (requires npm run build:agents)
 import { normalizeTitleLineInBody } from '../agents/dist/lib/ticketBodyNormalization.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -69,7 +68,7 @@ function extractTitle(content, filename) {
   return filename.replace(/\.md$/i, '')
 }
 
-// normalizeTitleLineInBody is now imported from shared module (agents/src/lib/ticketBodyNormalization.ts)
+// normalizeTitleLineInBody is now imported from shared module: agents/dist/lib/ticketBodyNormalization.js
 
 /** Return body only (strip frontmatter if present). */
 function getBodyOnly(content) {

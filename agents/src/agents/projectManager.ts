@@ -24,6 +24,11 @@ import {
   searchFiles,
   type ToolContext,
 } from './tools.js'
+import {
+  normalizeBodyForReady,
+  sectionContent,
+  normalizeTitleLineInBody,
+} from '../lib/ticketBodyNormalization.js'
 
 const execAsync = promisify(exec)
 
@@ -70,7 +75,7 @@ function parseTicketNumber(ref: string): number | null {
   return Number.isFinite(n) ? n : null
 }
 
-// Helpers for ticket body normalization are now imported from '../lib/ticketBodyNormalization.js'
+// Ticket body normalization helpers are now imported from '../lib/ticketBodyNormalization.js'
 
 /** Placeholder-like pattern: angle brackets with content (e.g. <AC 1>, <task-id>). */
 const PLACEHOLDER_RE = /<[A-Za-z0-9\s\-_]+>/g
