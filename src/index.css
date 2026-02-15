@@ -835,6 +835,162 @@ body {
   border-color: #b91c1c;
 }
 
+/* Working Memory Panel (0173) */
+.working-memory-panel {
+  border-top: 1px solid var(--hal-border);
+  background: var(--hal-surface);
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease-out;
+}
+
+.working-memory-panel.working-memory-open {
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.working-memory-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--hal-border);
+  background: var(--hal-surface-muted);
+}
+
+.working-memory-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: none;
+  border: none;
+  color: var(--hal-text);
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+  padding: 0.25rem 0;
+  cursor: pointer;
+}
+
+.working-memory-toggle:hover {
+  color: var(--hal-text-strong);
+}
+
+.working-memory-icon {
+  font-size: 0.75rem;
+  width: 1rem;
+  text-align: center;
+}
+
+.working-memory-refresh {
+  background: var(--hal-surface);
+  border: 1px solid var(--hal-border);
+  color: var(--hal-text);
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 1rem;
+  line-height: 1;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.working-memory-refresh:hover:not(:disabled) {
+  background: var(--hal-surface-muted);
+  border-color: var(--hal-border-strong);
+}
+
+.working-memory-refresh:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.working-memory-content {
+  padding: 1rem;
+}
+
+.working-memory-loading,
+.working-memory-error,
+.working-memory-empty {
+  padding: 1rem;
+  text-align: center;
+  color: var(--hal-text-muted);
+  font-size: 0.875rem;
+}
+
+.working-memory-error {
+  color: var(--hal-error);
+  background: var(--hal-error-bg);
+  border: 1px solid var(--hal-error-border);
+  border-radius: 0.25rem;
+  padding: 0.75rem;
+}
+
+.working-memory-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.working-memory-timestamp {
+  font-size: 0.75rem;
+  color: var(--hal-text-muted);
+  margin-bottom: 0.5rem;
+}
+
+.working-memory-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.working-memory-section h4 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--hal-text-strong);
+  margin: 0;
+}
+
+.working-memory-section p {
+  font-size: 0.875rem;
+  color: var(--hal-text);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.working-memory-section ul {
+  margin: 0;
+  padding-left: 1.25rem;
+  list-style-type: disc;
+}
+
+.working-memory-section li {
+  font-size: 0.875rem;
+  color: var(--hal-text);
+  margin-bottom: 0.25rem;
+  line-height: 1.5;
+}
+
+.working-memory-section dl {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.working-memory-section dt {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--hal-text-strong);
+  margin: 0;
+}
+
+.working-memory-section dd {
+  font-size: 0.875rem;
+  color: var(--hal-text);
+  margin: 0 0 0 1rem;
+  line-height: 1.5;
+}
+
 .chat-window-close-pm:focus {
   outline: 2px solid #dc2626;
   outline-offset: 2px;
@@ -870,6 +1026,172 @@ body {
   margin: 0;
   color: var(--hal-text-muted);
   line-height: 1.45;
+}
+
+/* PM Working Memory Panel (0173) */
+.pm-working-memory-panel {
+  background: var(--hal-surface-alt);
+  border-bottom: 1px solid var(--hal-border);
+  font-size: 0.9rem;
+}
+
+.pm-working-memory-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  gap: 0.5rem;
+}
+
+.pm-working-memory-toggle {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--hal-text);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-align: left;
+}
+
+.pm-working-memory-toggle:hover {
+  color: var(--hal-text);
+}
+
+.pm-working-memory-title {
+  flex: 1;
+}
+
+.pm-working-memory-icon {
+  margin-left: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--hal-text-muted);
+}
+
+.pm-working-memory-refresh {
+  background: transparent;
+  border: 1px solid var(--hal-border);
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.pm-working-memory-refresh:hover:not(:disabled) {
+  background: var(--hal-surface);
+  border-color: var(--hal-border-muted);
+}
+
+.pm-working-memory-refresh:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pm-working-memory-content {
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--hal-border);
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.pm-working-memory-timestamp {
+  font-size: 0.8rem;
+  color: var(--hal-text-muted);
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--hal-border);
+}
+
+.pm-working-memory-section {
+  margin-bottom: 1rem;
+}
+
+.pm-working-memory-section:last-child {
+  margin-bottom: 0;
+}
+
+.pm-working-memory-section-title {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--hal-text);
+}
+
+.pm-working-memory-text {
+  margin: 0;
+  color: var(--hal-text-muted);
+  line-height: 1.5;
+  font-size: 0.85rem;
+}
+
+.pm-working-memory-list {
+  margin: 0;
+  padding-left: 1.25rem;
+  color: var(--hal-text-muted);
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+.pm-working-memory-list li {
+  margin-bottom: 0.25rem;
+}
+
+.pm-working-memory-glossary {
+  margin: 0;
+  color: var(--hal-text-muted);
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+.pm-working-memory-glossary dt {
+  margin-top: 0.5rem;
+  margin-bottom: 0.25rem;
+  color: var(--hal-text);
+}
+
+.pm-working-memory-glossary dt:first-child {
+  margin-top: 0;
+}
+
+.pm-working-memory-glossary dd {
+  margin-left: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.pm-working-memory-empty {
+  color: var(--hal-text-muted);
+  font-size: 0.85rem;
+  font-style: italic;
+  text-align: center;
+  padding: 1rem;
+}
+
+.pm-working-memory-error {
+  background: rgba(220, 38, 38, 0.1);
+  border: 1px solid rgba(220, 38, 38, 0.3);
+  border-radius: 4px;
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+  color: var(--hal-text);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.pm-working-memory-error strong {
+  color: #dc2626;
+}
+
+.pm-working-memory-error small {
+  display: block;
+  margin-top: 0.5rem;
+  color: var(--hal-text-muted);
+  font-size: 0.8rem;
 }
 
 /* Chat placeholder (when no project connected) */

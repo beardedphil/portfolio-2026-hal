@@ -10,10 +10,10 @@ import {
   generateWorkingMemory,
   type PmAgentConfig,
   type PmAgentResult,
-  type PmWorkingMemory,
+  type WorkingMemory,
 } from './projectManager.js'
 
-export { summarizeForContext, generateWorkingMemory, type PmWorkingMemory }
+export { summarizeForContext, generateWorkingMemory, type WorkingMemory }
 
 /** Human-visible label for the runner implementation (e.g. shown in Diagnostics). */
 export const SHARED_RUNNER_LABEL = 'v2 (shared)'
