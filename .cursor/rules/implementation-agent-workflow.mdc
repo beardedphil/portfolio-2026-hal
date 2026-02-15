@@ -1,0 +1,48 @@
+---
+description: Implementation agent workflow - check for failure notes first
+alwaysApply: true
+---
+
+# Implementation Agent Workflow
+
+## Check for Implementation Agent Note First
+
+**MANDATORY:** Before starting work on any ticket, implementation agents **MUST** check for an "Implementation agent note" artifact. This note contains concise failure reasons from QA or Human-in-the-Loop reviews.
+
+**How to check:**
+```javascript
+const baseUrl = (await readFile('.hal/api-base-url', 'utf8')).trim()
+const res = await fetch(`${baseUrl}/api/artifacts/get`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ ticketId: 'XXXX' }),
+})
+const result = await res.json()
+if (result.success) {
+  const implNote = result.artifacts.find(a => 
+    a.title?.toLowerCase().includes('implementation agent note') ||
+    a.title?.toLowerCase().includes('note for implementation agent')
+  )
+  if (implNote) {
+    // Read the note first - it explains what needs to be fixed
+    // Address the issues listed in the note before proceeding
+  }
+}
+```
+
+**If an Implementation agent note exists:**
+1. **Read it first** - It contains the specific reasons why the ticket failed
+2. **Address all issues** listed in the "Required Actions" section
+3. **Do not proceed** with new implementation until all issues are resolved
+4. **Re-submit for QA** after fixes are complete
+
+**If no Implementation agent note exists:**
+- Proceed with normal implementation workflow
+
+## Artifact Title Formats
+
+The note may be titled:
+- `Implementation agent note for ticket HAL-XXXX`
+- `Note for implementation agent: HAL-XXXX`
+
+Both formats are recognized and should be checked.

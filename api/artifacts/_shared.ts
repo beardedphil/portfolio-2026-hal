@@ -89,6 +89,10 @@ export function extractArtifactTypeFromTitle(title: string): string | null {
   // QA artifact type
   if (normalized.startsWith('qa report for ticket')) return 'qa-report'
   
+  // Implementation agent note (for FAIL verdicts from QA or HITL)
+  if (normalized.startsWith('implementation agent note for ticket') || 
+      normalized.startsWith('note for implementation agent')) return 'implementation-agent-note'
+  
   // Missing Artifact Explanation (0200) - exact match or starts with
   if (normalized === 'missing artifact explanation' || normalized.startsWith('missing artifact explanation')) return 'missing-artifact-explanation'
   
@@ -158,6 +162,7 @@ export function createCanonicalTitle(
     'verification': `Verification for ticket ${normalizedDisplayId}`,
     'pm-review': `PM Review for ticket ${normalizedDisplayId}`,
     'qa-report': `QA report for ticket ${normalizedDisplayId}`,
+    'implementation-agent-note': `Implementation agent note for ticket ${normalizedDisplayId}`,
     'image': `Image for ticket ${normalizedDisplayId}`,
     'git-diff': `Git diff for ticket ${normalizedDisplayId}`,
     'instructions-used': `Instructions Used for ticket ${normalizedDisplayId}`,
