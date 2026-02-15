@@ -34,6 +34,11 @@ import {
 import { pmCheckUnassignedPlugin } from './vite/middleware/pm-check-unassigned'
 import { pmFileAccessPlugin } from './vite/middleware/pm-file-access'
 
+// Workaround for vite 7.x scanning node_modules during config loading
+// The errors occur because vite uses esbuild to process this TypeScript config,
+// and esbuild scans the workspace including problematic files (istanbul-reports JSX,
+// node-domexception history, rxjs). These cannot be fixed via vite config since
+// they happen before the config is loaded.
 export default defineConfig({
   build: {
     cssMinify: false,
@@ -47,7 +52,8 @@ export default defineConfig({
           id.endsWith('/cli.js') ||
           id.includes('/dist/cli.js') ||
           id.includes('/dist/bin/') ||
-          (id.includes('/scripts/') && id.endsWith('.js')) {
+          (id.includes('/scripts/') && id.endsWith('.js'))
+        ) {
           return true
         }
         return false
