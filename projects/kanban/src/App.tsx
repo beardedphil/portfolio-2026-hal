@@ -1497,7 +1497,6 @@ function ArtifactsSection({
         </div>
       )}
 
-<<<<<<< HEAD
       {/* Artifact gate result display (0201) */}
       {isImplementationTicket && isInQaOrLater && missingArtifacts.length > 0 && (
         <>
