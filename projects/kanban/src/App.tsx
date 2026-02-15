@@ -2521,7 +2521,6 @@ function StatusIndicator({
         // Horizontal positioning: ensure tooltip doesn't clip on left or right
         if (tooltipRightX > maxRight) {
           // Tooltip extends beyond right edge - align to right of wrapper or adjust
-          const overflowRight = tooltipRightX - maxRight
           // Try aligning to right of wrapper
           tooltip.style.left = 'auto'
           tooltip.style.right = '0'
