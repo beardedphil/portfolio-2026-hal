@@ -363,10 +363,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         message: err.message,
       } : undefined
     })
-  } catch (err) {
-    console.error('[api/tickets/move] Error:', err)
-    const errorMessage = err instanceof Error ? err.message : String(err)
-    const errorStack = err instanceof Error ? err.stack : undefined
     if (!res.headersSent) {
       json(res, 500, { 
         success: false, 
