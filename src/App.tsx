@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { getSupabaseClient } from './lib/supabase'
 import { saveConversationsToStorage, loadConversationsFromStorage, type Agent, type Message, type Conversation, type ImageAttachment } from './lib/conversationStorage'
+import { getConversationId, parseConversationId, getNextInstanceNumber } from './lib/conversationIds'
 import * as Kanban from 'portfolio-2026-kanban'
 import type { KanbanTicketRow, KanbanColumnRow, KanbanAgentRunRow, KanbanBoardProps } from 'portfolio-2026-kanban'
 import 'portfolio-2026-kanban/style.css'
@@ -112,32 +113,7 @@ type ConnectedGithubRepo = {
 // PM_AGENT_ID kept for reference but conversation IDs are used now (0124)
 // const PM_AGENT_ID = 'project-manager'
 
-// Generate conversation ID for an agent role and instance number (0070)
-function getConversationId(agentRole: Agent, instanceNumber: number): string {
-  return `${agentRole}-${instanceNumber}`
-}
-
-// Parse conversation ID to get agent role and instance number (0070)
-function parseConversationId(conversationId: string): { agentRole: Agent; instanceNumber: number } | null {
-  const match = conversationId.match(/^(project-manager|implementation-agent|qa-agent|process-review-agent)-(\d+)$/)
-  if (!match) return null
-  return {
-    agentRole: match[1] as Agent,
-    instanceNumber: parseInt(match[2], 10),
-  }
-}
-
-// Get next instance number for an agent role (0070)
-function getNextInstanceNumber(conversations: Map<string, Conversation>, agentRole: Agent): number {
-  let maxNumber = 0
-  for (const conv of conversations.values()) {
-    if (conv.agentRole === agentRole && conv.instanceNumber > maxNumber) {
-      maxNumber = conv.instanceNumber
-    }
-  }
-  return maxNumber + 1
-}
-
+// getConversationId, parseConversationId, and getNextInstanceNumber are now imported from './lib/conversationIds'
 // saveConversationsToStorage and loadConversationsFromStorage are now imported from './lib/conversationStorage'
 
 function getEmptyConversations(): Map<string, Conversation> {
