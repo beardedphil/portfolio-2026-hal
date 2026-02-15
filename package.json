@@ -9,7 +9,7 @@
     "dev:hal": "npm run build:agents && vite --port 5173 --strictPort",
     "build:agents": "tsc -p agents/tsconfig.build.json",
     "build:kanban": "npm run build:lib --prefix projects/kanban",
-    "build:hal": "node scripts/bundle-docs-instructions.js && node scripts/bundle-instructions.js && tsc -b && vite build",
+    "build:hal": "npm run check:lines && node scripts/bundle-docs-instructions.js && node scripts/bundle-instructions.js && tsc -b && vite build",
     "build": "node scripts/build-vercel.js",
     "bundle-instructions": "node scripts/bundle-instructions.js",
     "bundle-docs-instructions": "node scripts/bundle-docs-instructions.js",
@@ -22,7 +22,8 @@
     "migrate-instructions": "node scripts/run-instructions-migration.js",
     "test": "vitest",
     "test:ui": "vitest --ui",
-    "report:lines": "node scripts/report-lines.js"
+    "report:lines": "node scripts/report-lines.js",
+    "check:lines": "node scripts/check-lines.js"
   },
   "dependencies": {
     "@ai-sdk/openai": "^1.2.0",
