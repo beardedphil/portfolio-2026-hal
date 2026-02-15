@@ -335,6 +335,10 @@ h1 {
   position: relative;
   display: inline-block;
 }
+/* 0676: When tooltip is shown, increase z-index to ensure tooltip renders above neighboring Active Work cards */
+.active-work-status-indicator-wrapper.tooltip-visible {
+  z-index: 10001;
+}
 .active-work-status-indicator {
   display: flex;
   align-items: center;

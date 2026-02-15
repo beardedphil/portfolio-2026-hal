@@ -950,7 +950,7 @@ function StatusIndicator({
   if (!agentRun || workflowSteps.length === 0) {
     return (
       <div
-        className="active-work-status-indicator-wrapper"
+        className={`active-work-status-indicator-wrapper ${showTooltip ? 'tooltip-visible' : ''}`}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
       >
@@ -988,7 +988,7 @@ function StatusIndicator({
 
   return (
     <div
-      className="active-work-status-indicator-wrapper"
+      className={`active-work-status-indicator-wrapper ${showTooltip ? 'tooltip-visible' : ''}`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
