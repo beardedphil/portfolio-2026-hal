@@ -30,9 +30,10 @@ When you **QA a ticket** (verify, check a ticket that is allegedly complete), st
 4. Code review — PASS/FAIL with evidence
 5. Build verification — **MANDATORY:** `npm run build:hal`; TypeScript errors = FAIL
 6. Coverage — **MANDATORY:** Test coverage report with 4-metric table (lines/functions/branches/statements) and command used; see "Coverage section" below
-7. UI verification — automated and/or manual steps
-8. AC Confirmation Checklist — enumerate each AC, Met/Not met with evidence; see `ac-confirmation-checklist.mdc`
-9. Verdict — PASS or FAIL
+7. Overcomplication — **MANDATORY:** Overcomplication signal with max lines policy, gate status, allowlist count, and top 10 largest files; see "Overcomplication section" below
+8. UI verification — automated and/or manual steps
+9. AC Confirmation Checklist — enumerate each AC, Met/Not met with evidence; see `ac-confirmation-checklist.mdc`
+10. Verdict — PASS or FAIL
 
 ## Coverage section
 
@@ -72,6 +73,56 @@ This command runs vitest with coverage enabled and outputs a text summary with c
 ```
 
 **Note:** Coverage numbers must reflect the current commit under test (not hardcoded). Run the command on the branch/commit being verified.
+
+## Overcomplication section
+
+**MANDATORY:** Every QA report **MUST** include an **Overcomplication** section with:
+
+1. **Max allowed lines** — The repository's configured max-lines policy (from `.line-limit-allowlist.json`)
+2. **Gate status** — Whether the line limit gate passed (`npm run check:lines` exit code)
+3. **Allowlist count** — Number of files currently allowlisted in `.line-limit-allowlist.json`
+4. **Top 10 largest files** — A ranked list of the 10 largest source files by line count with their line counts
+
+**How to generate overcomplication data:**
+
+Run the following command to generate overcomplication data:
+
+```bash
+npm run get:overcomplication
+```
+
+This command outputs JSON with the required data. Parse the JSON and include it in the QA report.
+
+**Overcomplication section format:**
+
+```markdown
+## Overcomplication
+
+**Max allowed lines:** 250
+
+**Gate passed:** ✅ Yes (or ❌ No)
+
+**Allowlisted files:** 35
+
+**Top 10 largest source files:**
+
+| Rank | File | Lines |
+|------|------|-------|
+| 1 | src/App.tsx | 5065 |
+| 2 | projects/kanban/src/App.tsx | 3929 |
+| 3 | agents/src/agents/projectManager.ts | 3590 |
+| 4 | api/implementation-agent/run.ts | 528 |
+| 5 | api/instructions/migrate-process-docs.ts | 434 |
+| 6 | api/tickets/create.ts | 420 |
+| 7 | api/agent-runs/launch.ts | 404 |
+| 8 | api/tickets/move.ts | 379 |
+| 9 | scripts/migrate-process-docs-to-supabase.js | 377 |
+| 10 | api/process-review/create-tickets.ts | 365 |
+
+**Command used:** `npm run get:overcomplication`
+```
+
+**Note:** Overcomplication numbers must reflect the current commit under test (not hardcoded). Run the command on the branch/commit being verified.
 
 ## Storing QA report
 
