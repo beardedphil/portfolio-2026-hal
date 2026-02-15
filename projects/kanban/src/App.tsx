@@ -2522,7 +2522,7 @@ function StatusIndicator({
         onFocus={() => setIsFocused(true)}
         onBlur={() => setIsFocused(false)}
       >
-        {workflowSteps.map((step, index) => {
+        {workflowSteps.map((step) => {
           const stepStatus = getStepStatus(step.id, currentStepId || 'preparing', workflowSteps)
           return (
             <span
