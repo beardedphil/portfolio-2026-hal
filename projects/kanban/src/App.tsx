@@ -2703,7 +2703,6 @@ function App() {
   const [_selectedSupabaseTicketId, setSelectedSupabaseTicketId] = useState<string | null>(null)
   const [_selectedSupabaseTicketContent, setSelectedSupabaseTicketContent] = useState<string | null>(null)
   // Agent runs for Doing column tickets (0114) - kept for compatibility but not used for badges (0135)
-  // @ts-expect-error - kept for compatibility, setAgentRunsByTicketPk is still used in fetchActiveAgentRuns
   const [agentRunsByTicketPk, setAgentRunsByTicketPk] = useState<Record<string, SupabaseAgentRunRow>>({})
   // Agent type labels for Active work section (0135) - simple string storage based on source column, no DB
   const [activeWorkAgentTypes, setActiveWorkAgentTypes] = useState<Record<string, 'Implementation' | 'QA'>>({})
