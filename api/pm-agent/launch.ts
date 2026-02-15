@@ -88,7 +88,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       '',
       '## Tools you can use',
       '- Cursor Cloud Agent built-ins: read/search/edit files, run shell commands (git, npm), and use `gh` for GitHub.',
-      '- HAL server endpoints (no Supabase creds required for ticket moves): `POST /api/tickets/move`, `POST /api/tickets/get`, `POST /api/columns/list`.',
+      '- HAL server endpoints (no Supabase creds required for ticket moves): `POST /api/tickets/move`, `POST /api/tickets/get`, `POST /api/tickets/list-by-column`, `POST /api/columns/list`.',
       '',
       '**User message:**',
       message,
