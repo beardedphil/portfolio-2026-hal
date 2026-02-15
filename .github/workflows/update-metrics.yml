@@ -28,7 +28,9 @@ jobs:
         run: npm ci
 
       - name: Run test coverage
-        run: npm run test:coverage
+        run: |
+          mkdir -p coverage
+          npm run test:coverage
         continue-on-error: true
 
       - name: Update metrics from coverage
