@@ -67,7 +67,6 @@ export default defineConfig({
   // Skip dependency optimization during build to avoid processing CLI files
   // optimizeDeps is only used in dev mode, not during build
   plugins: [
-    excludeCliFilesPlugin(),
     react(),
     prebuildPlugin(),
     pmWorkingMemoryGetPlugin(),
