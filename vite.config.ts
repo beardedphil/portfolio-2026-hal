@@ -34,20 +34,9 @@ import {
 import { pmCheckUnassignedPlugin } from './vite/middleware/pm-check-unassigned'
 import { pmFileAccessPlugin } from './vite/middleware/pm-file-access'
 
-// Plugin to exclude CLI files from being processed
-function excludeCliFilesPlugin() {
-  return {
-    name: 'exclude-cli-files',
-    enforce: 'pre' as const,
-    resolveId(id: string) {
-      // Exclude CLI files that cause build errors
-      if (id.includes('/bin/') || id.endsWith('/cli.js') || id.includes('/dist/cli.js') || id.includes('/dist/bin/')) {
-        return { id, external: true }
-      }
-      return null
-    },
-  }
-}
+// Note: Plugin approach doesn't work because errors happen during config loading,
+// before plugins are initialized. This is a vite 6.x limitation where esbuild
+// scans the entire workspace during config processing.
 
 export default defineConfig({
   build: {
