@@ -378,9 +378,10 @@ h1 {
 }
 
 /* Status tooltip (0203) - mirrors agent-chat status style */
+/* 0676: High z-index ensures tooltip renders above neighboring Active Work cards */
 .active-work-status-tooltip {
   position: absolute;
-  z-index: 1000;
+  z-index: 10000;
   left: 0;
   top: 100%;
   margin-top: 4px;
