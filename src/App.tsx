@@ -481,6 +481,17 @@ function App() {
   const [processReviewAgentProgress, setProcessReviewAgentProgress] = useState<Array<{ timestamp: Date; message: string }>>([])
   /** Last error message for Process Review Agent (0111). */
   const [_processReviewAgentError, setProcessReviewAgentError] = useState<string | null>(null)
+  /** Process Review recommendations modal state (0484). */
+  const [processReviewRecommendations, setProcessReviewRecommendations] = useState<Array<{
+    text: string
+    justification: string
+    id: string // Unique ID for tracking
+    error?: string // Error state for failed ticket creation
+    isCreating?: boolean // Loading state for Implement button
+  }> | null>(null)
+  const [processReviewModalTicketPk, setProcessReviewModalTicketPk] = useState<string | null>(null)
+  const [processReviewModalTicketId, setProcessReviewModalTicketId] = useState<string | null>(null)
+  const [processReviewModalReviewId, setProcessReviewModalReviewId] = useState<string | null>(null)
   /** Auto-move diagnostics entries (0061). */
   const [autoMoveDiagnostics, setAutoMoveDiagnostics] = useState<Array<{ timestamp: Date; message: string; type: 'error' | 'info' }>>([])
   /** Agent type that initiated the current Cursor run (0067). Used to route completion summaries to the correct chat. */
@@ -3121,108 +3132,39 @@ function App() {
           return
         }
 
-        // Success - Process Review completed, now create tickets from suggestions (0167)
+        // Success - Process Review completed, show recommendations in modal (0484)
         const suggestionCount = result.suggestions?.length || 0
         const reviewId = result.reviewId || null
         
-        // Helper function to hash suggestion text for idempotency
-        // Uses first 16 characters to match backend hash format (0172)
-        const hashSuggestion = async (text: string): Promise<string> => {
-          const encoder = new TextEncoder()
-          const data = encoder.encode(text)
-          const hashBuffer = await crypto.subtle.digest('SHA-256', data)
-          const hashArray = Array.from(new Uint8Array(hashBuffer))
-          const fullHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
-          // Use first 16 characters to match backend format (0172)
-          return fullHash.slice(0, 16)
-        }
-        
-        addProgress('Process Review completed. Creating suggestion tickets...')
-        
-        let createdCount = 0
-        let skippedCount = 0
-        const creationErrors: string[] = []
-        
-        // Create one ticket per suggestion (0167)
         if (suggestionCount > 0 && result.suggestions) {
-          for (let i = 0; i < result.suggestions.length; i++) {
-            const suggestion = result.suggestions[i] as { text: string; justification: string }
-            const suggestionText = suggestion.text || ''
-            
-            if (!suggestionText.trim()) {
-              creationErrors.push(`Suggestion ${i + 1}: Empty suggestion text`)
-              continue
-            }
-            
-            try {
-              addProgress(`Creating ticket ${i + 1}/${suggestionCount}: ${suggestionText.slice(0, 50)}...`)
-              
-              // Generate hash for idempotency
-              const suggestionHash = await hashSuggestion(suggestionText)
-              
-              const createResponse = await fetch('/api/tickets/create', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  sourceTicketPk: data.ticketPk,
-                  sourceTicketId: data.ticketId,
-                  suggestion: suggestionText, // Single suggestion per ticket
-                  reviewId: reviewId, // For idempotency
-                  suggestionHash: suggestionHash, // For idempotency
-                  supabaseUrl: supabaseUrl ?? (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? undefined,
-                  supabaseAnonKey: supabaseAnonKey ?? (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? undefined,
-                }),
-              })
-              
-              const createResult = await createResponse.json()
-              
-              if (createResult.success) {
-                if (createResult.duplicate) {
-                  skippedCount++
-                  addProgress(`Ticket ${i + 1} already exists (skipped duplicate)`)
-                } else {
-                  createdCount++
-                  addProgress(`Ticket ${i + 1} created: ${createResult.ticketId || 'unknown'}`)
-                }
-              } else {
-                const errorMsg = createResult.error || 'Unknown error'
-                creationErrors.push(`Suggestion ${i + 1}: ${errorMsg}`)
-                addProgress(`Failed to create ticket ${i + 1}: ${errorMsg}`)
-              }
-            } catch (err) {
-              const errorMsg = err instanceof Error ? err.message : String(err)
-              creationErrors.push(`Suggestion ${i + 1}: ${errorMsg}`)
-              addProgress(`Failed to create ticket ${i + 1}: ${errorMsg}`)
-            }
-          }
-        }
-        
-        // Determine final status based on results
-        const hasErrors = creationErrors.length > 0
-        const allSucceeded = createdCount > 0 && creationErrors.length === 0
-        
-        if (hasErrors && !allSucceeded) {
-          // Partial or complete failure - show error state
-          setProcessReviewStatus('failed')
-          setProcessReviewAgentRunStatus('failed')
-          const errorMsg = `Failed to create ${creationErrors.length} ticket(s). ${createdCount} created, ${skippedCount} skipped.`
-          setProcessReviewMessage(`Process Review completed but ticket creation failed: ${errorMsg}`)
-          setProcessReviewAgentError(creationErrors.join('; '))
-          addMessage(convId, 'process-review-agent', `[Process Review] ⚠️ Completed with errors: ${errorMsg}\n\n**Errors:**\n${creationErrors.map(e => `- ${e}`).join('\n')}`)
-          // Don't move to Done if there were errors
-        } else {
-          // Success - all tickets created (or all skipped due to idempotency)
+          // Show recommendations in modal instead of auto-creating tickets (0484)
+          const recommendations = result.suggestions.map((s: { text: string; justification: string }, idx: number) => ({
+            text: s.text,
+            justification: s.justification,
+            id: `rec-${Date.now()}-${idx}`, // Unique ID for tracking
+            error: undefined,
+            isCreating: false,
+          }))
+          
+          setProcessReviewRecommendations(recommendations)
+          setProcessReviewModalTicketPk(data.ticketPk)
+          setProcessReviewModalTicketId(data.ticketId || null)
+          setProcessReviewModalReviewId(reviewId)
+          
           setProcessReviewStatus('completed')
           setProcessReviewAgentRunStatus('completed')
-          const successMsg = `Process Review completed for ticket ${ticketDisplayId}. ${createdCount} ticket${createdCount !== 1 ? 's' : ''} created${skippedCount > 0 ? `, ${skippedCount} skipped (already exist)` : ''}.`
+          const successMsg = `Process Review completed for ticket ${ticketDisplayId}. ${suggestionCount} recommendation${suggestionCount !== 1 ? 's' : ''} ready for review.`
+          setProcessReviewMessage(successMsg)
+          addMessage(convId, 'process-review-agent', `[Process Review] ✅ ${successMsg}\n\nReview the recommendations in the modal and click "Implement" to create tickets.`)
+        } else {
+          // No suggestions - mark as completed
+          setProcessReviewStatus('completed')
+          setProcessReviewAgentRunStatus('completed')
+          const successMsg = `Process Review completed for ticket ${ticketDisplayId}. No recommendations found.`
           setProcessReviewMessage(successMsg)
           addMessage(convId, 'process-review-agent', `[Process Review] ✅ ${successMsg}`)
           
-          if (suggestionCount > 0) {
-            addMessage(convId, 'process-review-agent', `\n**Suggestions processed:**\n${result.suggestions.map((s: { text: string; justification: string }, idx: number) => `${idx + 1}. ${s.text}\n   *${s.justification}*`).join('\n\n')}`)
-          }
-          
-          // Move Process Review ticket to Done after successful completion (0167)
+          // Move Process Review ticket to Done after completion (0167)
           const doneCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-done').length
           await handleKanbanMoveTicket(data.ticketPk, 'col-done', doneCount)
           addProgress('Process Review ticket moved to Done')
@@ -3244,6 +3186,106 @@ function App() {
       }
     },
     [supabaseUrl, supabaseAnonKey, getOrCreateConversation, formatTicketId, addMessage, kanbanTickets, handleKanbanMoveTicket]
+  )
+
+  /** Handle Implement button click for Process Review recommendation (0484). */
+  const handleProcessReviewImplement = useCallback(
+    async (recommendationId: string) => {
+      if (!processReviewRecommendations || !processReviewModalTicketPk || !processReviewModalReviewId) return
+
+      const recommendation = processReviewRecommendations.find((r) => r.id === recommendationId)
+      if (!recommendation) return
+
+      // Set loading state
+      setProcessReviewRecommendations((prev) =>
+        prev?.map((r) => (r.id === recommendationId ? { ...r, isCreating: true, error: undefined } : r))
+      )
+
+      try {
+        // Helper function to hash suggestion text for idempotency
+        const hashSuggestion = async (text: string): Promise<string> => {
+          const encoder = new TextEncoder()
+          const data = encoder.encode(text)
+          const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+          const hashArray = Array.from(new Uint8Array(hashBuffer))
+          const fullHash = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('')
+          return fullHash.slice(0, 16)
+        }
+
+        const suggestionHash = await hashSuggestion(recommendation.text)
+
+        const createResponse = await fetch('/api/tickets/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sourceTicketPk: processReviewModalTicketPk,
+            sourceTicketId: processReviewModalTicketId,
+            suggestion: recommendation.text,
+            reviewId: processReviewModalReviewId,
+            suggestionHash: suggestionHash,
+            supabaseUrl: supabaseUrl ?? (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? undefined,
+            supabaseAnonKey: supabaseAnonKey ?? (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? undefined,
+          }),
+        })
+
+        const createResult = await createResponse.json()
+
+        if (createResult.success) {
+          // Remove recommendation from modal on success and check if all are processed
+          setProcessReviewRecommendations((prev) => {
+            const remaining = prev?.filter((r) => r.id !== recommendationId) || null
+            
+            // If all recommendations are processed, close modal and move ticket to Done
+            if (!remaining || remaining.length === 0) {
+              // Move ticket to Done asynchronously
+              const doneCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-done').length
+              handleKanbanMoveTicket(processReviewModalTicketPk, 'col-done', doneCount).catch((moveError) => {
+                console.error('Failed to move ticket to Done:', moveError)
+              })
+              // Close modal
+              setProcessReviewModalTicketPk(null)
+              setProcessReviewModalTicketId(null)
+              setProcessReviewModalReviewId(null)
+              return null
+            }
+            
+            return remaining
+          })
+        } else {
+          // Show error state for this recommendation
+          const errorMsg = createResult.error || 'Unknown error'
+          setProcessReviewRecommendations((prev) =>
+            prev?.map((r) => (r.id === recommendationId ? { ...r, isCreating: false, error: errorMsg } : r))
+          )
+        }
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err)
+        setProcessReviewRecommendations((prev) =>
+          prev?.map((r) => (r.id === recommendationId ? { ...r, isCreating: false, error: errorMsg } : r))
+        )
+      }
+    },
+    [processReviewRecommendations, processReviewModalTicketPk, processReviewModalTicketId, processReviewModalReviewId, supabaseUrl, supabaseAnonKey, kanbanTickets, handleKanbanMoveTicket]
+  )
+
+  /** Handle Ignore button click for Process Review recommendation (0484). */
+  const handleProcessReviewIgnore = useCallback(
+    (recommendationId: string) => {
+      setProcessReviewRecommendations((prev) => {
+        const remaining = prev?.filter((r) => r.id !== recommendationId) || null
+        
+        // If all recommendations are processed, close modal
+        if (!remaining || remaining.length === 0) {
+          setProcessReviewModalTicketPk(null)
+          setProcessReviewModalTicketId(null)
+          setProcessReviewModalReviewId(null)
+          return null
+        }
+        
+        return remaining
+      })
+    },
+    []
   )
 
   const handleImageSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -5257,6 +5299,124 @@ function App() {
                   </p>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Process Review Recommendations Modal (0484) */}
+      {processReviewRecommendations && processReviewRecommendations.length > 0 && (
+        <div 
+          className="conversation-modal-overlay" 
+          onClick={() => {
+            // Only close if all recommendations are processed
+            if (processReviewRecommendations.length === 0) {
+              setProcessReviewRecommendations(null)
+              setProcessReviewModalTicketPk(null)
+              setProcessReviewModalTicketId(null)
+              setProcessReviewModalReviewId(null)
+            }
+          }}
+        >
+          <div 
+            className="conversation-modal" 
+            onClick={(e) => e.stopPropagation()} 
+            style={{ maxWidth: '800px', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}
+          >
+            <div className="conversation-modal-header">
+              <h3>Process Review Recommendations</h3>
+              <button 
+                type="button" 
+                className="conversation-modal-close" 
+                onClick={() => {
+                  setProcessReviewRecommendations(null)
+                  setProcessReviewModalTicketPk(null)
+                  setProcessReviewModalTicketId(null)
+                  setProcessReviewModalReviewId(null)
+                }} 
+                aria-label="Close recommendations modal"
+              >
+                ×
+              </button>
+            </div>
+            <div className="conversation-modal-content" style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
+              <p style={{ marginBottom: '16px', color: 'var(--hal-text-muted)' }}>
+                Review the recommendations below. Click "Implement" to create a ticket, or "Ignore" to dismiss.
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {processReviewRecommendations.map((recommendation) => (
+                  <div
+                    key={recommendation.id}
+                    style={{
+                      border: '1px solid var(--hal-border)',
+                      borderRadius: '8px',
+                      padding: '16px',
+                      background: recommendation.error ? 'var(--hal-surface-alt)' : 'var(--hal-surface)',
+                    }}
+                  >
+                    <div style={{ marginBottom: '12px' }}>
+                      <h4 style={{ margin: '0 0 8px 0', fontSize: '16px', fontWeight: '600' }}>
+                        {recommendation.text}
+                      </h4>
+                      {recommendation.justification && (
+                        <p style={{ margin: 0, fontSize: '14px', color: 'var(--hal-text-muted)', fontStyle: 'italic' }}>
+                          {recommendation.justification}
+                        </p>
+                      )}
+                    </div>
+                    {recommendation.error && (
+                      <div
+                        style={{
+                          marginBottom: '12px',
+                          padding: '8px 12px',
+                          background: 'var(--hal-status-error, #c62828)',
+                          color: 'white',
+                          borderRadius: '4px',
+                          fontSize: '14px',
+                        }}
+                      >
+                        Error: {recommendation.error}
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                      <button
+                        type="button"
+                        onClick={() => handleProcessReviewIgnore(recommendation.id)}
+                        disabled={recommendation.isCreating}
+                        style={{
+                          padding: '8px 16px',
+                          background: 'var(--hal-surface)',
+                          color: 'var(--hal-text)',
+                          border: '1px solid var(--hal-border)',
+                          borderRadius: '4px',
+                          cursor: recommendation.isCreating ? 'not-allowed' : 'pointer',
+                          fontSize: '14px',
+                          opacity: recommendation.isCreating ? 0.6 : 1,
+                        }}
+                      >
+                        Ignore
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleProcessReviewImplement(recommendation.id)}
+                        disabled={recommendation.isCreating}
+                        style={{
+                          padding: '8px 16px',
+                          background: recommendation.isCreating ? 'var(--hal-text-muted)' : 'var(--hal-primary)',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '4px',
+                          cursor: recommendation.isCreating ? 'not-allowed' : 'pointer',
+                          fontSize: '14px',
+                          opacity: recommendation.isCreating ? 0.7 : 1,
+                        }}
+                      >
+                        {recommendation.isCreating ? 'Creating...' : 'Implement'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
