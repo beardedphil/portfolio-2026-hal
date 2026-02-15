@@ -1179,9 +1179,12 @@ function SortableColumn({
         // Get all tickets in col-qa column
         // In library mode, use col.cardIds (HAL owns the data)
         // In Supabase mode, filter supabaseTickets by kanban_column_id
-        const qaTicketIds = supabaseBoardActive && supabaseTickets
-          ? supabaseTickets.filter((t) => t.kanban_column_id === 'col-qa').map((t) => t.pk)
-          : col.cardIds
+        let qaTicketIds: string[]
+        if (supabaseBoardActive && supabaseTickets) {
+          qaTicketIds = supabaseTickets.filter((t) => t.kanban_column_id === 'col-qa').map((t) => t.pk)
+        } else {
+          qaTicketIds = col.cardIds
+        }
         
         // Launch QA for all tickets concurrently
         qaTicketIds.forEach((ticketPk) => {
@@ -1251,7 +1254,7 @@ function SortableColumn({
       }
     }
     // Iframe/standalone: For QA agent, move all tickets from QA to Active Work (col-doing) when QA All Tickets clicked (0616)
-    if (buttonConfig.chatTarget === 'qa-agent' && supabaseBoardActive && updateSupabaseTicketKanban && refetchSupabaseTickets) {
+    if (buttonConfig.chatTarget === 'qa-agent' && supabaseBoardActive && updateSupabaseTicketKanban && refetchSupabaseTickets && supabaseTickets) {
       // Get all tickets in col-qa column
       const qaTickets = supabaseTickets.filter((t) => t.kanban_column_id === 'col-qa')
       
