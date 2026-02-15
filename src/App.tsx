@@ -2546,14 +2546,44 @@ function App() {
               hasSupabaseAnonKey: !!body.supabaseAnonKey,
               connectedGithubRepo: connectedGithubRepo?.fullName || 'NOT SET',
             })
-            const res = await fetch('/api/pm/respond', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'include', // Include session cookie so GitHub token is available (0119: fix PM agent repo selection)
-              body: JSON.stringify(body),
-            })
+            // Client-side timeout (75s) so user gets feedback if server hangs; Vercel times out at 60s
+            const PM_FETCH_TIMEOUT_MS = 75_000
+            const controller = new AbortController()
+            const timeoutId = setTimeout(() => controller.abort(), PM_FETCH_TIMEOUT_MS)
+            let res: Response
+            try {
+              res = await fetch('/api/pm/respond', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include', // Include session cookie so GitHub token is available (0119: fix PM agent repo selection)
+                body: JSON.stringify(body),
+                signal: controller.signal,
+              })
+            } catch (fetchErr) {
+              clearTimeout(timeoutId)
+              if (fetchErr instanceof Error && fetchErr.name === 'AbortError') {
+                setAgentTypingTarget(null)
+                const timeoutMsg = 'Request timed out. The PM agent may need more time—try a simpler request or break bulk moves into smaller batches (e.g. "Continue" for the next 5).'
+                setOpenaiLastError(timeoutMsg)
+                setLastAgentError('Request timed out')
+                addMessage(convId, 'project-manager', `[PM] Error: ${timeoutMsg}`)
+                return
+              }
+              throw fetchErr
+            }
+            clearTimeout(timeoutId)
             setOpenaiLastStatus(String(res.status))
             const text = await res.text()
+
+            // 504 = gateway timeout: server took too long; response body is HTML, not JSON
+            if (res.status === 504) {
+              setAgentTypingTarget(null)
+              const timeoutMsg = 'Request timed out (504). The PM agent may need more time for this task—try breaking it into smaller steps or a simpler request.'
+              setOpenaiLastError(timeoutMsg)
+              setLastAgentError('504 Gateway Timeout')
+              addMessage(convId, 'project-manager', `[PM] Error: ${timeoutMsg}`)
+              return
+            }
             
             let data: PmAgentResponse & { _debug?: { repoFullName?: string; hasGithubToken?: boolean; hasGithubReadFile?: boolean; hasGithubSearchCode?: boolean; cookieHeaderPresent?: boolean; repoUsage?: Array<{ tool: string; usedGitHub: boolean; path?: string }> } }
             try {
@@ -2576,9 +2606,12 @@ function App() {
               }
             } catch {
               setAgentTypingTarget(null)
-              setOpenaiLastError('Invalid JSON response from PM endpoint')
-              setLastAgentError('Invalid JSON response')
-              addMessage(convId, 'project-manager', `[PM] Error: Invalid response format`)
+              const parseErr = res.status >= 500
+                ? `Server error (${res.status}). The response was not valid JSON—this often happens when the request times out or the server crashes.`
+                : `Invalid response format (HTTP ${res.status}). Expected JSON from the PM endpoint.`
+              setOpenaiLastError(parseErr)
+              setLastAgentError('Invalid response format')
+              addMessage(convId, 'project-manager', `[PM] Error: ${parseErr}`)
               return
             }
 
@@ -3399,6 +3432,15 @@ function App() {
     }
   }, [handleSend])
 
+  /** Send "Continue" to PM for multi-batch bulk operations (e.g. move all tickets). */
+  const handleContinueBatch = useCallback(() => {
+    const convId =
+      selectedConversationId && conversations.has(selectedConversationId)
+        ? selectedConversationId
+        : getDefaultConversationId('project-manager')
+    triggerAgentRun('Continue', 'project-manager', undefined, convId)
+  }, [selectedConversationId, conversations, getDefaultConversationId, triggerAgentRun])
+
   const handleThemeToggle = useCallback(() => {
     setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))
   }, [])
@@ -3542,6 +3584,13 @@ function App() {
   const chatPanelContent = (function renderChatPanelContent() {
     const displayMessages = activeMessages
     const displayTarget = selectedChatTarget
+    const lastMsg = displayMessages[displayMessages.length - 1]
+    const showContinueButton =
+      displayTarget === 'project-manager' &&
+      agentTypingTarget !== 'project-manager' &&
+      !!lastMsg &&
+      lastMsg.agent === 'project-manager' &&
+      lastMsg.content.includes('Reply with **Continue** to move the next batch')
     return (
       <div className="hal-chat-panel-inner" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
         {/* Agent stub banners and status panels */}
@@ -3706,6 +3755,11 @@ function App() {
               />
               📎
             </label>
+            {showContinueButton && (
+              <button type="button" className="continue-batch-btn send-btn" onClick={handleContinueBatch} title="Continue moving the next batch of tickets">
+                Continue
+              </button>
+            )}
             <button type="button" className="send-btn" onClick={handleSend} disabled={!!imageError}>
               Send
             </button>

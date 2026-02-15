@@ -1762,6 +1762,17 @@ body {
   cursor: not-allowed;
 }
 
+.continue-batch-btn {
+  margin-left: 0.25rem;
+  background: var(--hal-surface-alt);
+  color: var(--hal-text);
+  border: 1px solid var(--hal-border);
+}
+
+.continue-batch-btn:hover {
+  background: var(--hal-border-muted);
+}
+
 .image-attachment-preview {
   display: flex;
   align-items: center;

@@ -30,9 +30,6 @@ if (!result.success) throw new Error(`Failed: ${result.error}`)
 
 **If move returns `missingArtifacts`:** Store each via `POST /api/artifacts/insert-implementation`, then retry move.
 
-<<<<<<< HEAD
-**Column IDs:** `col-unassigned`, `col-todo`, `col-doing`, `col-qa`, `col-human-in-the-loop`, `col-process-review`, `col-done`, `col-wont-implement`.
-=======
 **When to move (MANDATORY WORKFLOW):**
 1. ✅ After all code changes are committed and pushed
 2. ✅ After all required artifacts are stored (all 8: plan, worklog, changed-files, decisions, verification, pm-review, git-diff, instructions-used)
@@ -59,4 +56,3 @@ if (!result.success) throw new Error(`Failed: ${result.error}`)
 - `col-wont-implement` - Will Not Implement
 
 **Note:** The HAL API endpoint `/api/tickets/move` uses server-side Supabase credentials, so agents don't need to provide credentials in the request body. The API uses the ticket's primary key (pk) for updates to ensure reliable ticket movement regardless of the ticket ID format provided.
->>>>>>> fde93a669772e375c1ba7d6b4415a499be4e2bf1
