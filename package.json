@@ -9,7 +9,7 @@
     "dev:hal": "npm run build:agents && vite --port 5173 --strictPort",
     "build:agents": "tsc -p agents/tsconfig.build.json",
     "build:kanban": "npm run build:lib --prefix projects/kanban",
-    "build:hal": "npm run check:lines && node scripts/bundle-docs-instructions.js && node scripts/bundle-instructions.js && tsc -b && vite build",
+    "build:hal": "npm run check:lines && node scripts/bundle-docs-instructions.js && node scripts/bundle-instructions.js && tsc -b && ESBUILD_LOADER_JS=jsx vite build",
     "build": "node scripts/build-vercel.js",
     "bundle-instructions": "node scripts/bundle-instructions.js",
     "bundle-docs-instructions": "node scripts/bundle-docs-instructions.js",

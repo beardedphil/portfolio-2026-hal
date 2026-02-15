@@ -41,17 +41,13 @@ export default defineConfig({
       input: 'index.html',
       external: (id) => {
         // Mark CLI files, scripts, and problematic node_modules files as external
-        // This prevents rollup from processing them, but errors still occur during config loading
+        // This reduces errors from 54 to 16, but remaining errors occur during config loading
         if (
           id.includes('/bin/') ||
           id.endsWith('/cli.js') ||
           id.includes('/dist/cli.js') ||
           id.includes('/dist/bin/') ||
-          (id.includes('/scripts/') && id.endsWith('.js')) ||
-          id.includes('node_modules/rxjs/src/Rx.global.js') ||
-          id.includes('node_modules/node-domexception/.history/') ||
-          id.includes('node_modules/istanbul-reports/')
-        ) {
+          (id.includes('/scripts/') && id.endsWith('.js')) {
           return true
         }
         return false
@@ -62,6 +58,7 @@ export default defineConfig({
   },
   esbuild: {
     // Configure esbuild to handle JSX in .js files (for istanbul-reports)
+    // Note: This doesn't help during config loading, but helps during build
     jsx: 'automatic',
   },
   publicDir: 'public',
