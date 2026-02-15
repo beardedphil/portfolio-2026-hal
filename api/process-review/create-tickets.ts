@@ -80,6 +80,20 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   }
 
   try {
+    // Deprecated (2026-02): This endpoint created tickets automatically from Process Review suggestions.
+    // The intended flow is now:
+    // 1) run Process Review to generate suggestions
+    // 2) show suggestions in a UI modal
+    // 3) only create tickets after the user explicitly clicks "Implement"
+    //
+    // Ticket creation should happen via `/api/tickets/create` (single-suggestion mode) from the Implement action.
+    json(res, 410, {
+      success: false,
+      error:
+        'Deprecated: /api/process-review/create-tickets has been removed. Create Process Review tickets only via explicit UI "Implement" using /api/tickets/create.',
+    })
+    return
+
     const body = (await readJsonBody(req)) as {
       reviewId?: string
       sourceTicketId?: string

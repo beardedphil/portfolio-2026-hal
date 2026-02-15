@@ -2822,10 +2822,13 @@ function App() {
         }
 
         addProgress('Process Review agent running. Polling status...')
+        let reviewId: string | null = null
         const runId = launchData.runId
+        // Use the agent runId as a stable Process Review ID for idempotency and tracking.
+        // This ensures tickets are only created when the user clicks "Implement" in the modal.
+        reviewId = runId
         let lastStatus: string
         let suggestions: Array<{ text: string; justification: string }> = []
-        let reviewId: string | null = null
         for (;;) {
           await new Promise((r) => setTimeout(r, 4000))
           const r = await fetch(`/api/agent-runs/status?runId=${encodeURIComponent(runId)}`, { credentials: 'include' })

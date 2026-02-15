@@ -261,7 +261,15 @@ export async function checkFailureEscalation(
   qaFailCount: number
   hitlFailCount: number
   escalated: boolean
+  /**
+   * Deprecated: we no longer auto-create Process Review follow-up tickets.
+   * Kept for backward compatibility with older clients that may read this field.
+   */
   suggestionTickets?: string[]
+  /**
+   * Deprecated: auto-creation errors are no longer applicable.
+   * Kept for backward compatibility.
+   */
   errors?: string[]
 }> {
   // Fetch ticket
@@ -283,7 +291,9 @@ export async function checkFailureEscalation(
   const shouldEscalateQa = qaFailCount >= 3 && failureType !== 'hitl'
   const shouldEscalateHitl = hitlFailCount >= 3 && failureType !== 'qa'
 
-  // If escalation is needed, move ticket to Process Review and create suggestion tickets
+  // If escalation is needed, move ticket to Process Review.
+  // IMPORTANT: We intentionally do NOT auto-create any follow-up tickets here.
+  // Process Review should only create tickets after the user reviews suggestions in the UI and clicks "Implement".
   if (shouldEscalateQa || shouldEscalateHitl) {
     // Move ticket to Process Review
     const { error: moveError } = await supabase
@@ -298,28 +308,12 @@ export async function checkFailureEscalation(
       throw new Error(`Failed to move ticket to Process Review: ${moveError.message}`)
     }
 
-    // Create at least one suggestion ticket
-    const suggestionResults: Array<{ success: boolean; ticketId?: string; error?: string }> = []
-
-    if (shouldEscalateQa) {
-      const qaResult = await createSuggestionTicket(supabase, ticket, 'qa', qaFailCount)
-      suggestionResults.push(qaResult)
-    }
-
-    if (shouldEscalateHitl) {
-      const hitlResult = await createSuggestionTicket(supabase, ticket, 'hitl', hitlFailCount)
-      suggestionResults.push(hitlResult)
-    }
-
-    const created = suggestionResults.filter((r) => r.success)
-    const errors = suggestionResults.filter((r) => !r.success)
-
     return {
       qaFailCount,
       hitlFailCount,
       escalated: true,
-      suggestionTickets: created.map((r) => r.ticketId!),
-      errors: errors.length > 0 ? errors.map((e) => e.error!).filter(Boolean) : undefined,
+      suggestionTickets: [],
+      errors: undefined,
     }
   }
 

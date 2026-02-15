@@ -106,9 +106,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       ...(result.escalated
         ? {
             moved_to_process_review: 'col-process-review',
-            suggestion_tickets_created: result.suggestionTickets?.length || 0,
-            suggestion_tickets: result.suggestionTickets,
-            ...(result.errors && result.errors.length > 0 ? { errors: result.errors } : {}),
+            // Process Review no longer auto-creates follow-up tickets; suggestions must be reviewed
+            // in the UI and explicitly implemented by the user.
+            suggestion_tickets_created: 0,
+            suggestion_tickets: [],
           }
         : {}),
     })
