@@ -374,6 +374,8 @@ export interface PmAgentConfig {
   conversationHistory?: ConversationTurn[]
   /** Pre-built "Conversation so far" section (e.g. summary + recent from DB). When set, used instead of conversationHistory. */
   conversationContextPack?: string
+  /** Working memory text (0173: PM working memory) - structured context from conversation history. */
+  workingMemoryText?: string
   /** OpenAI Responses API: continue from this response for continuity. */
   previousResponseId?: string
   /** When set with supabaseAnonKey, enables create_ticket tool (store ticket to Supabase, then sync writes to repo). */
@@ -433,6 +435,8 @@ You have access to read-only tools to explore the repository. Use them to answer
 - **When a GitHub repo is connected, do NOT mention "HAL repo" or "portfolio-2026-hal" in your responses unless the user explicitly asks about HAL itself.**
 
 **Conversation context:** When "Conversation so far" is present, the "User message" is the user's latest reply in that conversation. Short replies (e.g. "Entirely, in all states", "Yes", "The first one", "inside the embedded kanban UI") are almost always answers to the question you (the assistant) just asked—interpret them in that context. Do not treat short user replies as a new top-level request about repo rules, process, or "all states" enforcement unless the conversation clearly indicates otherwise.
+
+**Working Memory:** When "Working Memory" is present, it contains structured context from the conversation history (goals, requirements, constraints, decisions, assumptions, open questions, glossary, stakeholders). Use this information to maintain continuity across long conversations. When generating tickets or making recommendations, incorporate relevant information from working memory even if it's not in the recent message window. If working memory indicates constraints or decisions were made earlier, respect them in your responses.
 
 **Creating tickets:** When the user **explicitly** asks to create a ticket (e.g. "create a ticket", "create ticket for that", "create a new ticket for X"), you MUST call the create_ticket tool if it is available. Do NOT call create_ticket for short, non-actionable messages such as: "test", "ok", "hi", "hello", "thanks", "cool", "checking", "asdf", or similar—these are usually the user testing the UI, acknowledging, or typing casually. Do not infer a ticket-creation request from context alone (e.g. if the user sends "Test" while testing the chat UI, that does NOT mean create the chat UI ticket). Calling the tool is what actually creates the ticket—do not only write the ticket content in your message. Use create_ticket with a short title (without the ID prefix—the tool assigns the next repo-scoped ID and normalizes the Title line to "PREFIX-NNNN — ..."). Provide a full markdown body following the repo ticket template. Do not invent an ID—the tool assigns it. Do not write secrets or API keys into the ticket body. If create_ticket is not in your tool list, tell the user: "I don't have the create-ticket tool for this request. In the HAL app, connect the project folder (with VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in its .env), then try again. Check Diagnostics to confirm 'Create ticket (this request): Available'." After creating a ticket via the tool, report the exact ticket display ID (e.g. HAL-0079) and the returned filePath (Supabase-only).
 
@@ -568,6 +572,11 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
         '- All other mandatory PM agent workflows\n\n' +
         '**DO NOT proceed with responding until you have loaded and read your instructions from Supabase.**\n'
     )
+  }
+
+  // Working Memory (0173: PM working memory) - include before conversation context
+  if (config.workingMemoryText && config.workingMemoryText.trim() !== '') {
+    sections.push(config.workingMemoryText.trim())
   }
 
   // Conversation so far: pre-built context pack (e.g. summary + recent from DB) or bounded history
@@ -3386,126 +3395,130 @@ export async function summarizeForContext(
 }
 
 /**
- * Extract working memory from conversation messages (0173).
- * Uses LLM to extract structured information: goals, requirements, constraints, decisions, etc.
+ * Extract and update working memory from conversation messages (0173).
+ * Uses LLM to extract key facts (goals, requirements, constraints, decisions, etc.)
+ * from the conversation and update the working memory.
  */
-export async function extractWorkingMemory(
+export interface WorkingMemory {
+  summary: string
+  goals: string[]
+  requirements: string[]
+  constraints: string[]
+  decisions: string[]
+  assumptions: string[]
+  open_questions: string[]
+  glossary: string[] // Array of "term: definition" strings
+  stakeholders: string[]
+}
+
+export async function generateWorkingMemory(
   messages: ConversationTurn[],
+  existingMemory: WorkingMemory | null,
   openaiApiKey: string,
   openaiModel: string
-): Promise<{
-  summary?: string
-  goals?: string[]
-  requirements?: string[]
-  constraints?: string[]
-  decisions?: string[]
-  assumptions?: string[]
-  open_questions?: string[]
-  glossary?: Record<string, string>
-  stakeholders?: string[]
-}> {
+): Promise<WorkingMemory> {
   if (messages.length === 0) {
-    return {
-      summary: 'No conversation yet',
-      goals: [],
-      requirements: [],
-      constraints: [],
-      decisions: [],
-      assumptions: [],
-      open_questions: [],
-      glossary: {},
-      stakeholders: [],
-    }
+    return (
+      existingMemory || {
+        summary: '',
+        goals: [],
+        requirements: [],
+        constraints: [],
+        decisions: [],
+        assumptions: [],
+        open_questions: [],
+        glossary: [],
+        stakeholders: [],
+      }
+    )
   }
 
   const openai = createOpenAI({ apiKey: openaiApiKey })
   const model = openai.responses(openaiModel)
-  const transcript = messages.map((t) => `**${t.role}**: ${t.content}`).join('\n\n')
+  const transcript = messages.map((t) => `${t.role}: ${t.content}`).join('\n\n')
 
-  const prompt = `You are analyzing a Project Manager conversation to extract key information for working memory.
+  const existingMemoryText = existingMemory
+    ? `\n\nExisting working memory:\n- Summary: ${existingMemory.summary}\n- Goals: ${existingMemory.goals.join(', ')}\n- Requirements: ${existingMemory.requirements.join(', ')}\n- Constraints: ${existingMemory.constraints.join(', ')}\n- Decisions: ${existingMemory.decisions.join(', ')}\n- Assumptions: ${existingMemory.assumptions.join(', ')}\n- Open questions: ${existingMemory.open_questions.join(', ')}\n- Glossary: ${existingMemory.glossary.join(', ')}\n- Stakeholders: ${existingMemory.stakeholders.join(', ')}`
+    : ''
 
-Extract and structure the following information from the conversation:
-- Summary: A concise 2-3 sentence summary of the conversation context
-- Goals: Array of project goals discussed (as JSON array of strings)
-- Requirements: Array of requirements identified (as JSON array of strings)
-- Constraints: Array of constraints mentioned (as JSON array of strings)
-- Decisions: Array of decisions made (as JSON array of strings)
-- Assumptions: Array of assumptions noted (as JSON array of strings)
-- Open Questions: Array of open questions (as JSON array of strings)
-- Glossary: Object mapping terms to definitions (as JSON object with string keys and string values)
-- Stakeholders: Array of stakeholders mentioned (as JSON array of strings)
+  const prompt = `You are maintaining a structured "working memory" for a Project Manager agent conversation. Extract and update key information from the conversation below.
 
-Return ONLY a valid JSON object with these exact field names: summary, goals, requirements, constraints, decisions, assumptions, open_questions, glossary, stakeholders.
+${existingMemoryText ? 'Update the existing working memory with new information from the conversation.' : 'Create initial working memory from the conversation.'}
 
-Use empty arrays [] for list fields and empty object {} for glossary if no information is found.
+Return a JSON object with this exact structure:
+{
+  "summary": "A concise 2-3 sentence summary of the conversation and project context",
+  "goals": ["array", "of", "project goals", "discussed"],
+  "requirements": ["array", "of", "requirements", "identified"],
+  "constraints": ["array", "of", "constraints", "or limitations"],
+  "decisions": ["array", "of", "decisions", "made"],
+  "assumptions": ["array", "of", "assumptions", "stated"],
+  "open_questions": ["array", "of", "open questions", "or unresolved items"],
+  "glossary": ["term1: definition1", "term2: definition2"],
+  "stakeholders": ["array", "of", "stakeholders", "mentioned"]
+}
 
-Conversation messages:
+Guidelines:
+- Merge new information with existing memory (don't duplicate)
+- Keep arrays concise (3-10 items each, most important first)
+- For glossary, use format "term: definition" (one string per entry)
+- Remove items that are no longer relevant or have been resolved
+- Summary should be current and reflect the full conversation context
+
+Conversation:
 ${transcript}
 
-Return the JSON object:`
+Return only valid JSON, no markdown formatting or code blocks.`
 
   try {
-    const result = await generateText({
-      model,
-      prompt,
-      maxTokens: 2000,
-    })
-
+    const result = await generateText({ model, prompt })
     const text = (result.text ?? '').trim()
-    if (!text) {
-      throw new Error('Empty response from LLM')
-    }
+    // Remove markdown code blocks if present
+    const jsonText = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim()
+    const parsed = JSON.parse(jsonText) as WorkingMemory
 
-    // Try to extract JSON from the response (might be wrapped in markdown code blocks)
-    let jsonText = text
-    const jsonMatch = text.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/)
-    if (jsonMatch) {
-      jsonText = jsonMatch[1]
-    } else {
-      // Try to find JSON object in the text
-      const braceMatch = text.match(/\{[\s\S]*\}/)
-      if (braceMatch) {
-        jsonText = braceMatch[0]
-      }
-    }
-
-    const parsed = JSON.parse(jsonText) as {
-      summary?: string
-      goals?: string[]
-      requirements?: string[]
-      constraints?: string[]
-      decisions?: string[]
-      assumptions?: string[]
-      open_questions?: string[]
-      glossary?: Record<string, string>
-      stakeholders?: string[]
-    }
-
-    // Normalize to ensure all fields exist
+    // Validate and normalize
     return {
-      summary: parsed.summary || 'No summary available',
-      goals: Array.isArray(parsed.goals) ? parsed.goals : [],
-      requirements: Array.isArray(parsed.requirements) ? parsed.requirements : [],
-      constraints: Array.isArray(parsed.constraints) ? parsed.constraints : [],
-      decisions: Array.isArray(parsed.decisions) ? parsed.decisions : [],
-      assumptions: Array.isArray(parsed.assumptions) ? parsed.assumptions : [],
-      open_questions: Array.isArray(parsed.open_questions) ? parsed.open_questions : [],
-      glossary: parsed.glossary && typeof parsed.glossary === 'object' ? parsed.glossary : {},
-      stakeholders: Array.isArray(parsed.stakeholders) ? parsed.stakeholders : [],
+      summary: typeof parsed.summary === 'string' ? parsed.summary : '',
+      goals: Array.isArray(parsed.goals) ? parsed.goals.filter((g): g is string => typeof g === 'string') : [],
+      requirements: Array.isArray(parsed.requirements)
+        ? parsed.requirements.filter((r): r is string => typeof r === 'string')
+        : [],
+      constraints: Array.isArray(parsed.constraints)
+        ? parsed.constraints.filter((c): c is string => typeof c === 'string')
+        : [],
+      decisions: Array.isArray(parsed.decisions)
+        ? parsed.decisions.filter((d): d is string => typeof d === 'string')
+        : [],
+      assumptions: Array.isArray(parsed.assumptions)
+        ? parsed.assumptions.filter((a): a is string => typeof a === 'string')
+        : [],
+      open_questions: Array.isArray(parsed.open_questions)
+        ? parsed.open_questions.filter((q): q is string => typeof q === 'string')
+        : [],
+      glossary: Array.isArray(parsed.glossary)
+        ? parsed.glossary.filter((g): g is string => typeof g === 'string')
+        : [],
+      stakeholders: Array.isArray(parsed.stakeholders)
+        ? parsed.stakeholders.filter((s): s is string => typeof s === 'string')
+        : [],
     }
   } catch (err) {
-    console.error('[PM Working Memory] Failed to extract working memory:', err)
-    // Return empty structure on error
-    return {
-      summary: 'Failed to extract working memory',
-      goals: [],
-      requirements: [],
-      constraints: [],
-      decisions: [],
-      assumptions: [],
-      open_questions: [],
-      glossary: {},
-      stakeholders: [],
-    }
+    // If generation fails, return existing memory or empty structure
+    console.warn('[PM] Working memory generation failed:', err)
+    return (
+      existingMemory || {
+        summary: '',
+        goals: [],
+        requirements: [],
+        constraints: [],
+        decisions: [],
+        assumptions: [],
+        open_questions: [],
+        glossary: [],
+        stakeholders: [],
+      }
+    )
   }
+}
 }
