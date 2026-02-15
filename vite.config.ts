@@ -34,11 +34,6 @@ import {
 import { pmCheckUnassignedPlugin } from './vite/middleware/pm-check-unassigned'
 import { pmFileAccessPlugin } from './vite/middleware/pm-file-access'
 
-// Workaround for vite 7.x scanning node_modules during config loading
-// The errors occur because vite uses esbuild to process this TypeScript config,
-// and esbuild scans the workspace including problematic files (istanbul-reports JSX,
-// node-domexception history, rxjs). These cannot be fixed via vite config since
-// they happen before the config is loaded.
 export default defineConfig({
   build: {
     cssMinify: false,
@@ -46,13 +41,26 @@ export default defineConfig({
       input: 'index.html',
       external: (id) => {
         // Mark CLI files, scripts, and problematic node_modules files as external
-        // This reduces errors from 54 to 16, but remaining errors occur during config loading
         if (
           id.includes('/bin/') ||
           id.endsWith('/cli.js') ||
           id.includes('/dist/cli.js') ||
           id.includes('/dist/bin/') ||
-          (id.includes('/scripts/') && id.endsWith('.js'))
+          (id.includes('/scripts/') && id.endsWith('.js')) ||
+          // Exclude problematic packages that cause build errors during config loading
+          id.includes('istanbul-reports/lib/html-spa/') ||
+          id.includes('node-domexception/.history/') ||
+          id.includes('rxjs/src/Rx.global.js') ||
+          id.includes('istanbul-reports/') ||
+          // Exclude React Native specific files
+          id.includes('.native.js') ||
+          id.includes('nanoid/async/index.native') ||
+          // Exclude test files
+          id.includes('.test.ts') ||
+          id.includes('.test.js') ||
+          // Exclude vitest config files
+          id.includes('vitest.config') ||
+          id.includes('vitest/browser')
         ) {
           return true
         }
@@ -64,7 +72,6 @@ export default defineConfig({
   },
   esbuild: {
     // Configure esbuild to handle JSX in .js files (for istanbul-reports)
-    // Note: This doesn't help during config loading, but helps during build
     jsx: 'automatic',
   },
   publicDir: 'public',
@@ -78,12 +85,8 @@ export default defineConfig({
     dedupe: [], // Don't dedupe dependencies
   },
   optimizeDeps: {
-    exclude: [
-      // Exclude problematic packages that cause build errors during config loading
-      'istanbul-reports',
-      'node-domexception',
-      'rxjs',
-    ],
+    // Exclude problematic packages from dependency optimization
+    exclude: ['istanbul-reports', 'node-domexception', 'rxjs'],
   },
   plugins: [
     react(),
