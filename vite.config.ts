@@ -513,6 +513,30 @@ export default defineConfig({
       },
     },
     {
+      name: 'pm-working-memory-endpoint',
+      configureServer(server) {
+        server.middlewares.use(async (req, res, next) => {
+          if (req.url?.startsWith('/api/pm/working-memory')) {
+            try {
+              const handler = (await import('./api/pm/working-memory.js')).default
+              await handler(req, res)
+            } catch (err) {
+              res.statusCode = 500
+              res.setHeader('Content-Type', 'application/json')
+              res.end(
+                JSON.stringify({
+                  success: false,
+                  error: err instanceof Error ? err.message : String(err),
+                })
+              )
+            }
+            return
+          }
+          next()
+        })
+      },
+    },
+    {
       name: 'implementation-agent-endpoint',
       configureServer(server) {
         server.middlewares.use(async (req, res, next) => {

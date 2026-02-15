@@ -394,6 +394,8 @@ export interface PmAgentConfig {
   githubListDirectory?: (path: string) => Promise<{ entries: string[] } | { error: string }>
   /** Image attachments to include in the request (base64 data URLs). */
   images?: Array<{ dataUrl: string; filename: string; mimeType: string }>
+  /** Working memory for the conversation (structured context: goals, requirements, constraints, decisions, etc.). */
+  workingMemory?: WorkingMemory
 }
 
 export interface ToolCallRecord {
@@ -586,6 +588,27 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
       const lines = recent.map((t) => `**${t.role}**: ${t.content}`)
       sections.push('## Conversation so far' + truncNote + lines.join('\n\n'))
       hasConversation = true
+    }
+  }
+
+  // Working memory: structured context (goals, requirements, constraints, decisions, etc.)
+  if (config.workingMemory) {
+    const wm = config.workingMemory
+    const wmSections: string[] = []
+    if (wm.summary) wmSections.push(`**Summary**: ${wm.summary}`)
+    if (wm.goals.length > 0) wmSections.push(`**Goals**:\n${wm.goals.map(g => `- ${g}`).join('\n')}`)
+    if (wm.requirements.length > 0) wmSections.push(`**Requirements**:\n${wm.requirements.map(r => `- ${r}`).join('\n')}`)
+    if (wm.constraints.length > 0) wmSections.push(`**Constraints**:\n${wm.constraints.map(c => `- ${c}`).join('\n')}`)
+    if (wm.decisions.length > 0) wmSections.push(`**Decisions**:\n${wm.decisions.map(d => `- ${d}`).join('\n')}`)
+    if (wm.assumptions.length > 0) wmSections.push(`**Assumptions**:\n${wm.assumptions.map(a => `- ${a}`).join('\n')}`)
+    if (wm.open_questions.length > 0) wmSections.push(`**Open Questions**:\n${wm.open_questions.map(q => `- ${q}`).join('\n')}`)
+    if (Object.keys(wm.glossary).length > 0) {
+      wmSections.push(`**Glossary**:\n${Object.entries(wm.glossary).map(([term, def]) => `- **${term}**: ${def}`).join('\n')}`)
+    }
+    if (wm.stakeholders.length > 0) wmSections.push(`**Stakeholders**:\n${wm.stakeholders.map(s => `- ${s}`).join('\n')}`)
+    
+    if (wmSections.length > 0) {
+      sections.push('## Working Memory\n\n' + wmSections.join('\n\n'))
     }
   }
 
@@ -3373,4 +3396,122 @@ export async function summarizeForContext(
   const prompt = `Summarize this conversation in 2-4 sentences. Preserve key decisions, topics, and context so the next turn can continue naturally.\n\nConversation:\n\n${transcript}`
   const result = await generateText({ model, prompt })
   return (result.text ?? '').trim() || '(No summary generated)'
+}
+
+export interface WorkingMemory {
+  summary: string
+  goals: string[]
+  requirements: string[]
+  constraints: string[]
+  decisions: string[]
+  assumptions: string[]
+  open_questions: string[]
+  glossary: Record<string, string>
+  stakeholders: string[]
+}
+
+/**
+ * Generate or update working memory from conversation messages.
+ * Uses LLM to extract structured information: goals, requirements, constraints, decisions, assumptions, open questions, glossary, and stakeholders.
+ * Returns structured working memory object.
+ */
+export async function generateWorkingMemory(
+  messages: ConversationTurn[],
+  existingMemory: WorkingMemory | null,
+  openaiApiKey: string,
+  openaiModel: string
+): Promise<WorkingMemory> {
+  if (messages.length === 0) {
+    return existingMemory || {
+      summary: '',
+      goals: [],
+      requirements: [],
+      constraints: [],
+      decisions: [],
+      assumptions: [],
+      open_questions: [],
+      glossary: {},
+      stakeholders: [],
+    }
+  }
+
+  const openai = createOpenAI({ apiKey: openaiApiKey })
+  const model = openai.responses(openaiModel)
+  const transcript = messages.map((t) => `${t.role}: ${t.content}`).join('\n\n')
+  
+  const existingMemoryText = existingMemory
+    ? `\n\nExisting working memory:\n- Summary: ${existingMemory.summary}\n- Goals: ${existingMemory.goals.join(', ')}\n- Requirements: ${existingMemory.requirements.join(', ')}\n- Constraints: ${existingMemory.constraints.join(', ')}\n- Decisions: ${existingMemory.decisions.join(', ')}\n- Assumptions: ${existingMemory.assumptions.join(', ')}\n- Open questions: ${existingMemory.open_questions.join(', ')}\n- Stakeholders: ${existingMemory.stakeholders.join(', ')}\n- Glossary: ${Object.entries(existingMemory.glossary).map(([k, v]) => `${k}: ${v}`).join(', ')}`
+    : ''
+
+  const prompt = `You are analyzing a project management conversation to extract and maintain structured working memory.
+
+Extract and update the following information from the conversation:
+1. **Summary**: A concise 2-3 sentence summary of the conversation context
+2. **Goals**: Array of project goals discussed (keep existing, add new ones)
+3. **Requirements**: Array of requirements identified (keep existing, add new ones)
+4. **Constraints**: Array of constraints mentioned (keep existing, add new ones)
+5. **Decisions**: Array of decisions made (keep existing, add new ones)
+6. **Assumptions**: Array of assumptions stated (keep existing, add new ones)
+7. **Open questions**: Array of open/unresolved questions (keep existing, add new ones)
+8. **Glossary**: Object mapping terms to definitions (keep existing, add new ones)
+9. **Stakeholders**: Array of stakeholders mentioned (keep existing, add new ones)
+
+${existingMemoryText ? 'Update the existing working memory by merging new information. Keep all existing items unless explicitly contradicted or resolved.' : 'This is the initial working memory extraction.'}
+
+Return your response as a JSON object with this exact structure:
+{
+  "summary": "concise summary text",
+  "goals": ["goal1", "goal2"],
+  "requirements": ["req1", "req2"],
+  "constraints": ["constraint1", "constraint2"],
+  "decisions": ["decision1", "decision2"],
+  "assumptions": ["assumption1", "assumption2"],
+  "open_questions": ["question1", "question2"],
+  "glossary": {"term1": "definition1", "term2": "definition2"},
+  "stakeholders": ["stakeholder1", "stakeholder2"]
+}
+
+Conversation:
+${transcript}`
+
+  try {
+    const result = await generateText({ 
+      model, 
+      prompt,
+      temperature: 0.3, // Lower temperature for more consistent structured output
+    })
+    const text = (result.text ?? '').trim()
+    
+    // Try to extract JSON from the response
+    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]) as Partial<WorkingMemory>
+      return {
+        summary: parsed.summary || existingMemory?.summary || '',
+        goals: Array.isArray(parsed.goals) ? parsed.goals : existingMemory?.goals || [],
+        requirements: Array.isArray(parsed.requirements) ? parsed.requirements : existingMemory?.requirements || [],
+        constraints: Array.isArray(parsed.constraints) ? parsed.constraints : existingMemory?.constraints || [],
+        decisions: Array.isArray(parsed.decisions) ? parsed.decisions : existingMemory?.decisions || [],
+        assumptions: Array.isArray(parsed.assumptions) ? parsed.assumptions : existingMemory?.assumptions || [],
+        open_questions: Array.isArray(parsed.open_questions) ? parsed.open_questions : existingMemory?.open_questions || [],
+        glossary: parsed.glossary && typeof parsed.glossary === 'object' ? parsed.glossary as Record<string, string> : existingMemory?.glossary || {},
+        stakeholders: Array.isArray(parsed.stakeholders) ? parsed.stakeholders : existingMemory?.stakeholders || [],
+      }
+    }
+  } catch (err) {
+    console.error('[PM] Failed to generate working memory:', err)
+  }
+
+  // Fallback: return existing memory or empty
+  return existingMemory || {
+    summary: '',
+    goals: [],
+    requirements: [],
+    constraints: [],
+    decisions: [],
+    assumptions: [],
+    open_questions: [],
+    glossary: {},
+    stakeholders: [],
+  }
 }
