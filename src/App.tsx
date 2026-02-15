@@ -353,6 +353,22 @@ function App() {
   const realtimeSubscriptionsRef = useRef<{ tickets: boolean; agentRuns: boolean }>({ tickets: false, agentRuns: false })
   const [outboundRequestExpanded, setOutboundRequestExpanded] = useState(false)
   const [toolCallsExpanded, setToolCallsExpanded] = useState(false)
+  // PM Working Memory (0173)
+  const [pmWorkingMemory, setPmWorkingMemory] = useState<{
+    summary: string
+    goals: string
+    requirements: string
+    constraints: string
+    decisions: string
+    assumptions: string
+    open_questions: string
+    glossary_terms: string
+    last_updated: string
+    through_sequence: number
+  } | null>(null)
+  const [pmWorkingMemoryExpanded, setPmWorkingMemoryExpanded] = useState(false)
+  const [pmWorkingMemoryLoading, setPmWorkingMemoryLoading] = useState(false)
+  const [pmWorkingMemoryError, setPmWorkingMemoryError] = useState<string | null>(null)
   // Removed showPmPrompt - using modal approach instead (0202)
   const messageIdRef = useRef(0)
   const pmMaxSequenceRef = useRef(0) // Keep for backward compatibility during migration
@@ -1395,6 +1411,16 @@ function App() {
     }
   }, [activeMessages, agentTypingTarget, selectedConversationId, implAgentRunStatus, qaAgentRunStatus, processReviewAgentRunStatus, implAgentProgress, qaAgentProgress, processReviewAgentProgress, loadingOlderMessages])
 
+  // Load PM working memory when PM chat is opened (0173)
+  useEffect(() => {
+    if (selectedChatTarget === 'project-manager' && connectedProject && supabaseUrl && supabaseAnonKey) {
+      const convId = selectedConversationId || getConversationId('project-manager', 1)
+      fetchPmWorkingMemory(convId)
+    } else {
+      setPmWorkingMemory(null)
+    }
+  }, [selectedChatTarget, selectedConversationId, connectedProject, supabaseUrl, supabaseAnonKey, fetchPmWorkingMemory])
+
   // Detect scroll to top and load older messages
   useEffect(() => {
     const transcript = transcriptRef.current
@@ -2207,9 +2233,10 @@ function App() {
             const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
             const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
             
-            let body: { message: string; conversationHistory?: Array<{ role: string; content: string }>; previous_response_id?: string; projectId?: string; repoFullName?: string; supabaseUrl?: string; supabaseAnonKey?: string; images?: Array<{ dataUrl: string; filename: string; mimeType: string }> } = { message: content }
+            let body: { message: string; conversationHistory?: Array<{ role: string; content: string }>; previous_response_id?: string; projectId?: string; conversationId?: string; repoFullName?: string; supabaseUrl?: string; supabaseAnonKey?: string; images?: Array<{ dataUrl: string; filename: string; mimeType: string }> } = { message: content }
             if (pmLastResponseId) body.previous_response_id = pmLastResponseId
             if (connectedProject) body.projectId = connectedProject
+            if (convId) body.conversationId = convId // 0173: Include conversation ID for working memory
             if (connectedGithubRepo?.fullName) body.repoFullName = connectedGithubRepo.fullName
             // Always send Supabase creds when we have them so create_ticket is available (0011)
             // Use url/key from state or env (0119: fix Supabase credentials not being sent)
@@ -3112,6 +3139,97 @@ function App() {
     }
   }, [handleSend])
 
+  // Fetch PM working memory (0173)
+  const fetchPmWorkingMemory = useCallback(async (conversationId: string) => {
+    if (!connectedProject || !supabaseUrl || !supabaseAnonKey) {
+      setPmWorkingMemory(null)
+      return
+    }
+
+    try {
+      setPmWorkingMemoryLoading(true)
+      setPmWorkingMemoryError(null)
+      const supabase = getSupabaseClient(supabaseUrl, supabaseAnonKey)
+      const { data, error } = await supabase
+        .from('hal_pm_working_memory')
+        .select('*')
+        .eq('project_id', connectedProject)
+        .eq('conversation_id', conversationId)
+        .single()
+
+      if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
+        throw error
+      }
+
+      if (data) {
+        setPmWorkingMemory({
+          summary: data.summary || '',
+          goals: data.goals || '',
+          requirements: data.requirements || '',
+          constraints: data.constraints || '',
+          decisions: data.decisions || '',
+          assumptions: data.assumptions || '',
+          open_questions: data.open_questions || '',
+          glossary_terms: data.glossary_terms || '[]',
+          last_updated: data.last_updated || new Date().toISOString(),
+          through_sequence: data.through_sequence || 0,
+        })
+      } else {
+        setPmWorkingMemory(null)
+      }
+    } catch (err) {
+      console.error('[PM] Failed to fetch working memory:', err)
+      setPmWorkingMemoryError(err instanceof Error ? err.message : String(err))
+      setPmWorkingMemory(null)
+    } finally {
+      setPmWorkingMemoryLoading(false)
+    }
+  }, [connectedProject, supabaseUrl, supabaseAnonKey])
+
+  // Refresh PM working memory (0173)
+  const refreshPmWorkingMemory = useCallback(async (conversationId: string) => {
+    if (!connectedProject || !supabaseUrl || !supabaseAnonKey) {
+      setPmWorkingMemoryError('Supabase not connected')
+      return
+    }
+
+    try {
+      setPmWorkingMemoryLoading(true)
+      setPmWorkingMemoryError(null)
+      
+      const url = supabaseUrl.trim()
+      const key = supabaseAnonKey.trim()
+      
+      const res = await fetch('/api/pm/refresh-working-memory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: connectedProject,
+          conversationId,
+          supabaseUrl: url,
+          supabaseAnonKey: key,
+        }),
+      })
+
+      const data = await res.json()
+      
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to refresh working memory')
+      }
+
+      if (data.workingMemory) {
+        setPmWorkingMemory(data.workingMemory)
+      } else {
+        setPmWorkingMemory(null)
+      }
+    } catch (err) {
+      console.error('[PM] Failed to refresh working memory:', err)
+      setPmWorkingMemoryError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setPmWorkingMemoryLoading(false)
+    }
+  }, [connectedProject, supabaseUrl, supabaseAnonKey])
+
   const handleThemeToggle = useCallback(() => {
     setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))
   }, [])
@@ -3633,6 +3751,134 @@ function App() {
                           </div>
                         )}
                       </>
+                    )}
+
+                    {/* PM Working Memory Panel (0173) */}
+                    {selectedChatTarget === 'project-manager' && connectedProject && supabaseUrl && supabaseAnonKey && (
+                      <div className="pm-working-memory-panel" style={{ borderBottom: '1px solid rgba(0,0,0,0.1)', padding: '12px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                          <button
+                            type="button"
+                            className="pm-working-memory-toggle"
+                            onClick={() => setPmWorkingMemoryExpanded(!pmWorkingMemoryExpanded)}
+                            style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold', textAlign: 'left', padding: 0 }}
+                            aria-expanded={pmWorkingMemoryExpanded}
+                          >
+                            PM Working Memory {pmWorkingMemoryExpanded ? '▼' : '▶'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const convId = selectedConversationId || getConversationId('project-manager', 1)
+                              refreshPmWorkingMemory(convId)
+                            }}
+                            disabled={pmWorkingMemoryLoading}
+                            style={{ 
+                              background: pmWorkingMemoryLoading ? '#ccc' : '#007bff', 
+                              color: 'white', 
+                              border: 'none', 
+                              padding: '4px 8px', 
+                              borderRadius: '4px', 
+                              cursor: pmWorkingMemoryLoading ? 'not-allowed' : 'pointer',
+                              fontSize: '12px'
+                            }}
+                            title="Refresh working memory now"
+                          >
+                            {pmWorkingMemoryLoading ? 'Refreshing...' : 'Refresh'}
+                          </button>
+                        </div>
+                        {pmWorkingMemoryExpanded && (
+                          <div className="pm-working-memory-content" style={{ fontSize: '13px', lineHeight: '1.5' }}>
+                            {pmWorkingMemoryLoading && !pmWorkingMemory ? (
+                              <div style={{ padding: '8px', color: '#666' }}>Loading working memory...</div>
+                            ) : pmWorkingMemoryError ? (
+                              <div style={{ padding: '8px', color: '#d32f2f' }}>
+                                Error: {pmWorkingMemoryError}
+                                {pmWorkingMemory && <div style={{ marginTop: '8px', fontSize: '12px', color: '#666' }}>(Showing stale memory)</div>}
+                              </div>
+                            ) : pmWorkingMemory ? (
+                              <div style={{ padding: '8px' }}>
+                                <div style={{ marginBottom: '12px', fontSize: '11px', color: '#666' }}>
+                                  Last updated: {new Date(pmWorkingMemory.last_updated).toLocaleString()} (through message {pmWorkingMemory.through_sequence})
+                                </div>
+                                {pmWorkingMemory.summary && (
+                                  <div style={{ marginBottom: '12px' }}>
+                                    <strong>Summary:</strong>
+                                    <div style={{ marginTop: '4px', whiteSpace: 'pre-wrap' }}>{pmWorkingMemory.summary}</div>
+                                  </div>
+                                )}
+                                {pmWorkingMemory.goals && (
+                                  <div style={{ marginBottom: '12px' }}>
+                                    <strong>Goals:</strong>
+                                    <div style={{ marginTop: '4px', whiteSpace: 'pre-wrap' }}>{pmWorkingMemory.goals}</div>
+                                  </div>
+                                )}
+                                {pmWorkingMemory.requirements && (
+                                  <div style={{ marginBottom: '12px' }}>
+                                    <strong>Requirements:</strong>
+                                    <div style={{ marginTop: '4px', whiteSpace: 'pre-wrap' }}>{pmWorkingMemory.requirements}</div>
+                                  </div>
+                                )}
+                                {pmWorkingMemory.constraints && (
+                                  <div style={{ marginBottom: '12px' }}>
+                                    <strong>Constraints:</strong>
+                                    <div style={{ marginTop: '4px', whiteSpace: 'pre-wrap' }}>{pmWorkingMemory.constraints}</div>
+                                  </div>
+                                )}
+                                {pmWorkingMemory.decisions && (
+                                  <div style={{ marginBottom: '12px' }}>
+                                    <strong>Decisions:</strong>
+                                    <div style={{ marginTop: '4px', whiteSpace: 'pre-wrap' }}>{pmWorkingMemory.decisions}</div>
+                                  </div>
+                                )}
+                                {pmWorkingMemory.assumptions && (
+                                  <div style={{ marginBottom: '12px' }}>
+                                    <strong>Assumptions:</strong>
+                                    <div style={{ marginTop: '4px', whiteSpace: 'pre-wrap' }}>{pmWorkingMemory.assumptions}</div>
+                                  </div>
+                                )}
+                                {pmWorkingMemory.open_questions && (
+                                  <div style={{ marginBottom: '12px' }}>
+                                    <strong>Open Questions:</strong>
+                                    <div style={{ marginTop: '4px', whiteSpace: 'pre-wrap' }}>{pmWorkingMemory.open_questions}</div>
+                                  </div>
+                                )}
+                                {pmWorkingMemory.glossary_terms && pmWorkingMemory.glossary_terms !== '[]' && (
+                                  <div style={{ marginBottom: '12px' }}>
+                                    <strong>Glossary/Terms:</strong>
+                                    <div style={{ marginTop: '4px' }}>
+                                      {(() => {
+                                        try {
+                                          const terms = JSON.parse(pmWorkingMemory.glossary_terms) as Array<{ term: string; definition: string }>
+                                          return terms.map((t, idx) => (
+                                            <div key={idx} style={{ marginBottom: '4px' }}>
+                                              <strong>{t.term}:</strong> {t.definition}
+                                            </div>
+                                          ))
+                                        } catch {
+                                          return <div style={{ color: '#666' }}>Invalid glossary format</div>
+                                        }
+                                      })()}
+                                    </div>
+                                  </div>
+                                )}
+                                {!pmWorkingMemory.summary && !pmWorkingMemory.goals && !pmWorkingMemory.requirements && 
+                                 !pmWorkingMemory.constraints && !pmWorkingMemory.decisions && 
+                                 !pmWorkingMemory.assumptions && !pmWorkingMemory.open_questions && 
+                                 (!pmWorkingMemory.glossary_terms || pmWorkingMemory.glossary_terms === '[]') && (
+                                  <div style={{ padding: '8px', color: '#666', fontStyle: 'italic' }}>
+                                    Working memory is empty. It will be populated automatically as the conversation grows.
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <div style={{ padding: '8px', color: '#666', fontStyle: 'italic' }}>
+                                No working memory yet. It will be created automatically as the conversation grows.
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     )}
 
                     {/* Chat transcript */}

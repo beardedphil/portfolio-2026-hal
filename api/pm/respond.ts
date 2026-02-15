@@ -3,6 +3,11 @@ import path from 'path'
 import { pathToFileURL } from 'url'
 import { fetchFileContents, searchCode, listDirectoryContents } from '../_lib/github/githubApi.js'
 import { getSession } from '../_lib/github/session.js'
+import {
+  getWorkingMemory,
+  updateWorkingMemoryIfNeeded,
+  formatWorkingMemoryForPrompt,
+} from './working-memory.js'
 
 type PmAgentResponse = {
   reply: string
@@ -65,6 +70,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       conversationHistory?: Array<{ role: string; content: string }>
       previous_response_id?: string
       projectId?: string
+      conversationId?: string // e.g., "project-manager-1"
       repoFullName?: string
       supabaseUrl?: string
       supabaseAnonKey?: string
@@ -83,6 +89,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const projectId =
       typeof body.projectId === 'string' ? body.projectId.trim() || undefined : undefined
+    const conversationId =
+      typeof body.conversationId === 'string'
+        ? body.conversationId.trim() || undefined
+        : undefined
     const repoFullName =
       typeof body.repoFullName === 'string' ? body.repoFullName.trim() || undefined : undefined
     const supabaseUrl =
@@ -176,21 +186,27 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     // When project DB (Supabase) is provided, fetch full history and build bounded context pack (summary + recent by content size)
     const RECENT_MAX_CHARS = 12_000
     let conversationContextPack: string | undefined
+    let workingMemoryText: string | undefined
     let recentImagesFromDb: Array<{ dataUrl: string; filename: string; mimeType: string }> = []
     if (projectId && supabaseUrl && supabaseAnonKey && runnerModule) {
       try {
         const { createClient } = await import('@supabase/supabase-js')
         const supabase = createClient(supabaseUrl, supabaseAnonKey)
+        
+        // Use conversationId if provided, otherwise fall back to 'project-manager' for backward compatibility
+        const agentFilter = conversationId || 'project-manager'
+        
         const { data: rows } = await supabase
           .from('hal_conversation_messages')
           .select('role, content, sequence, images')
           .eq('project_id', projectId)
-          .eq('agent', 'project-manager')
+          .eq('agent', agentFilter)
           .order('sequence', { ascending: true })
 
         const messages = (rows ?? []).map((r: any) => ({
           role: r.role as 'user' | 'assistant',
           content: r.content ?? '',
+          sequence: r.sequence ?? 0,
           images: r.images || null,
         }))
 
@@ -219,6 +235,37 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           }
         }
 
+        // Update working memory if needed (0173: PM working memory)
+        if (conversationId && messages.length > 0) {
+          try {
+            await updateWorkingMemoryIfNeeded(
+              supabase,
+              projectId,
+              conversationId,
+              messages,
+              key,
+              model,
+              false // Don't force update unless explicitly requested
+            )
+          } catch (wmError) {
+            console.error('[PM] Failed to update working memory:', wmError)
+            // Continue without working memory if update fails
+          }
+        }
+        
+        // Get working memory for prompt inclusion
+        if (conversationId) {
+          try {
+            const workingMemory = await getWorkingMemory(supabase, projectId, conversationId)
+            if (workingMemory) {
+              workingMemoryText = formatWorkingMemoryForPrompt(workingMemory)
+            }
+          } catch (wmError) {
+            console.error('[PM] Failed to load working memory:', wmError)
+            // Continue without working memory if load fails
+          }
+        }
+        
         const olderCount = messages.length - recentFromEnd.length
         if (olderCount > 0) {
           const older = messages.slice(0, olderCount)
@@ -226,7 +273,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             .from('hal_conversation_summaries')
             .select('summary_text, through_sequence')
             .eq('project_id', projectId)
-            .eq('agent', 'project-manager')
+            .eq('agent', agentFilter)
             .single()
 
           const needNewSummary =
@@ -238,7 +285,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             await supabase.from('hal_conversation_summaries').upsert(
               {
                 project_id: projectId,
-                agent: 'project-manager',
+                agent: agentFilter,
                 summary_text: summaryText,
                 through_sequence: olderCount,
                 updated_at: new Date().toISOString(),
@@ -258,6 +305,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           conversationContextPack = messages
             .map((t) => `**${t.role}**: ${t.content}`)
             .join('\n\n')
+        }
+        
+        // Prepend working memory to context pack if available (0173)
+        if (workingMemoryText) {
+          conversationContextPack = workingMemoryText + '\n\n' + (conversationContextPack || '')
         }
 
         // Use DB-derived context pack instead of client-provided history
@@ -322,6 +374,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         ? { supabaseUrl: supabaseUrl!, supabaseAnonKey: supabaseAnonKey! }
         : {}),
       ...(projectId ? { projectId } : {}),
+      ...(conversationId ? { conversationId } : {}),
       ...(repoFullName ? { repoFullName } : {}),
       ...(githubReadFile ? { githubReadFile } : {}),
       ...(githubSearchCode ? { githubSearchCode } : {}),

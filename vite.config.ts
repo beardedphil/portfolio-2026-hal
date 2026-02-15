@@ -258,6 +258,31 @@ export default defineConfig({
       },
     },
     {
+      name: 'pm-refresh-working-memory-endpoint',
+      configureServer(server) {
+        server.middlewares.use(async (req, res, next) => {
+          if (req.url !== '/api/pm/refresh-working-memory' || req.method !== 'POST') {
+            next()
+            return
+          }
+
+          try {
+            const handler = await import('./api/pm/refresh-working-memory.js')
+            await handler.default(req, res)
+          } catch (err) {
+            res.statusCode = 500
+            res.setHeader('Content-Type', 'application/json')
+            res.end(
+              JSON.stringify({
+                success: false,
+                error: err instanceof Error ? err.message : String(err),
+              })
+            )
+          }
+        })
+      },
+    },
+    {
       name: 'pm-agent-endpoint',
       configureServer(server) {
         server.middlewares.use(async (req, res, next) => {
