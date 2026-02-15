@@ -2434,35 +2434,118 @@ function StatusIndicator({
   
   const showTooltip = isHovered || isFocused
 
-  // Position tooltip to avoid clipping
+  // Position tooltip to avoid clipping - ensures full visibility in all scenarios
   useEffect(() => {
     if (showTooltip && tooltipRef.current && indicatorRef.current) {
-      const tooltip = tooltipRef.current
-      const indicator = indicatorRef.current
-      const rect = indicator.getBoundingClientRect()
-      const tooltipRect = tooltip.getBoundingClientRect()
-      
-      // Check if tooltip would be clipped on the right
-      if (rect.right + tooltipRect.width > window.innerWidth) {
-        tooltip.style.left = 'auto'
-        tooltip.style.right = '0'
-      } else {
-        tooltip.style.left = '0'
-        tooltip.style.right = 'auto'
-      }
-      
-      // Check if tooltip would be clipped on the bottom
-      if (rect.bottom + tooltipRect.height > window.innerHeight) {
-        tooltip.style.top = 'auto'
-        tooltip.style.bottom = '100%'
-        tooltip.style.marginBottom = '4px'
-        tooltip.style.marginTop = '0'
-      } else {
+      // Use requestAnimationFrame to ensure DOM has updated
+      requestAnimationFrame(() => {
+        if (!tooltipRef.current || !indicatorRef.current) return
+        
+        const tooltip = tooltipRef.current
+        const indicator = indicatorRef.current
+        const wrapper = indicator.closest('.active-work-status-indicator-wrapper') as HTMLElement
+        if (!wrapper) return
+        
+        // Reset positioning to default (below, left-aligned) for accurate measurement
         tooltip.style.top = '100%'
         tooltip.style.bottom = 'auto'
+        tooltip.style.left = '0'
+        tooltip.style.right = 'auto'
         tooltip.style.marginTop = '4px'
         tooltip.style.marginBottom = '0'
-      }
+        tooltip.style.transform = 'none'
+        
+        // Get bounding rects after reset (all in viewport coordinates)
+        const indicatorRect = indicator.getBoundingClientRect()
+        const tooltipRect = tooltip.getBoundingClientRect()
+        const wrapperRect = wrapper.getBoundingClientRect()
+        
+        // Get viewport dimensions
+        const viewportWidth = window.innerWidth
+        const viewportHeight = window.innerHeight
+        
+        // Find the closest scrollable container (active-work-item, active-work-items, or document)
+        let container = indicator.closest('.active-work-item') || indicator.closest('.active-work-items')
+        let containerRect: DOMRect | null = null
+        if (container) {
+          containerRect = container.getBoundingClientRect()
+        }
+        
+        // Use container boundaries if available, otherwise use viewport
+        const maxRight = containerRect ? containerRect.right : viewportWidth
+        const maxBottom = containerRect ? containerRect.bottom : viewportHeight
+        const minLeft = containerRect ? containerRect.left : 0
+        const minTop = containerRect ? containerRect.top : 0
+        
+        // Calculate tooltip position when positioned below (default)
+        const spaceBelow = maxBottom - indicatorRect.bottom - 4
+        const spaceAbove = indicatorRect.top - minTop - 4
+        
+        // Vertical positioning: prefer below, flip above if needed
+        if (spaceBelow < tooltipRect.height && spaceAbove >= tooltipRect.height) {
+          // Not enough space below, but enough above - position above
+          tooltip.style.top = 'auto'
+          tooltip.style.bottom = '100%'
+          tooltip.style.marginBottom = '4px'
+          tooltip.style.marginTop = '0'
+        } else if (spaceBelow < tooltipRect.height && spaceAbove < tooltipRect.height) {
+          // Not enough space in either direction - use the side with more space
+          if (spaceAbove > spaceBelow) {
+            tooltip.style.top = 'auto'
+            tooltip.style.bottom = '100%'
+            tooltip.style.marginBottom = '4px'
+            tooltip.style.marginTop = '0'
+          } else {
+            tooltip.style.top = '100%'
+            tooltip.style.bottom = 'auto'
+            tooltip.style.marginTop = '4px'
+            tooltip.style.marginBottom = '0'
+          }
+        } else {
+          // Enough space below, use default
+          tooltip.style.top = '100%'
+          tooltip.style.bottom = 'auto'
+          tooltip.style.marginTop = '4px'
+          tooltip.style.marginBottom = '0'
+        }
+        
+        // Re-measure after vertical positioning
+        const finalTooltipRect = tooltip.getBoundingClientRect()
+        const tooltipLeftX = finalTooltipRect.left
+        const tooltipRightX = finalTooltipRect.right
+        
+        // Calculate horizontal offset relative to wrapper
+        // tooltip.style.left is relative to wrapper, so we need to convert viewport coordinates
+        const wrapperLeft = wrapperRect.left
+        
+        // Horizontal positioning: ensure tooltip doesn't clip on left or right
+        if (tooltipRightX > maxRight) {
+          // Tooltip extends beyond right edge - align to right of wrapper or adjust
+          const overflowRight = tooltipRightX - maxRight
+          // Try aligning to right of wrapper
+          tooltip.style.left = 'auto'
+          tooltip.style.right = '0'
+          // Re-measure
+          const adjustedRect = tooltip.getBoundingClientRect()
+          if (adjustedRect.left < minLeft) {
+            // Still extends beyond left, position to fit within container
+            // Calculate left offset: minLeft - wrapperLeft (convert viewport to wrapper-relative)
+            const leftOffset = minLeft - wrapperLeft
+            tooltip.style.left = `${leftOffset}px`
+            tooltip.style.right = 'auto'
+          }
+        } else if (tooltipLeftX < minLeft) {
+          // Tooltip extends beyond left edge - align to left of container
+          // Calculate left offset: minLeft - wrapperLeft (convert viewport to wrapper-relative)
+          const leftOffset = minLeft - wrapperLeft
+          tooltip.style.left = `${leftOffset}px`
+          tooltip.style.right = 'auto'
+        } else {
+          // Default: left-aligned with wrapper (which aligns with indicator)
+          tooltip.style.left = '0'
+          tooltip.style.right = 'auto'
+        }
+      })
     }
   }, [showTooltip])
 
