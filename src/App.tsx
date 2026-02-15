@@ -5367,7 +5367,7 @@ function App() {
                             )}
                             {workingMemory && !workingMemory.summary && (!workingMemory.goals || workingMemory.goals.length === 0) && (!workingMemory.requirements || workingMemory.requirements.length === 0) && 
                              (!workingMemory.constraints || workingMemory.constraints.length === 0) && (!workingMemory.decisions || workingMemory.decisions.length === 0) && (!workingMemory.assumptions || workingMemory.assumptions.length === 0) && 
-                             (!workingMemory.openQuestions || workingMemory.openQuestions.length === 0) && (!workingMemory.glossary || (workingMemory.glossary && Object.keys(workingMemory.glossary).length === 0)) && (!workingMemory.stakeholders || workingMemory.stakeholders.length === 0) && (
+                             (!workingMemory.openQuestions || workingMemory.openQuestions.length === 0) && (!workingMemory.glossary || Object.keys(workingMemory.glossary || {}).length === 0) && (!workingMemory.stakeholders || workingMemory.stakeholders.length === 0) && (
                               <div style={{ color: '#666', fontStyle: 'italic' }}>
                                 Working memory is empty. It will be populated automatically as the conversation grows.
                               </div>
