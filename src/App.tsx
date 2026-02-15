@@ -480,7 +480,7 @@ function App() {
   /** Progress messages for Process Review Agent (0111). */
   const [processReviewAgentProgress, setProcessReviewAgentProgress] = useState<Array<{ timestamp: Date; message: string }>>([])
   /** Last error message for Process Review Agent (0111). */
-  const [processReviewAgentError, setProcessReviewAgentError] = useState<string | null>(null)
+  const [_processReviewAgentError, setProcessReviewAgentError] = useState<string | null>(null)
   /** Auto-move diagnostics entries (0061). */
   const [autoMoveDiagnostics, setAutoMoveDiagnostics] = useState<Array<{ timestamp: Date; message: string; type: 'error' | 'info' }>>([])
   /** Agent type that initiated the current Cursor run (0067). Used to route completion summaries to the correct chat. */
@@ -1319,72 +1319,6 @@ function App() {
     return firstLine.length > 100 ? firstLine.substring(0, 100) + '...' : firstLine
   }, [])
 
-  // Fetch PM working memory (0173) - defined early so it can be used in other functions
-  const fetchPmWorkingMemory = useCallback(async () => {
-    if (!connectedProject || !supabaseUrl || !supabaseAnonKey) {
-      setPmWorkingMemory(null)
-      return
-    }
-
-    try {
-      setPmWorkingMemoryLoading(true)
-      const supabase = getSupabaseClient(supabaseUrl, supabaseAnonKey)
-      const agentFilter = selectedConversationId || getConversationId('project-manager', 1)
-      const { data, error } = await supabase
-        .from('hal_conversation_working_memory')
-        .select('*')
-        .eq('project_id', connectedProject)
-        .eq('agent', agentFilter)
-        .single()
-
-      if (error && error.code !== 'PGRST116') {
-        throw error
-      }
-
-      if (data) {
-        setPmWorkingMemory({
-          summary: data.summary || '',
-          goals: Array.isArray(data.goals) ? data.goals : [],
-          requirements: Array.isArray(data.requirements) ? data.requirements : [],
-          constraints: Array.isArray(data.constraints) ? data.constraints : [],
-          decisions: Array.isArray(data.decisions) ? data.decisions : [],
-          assumptions: Array.isArray(data.assumptions) ? data.assumptions : [],
-          open_questions: Array.isArray(data.open_questions) ? data.open_questions : [],
-          glossary: data.glossary && typeof data.glossary === 'object' ? data.glossary as Record<string, string> : {},
-          stakeholders: Array.isArray(data.stakeholders) ? data.stakeholders : [],
-          updated_at: data.updated_at || new Date().toISOString(),
-          through_sequence: data.through_sequence || 0,
-        })
-      } else {
-        setPmWorkingMemory(null)
-      }
-    } catch (err) {
-      console.error('[PM] Failed to fetch working memory:', err)
-      setPmWorkingMemory(null)
-    } finally {
-      setPmWorkingMemoryLoading(false)
-    }
-  }, [connectedProject, supabaseUrl, supabaseAnonKey, selectedConversationId])
-
-  // Legacy fetchWorkingMemory - redirects to fetchPmWorkingMemory
-  const fetchWorkingMemory = useCallback(async () => {
-    await fetchPmWorkingMemory()
-  }, [fetchPmWorkingMemory])
-
-  // Load working memory when PM chat is selected and project is connected (0173)
-  useEffect(() => {
-    if (selectedChatTarget === 'project-manager' && connectedProject && supabaseUrl && supabaseAnonKey) {
-      fetchPmWorkingMemory()
-    }
-  }, [selectedChatTarget, connectedProject, supabaseUrl, supabaseAnonKey, fetchPmWorkingMemory])
-
-  // Auto-fetch working memory when PM chat is opened and project is connected
-  useEffect(() => {
-    if (selectedChatTarget === 'project-manager' && connectedProject && supabaseUrl && supabaseAnonKey) {
-      fetchWorkingMemory()
-    }
-  }, [selectedChatTarget, connectedProject, supabaseUrl, supabaseAnonKey, fetchWorkingMemory])
-
   // Get preview text for PM chat (0087)
   const getChatTargetPreview = useCallback((target: ChatTarget): string => {
     if (target === 'project-manager') {
@@ -1408,16 +1342,16 @@ function App() {
   // Fetch working memory for current PM conversation (0173) — use API only so we never hit Supabase from client (avoids 406)
   const fetchWorkingMemory = useCallback(async () => {
     if (!connectedProject || !supabaseUrl || !supabaseAnonKey) {
-      setWorkingMemory(null)
+      setPmWorkingMemory(null)
       return
     }
     if (selectedChatTarget !== 'project-manager') {
-      setWorkingMemory(null)
+      setPmWorkingMemory(null)
       return
     }
     const convId = selectedConversationId || getConversationId('project-manager', 1)
-    setWorkingMemoryLoading(true)
-    setWorkingMemoryError(null)
+    setPmWorkingMemoryLoading(true)
+    setPmWorkingMemoryError(null)
     try {
       const res = await fetch('/api/conversations/working-memory/get', {
         method: 'POST',
@@ -1431,14 +1365,14 @@ function App() {
       })
       const data = await res.json()
       if (!res.ok || !data.success) {
-        setWorkingMemory(null)
-        if (data.error) setWorkingMemoryError(data.error)
+        setPmWorkingMemory(null)
+        if (data.error) setPmWorkingMemoryError(data.error)
         return
       }
       const wm = data.workingMemory
       if (wm) {
         const arr = (x: unknown) => (Array.isArray(x) ? x : typeof x === 'string' ? (x ? [x] : []) : [])
-        setWorkingMemory({
+        setPmWorkingMemory({
           summary: wm.summary || '',
           goals: arr(wm.goals),
           requirements: arr(wm.requirements),
@@ -1448,24 +1382,25 @@ function App() {
           open_questions: arr(wm.openQuestions ?? wm.open_questions),
           glossary: typeof wm.glossary === 'object' && wm.glossary !== null ? (wm.glossary as Record<string, string>) : {},
           stakeholders: arr(wm.stakeholders),
-          last_updated_at: wm.lastUpdatedAt || wm.last_updated_at || new Date().toISOString(),
+          updated_at: wm.lastUpdatedAt || wm.last_updated_at || new Date().toISOString(),
+          through_sequence: typeof wm.throughSequence === 'number' ? wm.throughSequence : 0,
         })
       } else {
-        setWorkingMemory(null)
+        setPmWorkingMemory(null)
       }
     } catch (err) {
       console.error('[HAL] Failed to fetch working memory:', err)
-      setWorkingMemoryError(err instanceof Error ? err.message : String(err))
-      setWorkingMemory(null)
+      setPmWorkingMemoryError(err instanceof Error ? err.message : String(err))
+      setPmWorkingMemory(null)
     } finally {
-      setWorkingMemoryLoading(false)
+      setPmWorkingMemoryLoading(false)
     }
   }, [connectedProject, supabaseUrl, supabaseAnonKey, selectedChatTarget, selectedConversationId])
 
   // Legacy loadWorkingMemory function for compatibility
   const loadWorkingMemory = useCallback(async () => {
-    await fetchPmWorkingMemory()
-  }, [fetchPmWorkingMemory])
+    await fetchWorkingMemory()
+  }, [fetchWorkingMemory])
 
   // Legacy refreshWorkingMemory function - defined after refreshPmWorkingMemory
   const refreshWorkingMemory = useCallback(async () => {
@@ -1510,6 +1445,60 @@ function App() {
       }
     } catch (err) {
       console.error('[PM] Failed to refresh working memory:', err)
+    } finally {
+      setPmWorkingMemoryLoading(false)
+    }
+  }, [connectedProject, supabaseUrl, supabaseAnonKey, selectedConversationId])
+
+  // Fetch PM working memory (0173) — use API only so we never hit Supabase from client (avoids 406 on hal_conversation_working_memory)
+  const fetchPmWorkingMemory = useCallback(async (conversationId?: string) => {
+    if (!connectedProject || !supabaseUrl || !supabaseAnonKey) {
+      setPmWorkingMemory(null)
+      return
+    }
+    const convId = conversationId ?? selectedConversationId ?? getConversationId('project-manager', 1)
+    try {
+      setPmWorkingMemoryLoading(true)
+      setPmWorkingMemoryError(null)
+      const res = await fetch('/api/conversations/working-memory/get', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: connectedProject,
+          agent: convId,
+          supabaseUrl,
+          supabaseAnonKey,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        setPmWorkingMemory(null)
+        if (data.error) setPmWorkingMemoryError(data.error)
+        return
+      }
+      const wm = data.workingMemory
+      if (wm && (wm.summary || (Array.isArray(wm.goals) && wm.goals.length) || (Array.isArray(wm.requirements) && wm.requirements.length))) {
+        const arr = (x: unknown) => (Array.isArray(x) ? x : typeof x === 'string' ? (x ? [x] : []) : [])
+        setPmWorkingMemory({
+          summary: wm.summary || '',
+          goals: arr(wm.goals),
+          requirements: arr(wm.requirements),
+          constraints: arr(wm.constraints),
+          decisions: arr(wm.decisions),
+          assumptions: arr(wm.assumptions),
+          open_questions: arr(wm.openQuestions ?? wm.open_questions),
+          glossary: typeof wm.glossary === 'object' && wm.glossary !== null ? (wm.glossary as Record<string, string>) : {},
+          stakeholders: arr(wm.stakeholders),
+          updated_at: wm.lastUpdatedAt || wm.last_updated_at || new Date().toISOString(),
+          through_sequence: typeof wm.throughSequence === 'number' ? wm.throughSequence : wm.through_sequence || 0,
+        })
+      } else {
+        setPmWorkingMemory(null)
+      }
+    } catch (err) {
+      console.error('[PM] Failed to fetch working memory:', err)
+      setPmWorkingMemoryError(err instanceof Error ? err.message : String(err))
+      setPmWorkingMemory(null)
     } finally {
       setPmWorkingMemoryLoading(false)
     }
@@ -3368,116 +3357,6 @@ function App() {
     }
   }, [handleSend])
 
-  // Fetch PM working memory (0173) — use API only so we never hit Supabase from client (avoids 406 on hal_conversation_working_memory)
-  const fetchPmWorkingMemory = useCallback(async (conversationId: string) => {
-    if (!connectedProject || !supabaseUrl || !supabaseAnonKey) {
-      setPmWorkingMemory(null)
-      return
-    }
-
-    try {
-      setPmWorkingMemoryLoading(true)
-      setPmWorkingMemoryError(null)
-      const res = await fetch('/api/conversations/working-memory/get', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectId: connectedProject,
-          agent: conversationId || 'project-manager',
-          supabaseUrl,
-          supabaseAnonKey,
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok || !data.success) {
-        setPmWorkingMemory(null)
-        if (data.error) setPmWorkingMemoryError(data.error)
-        return
-      }
-      const wm = data.workingMemory
-      if (wm && (wm.summary || (Array.isArray(wm.goals) && wm.goals.length) || (Array.isArray(wm.requirements) && wm.requirements.length))) {
-        const arr = (x: unknown) => (Array.isArray(x) ? x : typeof x === 'string' ? (x ? [x] : []) : [])
-        const str = (x: unknown) => (Array.isArray(x) ? x.join('\n') : typeof x === 'string' ? x : '')
-        setPmWorkingMemory({
-          summary: wm.summary || '',
-          goals: str(wm.goals),
-          requirements: str(wm.requirements),
-          constraints: str(wm.constraints),
-          decisions: str(wm.decisions),
-          assumptions: str(wm.assumptions),
-          open_questions: str(wm.openQuestions ?? wm.open_questions),
-          glossary_terms: typeof wm.glossary === 'object' && wm.glossary !== null ? JSON.stringify(wm.glossary) : '',
-          stakeholders: str(wm.stakeholders),
-          last_updated: wm.lastUpdatedAt || wm.last_updated_at || new Date().toISOString(),
-          through_sequence: typeof wm.throughSequence === 'number' ? wm.throughSequence : wm.through_sequence || 0,
-        })
-      } else {
-        setPmWorkingMemory(null)
-      }
-    } catch (err) {
-      console.error('[PM] Failed to fetch working memory:', err)
-      setPmWorkingMemoryError(err instanceof Error ? err.message : String(err))
-      setPmWorkingMemory(null)
-    } finally {
-      setPmWorkingMemoryLoading(false)
-    }
-  }, [connectedProject, supabaseUrl, supabaseAnonKey])
-
-  // Refresh PM working memory (0173)
-  const refreshPmWorkingMemory = useCallback(async (conversationId: string) => {
-    if (!connectedProject || !supabaseUrl || !supabaseAnonKey) {
-      setPmWorkingMemoryError('Supabase not connected')
-      return
-    }
-
-    try {
-      setPmWorkingMemoryLoading(true)
-      setPmWorkingMemoryError(null)
-      
-      const url = supabaseUrl.trim()
-      const key = supabaseAnonKey.trim()
-      
-      const res = await fetch('/api/pm/working-memory', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectId: connectedProject,
-          supabaseUrl: url,
-          supabaseAnonKey: key,
-          force: true,
-        }),
-      })
-
-      const data = await res.json() as { success: boolean; workingMemory?: any; error?: string }
-      
-      if (!data.success) {
-        throw new Error(data.error || 'Failed to refresh working memory')
-      }
-
-      if (data.workingMemory) {
-        setPmWorkingMemory({
-          summary: data.workingMemory.summary || '',
-          goals: Array.isArray(data.workingMemory.goals) ? data.workingMemory.goals : [],
-          requirements: Array.isArray(data.workingMemory.requirements) ? data.workingMemory.requirements : [],
-          constraints: Array.isArray(data.workingMemory.constraints) ? data.workingMemory.constraints : [],
-          decisions: Array.isArray(data.workingMemory.decisions) ? data.workingMemory.decisions : [],
-          assumptions: Array.isArray(data.workingMemory.assumptions) ? data.workingMemory.assumptions : [],
-          open_questions: Array.isArray(data.workingMemory.openQuestions) ? data.workingMemory.openQuestions : (Array.isArray(data.workingMemory.open_questions) ? data.workingMemory.open_questions : []),
-          glossary: data.workingMemory.glossary && typeof data.workingMemory.glossary === 'object' ? data.workingMemory.glossary as Record<string, string> : {},
-          stakeholders: Array.isArray(data.workingMemory.stakeholders) ? data.workingMemory.stakeholders : [],
-          updated_at: data.workingMemory.updated_at || new Date().toISOString(),
-          through_sequence: data.workingMemory.through_sequence || 0,
-        })
-      } else {
-        setPmWorkingMemory(null)
-      }
-    } catch (err) {
-      console.error('[PM] Failed to refresh working memory:', err)
-    } finally {
-      setPmWorkingMemoryLoading(false)
-    }
-  }, [connectedProject, supabaseUrl, supabaseAnonKey])
-
   const handleThemeToggle = useCallback(() => {
     setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))
   }, [])
@@ -3617,6 +3496,7 @@ function App() {
     onTicketCreated: fetchKanbanData,
   }
 
+  // Chat panel content (used below in sidebar when openChatTarget is set)
   const chatPanelContent = (function renderChatPanelContent() {
     const displayMessages = activeMessages
     const displayTarget = selectedChatTarget
@@ -3726,7 +3606,16 @@ function App() {
         {/* Composer */}
         <div className="composer">
           <div className="composer-inner">
-            {imageError && <div className="composer-error" role="alert">{imageError}</div>}
+            {imageAttachment && (
+              <div className="image-attachment-preview" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <img src={imageAttachment.dataUrl} alt={imageAttachment.filename} style={{ maxHeight: 48, borderRadius: 4 }} />
+                <span style={{ fontSize: 12 }}>{imageAttachment.filename}</span>
+                <button type="button" onClick={handleRemoveImage} aria-label="Remove attachment" style={{ marginLeft: 4 }}>×</button>
+              </div>
+            )}
+            {(imageError || sendValidationError) && (
+              <div className="composer-error" role="alert">{imageError || sendValidationError}</div>
+            )}
             <div className="composer-row">
               <textarea
                 ref={composerRef}
@@ -4173,542 +4062,8 @@ function App() {
                     </div>
                   )}
                   {/* Render the chat UI here - same as the right panel chat */}
-                  {(() => {
-                // Use activeMessages which is computed based on selectedChatTarget and selectedConversationId
-                // These are set when opening a chat, so they should be correct
-                const displayMessages = activeMessages
-                const displayTarget = selectedChatTarget
-
-                return (
-                  <>
-                    {/* Agent stub banners and status panels */}
-                    {displayTarget === 'implementation-agent' && (
-                      <>
-                        <div className="agent-stub-banner" role="status">
-                          <p className="agent-stub-title">Implementation Agent — Cursor Cloud Agents</p>
-                          <p className="agent-stub-hint">
-                            {import.meta.env.VITE_CURSOR_API_KEY
-                              ? 'Say "Implement ticket XXXX" (e.g. Implement ticket 0046) to fetch the ticket, launch a Cursor cloud agent, and move the ticket to QA when done.'
-                              : 'Cursor API is not configured. Set CURSOR_API_KEY and VITE_CURSOR_API_KEY in .env to enable.'}
-                          </p>
-                        </div>
-                        {(implAgentRunStatus !== 'idle' || implAgentError) && (
-                          <div className="impl-agent-status-panel" role="status" aria-live="polite">
-                            <div className="impl-agent-status-header">
-                              <span className="impl-agent-status-label">Status:</span>
-                              <span className={`impl-agent-status-value impl-status-${implAgentRunStatus}`}>
-                                {implAgentRunStatus === 'preparing' ? 'Preparing' :
-                                 implAgentRunStatus === 'fetching_ticket' ? 'Fetching ticket' :
-                                 implAgentRunStatus === 'resolving_repo' ? 'Resolving repository' :
-                                 implAgentRunStatus === 'launching' ? 'Launching agent' :
-                                 implAgentRunStatus === 'polling' ? 'Running' :
-                                 implAgentRunStatus === 'completed' ? 'Completed' :
-                                 implAgentRunStatus === 'failed' ? 'Failed' : 'Idle'}
-                              </span>
-                            </div>
-                            {implAgentError && (
-                              <div className="impl-agent-error" role="alert">
-                                <strong>Error:</strong> {implAgentError}
-                              </div>
-                            )}
-                            {implAgentProgress.length > 0 && (
-                              <div className="impl-agent-progress-feed">
-                                <div className="impl-agent-progress-label">Progress:</div>
-                                <div className="impl-agent-progress-items">
-                                  {implAgentProgress.slice(-5).map((p, idx) => (
-                                    <div key={idx} className="impl-agent-progress-item">
-                                      <span className="impl-agent-progress-time">[{formatTime(p.timestamp)}]</span>
-                                      <span className="impl-agent-progress-message">{p.message}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </>
-                    )}
-                    {displayTarget === 'qa-agent' && (
-                      <>
-                        <div className="agent-stub-banner" role="status">
-                          <p className="agent-stub-title">QA Agent — Cursor Cloud Agents</p>
-                          <p className="agent-stub-hint">
-                            {import.meta.env.VITE_CURSOR_API_KEY
-                              ? 'Say "QA ticket XXXX" (e.g. QA ticket 0046) to review the ticket implementation, generate a QA report, and merge to main if it passes.'
-                              : 'Cursor API is not configured. Set CURSOR_API_KEY and VITE_CURSOR_API_KEY in .env to enable.'}
-                          </p>
-                        </div>
-                        {(qaAgentRunStatus !== 'idle' || qaAgentError) && (
-                          <div className="impl-agent-status-panel" role="status" aria-live="polite">
-                            <div className="impl-agent-status-header">
-                              <span className="impl-agent-status-label">Status:</span>
-                              <span className={`impl-agent-status-value impl-status-${qaAgentRunStatus}`}>
-                                {qaAgentRunStatus === 'preparing' ? 'Preparing' :
-                                 qaAgentRunStatus === 'fetching_ticket' ? 'Fetching ticket' :
-                                 qaAgentRunStatus === 'fetching_branch' ? 'Finding branch' :
-                                 qaAgentRunStatus === 'launching' ? 'Launching QA' :
-                                 qaAgentRunStatus === 'polling' ? 'Reviewing' :
-                                 qaAgentRunStatus === 'generating_report' ? 'Generating report' :
-                                 qaAgentRunStatus === 'merging' ? 'Merging' :
-                                 qaAgentRunStatus === 'moving_ticket' ? 'Moving ticket' :
-                                 qaAgentRunStatus === 'completed' ? 'Completed' :
-                                 qaAgentRunStatus === 'failed' ? 'Failed' : 'Idle'}
-                              </span>
-                            </div>
-                            {qaAgentError && (
-                              <div className="impl-agent-error" role="alert">
-                                <strong>Error:</strong> {qaAgentError}
-                              </div>
-                            )}
-                            {qaAgentProgress.length > 0 && (
-                              <div className="impl-agent-progress-feed">
-                                <div className="impl-agent-progress-label">Progress:</div>
-                                <div className="impl-agent-progress-items">
-                                  {qaAgentProgress.slice(-5).map((p, idx) => (
-                                    <div key={idx} className="impl-agent-progress-item">
-                                      <span className="impl-agent-progress-time">[{formatTime(p.timestamp)}]</span>
-                                      <span className="impl-agent-progress-message">{p.message}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </>
-                    )}
-                    {displayTarget === 'process-review-agent' && (
-                      <>
-                        <div className="agent-stub-banner" role="status">
-                          <p className="agent-stub-title">Process Review Agent</p>
-                          <p className="agent-stub-hint">
-                            {supabaseUrl && supabaseAnonKey
-                              ? 'Process Review analyzes ticket artifacts and suggests improvements to agent instructions. Click "Review top ticket" in the Process Review column to run a review.'
-                              : 'Supabase is not configured. Process Review requires Supabase to access ticket artifacts.'}
-                          </p>
-                        </div>
-                        {(processReviewAgentRunStatus !== 'idle' || processReviewAgentError) && (
-                          <div className="impl-agent-status-panel" role="status" aria-live="polite">
-                            <div className="impl-agent-status-header">
-                              <span className="impl-agent-status-label">Status:</span>
-                              <span className={`impl-agent-status-value impl-status-${processReviewAgentRunStatus}`}>
-                                {processReviewAgentRunStatus === 'preparing' ? 'Preparing' :
-                                 processReviewAgentRunStatus === 'running' ? 'Running' :
-                                 processReviewAgentRunStatus === 'completed' ? 'Completed' :
-                                 processReviewAgentRunStatus === 'failed' ? 'Failed' : 'Idle'}
-                              </span>
-                            </div>
-                            {processReviewAgentError && (
-                              <div className="impl-agent-error" role="alert">
-                                <strong>Error:</strong> {processReviewAgentError}
-                              </div>
-                            )}
-                            {processReviewAgentProgress.length > 0 && (
-                              <div className="impl-agent-progress-feed">
-                                <div className="impl-agent-progress-label">Progress:</div>
-                                <div className="impl-agent-progress-items">
-                                  {processReviewAgentProgress.slice(-5).map((p, idx) => (
-                                    <div key={idx} className="impl-agent-progress-item">
-                                      <span className="impl-agent-progress-time">[{formatTime(p.timestamp)}]</span>
-                                      <span className="impl-agent-progress-message">{p.message}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </>
-                    )}
-
-                    {/* PM Working Memory Panel (0173) */}
-                    {displayTarget === 'project-manager' && (
-                      <div className="pm-working-memory-panel" style={{ borderBottom: '1px solid rgba(0,0,0,0.1)', padding: '12px', backgroundColor: 'rgba(0,0,0,0.02)' }} key="pm-working-memory-panel">
-                        <div
-                          style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            cursor: 'pointer',
-                            marginBottom: workingMemoryOpen ? '12px' : '0',
-                          }}
-                          onClick={() => setPmWorkingMemoryOpen(!pmWorkingMemoryOpen)}
-                          role="button"
-                          tabIndex={0}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault()
-                              setPmWorkingMemoryOpen(!pmWorkingMemoryOpen)
-                            }
-                          }}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ fontWeight: 600, fontSize: '14px' }}>PM Working Memory</span>
-                            {workingMemoryLoading && <span style={{ fontSize: '12px', color: '#666' }}>Loading...</span>}
-                            {workingMemoryError && (
-                              <span style={{ fontSize: '12px', color: '#d32f2f' }} title={workingMemoryError}>
-                                Error
-                              </span>
-                            )}
-                            {workingMemory && !workingMemoryLoading && (
-                              <span style={{ fontSize: '12px', color: '#666' }}>
-                                Last updated: {new Date(workingMemory.lastUpdatedAt).toLocaleString()}
-                              </span>
-                            )}
-                          </div>
-                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                refreshWorkingMemory()
-                              }}
-                              disabled={workingMemoryLoading}
-                              style={{
-                                padding: '4px 8px',
-                                fontSize: '12px',
-                                border: '1px solid rgba(0,0,0,0.2)',
-                                borderRadius: '4px',
-                                background: 'white',
-                                cursor: workingMemoryLoading ? 'not-allowed' : 'pointer',
-                              }}
-                              title="Refresh working memory now"
-                            >
-                              Refresh
-                            </button>
-                            <span style={{ fontSize: '12px' }}>{workingMemoryOpen ? '▼' : '▶'}</span>
-                          </div>
-                        </div>
-                        {workingMemoryOpen && (
-                          <div style={{ marginTop: '12px', fontSize: '13px', lineHeight: '1.6' }}>
-                            {workingMemoryError ? (
-                              <div style={{ color: '#d32f2f', padding: '8px', backgroundColor: 'rgba(211, 47, 47, 0.1)', borderRadius: '4px' }}>
-                                <strong>Error:</strong> {workingMemoryError}
-                                {typeof workingMemoryError === 'string' && (workingMemoryError.includes('stale') || workingMemoryError.includes('unavailable')) ? (
-                                  <div style={{ marginTop: '8px', fontSize: '12px' }}>
-                                    The PM agent will continue using recent messages. Working memory will be updated automatically when available.
-                                  </div>
-                                ) : null}
-                              </div>
-                            ) : workingMemory ? (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                {workingMemory.summary && (
-                                  <div>
-                                    <strong>Summary:</strong>
-                                    <div style={{ marginTop: '4px', padding: '8px', backgroundColor: 'white', borderRadius: '4px' }}>
-                                      {workingMemory.summary}
-                                    </div>
-                                  </div>
-                                )}
-                                {workingMemory.goals && workingMemory.goals.length > 0 && (
-                                  <div>
-                                    <strong>Goals:</strong>
-                                    <ul style={{ margin: '4px 0 0 0', paddingLeft: '20px' }}>
-                                      {workingMemory.goals.map((goal, idx) => (
-                                        <li key={idx}>{goal}</li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                )}
-                                {workingMemory.requirements && workingMemory.requirements.length > 0 && (
-                                  <div>
-                                    <strong>Requirements:</strong>
-                                    <ul style={{ margin: '4px 0 0 0', paddingLeft: '20px' }}>
-                                      {workingMemory.requirements.map((req, idx) => (
-                                        <li key={idx}>{req}</li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                )}
-                                {workingMemory.constraints && workingMemory.constraints.length > 0 && (
-                                  <div>
-                                    <strong>Constraints:</strong>
-                                    <ul style={{ margin: '4px 0 0 0', paddingLeft: '20px' }}>
-                                      {workingMemory.constraints.map((constraint, idx) => (
-                                        <li key={idx}>{constraint}</li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                )}
-                                {workingMemory.decisions && workingMemory.decisions.length > 0 && (
-                                  <div>
-                                    <strong>Decisions:</strong>
-                                    <ul style={{ margin: '4px 0 0 0', paddingLeft: '20px' }}>
-                                      {workingMemory.decisions.map((decision, idx) => (
-                                        <li key={idx}>{decision}</li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                )}
-                                {workingMemory.assumptions && workingMemory.assumptions.length > 0 && (
-                                  <div>
-                                    <strong>Assumptions:</strong>
-                                    <ul style={{ margin: '4px 0 0 0', paddingLeft: '20px' }}>
-                                      {workingMemory.assumptions.map((assumption, idx) => (
-                                        <li key={idx}>{assumption}</li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                )}
-                                {workingMemory.openQuestions && workingMemory.openQuestions.length > 0 && (
-                                  <div>
-                                    <strong>Open Questions:</strong>
-                                    <ul style={{ margin: '4px 0 0 0', paddingLeft: '20px' }}>
-                                      {workingMemory.openQuestions.map((question, idx) => (
-                                        <li key={idx}>{question}</li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                )}
-                                {workingMemory.glossary && Object.keys(workingMemory.glossary).length > 0 && (
-                                  <div>
-                                    <strong>Glossary:</strong>
-                                    <dl style={{ margin: '4px 0 0 0', paddingLeft: '20px' }}>
-                                      {Object.entries(workingMemory.glossary).map(([term, def]) => (
-                                        <React.Fragment key={term}>
-                                          <dt style={{ fontWeight: 'bold', marginTop: '4px' }}>{term}:</dt>
-                                          <dd style={{ marginLeft: '20px', marginBottom: '4px' }}>{def}</dd>
-                                        </React.Fragment>
-                                      ))}
-                                    </dl>
-                                  </div>
-                                )}
-                                {workingMemory.stakeholders && workingMemory.stakeholders.length > 0 && (
-                                  <div>
-                                    <strong>Stakeholders:</strong>
-                                    <ul style={{ margin: '4px 0 0 0', paddingLeft: '20px' }}>
-                                      {workingMemory.stakeholders.map((stakeholder, idx) => (
-                                        <li key={idx}>{stakeholder}</li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                )}
-                                {!workingMemory.summary &&
-                                  (!workingMemory.goals || workingMemory.goals.length === 0) &&
-                                  (!workingMemory.requirements || workingMemory.requirements.length === 0) &&
-                                  (!workingMemory.constraints || workingMemory.constraints.length === 0) &&
-                                  (!workingMemory.decisions || workingMemory.decisions.length === 0) &&
-                                  (!workingMemory.assumptions || workingMemory.assumptions.length === 0) &&
-                                  (!workingMemory.openQuestions || workingMemory.openQuestions.length === 0) &&
-                                  (!workingMemory.glossary || Object.keys(workingMemory.glossary).length === 0) &&
-                                  (!workingMemory.stakeholders || workingMemory.stakeholders.length === 0) && (
-                                    <div style={{ color: '#666', fontStyle: 'italic' }}>
-                                      Working memory is empty. It will be populated automatically as the conversation grows.
-                                    </div>
-                                  )}
-                              </div>
-                            ) : (
-                              <div style={{ color: '#666', fontStyle: 'italic' }}>
-                                No working memory yet. It will be created automatically as the conversation grows.
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Chat transcript */}
-                    <div className="chat-transcript" ref={transcriptRef}>
-                      {/* Loading older messages indicator */}
-                      {(() => {
-                        const currentConvId = selectedConversationId || (selectedChatTarget === 'project-manager' ? getConversationId('project-manager', 1) : null)
-                        const conv = currentConvId ? conversations.get(currentConvId) : null
-                        const isLoading = loadingOlderMessages === currentConvId
-                        const hasMore = conv?.hasMoreMessages
-                        return isLoading || hasMore ? (
-                          <div className="load-more-messages" style={{ padding: '12px', textAlign: 'center', borderBottom: '1px solid rgba(0,0,0,0.1)' }}>
-                            {isLoading ? (
-                              <span>Loading older messages...</span>
-                            ) : hasMore ? (
-                              <button
-                                type="button"
-                                onClick={() => currentConvId && loadOlderMessages(currentConvId)}
-                                style={{ background: 'transparent', border: '1px solid rgba(0,0,0,0.2)', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer' }}
-                              >
-                                Load older messages
-                              </button>
-                            ) : null}
-                          </div>
-                        ) : null
-                      })()}
-                      {displayMessages.length === 0 && agentTypingTarget !== displayTarget ? (
-                        <p className="transcript-empty">No messages yet. Start a conversation.</p>
-                      ) : (
-                        <>
-                          {displayMessages.map((msg) => (
-                            <div
-                              key={msg.id}
-                              className={`message-row message-row-${msg.agent}`}
-                              data-agent={msg.agent}
-                            >
-                              <div 
-                                className={`message message-${msg.agent} ${selectedChatTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText ? 'message-clickable' : ''}`}
-                                onClick={selectedChatTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText ? () => setPromptModalMessage(msg) : undefined}
-                                style={selectedChatTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText ? { cursor: 'pointer' } : undefined}
-                                title={selectedChatTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText ? 'Click to view sent prompt' : undefined}
-                              >
-                                <div className="message-header">
-                                  <span className="message-author">{getMessageAuthorLabel(msg.agent)}</span>
-                                  <span className="message-time">[{formatTime(msg.timestamp)}]</span>
-                                  {selectedChatTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText && (
-                                    <span className="message-prompt-indicator" title="Click to view sent prompt">📋</span>
-                                  )}
-                                  {msg.imageAttachments && msg.imageAttachments.length > 0 && (
-                                    <div className="message-images">
-                                      {msg.imageAttachments.map((img, idx) => (
-                                        <div key={idx} className="message-image-container">
-                                          <img src={img.dataUrl} alt={img.filename} className="message-image-thumbnail" />
-                                          <span className="message-image-filename">{img.filename}</span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-                                  {msg.content.trimStart().startsWith('{') ? (
-                                    <pre className="message-content message-json">{msg.content}</pre>
-                                  ) : (
-                                    <span className="message-content">{msg.content}</span>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                          {agentTypingTarget === displayTarget && (
-                            <div className="message-row message-row-typing" data-agent="typing" aria-live="polite">
-                              <div className="message message-typing">
-                                <div className="message-header">
-                                  <span className="message-author">HAL</span>
-                                </div>
-                                {displayTarget === 'implementation-agent' ? (
-                                  <div className="impl-agent-status-timeline" role="status">
-                                    <span className={implAgentRunStatus === 'preparing' ? 'impl-status-active' : ['fetching_ticket', 'resolving_repo', 'launching', 'polling', 'completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
-                                      Preparing
-                                    </span>
-                                    <span className="impl-status-arrow">→</span>
-                                    <span className={implAgentRunStatus === 'fetching_ticket' ? 'impl-status-active' : ['resolving_repo', 'launching', 'polling', 'completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
-                                      Fetching ticket
-                                    </span>
-                                    <span className="impl-status-arrow">→</span>
-                                    <span className={implAgentRunStatus === 'resolving_repo' ? 'impl-status-active' : ['launching', 'polling', 'completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
-                                      Resolving repo
-                                    </span>
-                                    <span className="impl-status-arrow">→</span>
-                                    <span className={implAgentRunStatus === 'launching' ? 'impl-status-active' : ['polling', 'completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
-                                      Launching agent
-                                    </span>
-                                    <span className="impl-status-arrow">→</span>
-                                    <span className={implAgentRunStatus === 'polling' ? 'impl-status-active' : ['completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
-                                      Running
-                                    </span>
-                                    <span className="impl-status-arrow">→</span>
-                                    <span className={implAgentRunStatus === 'completed' ? 'impl-status-done' : implAgentRunStatus === 'failed' ? 'impl-status-failed' : ''}>
-                                      {implAgentRunStatus === 'completed' ? 'Completed' : implAgentRunStatus === 'failed' ? 'Failed' : '…'}
-                                    </span>
-                                  </div>
-                                ) : displayTarget === 'qa-agent' ? (
-                                  <div className="impl-agent-status-timeline" role="status">
-                                    <span className={qaAgentRunStatus === 'preparing' ? 'impl-status-active' : ['fetching_ticket', 'fetching_branch', 'launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                      Preparing
-                                    </span>
-                                    <span className="impl-status-arrow">→</span>
-                                    <span className={qaAgentRunStatus === 'fetching_ticket' ? 'impl-status-active' : ['fetching_branch', 'launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                      Fetching ticket
-                                    </span>
-                                    <span className="impl-status-arrow">→</span>
-                                    <span className={qaAgentRunStatus === 'fetching_branch' ? 'impl-status-active' : ['launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                      Finding branch
-                                    </span>
-                                    <span className="impl-status-arrow">→</span>
-                                    <span className={qaAgentRunStatus === 'launching' ? 'impl-status-active' : ['polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                      Launching QA
-                                    </span>
-                                    <span className="impl-status-arrow">→</span>
-                                    <span className={qaAgentRunStatus === 'polling' ? 'impl-status-active' : ['generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                      Reviewing
-                                    </span>
-                                    <span className="impl-status-arrow">→</span>
-                                    <span className={qaAgentRunStatus === 'generating_report' ? 'impl-status-active' : ['merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                      Generating report
-                                    </span>
-                                    <span className="impl-status-arrow">→</span>
-                                    <span className={qaAgentRunStatus === 'merging' ? 'impl-status-active' : ['moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                      Merging
-                                    </span>
-                                    <span className="impl-status-arrow">→</span>
-                                    <span className={qaAgentRunStatus === 'moving_ticket' ? 'impl-status-active' : ['completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                      Moving ticket
-                                    </span>
-                                    <span className="impl-status-arrow">→</span>
-                                    <span className={qaAgentRunStatus === 'completed' ? 'impl-status-done' : qaAgentRunStatus === 'failed' ? 'impl-status-failed' : ''}>
-                                      {qaAgentRunStatus === 'completed' ? 'Completed' : qaAgentRunStatus === 'failed' ? 'Failed' : '…'}
-                                    </span>
-                                  </div>
-                                ) : (
-                                  <span className="typing-bubble">
-                                    <span className="typing-label">Thinking</span>
-                                    <span className="typing-dots">
-                                      <span className="typing-dot" />
-                                      <span className="typing-dot" />
-                                      <span className="typing-dot" />
-                                    </span>
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
-
-                    {/* Chat composer */}
-                    <div className="chat-composer">
-                      {imageAttachment && (
-                        <div className="image-attachment-preview">
-                          <img src={imageAttachment.dataUrl} alt={imageAttachment.filename} className="attachment-thumbnail" />
-                          <span className="attachment-filename">{imageAttachment.filename}</span>
-                          <button type="button" className="remove-attachment-btn" onClick={handleRemoveImage} aria-label="Remove attachment">
-                            ×
-                          </button>
-                        </div>
-                      )}
-                      {imageError && (
-                        <div className="image-error-message" role="alert">
-                          {imageError}
-                        </div>
-                      )}
-                      {sendValidationError && (
-                        <div className="image-error-message" role="alert">
-                          {sendValidationError}
-                        </div>
-                      )}
-                      <div className="composer-input-row">
-                        <textarea
-                          className="message-input"
-                          value={inputValue}
-                          onChange={(e) => setInputValue(e.target.value)}
-                          onKeyDown={handleKeyDown}
-                          placeholder="Type a message... (Enter to send)"
-                          rows={2}
-                        />
-                        <div className="composer-actions">
-                          <label className="attach-image-btn" title="Attach image">
-                            <input
-                              type="file"
-                              accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
-                              onChange={handleImageSelect}
-                              style={{ display: 'none' }}
-                              aria-label="Attach image"
-                            />
-                            📎
-                          </label>
-                          <button type="button" className="send-btn" onClick={handleSend} disabled={!!imageError}>
-                            Send
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                    </>
-                  )
-                  })()}
+                  {chatPanelContent}
+                  {/* duplicate chat panel IIFE removed - content is in chatPanelContent */}
                 </div>
               </>
             )}
