@@ -1023,7 +1023,11 @@ function SortableColumn({
       return
     }
 
-    // Library mode: HAL owns data; tell HAL to open chat (HAL will move ticket to Doing for Implement if needed)
+    // Library mode: QA column uses single-ticket behavior only (QA top ticket).
+    // Previously "QA All" launched one agent per ticket via a loop; that caused multiple agents
+    // to run against the same ticket (HAL-0607) due to stale closure / duplicate launches.
+    // Removed until we implement proper "QA All" in HAL: move all to Doing first, then stagger launches.
+    // Library mode: single ticket for all columns (including QA)
     if (halCtx?.onOpenChatAndSend && buttonConfig.chatTarget) {
       halCtx.onOpenChatAndSend({
         chatTarget: buttonConfig.chatTarget as import('./HalKanbanContext').HalChatTarget,
