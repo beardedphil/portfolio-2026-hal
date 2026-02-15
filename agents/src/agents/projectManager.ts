@@ -485,24 +485,88 @@ function recentTurnsWithinCharBudget(
   return { recent, omitted: turns.length - recent.length }
 }
 
+/** Curated PM rule files for local-first loading. */
+const PM_LOCAL_RULES = [
+  'agent-instructions.mdc',
+  'ac-confirmation-checklist.mdc',
+  'code-citation-requirements.mdc',
+  'qa-audit-report.mdc',
+] as const
+
 async function buildContextPack(config: PmAgentConfig, userMessage: string): Promise<string> {
   const rulesDir = config.rulesDir ?? '.cursor/rules'
   const rulesPath = path.resolve(config.repoRoot, rulesDir)
 
   const sections: string[] = []
 
-  // MANDATORY: Load basic instructions from Supabase first
-  sections.push(
-    '## MANDATORY: Load Your Instructions First\n\n' +
-    '**BEFORE responding to the user, you MUST load your basic instructions from Supabase using the `get_instruction_set` tool.**\n\n' +
-    '**Use the tool:** `get_instruction_set({ topicId: "project-manager-basic" })` or load all basic instructions for project-manager agent type.\n\n' +
-    '**The instructions from Supabase contain:**\n' +
-    '- Required workflows and procedures\n' +
-    '- How to evaluate ticket readiness\n' +
-    '- Code citation requirements\n' +
-    '- All other mandatory PM agent workflows\n\n' +
-    '**DO NOT proceed with responding until you have loaded and read your instructions from Supabase.**\n'
-  )
+  // Local-first: try loading rules from repo
+  let localLoaded = false
+  let ticketTemplateContent: string | null = null
+  let checklistContent: string | null = null
+  let localRulesContent = ''
+
+  try {
+    const templatePath =
+      path.join(config.repoRoot, 'docs/templates/ticket.template.md')
+    const templateAltPath =
+      path.join(config.repoRoot, 'projects/kanban/docs/templates/ticket.template.md')
+    const checklistPath =
+      path.join(config.repoRoot, 'docs/process/ready-to-start-checklist.md')
+
+    let templateContent: string | null = null
+    try {
+      templateContent = await fs.readFile(templatePath, 'utf8')
+    } catch {
+      try {
+        templateContent = await fs.readFile(templateAltPath, 'utf8')
+      } catch {
+        templateContent = null
+      }
+    }
+    const checklistRead = await fs.readFile(checklistPath, 'utf8').catch(() => null)
+    const agentInstructions = await fs
+      .readFile(path.join(rulesPath, 'agent-instructions.mdc'), 'utf8')
+      .catch(() => null)
+
+    if (templateContent && checklistRead && agentInstructions) {
+      ticketTemplateContent = templateContent
+      checklistContent = checklistRead
+      const ruleParts: string[] = [agentInstructions]
+      for (const name of PM_LOCAL_RULES) {
+        if (name === 'agent-instructions.mdc') continue
+        const content = await fs
+          .readFile(path.join(rulesPath, name), 'utf8')
+          .catch(() => '')
+        if (content) ruleParts.push(content)
+      }
+      const halContractPath = path.join(config.repoRoot, 'docs/process/hal-tool-call-contract.mdc')
+      const halContract = await fs.readFile(halContractPath, 'utf8').catch(() => '')
+      if (halContract) ruleParts.push(halContract)
+      localRulesContent = ruleParts.join('\n\n---\n\n')
+      localLoaded = true
+    }
+  } catch {
+    // local load failed, will use HAL/Supabase fallback
+  }
+
+  if (localLoaded) {
+    sections.push(
+      '## Instructions\n\n' +
+        '**Your instructions are in the "Repo rules (local)" section below.** Use them directly; no need to load from Supabase.\n'
+    )
+  } else {
+    sections.push(
+      '## MANDATORY: Load Your Instructions First\n\n' +
+        '**BEFORE responding to the user, you MUST load your basic instructions from Supabase using the `get_instruction_set` tool.**\n\n' +
+        '**Use the tool:** `get_instruction_set({ topicId: "project-manager-basic" })` or load all basic instructions for project-manager agent type.\n\n' +
+        '**The instructions from Supabase contain:**\n' +
+        '- Required workflows and procedures\n' +
+        '- How to evaluate ticket readiness\n' +
+        '- Code citation requirements\n' +
+        '- All other mandatory PM agent workflows\n\n' +
+        '**DO NOT proceed with responding until you have loaded and read your instructions from Supabase.**\n'
+    )
+  }
 
   // Conversation so far: pre-built context pack (e.g. summary + recent from DB) or bounded history
   let hasConversation = false
@@ -529,9 +593,13 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
     sections.push('## User message\n\n' + userMessage)
   }
 
-  sections.push('## Repo rules (from Supabase)')
-  let ticketTemplateContent: string | null = null
-  let checklistContent: string | null = null
+  if (localLoaded) {
+    sections.push('## Repo rules (local)\n\n' + localRulesContent)
+  } else {
+    sections.push('## Repo rules (from Supabase)')
+  }
+
+  if (!localLoaded) {
   try {
     type TopicMeta = {
       title?: string
@@ -865,6 +933,7 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
     }
   } catch (err) {
     sections.push(`(error loading rules: ${err instanceof Error ? err.message : String(err)})`)
+  }
   }
 
   sections.push('## Ticket template (required structure for create_ticket)')

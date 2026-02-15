@@ -258,7 +258,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       '',
       '## HAL API Contract',
       '',
-      '**IMPORTANT:** All Supabase operations (storing artifacts, updating tickets, moving tickets) must be done by calling the HAL API directly using `fetch()`. Read `.hal/api-base-url` to get the HAL base URL.',
+      '**IMPORTANT:** All Supabase operations must be done via HAL API. See `docs/process/hal-tool-call-contract.mdc` for endpoints. Read `.hal/api-base-url` for base URL.',
       '',
       '**HAL API Base URL:**',
       '',
