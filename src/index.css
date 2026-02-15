@@ -385,24 +385,26 @@ body {
 
 /* Override Kanban root styles when embedded in HAL - remove height constraint and scrolling */
 /* Active Work and Kanban board scroll together in the outer container */
-/* 0499: Ensure scrollbar appears on .kanban-frame-container, not inside Kanban */
-/* 0499: Remove padding so scrollbar starts at top edge of Active Work section */
+/* 0499: Ensure scrollbar appears at kanban-frame-container level, starting from Active Work section top */
 .kanban-frame-container #root {
   min-height: 0 !important;
   height: auto !important;
-  padding: 0 !important; /* Remove padding so scrollbar starts at top of Active Work section */
+  max-height: none !important; /* 0499: Remove any max-height constraints */
+  padding: 0 !important; /* 0499: Remove padding so scrollbar starts at top edge of Active Work section */
   overflow: visible !important;
   overflow-y: visible !important; /* Explicitly override overflow-y: auto from Kanban CSS */
   overflow-x: hidden !important;
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto !important; /* 0499: Allow root to grow naturally as flex child */
 }
 
 /* Ensure Kanban app container doesn't create its own scroll context */
-/* 0499: This is the actual root when embedded as a library component */
+/* 0499: Ensure no scroll context is created at this level */
 .kanban-frame-container [data-kanban-build] {
   height: auto !important;
   min-height: 0 !important;
+  max-height: none !important; /* 0499: Remove any max-height constraints */
   overflow: visible !important;
   overflow-y: visible !important;
   overflow-x: hidden !important;
@@ -412,17 +414,13 @@ body {
 
 /* Ensure Active Work and columns section don't constrain height or create scroll context */
 /* They should both be children of the scrollable container and move together */
-<<<<<<< HEAD
-/* 0499: Active Work section scrolls with the container, scrollbar appears at top */
-=======
-/* 0499: Active Work section starts at top of scroll container, its own padding provides spacing */
->>>>>>> c78ad97 (feat(0499): make scrollbar cover entire Active Work section)
+/* 0499: Active Work section starts at top of scroll container, scrollbar appears at kanban-frame-container level */
 .kanban-frame-container .active-work-row {
   flex: 0 0 auto !important; /* Don't grow or shrink, use natural height */
   overflow: visible !important;
   overflow-y: visible !important;
   overflow-x: visible !important;
-  position: relative !important; /* Ensure it's in normal flow, not sticky/fixed */
+  position: relative !important; /* 0499: Ensure proper positioning for header/controls */
 }
 
 .kanban-frame-container .columns-section {
