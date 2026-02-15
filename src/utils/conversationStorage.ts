@@ -3,6 +3,7 @@
  */
 import type { Agent, Conversation, ImageAttachment, Message } from '../types/hal'
 import { CONVERSATION_STORAGE_PREFIX } from '../constants'
+import { getConversationId, parseConversationId } from './conversationId'
 
 export type SerializedImageAttachment = Omit<ImageAttachment, 'file'>
 export type SerializedMessage = Omit<Message, 'timestamp' | 'imageAttachments'> & {
@@ -18,18 +19,8 @@ export function getStorageKey(projectName: string): string {
   return `${CONVERSATION_STORAGE_PREFIX}${projectName}`
 }
 
-export function getConversationId(agentRole: Agent, instanceNumber: number): string {
-  return `${agentRole}-${instanceNumber}`
-}
-
-export function parseConversationId(conversationId: string): { agentRole: Agent; instanceNumber: number } | null {
-  const match = conversationId.match(/^(project-manager|implementation-agent|qa-agent|process-review-agent)-(\d+)$/)
-  if (!match) return null
-  return {
-    agentRole: match[1] as Agent,
-    instanceNumber: parseInt(match[2], 10),
-  }
-}
+// Re-export conversation ID helpers for convenience
+export { getConversationId, parseConversationId }
 
 export function getNextInstanceNumber(conversations: Map<string, Conversation>, agentRole: Agent): number {
   let maxNumber = 0
