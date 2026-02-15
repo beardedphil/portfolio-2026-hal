@@ -2307,9 +2307,11 @@ function App() {
                 message: content,
                 repoFullName: connectedGithubRepo.fullName,
                 defaultBranch: connectedGithubRepo.defaultBranch || 'main',
+                conversationId: convId,
+                projectId: connectedProject || undefined,
               }),
             })
-            const launchData = (await launchRes.json()) as { runId?: string; status?: string; error?: string }
+            const launchData = (await launchRes.json()) as { runId?: string; status?: string; error?: string; isContinuing?: boolean }
             if (!launchData.runId || launchData.status === 'failed') {
               setAgentTypingTarget(null)
               const errMsg = launchData.error ?? 'Launch failed'
@@ -2320,7 +2322,13 @@ function App() {
             }
 
             const runId = launchData.runId
-            addPmSystemMessage('[Progress] PM agent running. Polling status...')
+            const isContinuing = launchData.isContinuing === true
+            if (isContinuing) {
+              addPmSystemMessage('[Status] Continuing PM thread...')
+              addPmSystemMessage('[Progress] PM agent running. Polling status...')
+            } else {
+              addPmSystemMessage('[Progress] PM agent running. Polling status...')
+            }
             const poll = async (): Promise<{ done: boolean; reply?: string; error?: string }> => {
               const r = await fetch(`/api/agent-runs/status?runId=${encodeURIComponent(runId)}`, { credentials: 'include' })
               const data = await r.json() as { status?: string; summary?: string; error?: string }
@@ -3045,6 +3053,37 @@ function App() {
     setImageError(null)
   }, [])
 
+  /** Restart PM conversation (clear cursor_agent_id mapping) */
+  const handleRestartPmConversation = useCallback(async () => {
+    if (selectedChatTarget !== 'project-manager') return
+    if (!connectedProject || !connectedGithubRepo?.fullName) return
+    
+    const convId = selectedConversationId || getConversationId('project-manager', 1)
+    
+    // Call launch endpoint with restart=true to clear the mapping
+    try {
+      const restartRes = await fetch('/api/pm-agent/launch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          message: '', // Empty message just to clear mapping
+          repoFullName: connectedGithubRepo.fullName,
+          defaultBranch: connectedGithubRepo.defaultBranch || 'main',
+          conversationId: convId,
+          projectId: connectedProject,
+          restart: true,
+        }),
+      })
+      // Don't wait for response, just clear the mapping
+      await restartRes.json()
+      addMessage(convId, 'system', '[Status] PM conversation restarted. Next message will start a new thread.')
+    } catch (err) {
+      console.error('[HAL] Failed to restart conversation:', err)
+      addMessage(convId, 'system', '[Status] Failed to restart conversation. You can continue the current thread.')
+    }
+  }, [selectedChatTarget, selectedConversationId, connectedProject, connectedGithubRepo, addMessage])
+
   const handleSend = useCallback(() => {
     const content = inputValue.trim()
     
@@ -3459,6 +3498,25 @@ function App() {
             {showContinueButton && (
               <button type="button" className="continue-batch-btn send-btn" onClick={handleContinueBatch} title="Continue moving the next batch of tickets">
                 Continue
+              </button>
+            )}
+            {displayTarget === 'project-manager' && (
+              <button 
+                type="button" 
+                className="restart-conversation-btn" 
+                onClick={handleRestartPmConversation}
+                title="Start new PM thread (clears conversation mapping)"
+                style={{ 
+                  padding: '4px 8px', 
+                  fontSize: '12px', 
+                  marginRight: '8px',
+                  background: 'transparent',
+                  border: '1px solid var(--hal-border)',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                }}
+              >
+                Restart
               </button>
             )}
             <button type="button" className="send-btn" onClick={handleSend} disabled={!!imageError}>
