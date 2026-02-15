@@ -575,6 +575,104 @@ export default defineConfig({
               ...(images ? { images } : {}),
             })) as PmAgentResponse & { toolCalls: Array<{ name: string; input: unknown; output: unknown }> }
 
+            // Automatically update working memory after response (0173: PM working memory)
+            // Update asynchronously so it doesn't block the response
+            if (projectId && supabaseUrl && supabaseAnonKey && runnerModule && !result.error) {
+              // Update working memory in background (don't await - fire and forget)
+              ;(async () => {
+                try {
+                  const { createClient } = await import('@supabase/supabase-js')
+                  const supabase = createClient(supabaseUrl, supabaseAnonKey)
+                  
+                  // Fetch all messages for this conversation
+                  const { data: allMessages } = await supabase
+                    .from('hal_conversation_messages')
+                    .select('role, content, sequence')
+                    .eq('project_id', projectId)
+                    .eq('agent', conversationId)
+                    .order('sequence', { ascending: true })
+
+                  if (allMessages && allMessages.length > 0) {
+                    const messagesForExtraction = allMessages.map((m: any) => ({
+                      role: m.role as 'user' | 'assistant',
+                      content: m.content ?? '',
+                    }))
+
+                    // Extract working memory using LLM
+                    let extractedMemory: {
+                      summary?: string
+                      goals?: string[]
+                      requirements?: string[]
+                      constraints?: string[]
+                      decisions?: string[]
+                      assumptions?: string[]
+                      open_questions?: string[]
+                      glossary?: Record<string, string>
+                      stakeholders?: string[]
+                    } = {}
+
+                    if (typeof runnerModule.extractWorkingMemory === 'function') {
+                      extractedMemory = await runnerModule.extractWorkingMemory(messagesForExtraction, key, model)
+                    } else {
+                      // Fallback: use OpenAI directly
+                      const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          Authorization: `Bearer ${key}`,
+                        },
+                        body: JSON.stringify({
+                          model,
+                          messages: [
+                            {
+                              role: 'system',
+                              content: 'You are a helpful assistant that extracts structured information from conversations. Always return valid JSON.',
+                            },
+                            {
+                              role: 'user',
+                              content: `Extract working memory from this conversation. Return JSON with: summary, goals, requirements, constraints, decisions, assumptions, open_questions, glossary, stakeholders.\n\n${messagesForExtraction.map(m => `**${m.role}**: ${m.content}`).join('\n\n')}`,
+                            },
+                          ],
+                          temperature: 0.3,
+                          response_format: { type: 'json_object' },
+                        }),
+                      })
+
+                      if (openaiRes.ok) {
+                        const data = (await openaiRes.json()) as { choices?: Array<{ message?: { content?: string } }> }
+                        const content = data.choices?.[0]?.message?.content
+                        if (content) {
+                          extractedMemory = JSON.parse(content)
+                        }
+                      }
+                    }
+
+                    // Upsert working memory
+                    await supabase.from('hal_pm_working_memory').upsert(
+                      {
+                        project_id: projectId,
+                        conversation_id: conversationId,
+                        summary: extractedMemory.summary || null,
+                        goals: extractedMemory.goals || [],
+                        requirements: extractedMemory.requirements || [],
+                        constraints: extractedMemory.constraints || [],
+                        decisions: extractedMemory.decisions || [],
+                        assumptions: extractedMemory.assumptions || [],
+                        open_questions: extractedMemory.open_questions || [],
+                        glossary: extractedMemory.glossary || {},
+                        stakeholders: extractedMemory.stakeholders || [],
+                        last_updated: new Date().toISOString(),
+                      },
+                      { onConflict: 'project_id,conversation_id' }
+                    )
+                  }
+                } catch (updateErr) {
+                  // Log but don't fail the request - working memory update is best-effort
+                  console.warn('[PM] Failed to update working memory automatically:', updateErr)
+                }
+              })()
+            }
+
             // If create_ticket succeeded, run sync-tickets so the new row is written to docs/tickets/ (0011)
             let ticketCreationResult: PmAgentResponse['ticketCreationResult']
             const createTicketCall = result.toolCalls?.find(
