@@ -8,6 +8,8 @@ import { getServerSupabase, appendProgress, upsertArtifact, buildWorklogBodyFrom
 
 type AgentType = 'implementation' | 'qa' | 'project-manager' | 'process-review'
 
+const MAX_RUN_SUMMARY_CHARS = 20_000
+
 function getCursorApiKey(): string {
   const key = (process.env.CURSOR_API_KEY || process.env.VITE_CURSOR_API_KEY || '').trim()
   if (!key) throw new Error('Cursor API is not configured (CURSOR_API_KEY).')
@@ -34,6 +36,29 @@ function getQueryParam(req: IncomingMessage, name: string): string | null {
     const url = new URL(req.url ?? '', 'http://localhost')
     const v = url.searchParams.get(name)
     return v ? v : null
+  } catch {
+    return null
+  }
+}
+
+function capText(input: string, maxChars: number): string {
+  if (input.length <= maxChars) return input
+  return `${input.slice(0, maxChars)}\n\n[truncated]`
+}
+
+function isPlaceholderSummary(summary: string | null | undefined): boolean {
+  const s = String(summary ?? '').trim()
+  if (!s) return true
+  return s === 'Completed.' || s === 'Done.' || s === 'Complete.' || s === 'Finished.'
+}
+
+function getLastAssistantMessage(conversationText: string): string | null {
+  try {
+    const conv = JSON.parse(conversationText) as { messages?: Array<{ role?: string; content?: string }> }
+    const messages = conv.messages ?? []
+    const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant' && m.content && String(m.content).trim())
+    const content = (lastAssistant?.content ?? '').trim()
+    return content ? content : null
   } catch {
     return null
   }
@@ -71,9 +96,16 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const status = (run as any).status as string
     const cursorAgentId = (run as any).cursor_agent_id as string | null
+    const agentType = (run as any).agent_type as AgentType
 
-    // Terminal states: return without calling Cursor
-    if (status === 'finished' || status === 'failed') {
+    // Terminal states: return without calling Cursor (unless we need to enrich a placeholder summary)
+    const shouldEnrichTerminalSummary =
+      status === 'finished' &&
+      !!cursorAgentId &&
+      (agentType === 'project-manager' || agentType === 'qa' || agentType === 'process-review') &&
+      isPlaceholderSummary((run as any).summary as string | null)
+
+    if ((status === 'finished' || status === 'failed') && !shouldEnrichTerminalSummary) {
       json(res, 200, run)
       return
     }
@@ -117,7 +149,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     const cursorStatus = statusData.status ?? (run as any).cursor_status ?? 'RUNNING'
-    const agentType = (run as any).agent_type as AgentType
     const repoFullName = (run as any).repo_full_name as string
     const ticketPk = (run as any).ticket_pk as string | null
     const displayId = ((run as any).display_id as string) ?? ''
@@ -127,10 +158,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     let errMsg: string | null = null
     let finishedAt: string | null = null
     let processReviewSuggestions: Array<{ text: string; justification: string }> | null = null
+    let conversationText: string | null = null
 
     if (cursorStatus === 'FINISHED') {
       nextStatus = 'finished'
-      summary = statusData.summary ?? 'Completed.'
+      summary = statusData.summary ?? null
       prUrl = statusData.target?.prUrl ?? statusData.target?.pr_url ?? prUrl
       const repo = (run as any).repo_full_name as string
       const branchName = statusData.target?.branchName
@@ -140,47 +172,65 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       if (!prUrl && agentType === 'implementation') console.warn('[agent-runs] FINISHED but no prUrl in Cursor response. target=', JSON.stringify(statusData.target))
       finishedAt = new Date().toISOString()
 
+      // For agents that don't reliably return statusData.summary (notably PM), fetch last assistant message from conversation.
+      // Also used by process-review to parse suggestions.
+      const needsConversation =
+        agentType === 'process-review' ||
+        agentType === 'project-manager' ||
+        agentType === 'qa' ||
+        isPlaceholderSummary(summary)
+
+      if (needsConversation) {
+        try {
+          const convRes = await fetch(`https://api.cursor.com/v0/agents/${cursorAgentId}/conversation`, {
+            method: 'GET',
+            headers: { Authorization: `Basic ${auth}` },
+          })
+          const text = await convRes.text()
+          if (convRes.ok && text) conversationText = text
+        } catch (e) {
+          console.warn('[agent-runs] conversation fetch failed:', e instanceof Error ? e.message : e)
+        }
+      }
+
+      if (isPlaceholderSummary(summary) && conversationText) {
+        const lastAssistant = getLastAssistantMessage(conversationText)
+        if (lastAssistant) summary = lastAssistant
+      }
+      if (isPlaceholderSummary(summary)) summary = 'Completed.'
+
+      summary = capText(summary, MAX_RUN_SUMMARY_CHARS)
+
       // Process-review: fetch conversation, parse JSON suggestions, store in process_reviews
       if (agentType === 'process-review' && ticketPk) {
-        const cursorAgentId = (run as any).cursor_agent_id as string
-        if (cursorAgentId) {
+        if (conversationText) {
           try {
-            const convRes = await fetch(`https://api.cursor.com/v0/agents/${cursorAgentId}/conversation`, {
-              method: 'GET',
-              headers: { Authorization: `Basic ${auth}` },
-            })
-            const convText = await convRes.text()
-            if (convRes.ok && convText) {
-              const conv = JSON.parse(convText) as { messages?: Array<{ role?: string; content?: string }> }
-              const messages = conv.messages ?? []
-              const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant' && m.content)
-              const content = lastAssistant?.content ?? ''
-              const jsonMatch = content.match(/\[[\s\S]*\]/)
-              const jsonStr = jsonMatch ? jsonMatch[0] : ''
-              let suggestions: Array<{ text: string; justification: string }> = []
-              if (jsonStr) {
-                try {
-                  const parsed = JSON.parse(jsonStr) as unknown[]
-                  if (Array.isArray(parsed)) {
-                    suggestions = parsed
-                      .filter((item): item is { text?: string; justification?: string } => item != null && typeof item === 'object')
-                      .filter((item) => typeof item.text === 'string' && typeof item.justification === 'string')
-                      .map((item) => ({ text: String(item.text).trim(), justification: String(item.justification).trim() }))
-                  }
-                } catch {
-                  // ignore parse error
+            const lastAssistantContent = getLastAssistantMessage(conversationText) ?? ''
+            const jsonMatch = lastAssistantContent.match(/\[[\s\S]*\]/)
+            const jsonStr = jsonMatch ? jsonMatch[0] : ''
+            let suggestions: Array<{ text: string; justification: string }> = []
+            if (jsonStr) {
+              try {
+                const parsed = JSON.parse(jsonStr) as unknown[]
+                if (Array.isArray(parsed)) {
+                  suggestions = parsed
+                    .filter((item): item is { text?: string; justification?: string } => item != null && typeof item === 'object')
+                    .filter((item) => typeof item.text === 'string' && typeof item.justification === 'string')
+                    .map((item) => ({ text: String(item.text).trim(), justification: String(item.justification).trim() }))
                 }
+              } catch {
+                // ignore parse error
               }
-              processReviewSuggestions = suggestions
-              const repoFullNameForReview = (run as any).repo_full_name as string
-              await supabase.from('process_reviews').insert({
-                ticket_pk: ticketPk,
-                repo_full_name: repoFullNameForReview,
-                suggestions,
-                status: 'success',
-                error_message: null,
-              })
             }
+            processReviewSuggestions = suggestions
+            const repoFullNameForReview = (run as any).repo_full_name as string
+            await supabase.from('process_reviews').insert({
+              ticket_pk: ticketPk,
+              repo_full_name: repoFullNameForReview,
+              suggestions,
+              status: 'success',
+              error_message: null,
+            })
           } catch (e) {
             console.warn('[agent-runs] process-review conversation fetch/parse failed:', e instanceof Error ? e.message : e)
           }

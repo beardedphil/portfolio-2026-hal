@@ -20,7 +20,8 @@
     "supabase-get-ticket": "node scripts/supabase-get-ticket.js",
     "migrate-instructions": "node scripts/run-instructions-migration.js",
     "test": "vitest",
-    "test:ui": "vitest --ui"
+    "test:ui": "vitest --ui",
+    "report:lines": "node scripts/report-lines.js"
   },
   "dependencies": {
     "@ai-sdk/openai": "^1.2.0",

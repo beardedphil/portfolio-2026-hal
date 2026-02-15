@@ -2256,6 +2256,21 @@ function App() {
             // Get Supabase creds from state or env (0119: ensure credentials are available)
             const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
             const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
+            // When PM chat is persisted in Supabase, user/assistant messages use integer sequence IDs.
+            // System status/progress messages are ephemeral (not persisted) but must NOT collide with
+            // the next integer sequence, or the assistant reply will be de-duped and never render.
+            let pmSystemMsgCounter = 0
+            const addPmSystemMessage = (text: string) => {
+              if (useDb && url && key && connectedProject) {
+                const baseSeq = agentSequenceRefs.current.get(convId) ?? 0
+                pmSystemMsgCounter += 1
+                // Use a small fractional offset so IDs remain ordered but never equal an integer sequence.
+                const safeId = baseSeq + pmSystemMsgCounter / 100
+                addMessage(convId, 'system', text, safeId)
+              } else {
+                addMessage(convId, 'system', text)
+              }
+            }
             
             // Add user message to UI (only once, before DB insert to avoid duplicates)
             if (!useDb || !url || !key || !connectedProject) {
@@ -2308,7 +2323,7 @@ function App() {
               return
             }
 
-            addMessage(convId, 'system', '[Status] Launching PM agent (Cursor)...')
+            addPmSystemMessage('[Status] Launching PM agent (Cursor)...')
             const launchRes = await fetch('/api/pm-agent/launch', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -2330,7 +2345,7 @@ function App() {
             }
 
             const runId = launchData.runId
-            addMessage(convId, 'system', '[Progress] PM agent running. Polling status...')
+            addPmSystemMessage('[Progress] PM agent running. Polling status...')
             const poll = async (): Promise<{ done: boolean; reply?: string; error?: string }> => {
               const r = await fetch(`/api/agent-runs/status?runId=${encodeURIComponent(runId)}`, { credentials: 'include' })
               const data = await r.json() as { status?: string; summary?: string; error?: string }

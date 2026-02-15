@@ -112,21 +112,25 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       process.env.SUPABASE_URL?.trim() ||
       process.env.VITE_SUPABASE_URL?.trim() ||
       undefined
-    const supabaseAnonKey =
+    // Prefer service role on server (bypasses RLS) so we can safely determine the next ticket number.
+    // Fall back to anon key for local/dev callers that provide it explicitly.
+    const supabaseKey =
       (typeof body.supabaseAnonKey === 'string' ? body.supabaseAnonKey.trim() : undefined) ||
+      process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
       process.env.SUPABASE_ANON_KEY?.trim() ||
       process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
       undefined
 
-    if (!supabaseUrl || !supabaseAnonKey) {
+    if (!supabaseUrl || !supabaseKey) {
       json(res, 400, {
         success: false,
-        error: 'Supabase credentials are required (provide supabaseUrl and supabaseAnonKey, or set environment variables).',
+        error:
+          'Supabase credentials are required (provide supabaseUrl and supabaseAnonKey, or set environment variables SUPABASE_URL and SUPABASE_ANON_KEY or SUPABASE_SERVICE_ROLE_KEY).',
       })
       return
     }
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey)
+    const supabase = createClient(supabaseUrl, supabaseKey)
 
     // Determine next ticket number (repo-scoped)
     let startNum = 1
@@ -149,7 +153,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const prefix = repoHintPrefix(repoFullName)
 
     // Try to create ticket with retries for ID collisions
-    const MAX_RETRIES = 10
+    const MAX_RETRIES = 200
     let lastInsertError: { code?: string; message?: string } | null = null
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -161,42 +165,46 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
       try {
         // Try new schema first (repo-scoped)
-        const insert = await supabase.from('tickets').insert({
-          pk: crypto.randomUUID(),
-          repo_full_name: repoFullName,
-          ticket_number: candidateNum,
-          display_id: displayId,
-          id,
-          filename,
-          title: `${displayId} — ${title}`,
-          body_md: bodyMd,
-          kanban_column_id: kanbanColumnId,
-          kanban_position: 0,
-          kanban_moved_at: now,
-        })
+        const { data: insertedTicket, error: insertError } = await supabase
+          .from('tickets')
+          .insert({
+            pk: crypto.randomUUID(),
+            repo_full_name: repoFullName,
+            ticket_number: candidateNum,
+            display_id: displayId,
+            id,
+            filename,
+            title: `${displayId} — ${title}`,
+            body_md: bodyMd,
+            kanban_column_id: kanbanColumnId,
+            kanban_position: 0,
+            kanban_moved_at: now,
+          })
+          .select('pk')
+          .maybeSingle()
 
-        const insertData = insert.data as Array<{ pk: string }> | null
-        if (!insert.error && insertData && insertData.length > 0) {
-          const insertedTicket = insertData[0]
+        // Supabase may return `data: null` for inserts if `returning` is minimal.
+        // We explicitly select `pk` above, but still guard for safety.
+        if (!insertError && insertedTicket?.pk) {
           json(res, 200, {
             success: true,
             ticketId: displayId,
             id,
-            pk: insertedTicket.pk,
+            pk: insertedTicket.pk as string,
           })
           return
         }
 
         // Check if it's a unique violation (we can retry)
-        if (!isUniqueViolation(insert.error)) {
+        if (!isUniqueViolation(insertError)) {
           json(res, 200, {
             success: false,
-            error: `Failed to create ticket: ${insert.error.message}`,
+            error: `Failed to create ticket: ${insertError?.message || 'unknown error'}`,
           })
           return
         }
 
-        lastInsertError = insert.error
+        lastInsertError = insertError
       } catch (err) {
         lastInsertError = err as { code?: string; message?: string }
       }

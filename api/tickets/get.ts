@@ -1,6 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { createClient } from '@supabase/supabase-js'
 
+type TicketLookupResult<T> = { data: T | null; error: unknown | null }
+
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []
   for await (const chunk of req) {
@@ -15,6 +17,68 @@ function json(res: ServerResponse, statusCode: number, body: unknown) {
   res.statusCode = statusCode
   res.setHeader('Content-Type', 'application/json')
   res.end(JSON.stringify(body))
+}
+
+async function fetchTicketByIdOrDisplayId(supabase: ReturnType<typeof createClient>, ticketId: string) {
+  // Try multiple lookup strategies to handle different ticket ID formats:
+  // - "581" (numeric id)
+  // - "0581" (numeric id with leading zeros)
+  // - "HAL-0581" (display_id format)
+  // - other prefixes like "ABC-0123" (still treated as display_id)
+  const tried: string[] = []
+
+  const tryFetch = async (label: string, query: Promise<TicketLookupResult<any>>) => {
+    tried.push(label)
+    const result = await query
+    if (!result.error && result.data) return result
+    return null
+  }
+
+  // Strategy 1: by id as-is
+  const byId = await tryFetch(
+    `id=${ticketId}`,
+    supabase.from('tickets').select('*').eq('id', ticketId).maybeSingle() as any
+  )
+  if (byId) return { fetch: byId, tried }
+
+  // Strategy 2: by display_id as-is
+  const byDisplayId = await tryFetch(
+    `display_id=${ticketId}`,
+    supabase.from('tickets').select('*').eq('display_id', ticketId).maybeSingle() as any
+  )
+  if (byDisplayId) return { fetch: byDisplayId, tried }
+
+  // Strategy 3: if looks like "HAL-0581", extract numeric part and try by id without leading zeros
+  if (/^[A-Z]+-/.test(ticketId)) {
+    const numericPart = ticketId.replace(/^[A-Z]+-/, '')
+    const idValue = numericPart.replace(/^0+/, '') || numericPart
+    if (idValue && idValue !== ticketId) {
+      const byExtractedId = await tryFetch(
+        `id(extracted)=${idValue}`,
+        supabase.from('tickets').select('*').eq('id', idValue).maybeSingle() as any
+      )
+      if (byExtractedId) return { fetch: byExtractedId, tried }
+    }
+  }
+
+  // Strategy 4: numeric with leading zeros -> try without leading zeros
+  if (/^\d+$/.test(ticketId) && ticketId.startsWith('0')) {
+    const withoutLeadingZeros = ticketId.replace(/^0+/, '') || ticketId
+    if (withoutLeadingZeros !== ticketId) {
+      const byNoZeros = await tryFetch(
+        `id(no-zeros)=${withoutLeadingZeros}`,
+        supabase.from('tickets').select('*').eq('id', withoutLeadingZeros).maybeSingle() as any
+      )
+      if (byNoZeros) return { fetch: byNoZeros, tried }
+    }
+  }
+
+  // Fall back to last attempted fetch result (display_id) to return any potential error info
+  return {
+    fetch: (byDisplayId ??
+      (await (supabase.from('tickets').select('*').eq('id', ticketId).maybeSingle() as any))) as any,
+    tried,
+  }
 }
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
@@ -76,9 +140,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
     // Fetch full ticket record (select all fields for forward compatibility)
-    const fetch = ticketPk
-      ? await supabase.from('tickets').select('*').eq('pk', ticketPk).maybeSingle()
-      : await supabase.from('tickets').select('*').eq('id', ticketId!).maybeSingle()
+    const { fetch, tried } = ticketPk
+      ? {
+          fetch: (await supabase.from('tickets').select('*').eq('pk', ticketPk).maybeSingle()) as any,
+          tried: [`pk=${ticketPk}`],
+        }
+      : await fetchTicketByIdOrDisplayId(supabase, ticketId!)
 
     if (fetch.error) {
       json(res, 200, { success: false, error: `Supabase fetch failed: ${fetch.error.message}` })
@@ -86,7 +153,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     if (!fetch.data) {
-      json(res, 200, { success: false, error: `Ticket ${ticketId || ticketPk} not found.` })
+      json(res, 200, {
+        success: false,
+        error: `Ticket ${ticketId || ticketPk} not found.`,
+        tried,
+      })
       return
     }
 
