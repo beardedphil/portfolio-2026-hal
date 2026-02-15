@@ -121,12 +121,18 @@ The API automatically handles these formats by trying multiple lookup strategies
 
 **When to move (MANDATORY WORKFLOW):**
 1. ✅ After all code changes are committed and pushed
-2. ✅ After all required artifacts are stored (all 8: plan, worklog, changed-files, decisions, verification, pm-review, git-diff, instructions-used)
-3. ✅ **Before moving:** Call get_artifacts (or POST /api/artifacts/get) and confirm all 8 required implementation artifacts are present with substantive content.
+2. ✅ After all required artifacts are stored (all 8: plan, worklog, changed-files, decisions, verification, pm-review, git-diff, instructions-used) **OR** a "Missing Artifact Explanation" artifact if any artifacts are intentionally not created (0200)
+3. ✅ **Before moving:** Call get_artifacts (or POST /api/artifacts/get) and confirm either:
+   - All 8 required implementation artifacts are present with substantive content, OR
+   - A "Missing Artifact Explanation" artifact is present that explains which artifact(s) are missing and why they were intentionally not created
 4. ✅ **MOVE THE TICKET TO READY FOR QA** (use the API call above)
 5. ✅ **THEN** send your final "implementation complete" summary message
 
-**If move returns success: false with missingArtifacts:** Store each listed artifact via POST /api/artifacts/insert-implementation with the corresponding artifactType, then retry POST /api/tickets/move. The move API will not allow moving to Ready for QA until all 8 artifacts are present.
+**If move returns success: false with missingArtifacts:** You have two options:
+- **Option 1 (preferred):** Store each listed artifact via POST /api/artifacts/insert-implementation with the corresponding artifactType, then retry POST /api/tickets/move.
+- **Option 2 (if artifacts are intentionally not created):** Store a "Missing Artifact Explanation" artifact via POST /api/artifacts/insert-implementation with artifactType "missing-artifact-explanation" and title "Missing Artifact Explanation". The artifact body_md must explain which artifact(s) are missing and why they were intentionally not created. Then retry POST /api/tickets/move.
+
+**Note (0200):** The move API will not allow moving to Ready for QA until either all 8 artifacts are present, OR a substantive "Missing Artifact Explanation" artifact is present that explains why artifacts are missing.
 
 **CRITICAL WORKFLOW RULE:** 
 - **DO NOT** send a completion summary or "done" message without first moving the ticket to Ready for QA
