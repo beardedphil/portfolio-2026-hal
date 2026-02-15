@@ -5365,9 +5365,12 @@ function App() {
                                 </ul>
                               </div>
                             )}
-                            {workingMemory && !workingMemory.summary && (!workingMemory.goals || workingMemory.goals.length === 0) && (!workingMemory.requirements || workingMemory.requirements.length === 0) && 
-                             (!workingMemory.constraints || workingMemory.constraints.length === 0) && (!workingMemory.decisions || workingMemory.decisions.length === 0) && (!workingMemory.assumptions || workingMemory.assumptions.length === 0) && 
-                             (!workingMemory.openQuestions || workingMemory.openQuestions.length === 0) && (!workingMemory.glossary || Object.keys(workingMemory.glossary || {}).length === 0) && (!workingMemory.stakeholders || workingMemory.stakeholders.length === 0) && (
+                            {workingMemory && (() => {
+                              const wm = workingMemory
+                              return !wm.summary && (!wm.goals || wm.goals.length === 0) && (!wm.requirements || wm.requirements.length === 0) && 
+                                (!wm.constraints || wm.constraints.length === 0) && (!wm.decisions || wm.decisions.length === 0) && (!wm.assumptions || wm.assumptions.length === 0) && 
+                                (!wm.openQuestions || wm.openQuestions.length === 0) && (!wm.glossary || Object.keys(wm.glossary).length === 0) && (!wm.stakeholders || wm.stakeholders.length === 0)
+                            })() && (
                               <div style={{ color: '#666', fontStyle: 'italic' }}>
                                 Working memory is empty. It will be populated automatically as the conversation grows.
                               </div>
