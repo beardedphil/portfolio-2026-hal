@@ -30,9 +30,10 @@ When you **QA a ticket** (verify, check a ticket that is allegedly complete), st
 4. Code review — PASS/FAIL with evidence
 5. Build verification — **MANDATORY:** `npm run build:hal`; TypeScript errors = FAIL
 6. Coverage — **MANDATORY:** Test coverage report with 4-metric table (lines/functions/branches/statements) and command used; see "Coverage section" below
-7. UI verification — automated and/or manual steps
-8. AC Confirmation Checklist — enumerate each AC, Met/Not met with evidence; see `ac-confirmation-checklist.mdc`
-9. Verdict — PASS or FAIL
+7. Simplicity — **MANDATORY:** Numeric indicators that surface multi-purpose / overly-large modules. Run `npm run report:simplicity` to generate the data. The section must include: max allowed lines, whether the gate passed, count of allowlisted files, and top 10 largest source files with their line counts (ranked table). See "Simplicity section" below.
+8. UI verification — automated and/or manual steps
+9. AC Confirmation Checklist — enumerate each AC, Met/Not met with evidence; see `ac-confirmation-checklist.mdc`
+10. Verdict — PASS or FAIL
 
 ## Coverage section
 
@@ -75,21 +76,45 @@ This command runs vitest with coverage enabled and outputs a text summary with c
 
 ## Simplicity section
 
-**MANDATORY:** Every QA report **MUST** include a **Simplicity** metric (0-100%, where 100% = best, like Coverage).
+**MANDATORY:** Every QA report **MUST** include a **Simplicity** section with:
+
+1. **Max allowed lines** — The repository's configured maximum line limit (from `.line-limit-allowlist.json`)
+2. **Gate passed** — Whether the line limit check passed (✅ Yes / ❌ No)
+3. **Count of allowlisted files** — Number of files in the allowlist
+4. **Top 10 largest source files** — A ranked table showing the 10 largest source files with their line counts
+
+**How to generate simplicity data:**
+
+Run the following command to generate simplicity metrics:
+
+```bash
+npm run report:simplicity
+```
+
+This command runs the simplicity report script and outputs markdown format suitable for inclusion in QA reports. The output includes all required metrics and a table of the top 10 largest files.
 
 **Simplicity section format:**
 
+The command outputs markdown that can be directly included in the QA report:
 ```markdown
 ## Simplicity
 
-Simplicity: XX%
+**Max allowed lines:** 250
+**Gate passed:** ✅ Yes
+**Allowlisted files:** 35
+
+**Top 10 largest source files:**
+
+| Lines | Path |
+|-------|------|
+| 5146 | `src/App.tsx` |
+| 3926 | `projects/kanban/src/App.tsx` |
+| 3590 | `agents/src/agents/projectManager.ts` |
+| ... | ... |
 ```
 
-**Note:** 
-- Simplicity is a quality metric where 100% represents the best (simplest, most maintainable code)
-- The metric should be included in the QA report so the header repo metrics box can display it
-- Use the format "Simplicity: XX%" (e.g., "Simplicity: 90%") for consistent parsing
-- Legacy "Overcomplication: XX%" format is still supported but deprecated; new reports should use "Simplicity: XX%"
+**Note:** Simplicity numbers must reflect the current commit under test (not hardcoded). Run the command on the branch/commit being verified.
+
 
 ## Storing QA report
 
