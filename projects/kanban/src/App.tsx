@@ -43,8 +43,6 @@ import { AutoDismissMessage } from './components/AutoDismissMessage'
 import { getAgentTypeDisplayName } from './components/utils'
 import { ImageViewerModal } from './components/ImageViewerModal'
 import { MarkdownImage } from './components/MarkdownImage'
-import { ImageViewerModal } from './components/ImageViewerModal'
-import { MarkdownImage } from './components/MarkdownImage'
 
 type LogEntry = { id: number; message: string; at: string }
 type Card = { id: string; title: string; /** Display id for work button (e.g. HAL-0081); when card id is Supabase pk, used for message. */ displayId?: string }
