@@ -104,6 +104,8 @@ type DiagnosticsInfo = {
   unitTestsConfigured: boolean
   /** Message shown when conversation history was reset due to corruption (0549). */
   conversationHistoryResetMessage: string | null
+  /** Current conversation ID (0550). */
+  currentConversationId: string | null
 }
 
 type GithubAuthMe = {
@@ -3305,6 +3307,7 @@ function App() {
     repoInspectionAvailable: !!connectedGithubRepo?.fullName,
     unitTestsConfigured: true,
     conversationHistoryResetMessage,
+    currentConversationId: selectedConversationId,
   }
 
   const kanbanBoardProps: KanbanBoardProps = {
@@ -4346,7 +4349,7 @@ function App() {
                 </div>
                 <div className="diag-row">
                   <span className="diag-label">Current conversation ID:</span>
-                  <span className="diag-value">{selectedConversationId ?? 'none'}</span>
+                  <span className="diag-value">{diagnostics.currentConversationId ?? '—'}</span>
                 </div>
                 <div className="diag-row">
                   <span className="diag-label">PM implementation source:</span>
