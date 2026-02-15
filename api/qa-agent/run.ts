@@ -42,9 +42,16 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       supabaseUrl?: string
       supabaseAnonKey?: string
       repoFullName?: string
+      /** Optional Cursor Cloud Agent model (e.g. "claude-4-sonnet", "gpt-5.2"). Omit for auto-selection. */
+      model?: string
     }
 
     const message = typeof body.message === 'string' ? body.message.trim() : ''
+    const model =
+      (typeof body.model === 'string' ? body.model.trim() : '') ||
+      process.env.CURSOR_QA_MODEL ||
+      process.env.CURSOR_AGENT_MODEL ||
+      ''
     const supabaseUrl = typeof body.supabaseUrl === 'string' ? body.supabaseUrl.trim() || undefined : undefined
     const supabaseAnonKey = typeof body.supabaseAnonKey === 'string' ? body.supabaseAnonKey.trim() || undefined : undefined
     const repoFullName = typeof body.repoFullName === 'string' ? body.repoFullName.trim() || undefined : undefined
@@ -235,6 +242,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         prompt: { text: promptText },
         source: { repository: repoUrl, ref: refForApi },
         target: { branchName: 'main' },
+        ...(model ? { model } : {}),
       }),
     })
 
