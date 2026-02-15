@@ -6,6 +6,6 @@ Agents call HAL API for Supabase operations. No credentials needed.
 - `/api/artifacts/insert-implementation` — `{ ticketId, artifactType, title, body_md }`
 - `/api/artifacts/insert-qa` — `{ ticketId, title, body_md }`
 - `/api/artifacts/get` — `{ ticketId }`
-- `/api/tickets/get`, `/api/tickets/update`, `/api/tickets/move` — `{ ticketId, ... }`
+- `/api/tickets/get`, `/api/tickets/update`, `/api/tickets/move`, `/api/tickets/list-by-column` — `{ ticketId, ... }`
 
 **8 implementation artifact types:** plan, worklog, changed-files, decisions, verification, pm-review, git-diff, instructions-used.
