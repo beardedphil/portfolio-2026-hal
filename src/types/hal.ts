@@ -67,7 +67,6 @@ export type PmAgentResponse = {
   reply: string
   toolCalls: ToolCallRecord[]
   outboundRequest: object | null
-  responseId?: string
   error?: string
   errorPhase?: 'context-pack' | 'openai' | 'tool' | 'not-implemented'
   ticketCreationResult?: TicketCreationResult
@@ -94,8 +93,6 @@ export type DiagnosticsInfo = {
   lastTicketCreationResult: TicketCreationResult | null
   lastCreateTicketAvailable: boolean | null
   persistenceError: string | null
-  pmLastResponseId: string | null
-  previousResponseIdInLastRequest: boolean
   agentRunner: string | null
   autoMoveDiagnostics: Array<{ timestamp: Date; message: string; type: 'error' | 'info' }>
   theme: Theme

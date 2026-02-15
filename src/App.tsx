@@ -70,8 +70,6 @@ type DiagnosticsInfo = {
   lastTicketCreationResult: TicketCreationResult | null
   lastCreateTicketAvailable: boolean | null
   persistenceError: string | null
-  pmLastResponseId: string | null
-  previousResponseIdInLastRequest: boolean
   /** Agent runner label from last PM response (e.g. "v2 (shared)"). */
   agentRunner: string | null
   /** Auto-move diagnostics entries (0061). */
@@ -204,7 +202,6 @@ function App() {
   const [lastPmToolCalls, setLastPmToolCalls] = useState<ToolCallRecord[] | null>(null)
   const [lastTicketCreationResult, setLastTicketCreationResult] = useState<TicketCreationResult | null>(null)
   const [lastCreateTicketAvailable, setLastCreateTicketAvailable] = useState<boolean | null>(null)
-  const [pmLastResponseId, setPmLastResponseId] = useState<string | null>(null)
   const [agentRunner, _setAgentRunner] = useState<string | null>(null)
   const [supabaseUrl, setSupabaseUrl] = useState<string | null>(null)
   const [supabaseAnonKey, setSupabaseAnonKey] = useState<string | null>(null)
@@ -2707,7 +2704,6 @@ function App() {
       supabaseAnonKey,
       connectedProject,
       conversations,
-      pmLastResponseId,
       addMessage,
       extractTicketId,
       moveTicketToColumn,
@@ -3138,7 +3134,6 @@ function App() {
     setPersistenceError(null)
     setConnectedProject(null)
     setConnectedGithubRepo(null)
-    setPmLastResponseId(null)
     setLastTicketCreationResult(null)
     setLastCreateTicketAvailable(null)
     setSupabaseUrl(null)
@@ -3216,11 +3211,6 @@ function App() {
     }
   }, [disconnectConfirmOpen, handleDisconnectCancel])
 
-  const previousResponseIdInLastRequest =
-    lastPmOutboundRequest != null &&
-    typeof lastPmOutboundRequest === 'object' &&
-    'previous_response_id' in lastPmOutboundRequest &&
-    (lastPmOutboundRequest as { previous_response_id?: string }).previous_response_id != null
 
   // Determine theme source (0078)
   const themeSource: 'default' | 'saved' = (() => {
@@ -3249,8 +3239,6 @@ function App() {
     lastTicketCreationResult,
     lastCreateTicketAvailable,
     persistenceError,
-    pmLastResponseId,
-    previousResponseIdInLastRequest,
     agentRunner,
     autoMoveDiagnostics,
     theme,
@@ -4402,22 +4390,6 @@ function App() {
                     <span className="diag-label" style={{ visibility: 'hidden' }}>Unit tests:</span>
                     <span className="diag-value">This project is set up for unit tests to keep refactors safe.</span>
                   </div>
-                )}
-                {selectedChatTarget === 'project-manager' && (
-                  <>
-                    <div className="diag-row">
-                      <span className="diag-label">PM last response ID:</span>
-                      <span className="diag-value">
-                        {diagnostics.pmLastResponseId ?? 'none (continuity not used yet)'}
-                      </span>
-                    </div>
-                    <div className="diag-row">
-                      <span className="diag-label">previous_response_id in last request:</span>
-                      <span className="diag-value" data-status={diagnostics.previousResponseIdInLastRequest ? 'ok' : undefined}>
-                        {diagnostics.previousResponseIdInLastRequest ? 'yes' : 'no'}
-                      </span>
-                    </div>
-                  </>
                 )}
 
                 {/* PM Diagnostics: Outbound Request */}
