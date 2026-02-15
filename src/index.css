@@ -460,6 +460,45 @@ body {
   min-height: 2rem; /* Keep minimum height for empty columns */
 }
 
+/* 0310: Ensure all nested elements within kanban-frame-container don't create scroll contexts */
+/* Override any height: 100% that might create scroll contexts */
+.kanban-frame-container * {
+  /* Don't apply to elements that need horizontal scrolling (columns-row) */
+}
+
+/* Specifically target elements that might have height constraints */
+.kanban-frame-container .columns-section,
+.kanban-frame-container .columns-row,
+.kanban-frame-container .column-card,
+.kanban-frame-container .column-content,
+.kanban-frame-container .column-cards,
+.kanban-frame-container .active-work-row,
+.kanban-frame-container .active-work-items {
+  /* Ensure no max-height constraints that would create scroll contexts */
+  max-height: none !important;
+}
+
+/* Ensure column-card doesn't use height: 100% which can create scroll contexts */
+.kanban-frame-container .column-card {
+  height: auto !important; /* Override Kanban's height: 100% */
+  max-height: none !important;
+}
+
+/* Ensure columns-row doesn't create vertical scroll context */
+.kanban-frame-container .columns-row {
+  /* Keep horizontal scrolling for columns */
+  overflow-x: auto;
+  overflow-y: visible !important; /* No vertical scrolling */
+  max-height: none !important;
+  height: auto !important;
+}
+
+/* Ensure columns-section doesn't create scroll context */
+.kanban-frame-container .columns-section {
+  max-height: none !important;
+  height: auto !important;
+}
+
 .kanban-loading-overlay {
   position: absolute;
   inset: 0;
