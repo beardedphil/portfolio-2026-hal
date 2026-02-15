@@ -2460,9 +2460,10 @@ function StatusIndicator({
         const tooltipRect = tooltip.getBoundingClientRect()
         const wrapperRect = wrapper.getBoundingClientRect()
         
-        // Get viewport dimensions
+        // Get viewport dimensions - these are the primary constraints
         const viewportWidth = window.innerWidth
         const viewportHeight = window.innerHeight
+        const viewportPadding = 8 // Padding from viewport edges to ensure tooltip is fully visible
         
         // Find the closest scrollable container (active-work-item, active-work-items, or document)
         let container = indicator.closest('.active-work-item') || indicator.closest('.active-work-items')
@@ -2471,13 +2472,26 @@ function StatusIndicator({
           containerRect = container.getBoundingClientRect()
         }
         
-        // Use container boundaries if available, otherwise use viewport
-        const maxRight = containerRect ? containerRect.right : viewportWidth
-        const maxBottom = containerRect ? containerRect.bottom : viewportHeight
-        const minLeft = containerRect ? containerRect.left : 0
-        const minTop = containerRect ? containerRect.top : 0
+        // Use viewport boundaries as primary constraint, container boundaries as secondary
+        // This ensures tooltip is always visible in viewport, even if container is partially scrolled
+        const maxRight = Math.min(
+          containerRect ? containerRect.right : viewportWidth,
+          viewportWidth - viewportPadding
+        )
+        const maxBottom = Math.min(
+          containerRect ? containerRect.bottom : viewportHeight,
+          viewportHeight - viewportPadding
+        )
+        const minLeft = Math.max(
+          containerRect ? containerRect.left : 0,
+          viewportPadding
+        )
+        const minTop = Math.max(
+          containerRect ? containerRect.top : 0,
+          viewportPadding
+        )
         
-        // Calculate tooltip position when positioned below (default)
+        // Calculate available space for tooltip positioning
         const spaceBelow = maxBottom - indicatorRect.bottom - 4
         const spaceAbove = indicatorRect.top - minTop - 4
         
@@ -2519,22 +2533,28 @@ function StatusIndicator({
         const wrapperLeft = wrapperRect.left
         
         // Horizontal positioning: ensure tooltip doesn't clip on left or right
+        // Priority: keep tooltip within viewport, then within container, then aligned with indicator
         if (tooltipRightX > maxRight) {
-          // Tooltip extends beyond right edge - align to right of wrapper or adjust
-          // Try aligning to right of wrapper
+          // Tooltip extends beyond right edge - try aligning to right of wrapper first
           tooltip.style.left = 'auto'
           tooltip.style.right = '0'
-          // Re-measure
+          // Re-measure after right alignment
           const adjustedRect = tooltip.getBoundingClientRect()
           if (adjustedRect.left < minLeft) {
-            // Still extends beyond left, position to fit within container
+            // Still extends beyond left, position to fit within viewport/container
             // Calculate left offset: minLeft - wrapperLeft (convert viewport to wrapper-relative)
             const leftOffset = minLeft - wrapperLeft
             tooltip.style.left = `${leftOffset}px`
             tooltip.style.right = 'auto'
+          } else if (adjustedRect.right > maxRight) {
+            // Right edge still extends beyond, adjust to fit
+            const rightOverflow = adjustedRect.right - maxRight
+            const currentLeft = adjustedRect.left - wrapperLeft
+            tooltip.style.left = `${currentLeft - rightOverflow}px`
+            tooltip.style.right = 'auto'
           }
         } else if (tooltipLeftX < minLeft) {
-          // Tooltip extends beyond left edge - align to left of container
+          // Tooltip extends beyond left edge - align to left of viewport/container
           // Calculate left offset: minLeft - wrapperLeft (convert viewport to wrapper-relative)
           const leftOffset = minLeft - wrapperLeft
           tooltip.style.left = `${leftOffset}px`
@@ -2543,6 +2563,42 @@ function StatusIndicator({
           // Default: left-aligned with wrapper (which aligns with indicator)
           tooltip.style.left = '0'
           tooltip.style.right = 'auto'
+        }
+        
+        // Final safety check: ensure tooltip is fully within viewport after all adjustments
+        const finalCheckRect = tooltip.getBoundingClientRect()
+        
+        // Horizontal final adjustment
+        if (finalCheckRect.right > viewportWidth - viewportPadding) {
+          const rightOverflow = finalCheckRect.right - (viewportWidth - viewportPadding)
+          const currentLeft = parseFloat(tooltip.style.left) || 0
+          tooltip.style.left = `${currentLeft - rightOverflow}px`
+        }
+        if (finalCheckRect.left < viewportPadding) {
+          const leftOffset = viewportPadding - wrapperRect.left
+          tooltip.style.left = `${leftOffset}px`
+        }
+        
+        // Vertical final adjustment - if tooltip still overflows, try flipping position
+        if (finalCheckRect.bottom > viewportHeight - viewportPadding) {
+          // Currently positioned below and overflowing - try above if there's space
+          const spaceAbove = indicatorRect.top - viewportPadding
+          if (spaceAbove >= tooltipRect.height && tooltip.style.top !== 'auto') {
+            tooltip.style.top = 'auto'
+            tooltip.style.bottom = '100%'
+            tooltip.style.marginBottom = '4px'
+            tooltip.style.marginTop = '0'
+          }
+        }
+        if (finalCheckRect.top < viewportPadding) {
+          // Currently positioned above and overflowing - try below if there's space
+          const spaceBelow = viewportHeight - viewportPadding - indicatorRect.bottom
+          if (spaceBelow >= tooltipRect.height && tooltip.style.bottom !== 'auto') {
+            tooltip.style.bottom = 'auto'
+            tooltip.style.top = '100%'
+            tooltip.style.marginTop = '4px'
+            tooltip.style.marginBottom = '0'
+          }
         }
       })
     }
