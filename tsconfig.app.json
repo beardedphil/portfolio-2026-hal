@@ -21,5 +21,6 @@
       "portfolio-2026-kanban": ["projects/kanban/src/entry-lib.tsx"]
     }
   },
-  "include": ["src", "agents/src"]
+  "include": ["src", "agents/src"],
+  "exclude": ["src/test", "**/*.test.ts", "**/*.spec.ts"]
 }

@@ -109,9 +109,6 @@ type ConnectedGithubRepo = {
   private: boolean
 }
 
-/** Cap on character count for recent conversation so long technical messages don't dominate (~3k tokens). */
-const CONVERSATION_RECENT_MAX_CHARS = 12_000
-
 // PM_AGENT_ID kept for reference but conversation IDs are used now (0124)
 // const PM_AGENT_ID = 'project-manager'
 
@@ -207,7 +204,7 @@ function App() {
   const [lastTicketCreationResult, setLastTicketCreationResult] = useState<TicketCreationResult | null>(null)
   const [lastCreateTicketAvailable, setLastCreateTicketAvailable] = useState<boolean | null>(null)
   const [pmLastResponseId, setPmLastResponseId] = useState<string | null>(null)
-  const [agentRunner, setAgentRunner] = useState<string | null>(null)
+  const [agentRunner, _setAgentRunner] = useState<string | null>(null)
   const [supabaseUrl, setSupabaseUrl] = useState<string | null>(null)
   const [supabaseAnonKey, setSupabaseAnonKey] = useState<string | null>(null)
   const [lastSendPayloadSummary, setLastSendPayloadSummary] = useState<string | null>(null)
@@ -1301,11 +1298,6 @@ function App() {
     }
   }, [connectedProject, supabaseUrl, supabaseAnonKey, selectedChatTarget, selectedConversationId])
 
-  // Legacy loadWorkingMemory function for compatibility
-  const loadWorkingMemory = useCallback(async () => {
-    await fetchWorkingMemory()
-  }, [fetchWorkingMemory])
-
   // Legacy refreshWorkingMemory function - defined after refreshPmWorkingMemory
   const refreshWorkingMemory = useCallback(async () => {
     // refreshPmWorkingMemory will be defined later, so we'll use it directly in the callback
@@ -1349,60 +1341,6 @@ function App() {
       }
     } catch (err) {
       console.error('[PM] Failed to refresh working memory:', err)
-    } finally {
-      setPmWorkingMemoryLoading(false)
-    }
-  }, [connectedProject, supabaseUrl, supabaseAnonKey, selectedConversationId])
-
-  // Fetch PM working memory (0173) — use API only so we never hit Supabase from client (avoids 406 on hal_conversation_working_memory)
-  const fetchPmWorkingMemory = useCallback(async (conversationId?: string) => {
-    if (!connectedProject || !supabaseUrl || !supabaseAnonKey) {
-      setPmWorkingMemory(null)
-      return
-    }
-    const convId = conversationId ?? selectedConversationId ?? getConversationId('project-manager', 1)
-    try {
-      setPmWorkingMemoryLoading(true)
-      setPmWorkingMemoryError(null)
-      const res = await fetch('/api/conversations/working-memory/get', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectId: connectedProject,
-          agent: convId,
-          supabaseUrl,
-          supabaseAnonKey,
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok || !data.success) {
-        setPmWorkingMemory(null)
-        if (data.error) setPmWorkingMemoryError(data.error)
-        return
-      }
-      const wm = data.workingMemory
-      if (wm && (wm.summary || (Array.isArray(wm.goals) && wm.goals.length) || (Array.isArray(wm.requirements) && wm.requirements.length))) {
-        const arr = (x: unknown) => (Array.isArray(x) ? x : typeof x === 'string' ? (x ? [x] : []) : [])
-        setPmWorkingMemory({
-          summary: wm.summary || '',
-          goals: arr(wm.goals),
-          requirements: arr(wm.requirements),
-          constraints: arr(wm.constraints),
-          decisions: arr(wm.decisions),
-          assumptions: arr(wm.assumptions),
-          open_questions: arr(wm.openQuestions ?? wm.open_questions),
-          glossary: typeof wm.glossary === 'object' && wm.glossary !== null ? (wm.glossary as Record<string, string>) : {},
-          stakeholders: arr(wm.stakeholders),
-          updated_at: wm.lastUpdatedAt || wm.last_updated_at || new Date().toISOString(),
-          through_sequence: typeof wm.throughSequence === 'number' ? wm.throughSequence : wm.through_sequence || 0,
-        })
-      } else {
-        setPmWorkingMemory(null)
-      }
-    } catch (err) {
-      console.error('[PM] Failed to fetch working memory:', err)
-      setPmWorkingMemoryError(err instanceof Error ? err.message : String(err))
-      setPmWorkingMemory(null)
     } finally {
       setPmWorkingMemoryLoading(false)
     }
