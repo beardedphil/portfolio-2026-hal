@@ -397,13 +397,14 @@ h1 {
   padding: 0.75rem 1rem;
   background: var(--kanban-surface-alt);
   min-width: auto;
-  max-width: 500px;
+  max-width: none;
+  white-space: nowrap;
 }
 .active-work-status-timeline-tooltip .impl-agent-status-timeline {
   display: inline-flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 0.25rem;
+  flex-wrap: nowrap;
+  gap: 0.5rem;
   font-size: 0.85rem;
   color: var(--kanban-text-muted);
 }
