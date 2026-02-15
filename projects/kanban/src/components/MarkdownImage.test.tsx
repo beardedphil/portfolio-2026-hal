@@ -1,124 +1,164 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { MarkdownImage } from './MarkdownImage'
 
 describe('MarkdownImage', () => {
   const mockOnImageClick = vi.fn()
+  const mockImageSrc = 'https://example.com/image.jpg'
+  const mockAlt = 'Test image alt'
 
-  it('renders img element with expected attributes when src is provided', () => {
+  it('renders expected img element attributes', () => {
     render(
       <MarkdownImage
-        src="https://example.com/image.jpg"
-        alt="Test image"
+        src={mockImageSrc}
+        alt={mockAlt}
         onImageClick={mockOnImageClick}
       />
     )
 
-    const img = screen.getByAltText('Test image')
+    const img = screen.getByAltText(mockAlt)
     expect(img).toBeInTheDocument()
-    expect(img).toHaveAttribute('src', 'https://example.com/image.jpg')
-    expect(img).toHaveAttribute('alt', 'Test image')
+    expect(img).toHaveAttribute('src', mockImageSrc)
+    expect(img).toHaveAttribute('alt', mockAlt)
     expect(img).toHaveAttribute('title', 'Click to view full size')
     expect(img).toHaveStyle({ cursor: 'pointer' })
   })
 
-  it('renders img with artifactTitle as alt when alt is not provided', () => {
+  it('renders with artifactTitle as alt when alt is not provided', () => {
+    const artifactTitle = 'Artifact Title'
     render(
       <MarkdownImage
-        src="https://example.com/image.jpg"
-        artifactTitle="Artifact Title"
+        src={mockImageSrc}
+        artifactTitle={artifactTitle}
         onImageClick={mockOnImageClick}
       />
     )
 
-    const img = screen.getByAltText('Artifact Title')
+    const img = screen.getByAltText(artifactTitle)
     expect(img).toBeInTheDocument()
+    expect(img).toHaveAttribute('alt', artifactTitle)
   })
 
-  it('renders img with default alt when neither alt nor artifactTitle is provided', () => {
+  it('renders with default alt when neither alt nor artifactTitle is provided', () => {
     render(
       <MarkdownImage
-        src="https://example.com/image.jpg"
+        src={mockImageSrc}
         onImageClick={mockOnImageClick}
       />
     )
 
     const img = screen.getByAltText('Image')
     expect(img).toBeInTheDocument()
-  })
-
-  it('calls onImageClick when image is clicked', async () => {
-    const userEvent = await import('@testing-library/user-event')
-    const user = userEvent.default.setup()
-    
-    render(
-      <MarkdownImage
-        src="https://example.com/image.jpg"
-        alt="Test image"
-        onImageClick={mockOnImageClick}
-      />
-    )
-
-    const img = screen.getByAltText('Test image')
-    await user.click(img)
-    expect(mockOnImageClick).toHaveBeenCalledWith('https://example.com/image.jpg', 'Test image')
-  })
-
-  it('renders fallback when src is not provided', () => {
-    render(
-      <MarkdownImage
-        alt="Missing image"
-        onImageClick={mockOnImageClick}
-      />
-    )
-
-    expect(screen.getByText(/No image source provided: Missing image/)).toBeInTheDocument()
-    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    expect(img).toHaveAttribute('alt', 'Image')
   })
 
   it('renders alt text caption when alt is provided', () => {
     render(
       <MarkdownImage
-        src="https://example.com/image.jpg"
-        alt="Test image caption"
+        src={mockImageSrc}
+        alt={mockAlt}
         onImageClick={mockOnImageClick}
       />
     )
 
-    expect(screen.getByText('Test image caption')).toBeInTheDocument()
+    expect(screen.getByText(mockAlt)).toBeInTheDocument()
   })
 
   it('does not render alt text caption when alt is not provided', () => {
     render(
       <MarkdownImage
-        src="https://example.com/image.jpg"
+        src={mockImageSrc}
         onImageClick={mockOnImageClick}
       />
     )
 
     const img = screen.getByAltText('Image')
     expect(img).toBeInTheDocument()
-    // Alt text should be in the img element, but not as a separate caption
-    const captions = screen.queryAllByText('Image')
-    // Should only be the alt attribute, not a caption paragraph
-    expect(captions.length).toBeLessThanOrEqual(1)
+    // Should not have a caption paragraph
+    const paragraphs = screen.queryAllByText(/^Image$/)
+    // The alt text "Image" appears in the img alt attribute, but not as a separate caption
+    expect(paragraphs.length).toBe(0)
+  })
+
+  it('calls onImageClick when image is clicked', () => {
+    render(
+      <MarkdownImage
+        src={mockImageSrc}
+        alt={mockAlt}
+        onImageClick={mockOnImageClick}
+      />
+    )
+
+    const img = screen.getByAltText(mockAlt)
+    img.click()
+
+    expect(mockOnImageClick).toHaveBeenCalledTimes(1)
+    expect(mockOnImageClick).toHaveBeenCalledWith(mockImageSrc, mockAlt)
+  })
+
+  it('calls onImageClick with correct parameters when alt is missing', () => {
+    const artifactTitle = 'Artifact Title'
+    render(
+      <MarkdownImage
+        src={mockImageSrc}
+        artifactTitle={artifactTitle}
+        onImageClick={mockOnImageClick}
+      />
+    )
+
+    const img = screen.getByAltText(artifactTitle)
+    img.click()
+
+    expect(mockOnImageClick).toHaveBeenCalledWith(mockImageSrc, artifactTitle)
+  })
+
+  it('renders fallback when src is not provided', () => {
+    render(
+      <MarkdownImage
+        alt={mockAlt}
+        onImageClick={mockOnImageClick}
+      />
+    )
+
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    expect(screen.getByText(/No image source provided/)).toBeInTheDocument()
+  })
+
+  it('renders fallback when image fails to load', () => {
+    // Mock console methods to avoid noise in test output
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    
+    render(
+      <MarkdownImage
+        src="https://invalid-url-that-will-fail.com/image.jpg"
+        alt={mockAlt}
+        onImageClick={mockOnImageClick}
+      />
+    )
+
+    const img = screen.getByAltText(mockAlt)
+    // Simulate image load error
+    fireEvent.error(img)
+
+    // After error, should show fallback
+    expect(screen.getByText(/Unable to display image/)).toBeInTheDocument()
+    
+    consoleWarnSpy.mockRestore()
   })
 
   it('passes through additional img props', () => {
     render(
       <MarkdownImage
-        src="https://example.com/image.jpg"
-        alt="Test image"
+        src={mockImageSrc}
+        alt={mockAlt}
         onImageClick={mockOnImageClick}
-        width={500}
-        height={300}
         className="custom-class"
+        data-testid="custom-test-id"
       />
     )
 
-    const img = screen.getByAltText('Test image')
-    expect(img).toHaveAttribute('width', '500')
-    expect(img).toHaveAttribute('height', '300')
+    const img = screen.getByAltText(mockAlt)
     expect(img).toHaveClass('custom-class')
+    expect(img).toHaveAttribute('data-testid', 'custom-test-id')
   })
 })

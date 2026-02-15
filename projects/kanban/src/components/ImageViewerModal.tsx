@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useCallback } from 'react'
 
+/** Image viewer modal for full-size image display (0158) */
 export function ImageViewerModal({
   open,
   onClose,

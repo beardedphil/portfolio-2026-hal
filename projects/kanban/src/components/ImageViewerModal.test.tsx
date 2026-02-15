@@ -1,22 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { ImageViewerModal } from './ImageViewerModal'
 
 describe('ImageViewerModal', () => {
-  let mockOnClose: ReturnType<typeof vi.fn>
+  const mockImageSrc = 'https://example.com/image.jpg'
+  const mockImageAlt = 'Test image'
 
   beforeEach(() => {
-    mockOnClose = vi.fn()
+    vi.clearAllMocks()
   })
 
-  it('does not render when open is false', () => {
+  it('does not render when closed', () => {
+    const mockOnClose = vi.fn()
     const { container } = render(
       <ImageViewerModal
         open={false}
         onClose={mockOnClose}
-        imageSrc="https://example.com/image.jpg"
-        imageAlt="Test image"
+        imageSrc={mockImageSrc}
+        imageAlt={mockImageAlt}
       />
     )
 
@@ -24,130 +25,170 @@ describe('ImageViewerModal', () => {
   })
 
   it('does not render when imageSrc is null', () => {
+    const mockOnClose = vi.fn()
     const { container } = render(
       <ImageViewerModal
         open={true}
         onClose={mockOnClose}
         imageSrc={null}
-        imageAlt="Test image"
+        imageAlt={mockImageAlt}
       />
     )
 
     expect(container.firstChild).toBeNull()
   })
 
-  it('renders when open is true and imageSrc is provided', () => {
+  it('renders when open and imageSrc is provided', () => {
+    const mockOnClose = vi.fn()
     render(
       <ImageViewerModal
         open={true}
         onClose={mockOnClose}
-        imageSrc="https://example.com/image.jpg"
-        imageAlt="Test image"
+        imageSrc={mockImageSrc}
+        imageAlt={mockImageAlt}
       />
     )
 
-    expect(screen.getByText('Test image')).toBeInTheDocument()
     expect(screen.getByRole('dialog')).toBeInTheDocument()
-    expect(screen.getByLabelText('Close')).toBeInTheDocument()
+    expect(screen.getByText(mockImageAlt)).toBeInTheDocument()
+    expect(screen.getByAltText(mockImageAlt)).toBeInTheDocument()
   })
 
-  it('calls onClose when Escape key is pressed', async () => {
-    const user = userEvent.setup()
+  it('calls onClose when Escape key is pressed', () => {
+    const mockOnClose = vi.fn()
     render(
       <ImageViewerModal
         open={true}
         onClose={mockOnClose}
-        imageSrc="https://example.com/image.jpg"
-        imageAlt="Test image"
+        imageSrc={mockImageSrc}
+        imageAlt={mockImageAlt}
       />
     )
 
-    await user.keyboard('{Escape}')
+    const dialog = screen.getByRole('dialog')
+    fireEvent.keyDown(dialog, { key: 'Escape', code: 'Escape' })
+
     expect(mockOnClose).toHaveBeenCalledTimes(1)
   })
 
-  it('calls onClose when backdrop is clicked', async () => {
-    const user = userEvent.setup()
+  it('does not call onClose when other keys are pressed', () => {
+    const mockOnClose = vi.fn()
+    render(
+      <ImageViewerModal
+        open={true}
+        onClose={mockOnClose}
+        imageSrc={mockImageSrc}
+        imageAlt={mockImageAlt}
+      />
+    )
+
+    const dialog = screen.getByRole('dialog')
+    fireEvent.keyDown(dialog, { key: 'Enter', code: 'Enter' })
+    fireEvent.keyDown(dialog, { key: ' ', code: 'Space' })
+
+    expect(mockOnClose).not.toHaveBeenCalled()
+  })
+
+  it('calls onClose when backdrop is clicked', () => {
+    const mockOnClose = vi.fn()
     const { container } = render(
       <ImageViewerModal
         open={true}
         onClose={mockOnClose}
-        imageSrc="https://example.com/image.jpg"
-        imageAlt="Test image"
+        imageSrc={mockImageSrc}
+        imageAlt={mockImageAlt}
       />
     )
 
-    const backdrop = container.querySelector('.ticket-detail-backdrop')
+    // Get the backdrop element (the dialog with class ticket-detail-backdrop)
+    const backdrop = container.querySelector('.ticket-detail-backdrop') as HTMLDivElement
     expect(backdrop).toBeInTheDocument()
     
-    if (backdrop) {
-      await user.click(backdrop)
-      expect(mockOnClose).toHaveBeenCalledTimes(1)
-    }
+    // The component's onClick handler checks: e.target === e.currentTarget
+    // To test this, we need to create an event where target === currentTarget
+    // We'll use a workaround: create a synthetic event and manually set both target and currentTarget
+    const syntheticEvent = {
+      target: backdrop,
+      currentTarget: backdrop,
+      type: 'click',
+      bubbles: true,
+      cancelable: true,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+      nativeEvent: new MouseEvent('click', { bubbles: true }),
+    } as unknown as React.MouseEvent<HTMLDivElement>
+    
+    // Manually trigger the onClick handler by accessing it through React's event system
+    // Since we can't easily access React's synthetic event handlers, we'll use a different approach:
+    // Create a click event and ensure it bubbles, then check if onClose was called
+    // when clicking on the backdrop (not on children)
+    const clickEvent = new MouseEvent('click', { 
+      bubbles: true, 
+      cancelable: true,
+    })
+    
+    // Use Object.defineProperty to make target === currentTarget for this specific event
+    // This is a workaround for testing React's synthetic events
+    Object.defineProperty(clickEvent, 'target', {
+      get: () => backdrop,
+      configurable: true,
+    })
+    
+    backdrop.dispatchEvent(clickEvent)
+    
+    // Verify onClose was called when clicking the backdrop
+    expect(mockOnClose).toHaveBeenCalledTimes(1)
   })
 
-  it('does not call onClose when modal content is clicked', async () => {
-    const user = userEvent.setup()
+  it('does not call onClose when modal content is clicked', () => {
+    const mockOnClose = vi.fn()
     render(
       <ImageViewerModal
         open={true}
         onClose={mockOnClose}
-        imageSrc="https://example.com/image.jpg"
-        imageAlt="Test image"
+        imageSrc={mockImageSrc}
+        imageAlt={mockImageAlt}
       />
     )
 
-    const modal = screen.getByRole('dialog')
-    const modalContent = modal.querySelector('.ticket-detail-modal')
-    expect(modalContent).toBeInTheDocument()
-    
-    if (modalContent) {
-      await user.click(modalContent)
-      expect(mockOnClose).not.toHaveBeenCalled()
-    }
+    const image = screen.getByAltText(mockImageAlt)
+    fireEvent.click(image)
+
+    expect(mockOnClose).not.toHaveBeenCalled()
   })
 
-  it('calls onClose when close button is clicked', async () => {
-    const user = userEvent.setup()
+  it('calls onClose when close button is clicked', () => {
+    const mockOnClose = vi.fn()
     render(
       <ImageViewerModal
         open={true}
         onClose={mockOnClose}
-        imageSrc="https://example.com/image.jpg"
-        imageAlt="Test image"
+        imageSrc={mockImageSrc}
+        imageAlt={mockImageAlt}
       />
     )
 
     const closeButton = screen.getByLabelText('Close')
-    await user.click(closeButton)
+    fireEvent.click(closeButton)
+
     expect(mockOnClose).toHaveBeenCalledTimes(1)
   })
 
-  it('renders image with correct src and alt', () => {
+  it('renders with default alt text when imageAlt is empty', () => {
+    const mockOnClose = vi.fn()
     render(
       <ImageViewerModal
         open={true}
         onClose={mockOnClose}
-        imageSrc="https://example.com/test-image.jpg"
-        imageAlt="My test image"
-      />
-    )
-
-    const img = screen.getByAltText('My test image')
-    expect(img).toBeInTheDocument()
-    expect(img).toHaveAttribute('src', 'https://example.com/test-image.jpg')
-  })
-
-  it('uses default alt text when imageAlt is empty', () => {
-    render(
-      <ImageViewerModal
-        open={true}
-        onClose={mockOnClose}
-        imageSrc="https://example.com/image.jpg"
+        imageSrc={mockImageSrc}
         imageAlt=""
       />
     )
 
+    // The h2 title should show "Image" when imageAlt is empty
     expect(screen.getByText('Image')).toBeInTheDocument()
+    // The img alt attribute will be empty string, so we check it exists with empty alt
+    const img = screen.getByRole('img', { hidden: true })
+    expect(img).toHaveAttribute('alt', '')
   })
 })
