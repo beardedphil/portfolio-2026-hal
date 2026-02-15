@@ -5366,7 +5366,7 @@ function App() {
                               </div>
                             )}
                             {workingMemory && (() => {
-                              const wm = workingMemory
+                              const wm = workingMemory!
                               return !wm.summary && (!wm.goals || wm.goals.length === 0) && (!wm.requirements || wm.requirements.length === 0) && 
                                 (!wm.constraints || wm.constraints.length === 0) && (!wm.decisions || wm.decisions.length === 0) && (!wm.assumptions || wm.assumptions.length === 0) && 
                                 (!wm.openQuestions || wm.openQuestions.length === 0) && (!wm.glossary || Object.keys(wm.glossary).length === 0) && (!wm.stakeholders || wm.stakeholders.length === 0)
