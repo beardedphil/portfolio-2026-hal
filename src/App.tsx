@@ -2346,9 +2346,11 @@ function App() {
                 message: content,
                 repoFullName: connectedGithubRepo.fullName,
                 defaultBranch: connectedGithubRepo.defaultBranch || 'main',
+                conversationId: useDb && url && key && connectedProject ? convId : undefined,
+                projectId: useDb && url && key && connectedProject ? connectedProject : undefined,
               }),
             })
-            const launchData = (await launchRes.json()) as { runId?: string; status?: string; error?: string }
+            const launchData = (await launchRes.json()) as { runId?: string; status?: string; error?: string; isContinuing?: boolean }
             if (!launchData.runId || launchData.status === 'failed') {
               setAgentTypingTarget(null)
               const errMsg = launchData.error ?? 'Launch failed'
@@ -2359,7 +2361,11 @@ function App() {
             }
 
             const runId = launchData.runId
-            addPmSystemMessage('[Progress] PM agent running. Polling status...')
+            if (launchData.isContinuing) {
+              addPmSystemMessage('[Progress] Continuing PM thread. Polling status...')
+            } else {
+              addPmSystemMessage('[Progress] PM agent running. Polling status...')
+            }
             const poll = async (): Promise<{ done: boolean; reply?: string; error?: string }> => {
               const r = await fetch(`/api/agent-runs/status?runId=${encodeURIComponent(runId)}`, { credentials: 'include' })
               const data = await r.json() as { status?: string; summary?: string; error?: string }
@@ -3766,6 +3772,52 @@ function App() {
                       : 'Chat'}
                   </div>
                   <div className="chat-window-actions">
+                    {/* Start new PM thread button (0663) */}
+                    {openChatTarget === 'project-manager' && connectedGithubRepo?.fullName && (() => {
+                      const currentConvId = typeof openChatTarget === 'string' && conversations.has(openChatTarget)
+                        ? openChatTarget
+                        : getConversationId('project-manager', 1)
+                      const currentConv = currentConvId ? conversations.get(currentConvId) : null
+                      const hasMessages = currentConv && currentConv.messages.length > 0
+                      return hasMessages ? (
+                        <button
+                          type="button"
+                          className="chat-window-restart-thread"
+                          onClick={async () => {
+                            if (!connectedProject) return
+                            const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
+                            const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
+                            if (!url || !key) return
+                            
+                            try {
+                              const restartRes = await fetch('/api/pm-agent/launch', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                credentials: 'include',
+                                body: JSON.stringify({
+                                  restart: true,
+                                  conversationId: currentConvId,
+                                  projectId: connectedProject,
+                                }),
+                              })
+                              const restartData = await restartRes.json()
+                              if (restartData.success) {
+                                addMessage(currentConvId, 'system', '[Status] PM thread restarted. Next message will start a new conversation.')
+                              } else {
+                                addMessage(currentConvId, 'system', `[Status] Failed to restart thread: ${restartData.error ?? 'Unknown error'}`)
+                              }
+                            } catch (err) {
+                              const errMsg = err instanceof Error ? err.message : String(err)
+                              addMessage(currentConvId, 'system', `[Status] Error restarting thread: ${errMsg}`)
+                            }
+                          }}
+                          aria-label="Start new PM thread"
+                          title="Start new PM thread (clears conversation thread mapping)"
+                        >
+                          Start new PM thread
+                        </button>
+                      ) : null
+                    })()}
                     {/* Clear conversation button (0124) */}
                     {(() => {
                       const currentConvId = typeof openChatTarget === 'string' && conversations.has(openChatTarget)
