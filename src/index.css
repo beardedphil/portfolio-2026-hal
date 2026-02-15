@@ -1054,6 +1054,89 @@ body {
   color: var(--hal-text-muted);
 }
 
+/* Prompt view for PM assistant messages */
+.message-prompt-toggle {
+  margin-left: auto;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  background: transparent;
+  border: 1px solid var(--hal-border);
+  border-radius: 4px;
+  color: var(--hal-text);
+  cursor: pointer;
+  transition: background-color 0.2s, border-color 0.2s;
+}
+
+.message-prompt-toggle:hover {
+  background: var(--hal-surface-alt);
+  border-color: var(--hal-primary);
+}
+
+.message-prompt-view {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--hal-border-muted);
+}
+
+.message-prompt-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.message-prompt-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--hal-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.message-prompt-copy {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  background: var(--hal-surface-alt);
+  border: 1px solid var(--hal-border);
+  border-radius: 4px;
+  color: var(--hal-text);
+  cursor: pointer;
+  transition: background-color 0.2s, border-color 0.2s;
+}
+
+.message-prompt-copy:hover {
+  background: var(--hal-primary);
+  border-color: var(--hal-primary);
+  color: #fff;
+}
+
+.message-prompt-content {
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--hal-surface-alt);
+  padding: 0.75rem;
+  border-radius: 4px;
+  border: 1px solid var(--hal-border-muted);
+  overflow-x: auto;
+  max-height: 500px;
+  overflow-y: auto;
+  color: var(--hal-text);
+}
+
+.message-prompt-unavailable {
+  padding: 0.75rem;
+  background: var(--hal-surface-alt);
+  border: 1px solid var(--hal-border-muted);
+  border-radius: 4px;
+  color: var(--hal-text-muted);
+  font-style: italic;
+  text-align: center;
+  font-size: 0.85rem;
+}
+
 .typing-dots {
   display: inline-flex;
   gap: 0.2rem;

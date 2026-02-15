@@ -269,6 +269,85 @@ const CHAT_OPTIONS: { id: ChatTarget; label: string }[] = [
 // DEBUG: QA option should be visible
 console.log('CHAT_OPTIONS:', CHAT_OPTIONS.map(o => o.label))
 
+/**
+ * Formats the outbound request JSON into a readable prompt text.
+ * Extracts system instructions, messages, and context to show what was sent to the LLM.
+ */
+function formatPromptFromOutboundRequest(outboundRequest: object | null): string {
+  if (!outboundRequest || typeof outboundRequest !== 'object') {
+    return ''
+  }
+
+  const req = outboundRequest as any
+  let promptText = ''
+  const sections: string[] = []
+
+  // Add metadata header
+  if (req.model) {
+    sections.push(`## Model: ${req.model}`)
+  }
+  if (req.previous_response_id) {
+    sections.push(`## Previous Response ID: ${req.previous_response_id}`)
+  }
+  if (sections.length > 0) {
+    promptText += sections.join('\n') + '\n\n'
+  }
+
+  // Handle OpenAI Responses API format (messages array)
+  if (Array.isArray(req.messages)) {
+    for (const msg of req.messages) {
+      if (msg.role === 'system') {
+        promptText += `## System Instructions\n\n${msg.content || ''}\n\n`
+      } else if (msg.role === 'user') {
+        if (Array.isArray(msg.content)) {
+          // Vision model format: array of content parts
+          const textParts = msg.content.filter((part: any) => part.type === 'text').map((part: any) => part.text).join('\n')
+          const imageCount = msg.content.filter((part: any) => part.type === 'image').length
+          promptText += `## User Message\n\n${textParts}`
+          if (imageCount > 0) {
+            promptText += `\n\n[${imageCount} image${imageCount > 1 ? 's' : ''} attached]`
+          }
+          promptText += '\n\n'
+        } else {
+          promptText += `## User Message\n\n${msg.content || ''}\n\n`
+        }
+      } else if (msg.role === 'assistant') {
+        promptText += `## Assistant Message (Previous)\n\n${typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content, null, 2)}\n\n`
+      }
+    }
+  } else if (req.prompt) {
+    // Direct prompt format (non-Responses API)
+    if (req.system) {
+      promptText += `## System Instructions\n\n${req.system}\n\n`
+    }
+    promptText += `## Prompt\n\n${typeof req.prompt === 'string' ? req.prompt : JSON.stringify(req.prompt, null, 2)}\n\n`
+  } else if (req.input) {
+    // OpenAI Responses API might use 'input' field
+    if (req.system) {
+      promptText += `## System Instructions\n\n${req.system}\n\n`
+    }
+    promptText += `## Input\n\n${typeof req.input === 'string' ? req.input : JSON.stringify(req.input, null, 2)}\n\n`
+  } else {
+    // Fallback: show JSON structure with better formatting
+    promptText += `## Request Payload\n\n${JSON.stringify(req, null, 2)}`
+  }
+
+  // Add tools information if available
+  if (req.tools && Array.isArray(req.tools) && req.tools.length > 0) {
+    promptText += `\n## Tools Available (${req.tools.length})\n\n`
+    for (const tool of req.tools) {
+      if (tool.function) {
+        promptText += `- **${tool.function.name}**: ${tool.function.description || 'No description'}\n`
+      } else if (tool.name) {
+        promptText += `- **${tool.name}**: ${tool.description || 'No description'}\n`
+      }
+    }
+    promptText += '\n'
+  }
+
+  return promptText.trim()
+}
+
 function formatTime(date: Date): string {
   return date.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
@@ -347,6 +426,7 @@ function App() {
   const realtimeSubscriptionsRef = useRef<{ tickets: boolean; agentRuns: boolean }>({ tickets: false, agentRuns: false })
   const [outboundRequestExpanded, setOutboundRequestExpanded] = useState(false)
   const [toolCallsExpanded, setToolCallsExpanded] = useState(false)
+  const [showPmPrompt, setShowPmPrompt] = useState(false)
   const messageIdRef = useRef(0)
   const pmMaxSequenceRef = useRef(0) // Keep for backward compatibility during migration
   // Track max sequence per agent instance (e.g., "project-manager-1", "implementation-agent-2")
@@ -3652,40 +3732,97 @@ function App() {
                         <p className="transcript-empty">No messages yet. Start a conversation.</p>
                       ) : (
                         <>
-                          {displayMessages.map((msg) => (
-                            <div
-                              key={msg.id}
-                              className={`message-row message-row-${msg.agent}`}
-                              data-agent={msg.agent}
-                            >
-                              <div className={`message message-${msg.agent}`}>
-                                <div className="message-header">
-                                  <span className="message-author">{getMessageAuthorLabel(msg.agent)}</span>
-                                  <span className="message-time">[{formatTime(msg.timestamp)}]</span>
+                          {displayMessages.map((msg, msgIdx) => {
+                            // Check if this is the most recent PM assistant message
+                            // Find the last PM assistant message in the displayMessages array
+                            const lastPmMsg = displayMessages
+                              .slice()
+                              .reverse()
+                              .find(m => m.agent === 'project-manager')
+                            const isMostRecentPmAssistant = 
+                              msg.agent === 'project-manager' &&
+                              selectedChatTarget === 'project-manager' &&
+                              lastPmMsg?.id === msg.id
+                            
+                            return (
+                              <div
+                                key={msg.id}
+                                className={`message-row message-row-${msg.agent}`}
+                                data-agent={msg.agent}
+                              >
+                                <div className={`message message-${msg.agent}`}>
+                                  <div className="message-header">
+                                    <span className="message-author">{getMessageAuthorLabel(msg.agent)}</span>
+                                    <span className="message-time">[{formatTime(msg.timestamp)}]</span>
+                                    {msg.imageAttachments && msg.imageAttachments.length > 0 && (
+                                      <span className="message-image-indicator" title={`${msg.imageAttachments.length} image${msg.imageAttachments.length > 1 ? 's' : ''} attached`}>
+                                        📎 {msg.imageAttachments.length}
+                                      </span>
+                                    )}
+                                    {isMostRecentPmAssistant && (
+                                      <button
+                                        type="button"
+                                        className="message-prompt-toggle"
+                                        onClick={() => setShowPmPrompt(!showPmPrompt)}
+                                        title={showPmPrompt ? 'Hide sent prompt' : 'Show sent prompt'}
+                                      >
+                                        {showPmPrompt ? '▼' : '▶'} {showPmPrompt ? 'Hide sent prompt' : 'Show sent prompt'}
+                                      </button>
+                                    )}
+                                  </div>
                                   {msg.imageAttachments && msg.imageAttachments.length > 0 && (
-                                    <span className="message-image-indicator" title={`${msg.imageAttachments.length} image${msg.imageAttachments.length > 1 ? 's' : ''} attached`}>
-                                      📎 {msg.imageAttachments.length}
-                                    </span>
+                                    <div className="message-images">
+                                      {msg.imageAttachments.map((img, idx) => (
+                                        <div key={idx} className="message-image-container">
+                                          <img src={img.dataUrl} alt={img.filename} className="message-image-thumbnail" />
+                                          <span className="message-image-filename">{img.filename}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {msg.content.trimStart().startsWith('{') ? (
+                                    <pre className="message-content message-json">{msg.content}</pre>
+                                  ) : (
+                                    <span className="message-content">{msg.content}</span>
+                                  )}
+                                  {isMostRecentPmAssistant && showPmPrompt && (
+                                    <div className="message-prompt-view">
+                                      {lastPmOutboundRequest ? (
+                                        <>
+                                          <div className="message-prompt-header">
+                                            <span className="message-prompt-label">Sent prompt:</span>
+                                            <button
+                                              type="button"
+                                              className="message-prompt-copy"
+                                              onClick={async () => {
+                                                const promptText = formatPromptFromOutboundRequest(lastPmOutboundRequest)
+                                                try {
+                                                  await navigator.clipboard.writeText(promptText)
+                                                  // Visual feedback could be added here
+                                                } catch (err) {
+                                                  console.error('Failed to copy prompt:', err)
+                                                }
+                                              }}
+                                              title="Copy prompt to clipboard"
+                                            >
+                                              Copy prompt
+                                            </button>
+                                          </div>
+                                          <pre className="message-prompt-content">
+                                            {formatPromptFromOutboundRequest(lastPmOutboundRequest)}
+                                          </pre>
+                                        </>
+                                      ) : (
+                                        <div className="message-prompt-unavailable">
+                                          Prompt unavailable for this message
+                                        </div>
+                                      )}
+                                    </div>
                                   )}
                                 </div>
-                                {msg.imageAttachments && msg.imageAttachments.length > 0 && (
-                                  <div className="message-images">
-                                    {msg.imageAttachments.map((img, idx) => (
-                                      <div key={idx} className="message-image-container">
-                                        <img src={img.dataUrl} alt={img.filename} className="message-image-thumbnail" />
-                                        <span className="message-image-filename">{img.filename}</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                                {msg.content.trimStart().startsWith('{') ? (
-                                  <pre className="message-content message-json">{msg.content}</pre>
-                                ) : (
-                                  <span className="message-content">{msg.content}</span>
-                                )}
                               </div>
-                            </div>
-                          ))}
+                            )
+                          })}
                           {agentTypingTarget === displayTarget && (
                             <div className="message-row message-row-typing" data-agent="typing" aria-live="polite">
                               <div className="message message-typing">
