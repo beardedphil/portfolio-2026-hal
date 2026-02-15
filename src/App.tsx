@@ -3496,12 +3496,12 @@ function App() {
     onTicketCreated: fetchKanbanData,
   }
 
-  // Chat panel content (used below in sidebar when openChatTarget is set)
+  // Chat panel content (used in sidebar when openChatTarget is set — same structure/classes as right panel for correct styling)
   const chatPanelContent = (function renderChatPanelContent() {
     const displayMessages = activeMessages
     const displayTarget = selectedChatTarget
     return (
-      <div className="hal-chat-panel-inner">
+      <div className="hal-chat-panel-inner" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
         {/* Agent stub banners and status panels */}
         {displayTarget === 'implementation-agent' && (
           <>
@@ -3564,10 +3564,10 @@ function App() {
             )}
           </>
         )}
-        {/* Messages list */}
-        <div className="messages-container" ref={messagesEndRef}>
-          {displayMessages.length === 0 && (
-            <div className="messages-empty">
+        {/* Messages list — use chat-transcript so sidebar gets same styles as right panel */}
+        <div className="chat-transcript" ref={messagesEndRef}>
+          {displayMessages.length === 0 && agentTypingTarget !== displayTarget ? (
+            <p className="transcript-empty">
               {displayTarget === 'project-manager'
                 ? 'Send a message to the Project Manager to get started.'
                 : displayTarget === 'implementation-agent'
@@ -3575,72 +3575,98 @@ function App() {
                 : displayTarget === 'qa-agent'
                 ? 'Ask to run QA on a ticket (e.g. "QA ticket 0046").'
                 : 'Send a message to start the conversation.'}
-            </div>
-          )}
-          {displayMessages.map((msg) => (
-            <div key={msg.id} className={`message message-${msg.agent}`}>
-              <div className="message-meta">
-                <span className="message-author">{getMessageAuthorLabel(msg.agent)}</span>
-                <span className="message-time">{formatTime(msg.timestamp)}</span>
-              </div>
-              <div className="message-content">{msg.content}</div>
-              {msg.imageAttachments && msg.imageAttachments.length > 0 && (
-                <div className="message-images">
-                  {msg.imageAttachments.map((att, i) => (
-                    <img key={i} src={att.dataUrl} alt={att.filename} className="message-image" />
-                  ))}
+            </p>
+          ) : (
+            <>
+              {displayMessages.map((msg) => (
+                <div key={msg.id} className={`message-row message-row-${msg.agent}`} data-agent={msg.agent}>
+                  <div
+                    className={`message message-${msg.agent} ${displayTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText ? 'message-clickable' : ''}`}
+                    onClick={displayTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText ? () => setPromptModalMessage(msg) : undefined}
+                    style={displayTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText ? { cursor: 'pointer' } : undefined}
+                    title={displayTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText ? 'Click to view sent prompt' : undefined}
+                  >
+                    <div className="message-header">
+                      <span className="message-author">{getMessageAuthorLabel(msg.agent)}</span>
+                      <span className="message-time">[{formatTime(msg.timestamp)}]</span>
+                      {displayTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText && (
+                        <span className="message-prompt-indicator" title="Click to view sent prompt">📋</span>
+                      )}
+                      {msg.imageAttachments && msg.imageAttachments.length > 0 && (
+                        <div className="message-images">
+                          {msg.imageAttachments.map((img, idx) => (
+                            <div key={idx} className="message-image-container">
+                              <img src={img.dataUrl} alt={img.filename} className="message-image-thumbnail" />
+                              <span className="message-image-filename">{img.filename}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {msg.content.trimStart().startsWith('{') ? (
+                        <pre className="message-content message-json">{msg.content}</pre>
+                      ) : (
+                        <span className="message-content">{msg.content}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {agentTypingTarget === displayTarget && (
+                <div className="message-row message-row-typing" data-agent="typing" aria-live="polite">
+                  <div className="message message-typing">
+                    <div className="message-header">
+                      <span className="message-author">HAL</span>
+                    </div>
+                    <span className="typing-bubble">
+                      <span className="typing-label">Thinking</span>
+                      <span className="typing-dots">
+                        <span className="typing-dot" />
+                        <span className="typing-dot" />
+                        <span className="typing-dot" />
+                      </span>
+                    </span>
+                  </div>
                 </div>
               )}
-              {msg.promptText != null && msg.promptText !== '' && (
-                <button
-                  type="button"
-                  className="conversation-prompt-link"
-                  onClick={() => setPromptModalMessage({ id: msg.id, agent: msg.agent, content: msg.content, timestamp: msg.timestamp, promptText: msg.promptText })}
-                >
-                  View sent prompt
-                </button>
-              )}
-            </div>
-          ))}
+            </>
+          )}
         </div>
-        {/* Composer */}
-        <div className="composer">
-          <div className="composer-inner">
-            {imageAttachment && (
-              <div className="image-attachment-preview" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <img src={imageAttachment.dataUrl} alt={imageAttachment.filename} style={{ maxHeight: 48, borderRadius: 4 }} />
-                <span style={{ fontSize: 12 }}>{imageAttachment.filename}</span>
-                <button type="button" onClick={handleRemoveImage} aria-label="Remove attachment" style={{ marginLeft: 4 }}>×</button>
-              </div>
-            )}
-            {(imageError || sendValidationError) && (
-              <div className="composer-error" role="alert">{imageError || sendValidationError}</div>
-            )}
-            <div className="composer-row">
-              <textarea
-                ref={composerRef}
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Type a message..."
-                rows={2}
-                className="composer-input"
-                aria-label="Message input"
-              />
-              <label className="composer-attach" title="Attach image">
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageSelect}
-                  className="composer-file"
-                  aria-label="Attach image"
-                />
-                📎
-              </label>
-              <button type="button" className="send-btn" onClick={handleSend} disabled={!!imageError}>
-                Send
-              </button>
+        {/* Composer — use chat-composer and composer-input-row so sidebar matches right panel */}
+        <div className="chat-composer">
+          {imageAttachment && (
+            <div className="image-attachment-preview">
+              <img src={imageAttachment.dataUrl} alt={imageAttachment.filename} className="attachment-thumbnail" />
+              <span className="attachment-filename">{imageAttachment.filename}</span>
+              <button type="button" className="remove-attachment-btn" onClick={handleRemoveImage} aria-label="Remove attachment">×</button>
             </div>
+          )}
+          {(imageError || sendValidationError) && (
+            <div className="image-error-message" role="alert">{imageError || sendValidationError}</div>
+          )}
+          <div className="composer-input-row">
+            <textarea
+              ref={composerRef}
+              className="message-input"
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Type a message... (Enter to send)"
+              rows={2}
+              aria-label="Message input"
+            />
+            <label className="attach-image-btn" title="Attach image">
+              <input
+                type="file"
+                accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
+                onChange={handleImageSelect}
+                style={{ display: 'none' }}
+                aria-label="Attach image"
+              />
+              📎
+            </label>
+            <button type="button" className="send-btn" onClick={handleSend} disabled={!!imageError}>
+              Send
+            </button>
           </div>
         </div>
       </div>

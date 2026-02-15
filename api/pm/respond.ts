@@ -194,7 +194,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     let conversationContextPack: string | undefined
     let workingMemoryText: string | undefined
     let recentImagesFromDb: Array<{ dataUrl: string; filename: string; mimeType: string }> = []
-    let workingMemoryText: string | undefined
     if (projectId && supabaseUrl && supabaseAnonKey && runnerModule) {
       try {
         const { createClient } = await import('@supabase/supabase-js')
@@ -305,8 +304,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           }
 
           const contextParts: string[] = []
-          if (workingMemoryContext) {
-            contextParts.push(workingMemoryContext)
+          if (workingMemoryText) {
+            contextParts.push(workingMemoryText)
           }
           contextParts.push(`Summary of earlier conversation:\n\n${summaryText}\n\nRecent conversation (within ${RECENT_MAX_CHARS.toLocaleString()} characters):\n\n${recentFromEnd
             .map((t) => `**${t.role}**: ${t.content}`)
@@ -315,13 +314,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           conversationContextPack = contextParts.join('\n\n')
         } else if (messages.length > 0) {
           const contextParts: string[] = []
-          if (workingMemoryContext) {
-            contextParts.push(workingMemoryContext)
+          if (workingMemoryText) {
+            contextParts.push(workingMemoryText)
           }
           contextParts.push(messages.map((t) => `**${t.role}**: ${t.content}`).join('\n\n'))
           conversationContextPack = contextParts.join('\n\n')
-        } else if (workingMemoryContext) {
-          conversationContextPack = workingMemoryContext
+        } else if (workingMemoryText) {
+          conversationContextPack = workingMemoryText
         }
         
         // Prepend working memory to context pack if available (0173)
