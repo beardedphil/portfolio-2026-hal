@@ -5355,16 +5355,19 @@ function App() {
                                 </dl>
                               </div>
                             )}
-                            {workingMemory && workingMemory.stakeholders && workingMemory.stakeholders.length > 0 && (
-                              <div style={{ marginBottom: '12px' }}>
-                                <strong>Stakeholders:</strong>
-                                <ul style={{ marginTop: '4px', paddingLeft: '20px' }}>
-                                  {workingMemory.stakeholders.map((s, idx) => (
-                                    <li key={idx}>{s}</li>
-                                  ))}
-                                </ul>
-                              </div>
-                            )}
+                            {workingMemory && workingMemory.stakeholders && workingMemory.stakeholders.length > 0 && (() => {
+                              const wm = workingMemory!
+                              return (
+                                <div style={{ marginBottom: '12px' }}>
+                                  <strong>Stakeholders:</strong>
+                                  <ul style={{ marginTop: '4px', paddingLeft: '20px' }}>
+                                    {wm.stakeholders.map((s, idx) => (
+                                      <li key={idx}>{s}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )
+                            })()}
                             {workingMemory && (() => {
                               const wm = workingMemory!
                               return !wm.summary && (!wm.goals || wm.goals.length === 0) && (!wm.requirements || wm.requirements.length === 0) && 
