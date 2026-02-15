@@ -6,11 +6,23 @@ import { HalKanbanContext } from '../HalKanbanContext'
 import type { Column, Card } from '../lib/columnTypes'
 import type { SupabaseTicketRow } from '../lib/workButtonHandlers'
 
-// Mock SortableCard since it's imported from App.tsx
-vi.mock('../App', () => ({
-  SortableCard: ({ card }: { card: Card }) => (
-    <div data-testid={`card-${card.id}`}>{card.title}</div>
-  ),
+// Mock useSortable hook for SortableCard
+const mockUseSortable = vi.fn()
+vi.mock('@dnd-kit/sortable', async () => {
+  const actual = await vi.importActual('@dnd-kit/sortable')
+  return {
+    ...actual,
+    useSortable: (config: any) => mockUseSortable(config),
+  }
+})
+
+// Mock CSS utility
+vi.mock('@dnd-kit/utilities', () => ({
+  CSS: {
+    Transform: {
+      toString: (transform: any) => (transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : 'none'),
+    },
+  },
 }))
 
 describe('SortableColumn', () => {
@@ -53,6 +65,20 @@ describe('SortableColumn', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    // Default mock implementation for useSortable
+    mockUseSortable.mockReturnValue({
+      attributes: {
+        role: 'button',
+        tabIndex: 0,
+      },
+      listeners: {
+        onPointerDown: vi.fn(),
+      },
+      setNodeRef: vi.fn(),
+      transform: null,
+      transition: null,
+      isDragging: false,
+    })
   })
 
   describe('column header rendering', () => {
@@ -96,13 +122,15 @@ describe('SortableColumn', () => {
         cardIds: ['card-1', 'card-2'],
       }
       renderColumn({ col, cards })
-      expect(screen.getByTestId('card-card-1')).toBeInTheDocument()
-      expect(screen.getByTestId('card-card-2')).toBeInTheDocument()
+      expect(screen.getByText('Ticket 1')).toBeInTheDocument()
+      expect(screen.getByText('Ticket 2')).toBeInTheDocument()
     })
 
     it('renders no cards when cardIds is empty', () => {
       renderColumn({ col: { ...defaultColumn, cardIds: [] } })
-      expect(screen.queryByTestId(/^card-/)).not.toBeInTheDocument()
+      // No card titles should be rendered
+      expect(screen.queryByText('Ticket 1')).not.toBeInTheDocument()
+      expect(screen.queryByText('Ticket 2')).not.toBeInTheDocument()
     })
 
     it('handles missing cards gracefully', () => {
@@ -115,9 +143,9 @@ describe('SortableColumn', () => {
         'card-1': { id: 'card-1', title: 'Ticket 1' },
       }
       renderColumn({ col, cards })
-      expect(screen.getByTestId('card-card-1')).toBeInTheDocument()
+      expect(screen.getByText('Ticket 1')).toBeInTheDocument()
       // Missing card should not crash
-      expect(screen.queryByTestId('card-missing-card')).not.toBeInTheDocument()
+      expect(screen.queryByText('missing-card')).not.toBeInTheDocument()
     })
   })
 
@@ -141,7 +169,7 @@ describe('SortableColumn', () => {
         supabaseTickets,
       })
       expect(screen.getByText('To-do')).toBeInTheDocument()
-      expect(screen.getByTestId('card-card-1')).toBeInTheDocument()
+      expect(screen.getByText('Ticket 1')).toBeInTheDocument()
     })
 
     it('does not crash when supabaseBoardActive is false', () => {

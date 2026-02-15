@@ -12,7 +12,7 @@ import {
 import { createWorkButtonHandlers } from '../lib/workButtonHandlers'
 import type { SupabaseTicketRow } from '../lib/workButtonHandlers'
 import { extractTicketId } from '../lib/ticketBody'
-import { SortableCard } from '../App'
+import { SortableCard } from './SortableCard'
 
 export interface SortableColumnProps {
   col: Column

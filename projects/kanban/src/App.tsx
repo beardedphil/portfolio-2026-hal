@@ -849,7 +849,6 @@ function ArtifactReportViewer({
 
 // QAInfoSection extracted to components/QAInfoSection.tsx
 // TicketDetailModal extracted to components/TicketDetailModal.tsx
-
 // SortableCard extracted to components/SortableCard.tsx
 
 
