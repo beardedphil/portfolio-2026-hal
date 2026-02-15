@@ -5332,7 +5332,7 @@ function App() {
                                 <div style={{ marginTop: '4px', whiteSpace: 'pre-wrap' }}>{workingMemory.assumptions}</div>
                               </div>
                             )}
-                            {workingMemory && workingMemory.openQuestions && workingMemory!.openQuestions.length > 0 && (() => {
+                            {workingMemory && workingMemory.openQuestions && (workingMemory!.openQuestions?.length ?? 0) > 0 && (() => {
                               const wm = workingMemory!
                               return (
                                 <div style={{ marginBottom: '12px' }}>
