@@ -240,7 +240,7 @@ function App() {
   /** QA quality metrics (0667) */
   const [qaMetrics, setQaMetrics] = useState<{
     coverage: number | null // 0-100 or null for N/A
-    overcomplication: number | null // 0-100 or null for N/A
+    simplicity: number | null // 0-100 or null for N/A
   } | null>(null)
   /** Working memory for PM conversation (0173) */
   const [pmWorkingMemory, setPmWorkingMemory] = useState<{
@@ -2181,58 +2181,21 @@ function App() {
     [connectedProject, supabaseUrl, supabaseAnonKey, openChatTarget, selectedConversationId]
   )
 
-  /** Fetch latest QA report artifact for connected repo and parse metrics (0667) */
-  const fetchQaMetrics = useCallback(
-    async (repoFullName: string): Promise<{ coverage: number | null; overcomplication: number | null }> => {
-      const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
-      const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
-      if (!url || !key) {
-        return { coverage: null, overcomplication: null }
-      }
-      try {
-        const supabase = getSupabaseClient(url, key)
-        // Fetch latest QA report artifact for this repo
-        const { data, error } = await supabase
-          .from('agent_artifacts')
-          .select('artifact_id, ticket_pk, repo_full_name, agent_type, title, body_md, created_at, updated_at')
-          .eq('repo_full_name', repoFullName)
-          .eq('agent_type', 'qa')
-          .ilike('title', '%QA report%')
-          .order('created_at', { ascending: false })
-          .limit(1)
-        if (error || !data || data.length === 0) {
-          return { coverage: null, overcomplication: null }
-        }
-        const qaReport = data[0]
-        const bodyMd = qaReport.body_md || ''
-        // Best-effort parsing: look for Coverage and Overcomplication metrics
-        // Try patterns like "Coverage: 85%", "Coverage 85%", "Coverage: 85", etc.
-        const coverageMatch = bodyMd.match(/(?:^|\n|##?\s+)(?:Coverage|Test Coverage|Code Coverage)[:\s]+(\d+(?:\.\d+)?)\s*%/i)
-        const overcomplicationMatch = bodyMd.match(/(?:^|\n|##?\s+)(?:Overcomplication|Over-complication|Over complication)[:\s]+(\d+(?:\.\d+)?)\s*%/i)
-        const coverage = coverageMatch ? Math.min(100, Math.max(0, parseFloat(coverageMatch[1]))) : null
-        const overcomplication = overcomplicationMatch ? Math.min(100, Math.max(0, parseFloat(overcomplicationMatch[1]))) : null
-        return { coverage, overcomplication }
-      } catch (e) {
-        console.warn('[HAL] fetchQaMetrics:', e)
-        return { coverage: null, overcomplication: null }
-      }
-    },
-    [supabaseUrl, supabaseAnonKey]
-  )
-
-  // Fetch QA metrics when repo is connected (0667)
+  // Load Coverage and Simplicity from repo metrics file (updated by test:coverage and report:simplicity)
   useEffect(() => {
-    if (connectedGithubRepo?.fullName) {
-      fetchQaMetrics(connectedGithubRepo.fullName).then((metrics) => {
-        setQaMetrics(metrics)
-      }).catch((err) => {
-        console.warn('[HAL] Error fetching QA metrics:', err)
-        setQaMetrics(null)
+    fetch('/metrics.json')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && typeof data === 'object') {
+          const coverage = data.coverage != null ? Math.min(100, Math.max(0, Number(data.coverage))) : null
+          const simplicity = data.simplicity != null ? Math.min(100, Math.max(0, Number(data.simplicity))) : null
+          setQaMetrics({ coverage: coverage ?? null, simplicity: simplicity ?? null })
+        } else {
+          setQaMetrics(null)
+        }
       })
-    } else {
-      setQaMetrics(null)
-    }
-  }, [connectedGithubRepo?.fullName, fetchQaMetrics])
+      .catch(() => setQaMetrics(null))
+  }, [])
 
   /** Fetch artifacts for a ticket (same Supabase as tickets). Used by Kanban when opening ticket detail. */
   const fetchArtifactsForTicket = useCallback(
@@ -3580,16 +3543,16 @@ function App() {
                     </div>
                     <div
                       className="qa-metric-box"
-                      style={{ backgroundColor: getMetricColor(qaMetrics?.overcomplication ?? null) }}
-                      title={qaMetrics?.overcomplication !== null && qaMetrics !== null ? `Overcomplication: ${qaMetrics.overcomplication.toFixed(0)}%` : 'Overcomplication: N/A'}
+                      style={{ backgroundColor: getMetricColor(qaMetrics?.simplicity ?? null) }}
+                      title={qaMetrics?.simplicity !== null && qaMetrics !== null ? `Simplicity: ${qaMetrics.simplicity.toFixed(0)}%` : 'Simplicity: N/A'}
                     >
-                      <span className="qa-metric-label">Overcomplication</span>
+                      <span className="qa-metric-label">Simplicity</span>
                       <span className="qa-metric-value">
-                        {qaMetrics?.overcomplication !== null && qaMetrics !== null ? `${qaMetrics.overcomplication.toFixed(0)}%` : 'N/A'}
+                        {qaMetrics?.simplicity !== null && qaMetrics !== null ? `${qaMetrics.simplicity.toFixed(0)}%` : 'N/A'}
                       </span>
                     </div>
                     {qaMetrics === null && (
-                      <span className="qa-metrics-hint">Run QA to generate metrics</span>
+                      <span className="qa-metrics-hint">Run test:coverage and report:simplicity to update</span>
                     )}
                   </div>
                 </>

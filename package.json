@@ -22,8 +22,9 @@
     "migrate-instructions": "node scripts/run-instructions-migration.js",
     "test": "vitest",
     "test:ui": "vitest --ui",
-    "test:coverage": "vitest run --coverage",
+    "test:coverage": "vitest run --coverage && node scripts/update-metrics-from-coverage.js",
     "report:lines": "node scripts/report-lines.js",
+    "report:simplicity": "node scripts/report-simplicity.js",
     "check:lines": "node scripts/check-lines.js"
   },
   "dependencies": {
@@ -53,6 +54,7 @@
     "supabase": "^2.76.8",
     "typescript": "~5.6.3",
     "vite": "^6.0.1",
-    "vitest": "^4.0.18"
+    "vitest": "^4.0.18",
+    "ts-complex": "^1.0.0"
   }
 }

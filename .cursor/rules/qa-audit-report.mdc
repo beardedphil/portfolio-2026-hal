@@ -29,16 +29,17 @@ When you **QA a ticket** (verify, check a ticket that is allegedly complete), st
 3. Audit artifacts present (if all present)
 4. Code review — PASS/FAIL with evidence
 5. Build verification — **MANDATORY:** `npm run build:hal`; TypeScript errors = FAIL
-6. Coverage — **MANDATORY:** Test coverage report with 4-metric table (lines/functions/branches/statements) and command used; see "Coverage section" below
-7. UI verification — automated and/or manual steps
-8. AC Confirmation Checklist — enumerate each AC, Met/Not met with evidence; see `ac-confirmation-checklist.mdc`
-9. Verdict — PASS or FAIL
+6. Coverage — **MANDATORY:** Whole-repo test coverage with 4-metric table and command used; see "Coverage section" below
+7. Simplicity — **MANDATORY:** Whole-repo simplicity (maintainability) metric; see "Simplicity section" below
+8. UI verification — automated and/or manual steps
+9. AC Confirmation Checklist — enumerate each AC, Met/Not met with evidence; see `ac-confirmation-checklist.mdc`
+10. Verdict — PASS or FAIL
 
 ## Coverage section
 
 **MANDATORY:** Every QA report **MUST** include a **Coverage** section with:
 
-1. **A 4-metric table** showing overall coverage percentages:
+1. **A 4-metric table** showing **whole-repo** coverage percentages (not just the ticket’s code):
    - Lines
    - Functions
    - Branches
@@ -48,13 +49,13 @@ When you **QA a ticket** (verify, check a ticket that is allegedly complete), st
 
 **How to generate coverage:**
 
-Run the following command to generate test coverage:
+Run the **full** test suite with coverage (whole repo):
 
 ```bash
 npm run test:coverage
 ```
 
-This command runs vitest with coverage enabled and outputs a text summary with coverage percentages. Extract the overall coverage percentages from the output and include them in a table in the QA report.
+This runs vitest with coverage over the entire codebase and outputs a text summary. Extract the overall coverage percentages from the output and include them in a table in the QA report. Do not run only tests for changed files; use the full suite.
 
 **Coverage section format:**
 
@@ -72,6 +73,30 @@ This command runs vitest with coverage enabled and outputs a text summary with c
 ```
 
 **Note:** Coverage numbers must reflect the current commit under test (not hardcoded). Run the command on the branch/commit being verified.
+
+## Simplicity section
+
+**MANDATORY:** Every QA report **MUST** include a **Simplicity** section with a single whole-repo percentage.
+
+**How to generate simplicity:**
+
+Run the repo’s simplicity report (uses a maintainability library over the whole codebase):
+
+```bash
+npm run report:simplicity
+```
+
+The script prints a single line: `Simplicity: XX%`. Include that line in your QA report so the dashboard can display it.
+
+**Simplicity section format:**
+
+```markdown
+## Simplicity
+
+Simplicity: XX%
+```
+
+**Note:** Run this on the branch/commit being verified. The number is for the whole repo, not just the ticket’s changes.
 
 ## Storing QA report
 
