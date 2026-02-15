@@ -3198,7 +3198,7 @@ function App() {
 
       // Set loading state
       setProcessReviewRecommendations((prev) =>
-        prev?.map((r) => (r.id === recommendationId ? { ...r, isCreating: true, error: undefined } : r))
+        prev ? prev.map((r) => (r.id === recommendationId ? { ...r, isCreating: true, error: undefined } : r)) : null
       )
 
       try {
@@ -3255,13 +3255,13 @@ function App() {
           // Show error state for this recommendation
           const errorMsg = createResult.error || 'Unknown error'
           setProcessReviewRecommendations((prev) =>
-            prev?.map((r) => (r.id === recommendationId ? { ...r, isCreating: false, error: errorMsg } : r))
+            prev ? prev.map((r) => (r.id === recommendationId ? { ...r, isCreating: false, error: errorMsg } : r)) : null
           )
         }
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err)
         setProcessReviewRecommendations((prev) =>
-          prev?.map((r) => (r.id === recommendationId ? { ...r, isCreating: false, error: errorMsg } : r))
+          prev ? prev.map((r) => (r.id === recommendationId ? { ...r, isCreating: false, error: errorMsg } : r)) : null
         )
       }
     },
