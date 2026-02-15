@@ -184,7 +184,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     let allowedWithExplanation = false
 
     // Gate: moving to Ready for QA requires all 8 implementation artifacts (substantive)
-    // Exception: if a "Missing Artifact Explanation" artifact exists, allow move when only missing artifacts are the issue
+    // Exception: if a "Missing Artifact Explanation" artifact exists, allow move when only missing artifacts are the issue (0201)
     if (columnId === 'col-qa') {
       if (!resolvedTicketPk) {
         json(res, 200, {
@@ -231,11 +231,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           json(res, 200, {
             success: false,
             error:
-              'Cannot move to Ready for QA: missing required implementation artifacts.',
+              'Cannot move to Ready for QA: missing required implementation artifacts. You must add a "Missing Artifact Explanation" artifact that explains which artifact(s) are missing and why they were intentionally not created.',
             missingArtifacts,
             remedy:
-              'Store each listed artifact via POST /api/artifacts/insert-implementation with the corresponding artifactType, then retry POST /api/tickets/move. Alternatively, attach a "Missing Artifact Explanation" artifact to explain why artifacts are missing.',
-            allowedWithExplanation: true,
+              'Add a "Missing Artifact Explanation" artifact via POST /api/artifacts/insert-implementation with artifactType "missing-artifact-explanation" and title "Missing Artifact Explanation". The artifact body_md must explain which artifact(s) are missing and why they were intentionally not created. Then retry POST /api/tickets/move.',
           })
           return
         }

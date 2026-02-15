@@ -70,6 +70,7 @@ export function getMissingRequiredImplementationArtifacts(
  *   "QA report for ticket 0121" -> "qa-report"
  *   "Image for ticket 0121" -> "image"
  *   "Instructions Used for ticket 0121" -> "instructions-used"
+ *   "Missing Artifact Explanation" -> "missing-artifact-explanation"
  */
 export function extractArtifactTypeFromTitle(title: string): string | null {
   const normalized = title.toLowerCase().trim()
@@ -88,7 +89,23 @@ export function extractArtifactTypeFromTitle(title: string): string | null {
   // QA artifact type
   if (normalized.startsWith('qa report for ticket')) return 'qa-report'
   
+  // Missing Artifact Explanation (0200) - exact match or starts with
+  if (normalized === 'missing artifact explanation' || normalized.startsWith('missing artifact explanation')) return 'missing-artifact-explanation'
+  
   return null
+}
+
+/**
+ * Checks if a "Missing Artifact Explanation" artifact exists for the given artifacts.
+ * The artifact must have a substantive body_md (length > 50, no placeholders).
+ * Used by the ticket move gate to allow movement when artifacts are missing but explained.
+ */
+export function hasMissingArtifactExplanation(artifacts: ArtifactRowForCheck[]): boolean {
+  return artifacts.some((a) => {
+    const extracted = extractArtifactTypeFromTitle(a.title || '')
+    if (extracted !== 'missing-artifact-explanation') return false
+    return isSubstantiveBody(a.body_md)
+  })
 }
 
 /**
@@ -120,11 +137,17 @@ export function normalizeTicketId(ticketId: string): string {
 /**
  * Creates a canonical artifact title using the ticket's display_id.
  * This ensures consistent formatting across all artifacts for a ticket.
+ * Special case: "missing-artifact-explanation" uses a fixed title without ticket ID (0200).
  */
 export function createCanonicalTitle(
   artifactType: string,
   displayId: string
 ): string {
+  // Special case: Missing Artifact Explanation uses fixed title (0200)
+  if (artifactType === 'missing-artifact-explanation') {
+    return 'Missing Artifact Explanation'
+  }
+  
   const normalizedDisplayId = displayId || normalizeTicketId(displayId)
   
   const titleMap: Record<string, string> = {
