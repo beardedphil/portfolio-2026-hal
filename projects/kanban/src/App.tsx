@@ -1173,17 +1173,24 @@ function SortableColumn({
     }
 
     // Library mode: HAL owns data; tell HAL to open chat (HAL will move ticket to Doing for Implement if needed)
-    // For QA All Tickets, launch QA for all tickets in col-qa concurrently
+    // For QA All Tickets, launch QA for tickets sequentially
     if (halCtx?.onOpenChatAndSend && buttonConfig.chatTarget) {
       const onOpenChatAndSend = halCtx.onOpenChatAndSend
       if (col.id === 'col-qa' && buttonConfig.chatTarget === 'qa-agent') {
         // Launch QA for tickets sequentially (one at a time, wait for each to move)
         const processNextTicket = async () => {
-          // Get current tickets in col-qa (refetch to get latest state)
-          let currentQaTickets: string[]
-          if (supabaseBoardActive && supabaseTickets) {
+          // Get fresh tickets from halCtx (library mode) or supabaseTickets
+          let currentQaTickets: string[] = []
+          if (halCtx?.tickets) {
+            // Library mode: get fresh tickets from halCtx
+            currentQaTickets = halCtx.tickets
+              .filter((t) => t.kanban_column_id === 'col-qa')
+              .map((t) => t.pk)
+          } else if (supabaseBoardActive && supabaseTickets) {
+            // Supabase mode: use supabaseTickets (will be refetched in iframe handler)
             currentQaTickets = supabaseTickets.filter((t) => t.kanban_column_id === 'col-qa').map((t) => t.pk)
           } else {
+            // Fallback: use col.cardIds
             currentQaTickets = col.cardIds
           }
           
@@ -1211,6 +1218,7 @@ function SortableColumn({
         
         // Start processing
         processNextTicket()
+        return
       } else {
         // For other columns, use single ticket behavior
         onOpenChatAndSend({
@@ -1218,8 +1226,8 @@ function SortableColumn({
           message: buttonConfig.message,
           ticketPk: firstCardId ?? undefined,
         })
+        return
       }
-      return
     }
 
     // Iframe/standalone: For Implementation agent, move ticket to Doing (0084) then postMessage
