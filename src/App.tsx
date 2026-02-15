@@ -5332,7 +5332,7 @@ function App() {
                                 <div style={{ marginTop: '4px', whiteSpace: 'pre-wrap' }}>{workingMemory.assumptions}</div>
                               </div>
                             )}
-                            {workingMemory.openQuestions && workingMemory.openQuestions.length > 0 && (
+                            {workingMemory?.openQuestions && workingMemory.openQuestions.length > 0 && (
                               <div style={{ marginBottom: '12px' }}>
                                 <strong>Open Questions:</strong>
                                 <ul style={{ marginTop: '4px', paddingLeft: '20px' }}>
@@ -5342,7 +5342,7 @@ function App() {
                                 </ul>
                               </div>
                             )}
-                            {workingMemory.glossary && Object.keys(workingMemory.glossary).length > 0 && (
+                            {workingMemory?.glossary && Object.keys(workingMemory.glossary).length > 0 && (
                               <div style={{ marginBottom: '12px' }}>
                                 <strong>Glossary:</strong>
                                 <dl style={{ marginTop: '4px', paddingLeft: '20px' }}>
@@ -5355,7 +5355,7 @@ function App() {
                                 </dl>
                               </div>
                             )}
-                            {workingMemory.stakeholders && workingMemory.stakeholders.length > 0 && (
+                            {workingMemory?.stakeholders && workingMemory.stakeholders.length > 0 && (
                               <div style={{ marginBottom: '12px' }}>
                                 <strong>Stakeholders:</strong>
                                 <ul style={{ marginTop: '4px', paddingLeft: '20px' }}>
