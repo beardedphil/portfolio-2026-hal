@@ -5351,10 +5351,8 @@ function App() {
                             {workingMemory && workingMemory.glossary && (() => {
                               const wm = workingMemory!
                               return Object.keys(wm.glossary || {}).length > 0
-                            })() && (() => {
-                              if (!workingMemory) return null
-                              if (!workingMemory) return null
-                              const wm = workingMemory
+                            })() && workingMemory && (() => {
+                              const wm = workingMemory!
                               return (
                                 <div style={{ marginBottom: '12px' }}>
                                   <strong>Glossary:</strong>
