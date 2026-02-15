@@ -1177,16 +1177,6 @@ function SortableColumn({
     if (halCtx?.onOpenChatAndSend && buttonConfig.chatTarget) {
       const onOpenChatAndSend = halCtx.onOpenChatAndSend
       if (col.id === 'col-qa' && buttonConfig.chatTarget === 'qa-agent') {
-        // Get all tickets in col-qa column
-        // In library mode, use col.cardIds (HAL owns the data)
-        // In Supabase mode, filter supabaseTickets by kanban_column_id
-        let qaTicketIds: string[]
-        if (supabaseBoardActive && supabaseTickets) {
-          qaTicketIds = supabaseTickets.filter((t) => t.kanban_column_id === 'col-qa').map((t) => t.pk)
-        } else {
-          qaTicketIds = col.cardIds
-        }
-        
         // Launch QA for tickets sequentially (one at a time, wait for each to move)
         const processNextTicket = async () => {
           // Get current tickets in col-qa (refetch to get latest state)
