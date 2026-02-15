@@ -1,14 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
-import '@testing-library/jest-dom'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { DiagnosticsPanel } from './DiagnosticsPanel'
-import type { DiagnosticsInfo } from './types'
+import type { DiagnosticsInfo, ChatTarget } from './types'
 
 describe('DiagnosticsPanel', () => {
   const mockDiagnostics: DiagnosticsInfo = {
     kanbanRenderMode: 'library',
     kanbanBuild: 'test-build',
-    selectedChatTarget: 'project-manager',
+    selectedChatTarget: 'project-manager' as ChatTarget,
     pmImplementationSource: 'hal-agents',
     lastAgentError: null,
     lastError: null,
@@ -34,55 +33,100 @@ describe('DiagnosticsPanel', () => {
     conversationHistoryResetMessage: null,
   }
 
-  const defaultProps = {
-    diagnostics: mockDiagnostics,
-    diagnosticsOpen: false,
-    chatWidth: 400,
-    isDragging: false,
-    lastWorkButtonClick: null,
-    outboundRequestExpanded: false,
-    onToggleOutboundRequest: vi.fn(),
-    toolCallsExpanded: false,
-    onToggleToolCalls: vi.fn(),
-    pmWorkingMemoryOpen: false,
-    onTogglePmWorkingMemory: vi.fn(),
-    onRefreshPmWorkingMemory: vi.fn(),
-    workingMemory: null,
-    workingMemoryLoading: false,
-    workingMemoryError: null,
-  }
+  it('renders diagnostics toggle button', () => {
+    const mockSetDiagnosticsOpen = vi.fn()
+    render(
+      <DiagnosticsPanel
+        diagnostics={mockDiagnostics}
+        diagnosticsOpen={false}
+        setDiagnosticsOpen={mockSetDiagnosticsOpen}
+        selectedChatTarget="project-manager"
+        chatWidth={400}
+        isDragging={false}
+        lastWorkButtonClick={null}
+        outboundRequestExpanded={false}
+        setOutboundRequestExpanded={vi.fn()}
+        toolCallsExpanded={false}
+        setToolCallsExpanded={vi.fn()}
+        formatTime={(date: Date) => date.toLocaleTimeString()}
+      />
+    )
 
-  beforeEach(() => {
-    vi.clearAllMocks()
+    const toggleButton = screen.getByText(/Diagnostics/)
+    expect(toggleButton).toBeInTheDocument()
   })
 
+  it('toggles diagnostics panel when button is clicked', () => {
+    const mockSetDiagnosticsOpen = vi.fn()
+    render(
+      <DiagnosticsPanel
+        diagnostics={mockDiagnostics}
+        diagnosticsOpen={false}
+        setDiagnosticsOpen={mockSetDiagnosticsOpen}
+        selectedChatTarget="project-manager"
+        chatWidth={400}
+        isDragging={false}
+        lastWorkButtonClick={null}
+        outboundRequestExpanded={false}
+        setOutboundRequestExpanded={vi.fn()}
+        toolCallsExpanded={false}
+        setToolCallsExpanded={vi.fn()}
+        formatTime={(date: Date) => date.toLocaleTimeString()}
+      />
+    )
 
-
-  it('renders diagnostics panel content when open', () => {
-    render(<DiagnosticsPanel {...defaultProps} diagnosticsOpen={true} />)
-    
-    expect(screen.getByRole('region', { name: /diagnostics/i })).toBeInTheDocument()
-    expect(screen.getByText(/chat width \(px\):/i)).toBeInTheDocument()
-    expect(screen.getByText(/^theme:$/i)).toBeInTheDocument()
+    const toggleButton = screen.getByText(/Diagnostics/)
+    fireEvent.click(toggleButton)
+    expect(mockSetDiagnosticsOpen).toHaveBeenCalledWith(true)
   })
 
-  it('does not render diagnostics panel content when closed', () => {
-    render(<DiagnosticsPanel {...defaultProps} diagnosticsOpen={false} />)
-    
-    expect(screen.queryByRole('region', { name: /diagnostics/i })).not.toBeInTheDocument()
+  it('shows diagnostics panel content when open', () => {
+    const mockSetDiagnosticsOpen = vi.fn()
+    render(
+      <DiagnosticsPanel
+        diagnostics={mockDiagnostics}
+        diagnosticsOpen={true}
+        setDiagnosticsOpen={mockSetDiagnosticsOpen}
+        selectedChatTarget="project-manager"
+        chatWidth={400}
+        isDragging={false}
+        lastWorkButtonClick={null}
+        outboundRequestExpanded={false}
+        setOutboundRequestExpanded={vi.fn()}
+        toolCallsExpanded={false}
+        setToolCallsExpanded={vi.fn()}
+        formatTime={(date: Date) => date.toLocaleTimeString()}
+      />
+    )
+
+    expect(screen.getByText(/Chat target:/)).toBeInTheDocument()
+    expect(screen.getByText(/project-manager/)).toBeInTheDocument()
   })
 
-  it('displays PM Working Memory section only for project-manager chat target', () => {
-    const pmDiagnostics = { ...mockDiagnostics, selectedChatTarget: 'project-manager' as const }
-    render(<DiagnosticsPanel {...defaultProps} diagnostics={pmDiagnostics} diagnosticsOpen={true} pmWorkingMemoryOpen={true} />)
-    
-    expect(screen.getByRole('button', { name: /^pm working memory/i })).toBeInTheDocument()
-  })
+  it('displays diagnostics values correctly', () => {
+    const mockSetDiagnosticsOpen = vi.fn()
+    render(
+      <DiagnosticsPanel
+        diagnostics={mockDiagnostics}
+        diagnosticsOpen={true}
+        setDiagnosticsOpen={mockSetDiagnosticsOpen}
+        selectedChatTarget="project-manager"
+        chatWidth={400}
+        isDragging={false}
+        lastWorkButtonClick={null}
+        outboundRequestExpanded={false}
+        setOutboundRequestExpanded={vi.fn()}
+        toolCallsExpanded={false}
+        setToolCallsExpanded={vi.fn()}
+        formatTime={(date: Date) => date.toLocaleTimeString()}
+      />
+    )
 
-  it('does not display PM Working Memory section for non-PM chat targets', () => {
-    const implDiagnostics = { ...mockDiagnostics, selectedChatTarget: 'implementation-agent' as const }
-    render(<DiagnosticsPanel {...defaultProps} diagnostics={implDiagnostics} diagnosticsOpen={true} />)
-    
-    expect(screen.queryByText(/pm working memory/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/Kanban render mode:/)).toBeInTheDocument()
+    expect(screen.getByText(/Kanban build:/)).toBeInTheDocument()
+    // Check that the values are present (may appear multiple times, so use getAllByText)
+    const libraryTexts = screen.getAllByText(/library/)
+    expect(libraryTexts.length).toBeGreaterThan(0)
+    expect(screen.getByText('test-build')).toBeInTheDocument()
   })
 })

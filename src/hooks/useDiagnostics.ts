@@ -1,6 +1,5 @@
 import { useMemo } from 'react'
-import type { DiagnosticsInfo } from '../components/diagnostics/types'
-import type { ChatTarget } from '../App'
+import type { DiagnosticsInfo, ChatTarget, Theme } from '../components/diagnostics/types'
 
 type UseDiagnosticsParams = {
   selectedChatTarget: ChatTarget
@@ -10,18 +9,18 @@ type UseDiagnosticsParams = {
   openaiLastError: string | null
   connectedProject: string | null
   lastPmOutboundRequest: object | null
-  lastPmToolCalls: any[] | null
-  lastTicketCreationResult: any | null
+  lastPmToolCalls: any
+  lastTicketCreationResult: any
   lastCreateTicketAvailable: boolean | null
   persistenceError: string | null
   pmLastResponseId: string | null
   previousResponseIdInLastRequest: boolean
   agentRunner: string | null
   autoMoveDiagnostics: Array<{ timestamp: Date; message: string; type: 'error' | 'info' }>
-  theme: 'light' | 'dark'
+  theme: Theme
   themeSource: 'default' | 'saved'
   lastSendPayloadSummary: string | null
-  connectedGithubRepo: { fullName: string } | null
+  connectedGithubRepo: { fullName: string; defaultBranch: string; htmlUrl: string; private: boolean } | null
   conversationHistoryResetMessage: string | null
   kanbanBuild: string
 }
