@@ -32,6 +32,8 @@ type PmAgentResponse = {
   }
   createTicketAvailable?: boolean
   agentRunner?: string
+  /** Full prompt text sent to the LLM (0202) */
+  promptText?: string
 }
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
@@ -368,6 +370,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       ...(ticketCreationResult != null && { ticketCreationResult }),
       createTicketAvailable,
       agentRunner: runner.label,
+      ...(result.promptText != null && { promptText: result.promptText }),
     }
 
     // Debug: log what we're returning (0119) - include in response for frontend debugging

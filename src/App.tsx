@@ -36,6 +36,8 @@ type Message = {
   content: string
   timestamp: Date
   imageAttachments?: ImageAttachment[] // Optional array of image attachments
+  /** Full prompt text sent to LLM for this message (0202) - only for assistant messages */
+  promptText?: string
 }
 
 // Conversation instance with unique ID (0070)
@@ -244,6 +246,7 @@ function loadConversationsFromStorage(
           agent: msg.agent,
           content: msg.content,
           timestamp: new Date(msg.timestamp),
+          ...(msg.promptText && { promptText: msg.promptText }),
           // imageAttachments from serialized data don't have File objects, so omit them
           // File objects can't be restored from localStorage
         })),
@@ -269,60 +272,7 @@ const CHAT_OPTIONS: { id: ChatTarget; label: string }[] = [
 // DEBUG: QA option should be visible
 console.log('CHAT_OPTIONS:', CHAT_OPTIONS.map(o => o.label))
 
-/**
- * Formats the outbound request JSON into a readable prompt text.
- * Extracts system instructions, messages, and context to show what was sent to the LLM.
- */
-function formatPromptFromOutboundRequest(outboundRequest: object | null): string {
-  if (!outboundRequest || typeof outboundRequest !== 'object') {
-    return ''
-  }
-
-  const req = outboundRequest as any
-  let promptText = ''
-  const sections: string[] = []
-
-  // Add metadata header
-  if (req.model) {
-    sections.push(`## Model: ${req.model}`)
-  }
-  if (req.previous_response_id) {
-    sections.push(`## Previous Response ID: ${req.previous_response_id}`)
-  }
-  if (sections.length > 0) {
-    promptText += sections.join('\n') + '\n\n'
-  }
-
-  // Handle OpenAI Responses API format (messages array)
-  if (Array.isArray(req.messages)) {
-    for (const msg of req.messages) {
-      if (msg.role === 'system') {
-        promptText += `## System Instructions\n\n${msg.content || ''}\n\n`
-      } else if (msg.role === 'user') {
-        if (Array.isArray(msg.content)) {
-          // Vision model format: array of content parts
-          const textParts = msg.content.filter((part: any) => part.type === 'text').map((part: any) => part.text).join('\n')
-          const imageCount = msg.content.filter((part: any) => part.type === 'image').length
-          promptText += `## User Message\n\n${textParts}`
-          if (imageCount > 0) {
-            promptText += `\n\n[${imageCount} image${imageCount > 1 ? 's' : ''} attached]`
-          }
-          promptText += '\n\n'
-        } else {
-          promptText += `## User Message\n\n${msg.content || ''}\n\n`
-        }
-      } else if (msg.role === 'assistant') {
-        promptText += `## Assistant Message (Previous)\n\n${typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content, null, 2)}\n\n`
-      }
-    }
-  } else if (req.prompt) {
-    // Direct prompt format (non-Responses API)
-    if (req.system) {
-      promptText += `## System Instructions\n\n${req.system}\n\n`
-    }
-    promptText += `## Prompt\n\n${typeof req.prompt === 'string' ? req.prompt : JSON.stringify(req.prompt, null, 2)}\n\n`
-  } else if (req.input) {
-    // OpenAI Responses API might use 'input' field
+// Removed formatPromptFromOutboundRequest - using promptText from message instead (0202)
     if (req.system) {
       promptText += `## System Instructions\n\n${req.system}\n\n`
     }
@@ -410,6 +360,7 @@ function App() {
   const [githubConnectError, setGithubConnectError] = useState<string | null>(null)
   const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false)
   const [agentInstructionsOpen, setAgentInstructionsOpen] = useState(false)
+  const [promptModalMessage, setPromptModalMessage] = useState<Message | null>(null)
   const disconnectConfirmButtonRef = useRef<HTMLButtonElement>(null)
   const disconnectButtonRef = useRef<HTMLButtonElement>(null)
   /** Kanban data (HAL owns DB; fetches and passes to KanbanBoard). */
@@ -426,7 +377,7 @@ function App() {
   const realtimeSubscriptionsRef = useRef<{ tickets: boolean; agentRuns: boolean }>({ tickets: false, agentRuns: false })
   const [outboundRequestExpanded, setOutboundRequestExpanded] = useState(false)
   const [toolCallsExpanded, setToolCallsExpanded] = useState(false)
-  const [showPmPrompt, setShowPmPrompt] = useState(false)
+  // Removed showPmPrompt - using modal approach instead (0202)
   const messageIdRef = useRef(0)
   const pmMaxSequenceRef = useRef(0) // Keep for backward compatibility during migration
   // Track max sequence per agent instance (e.g., "project-manager-1", "implementation-agent-2")
@@ -1680,7 +1631,7 @@ function App() {
     return getOrCreateConversation(agentRole, defaultId)
   }, [conversations, getOrCreateConversation])
 
-  const addMessage = useCallback((conversationId: string, agent: Message['agent'], content: string, id?: number, imageAttachments?: ImageAttachment[]) => {
+  const addMessage = useCallback((conversationId: string, agent: Message['agent'], content: string, id?: number, imageAttachments?: ImageAttachment[], promptText?: string) => {
     const nextId = id ?? ++messageIdRef.current
     if (id != null) messageIdRef.current = Math.max(messageIdRef.current, nextId)
     setConversations((prev) => {
@@ -1731,7 +1682,7 @@ function App() {
       }
       next.set(conversationId, {
         ...conv,
-        messages: [...conv.messages, { id: nextId, agent, content, timestamp: new Date(), imageAttachments }],
+        messages: [...conv.messages, { id: nextId, agent, content, timestamp: new Date(), imageAttachments, ...(promptText && { promptText }) }],
       })
       return next
     })
@@ -2472,9 +2423,9 @@ function App() {
               if (parsed && parsed.agentRole === 'project-manager' && parsed.instanceNumber === 1) {
                 pmMaxSequenceRef.current = nextSeq
               }
-              addMessage(convId, 'project-manager', reply, nextSeq)
+              addMessage(convId, 'project-manager', reply, nextSeq, undefined, data.promptText)
             } else {
-              addMessage(convId, 'project-manager', reply)
+              addMessage(convId, 'project-manager', reply, undefined, undefined, data.promptText)
             }
             
             // If a ticket was just created, immediately refresh Kanban data (0133)
@@ -3736,6 +3687,7 @@ function App() {
                         <p className="transcript-empty">No messages yet. Start a conversation.</p>
                       ) : (
                         <>
+<<<<<<< HEAD
                           {displayMessages.map((msg) => {
                             // Check if this is the most recent PM assistant message
                             // Find the last PM assistant message in the displayMessages array
@@ -3774,6 +3726,25 @@ function App() {
                                       </button>
                                     )}
                                   </div>
+=======
+                          {displayMessages.map((msg) => (
+                            <div
+                              key={msg.id}
+                              className={`message-row message-row-${msg.agent}`}
+                              data-agent={msg.agent}
+                            >
+                              <div 
+                                className={`message message-${msg.agent} ${selectedChatTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText ? 'message-clickable' : ''}`}
+                                onClick={selectedChatTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText ? () => setPromptModalMessage(msg) : undefined}
+                                style={selectedChatTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText ? { cursor: 'pointer' } : undefined}
+                                title={selectedChatTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText ? 'Click to view sent prompt' : undefined}
+                              >
+                                <div className="message-header">
+                                  <span className="message-author">{getMessageAuthorLabel(msg.agent)}</span>
+                                  <span className="message-time">[{formatTime(msg.timestamp)}]</span>
+                                  {selectedChatTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText && (
+                                    <span className="message-prompt-indicator" title="Click to view sent prompt">📋</span>
+                                  )}
                                   {msg.imageAttachments && msg.imageAttachments.length > 0 && (
                                     <div className="message-images">
                                       {msg.imageAttachments.map((img, idx) => (
@@ -3789,44 +3760,10 @@ function App() {
                                   ) : (
                                     <span className="message-content">{msg.content}</span>
                                   )}
-                                  {isMostRecentPmAssistant && showPmPrompt && (
-                                    <div className="message-prompt-view">
-                                      {lastPmOutboundRequest ? (
-                                        <>
-                                          <div className="message-prompt-header">
-                                            <span className="message-prompt-label">Sent prompt:</span>
-                                            <button
-                                              type="button"
-                                              className="message-prompt-copy"
-                                              onClick={async () => {
-                                                const promptText = formatPromptFromOutboundRequest(lastPmOutboundRequest)
-                                                try {
-                                                  await navigator.clipboard.writeText(promptText)
-                                                  // Visual feedback could be added here
-                                                } catch (err) {
-                                                  console.error('Failed to copy prompt:', err)
-                                                }
-                                              }}
-                                              title="Copy prompt to clipboard"
-                                            >
-                                              Copy prompt
-                                            </button>
-                                          </div>
-                                          <pre className="message-prompt-content">
-                                            {formatPromptFromOutboundRequest(lastPmOutboundRequest)}
-                                          </pre>
-                                        </>
-                                      ) : (
-                                        <div className="message-prompt-unavailable">
-                                          Prompt unavailable for this message
-                                        </div>
-                                      )}
-                                    </div>
-                                  )}
                                 </div>
                               </div>
-                            )
-                          })}
+                            </div>
+                          ))}
                           {agentTypingTarget === displayTarget && (
                             <div className="message-row message-row-typing" data-agent="typing" aria-live="polite">
                               <div className="message message-typing">
@@ -4710,6 +4647,90 @@ function App() {
         supabaseAnonKey={supabaseAnonKey}
         repoFullName={connectedGithubRepo?.fullName || 'beardedphil/portfolio-2026-hal'}
       />
+
+      {/* Prompt Modal (0202) */}
+      {promptModalMessage && (
+        <div className="conversation-modal-overlay" onClick={() => setPromptModalMessage(null)}>
+          <div className="conversation-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '90vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+            <div className="conversation-modal-header">
+              <h3>Sent Prompt</h3>
+              <button 
+                type="button" 
+                className="conversation-modal-close" 
+                onClick={() => setPromptModalMessage(null)} 
+                aria-label="Close prompt modal"
+              >
+                ×
+              </button>
+            </div>
+            <div className="conversation-modal-content" style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
+              {promptModalMessage.promptText ? (
+                <>
+                  <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'flex-end' }}>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (promptModalMessage.promptText) {
+                          try {
+                            await navigator.clipboard.writeText(promptModalMessage.promptText)
+                            // Show brief feedback (could be enhanced with a toast)
+                            const btn = document.activeElement as HTMLButtonElement
+                            if (btn) {
+                              const originalText = btn.textContent
+                              btn.textContent = 'Copied!'
+                              setTimeout(() => {
+                                btn.textContent = originalText
+                              }, 2000)
+                            }
+                          } catch (err) {
+                            console.error('Failed to copy prompt:', err)
+                          }
+                        }
+                      }}
+                      style={{
+                        padding: '6px 12px',
+                        background: 'var(--hal-primary, #007bff)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontSize: '14px',
+                      }}
+                    >
+                      Copy prompt
+                    </button>
+                  </div>
+                  <pre
+                    style={{
+                      fontFamily: 'monospace',
+                      fontSize: '12px',
+                      lineHeight: '1.5',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      background: 'var(--hal-bg-secondary, #f5f5f5)',
+                      padding: '16px',
+                      borderRadius: '4px',
+                      border: '1px solid var(--hal-border, #ddd)',
+                      margin: 0,
+                      overflow: 'auto',
+                      maxHeight: 'calc(90vh - 120px)',
+                    }}
+                  >
+                    {promptModalMessage.promptText}
+                  </pre>
+                </>
+              ) : (
+                <div style={{ padding: '24px', textAlign: 'center', color: 'var(--hal-text-secondary, #666)' }}>
+                  <p>Prompt unavailable for this message</p>
+                  <p style={{ fontSize: '14px', marginTop: '8px' }}>
+                    This message was generated without an external LLM call, or the prompt data is not available.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
