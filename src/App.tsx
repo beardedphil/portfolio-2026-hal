@@ -324,6 +324,120 @@ function App() {
   const [lastTicketCreationResult, setLastTicketCreationResult] = useState<TicketCreationResult | null>(null)
   const [lastCreateTicketAvailable, setLastCreateTicketAvailable] = useState<boolean | null>(null)
   const [pmLastResponseId, setPmLastResponseId] = useState<string | null>(null)
+  // PM Working Memory state (0173)
+  const [pmWorkingMemory, setPmWorkingMemory] = useState<{
+    summary: string
+    goals: string[]
+    requirements: string[]
+    constraints: string[]
+    decisions: string[]
+    assumptions: string[]
+    open_questions: string[]
+    glossary: Record<string, string>
+    stakeholders: string[]
+    updated_at: string
+  } | null>(null)
+  const [pmWorkingMemoryLoading, setPmWorkingMemoryLoading] = useState(false)
+  const [pmWorkingMemoryError, setPmWorkingMemoryError] = useState<string | null>(null)
+  const [pmWorkingMemoryOpen, setPmWorkingMemoryOpen] = useState(false)
+
+  // Fetch PM working memory (0173)
+  const fetchPmWorkingMemory = useCallback(async () => {
+    if (!connectedProject || !supabaseUrl || !supabaseAnonKey) {
+      setPmWorkingMemory(null)
+      return
+    }
+
+    setPmWorkingMemoryLoading(true)
+    setPmWorkingMemoryError(null)
+    try {
+      const supabase = getSupabaseClient(supabaseUrl, supabaseAnonKey)
+      const { data, error } = await supabase
+        .from('hal_pm_working_memory')
+        .select('*')
+        .eq('project_id', connectedProject)
+        .eq('agent', 'project-manager')
+        .single()
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          // No working memory found yet - that's OK
+          setPmWorkingMemory(null)
+        } else {
+          throw error
+        }
+      } else if (data) {
+        setPmWorkingMemory({
+          summary: data.summary || '',
+          goals: data.goals || [],
+          requirements: data.requirements || [],
+          constraints: data.constraints || [],
+          decisions: data.decisions || [],
+          assumptions: data.assumptions || [],
+          open_questions: data.open_questions || [],
+          glossary: data.glossary || {},
+          stakeholders: data.stakeholders || [],
+          updated_at: data.updated_at || new Date().toISOString(),
+        })
+      } else {
+        setPmWorkingMemory(null)
+      }
+    } catch (err) {
+      console.error('[PM Working Memory] Fetch failed:', err)
+      setPmWorkingMemoryError(err instanceof Error ? err.message : String(err))
+      setPmWorkingMemory(null)
+    } finally {
+      setPmWorkingMemoryLoading(false)
+    }
+  }, [connectedProject, supabaseUrl, supabaseAnonKey])
+
+  // Refresh PM working memory manually (0173)
+  const refreshPmWorkingMemory = useCallback(async () => {
+    if (!connectedProject || !supabaseUrl || !supabaseAnonKey) {
+      setPmWorkingMemoryError('Project not connected')
+      return
+    }
+
+    setPmWorkingMemoryLoading(true)
+    setPmWorkingMemoryError(null)
+    try {
+      const url = supabaseUrl.trim()
+      const key = supabaseAnonKey.trim()
+      
+      const res = await fetch('/api/pm/refresh-working-memory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: connectedProject,
+          supabaseUrl: url,
+          supabaseAnonKey: key,
+        }),
+      })
+
+      const result = await res.json()
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to refresh working memory')
+      }
+
+      if (result.workingMemory) {
+        setPmWorkingMemory(result.workingMemory)
+      } else {
+        setPmWorkingMemory(null)
+      }
+    } catch (err) {
+      console.error('[PM Working Memory] Refresh failed:', err)
+      setPmWorkingMemoryError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setPmWorkingMemoryLoading(false)
+    }
+  }, [connectedProject, supabaseUrl, supabaseAnonKey])
+
+  // Load working memory when PM chat is opened and project is connected (0173)
+  useEffect(() => {
+    if (selectedChatTarget === 'project-manager' && connectedProject && supabaseUrl && supabaseAnonKey) {
+      fetchPmWorkingMemory()
+    }
+  }, [selectedChatTarget, connectedProject, supabaseUrl, supabaseAnonKey, fetchPmWorkingMemory])
   const [agentRunner, setAgentRunner] = useState<string | null>(null)
   const [supabaseUrl, setSupabaseUrl] = useState<string | null>(null)
   const [supabaseAnonKey, setSupabaseAnonKey] = useState<string | null>(null)
@@ -2412,6 +2526,13 @@ function App() {
                 // Continue normal polling; ticket will appear on next poll cycle
               })
             }
+            
+            // Refresh working memory after PM response (0173) - non-blocking
+            if (useDb && supabaseUrl && supabaseAnonKey && connectedProject) {
+              fetchPmWorkingMemory().catch((err) => {
+                console.warn('[HAL] Failed to refresh working memory after PM response (non-blocking):', err)
+              })
+            }
           } catch (err) {
             setAgentTypingTarget(null)
             const msg = err instanceof Error ? err.message : String(err)
@@ -4451,6 +4572,170 @@ function App() {
                 )}
 
                 {/* PM Diagnostics: Ticket readiness evaluation (0066) */}
+                {/* PM Working Memory Panel (0173) */}
+                {selectedChatTarget === 'project-manager' && connectedProject && (
+                  <div className="diag-section">
+                    <div className="diag-section-header">
+                      <button
+                        type="button"
+                        className="diag-section-toggle"
+                        onClick={() => setPmWorkingMemoryOpen(!pmWorkingMemoryOpen)}
+                        aria-expanded={pmWorkingMemoryOpen}
+                      >
+                        PM Working Memory {pmWorkingMemoryOpen ? '▼' : '▶'}
+                      </button>
+                      <button
+                        type="button"
+                        className="diag-refresh-button"
+                        onClick={refreshPmWorkingMemory}
+                        disabled={pmWorkingMemoryLoading}
+                        title="Refresh working memory now"
+                        aria-label="Refresh working memory"
+                      >
+                        {pmWorkingMemoryLoading ? '⏳' : '🔄'}
+                      </button>
+                    </div>
+                    {pmWorkingMemoryOpen && (
+                      <div className="diag-section-content">
+                        {pmWorkingMemoryLoading && !pmWorkingMemory && (
+                          <div className="diag-row">
+                            <span className="diag-value">Loading working memory...</span>
+                          </div>
+                        )}
+                        {pmWorkingMemoryError && (
+                          <div className="diag-row">
+                            <span className="diag-value" data-status="error">
+                              Error: {pmWorkingMemoryError}
+                            </span>
+                          </div>
+                        )}
+                        {!pmWorkingMemory && !pmWorkingMemoryLoading && !pmWorkingMemoryError && (
+                          <div className="diag-row">
+                            <span className="diag-value">No working memory yet. Send some messages to build context.</span>
+                          </div>
+                        )}
+                        {pmWorkingMemory && (
+                          <>
+                            {pmWorkingMemory.summary && (
+                              <div className="diag-row">
+                                <span className="diag-label">Summary:</span>
+                                <span className="diag-value">{pmWorkingMemory.summary}</span>
+                              </div>
+                            )}
+                            {pmWorkingMemory.goals && pmWorkingMemory.goals.length > 0 && (
+                              <div className="diag-row">
+                                <span className="diag-label">Goals:</span>
+                                <span className="diag-value">
+                                  <ul style={{ margin: '0.25em 0', paddingLeft: '1.5em' }}>
+                                    {pmWorkingMemory.goals.map((goal, idx) => (
+                                      <li key={idx}>{goal}</li>
+                                    ))}
+                                  </ul>
+                                </span>
+                              </div>
+                            )}
+                            {pmWorkingMemory.requirements && pmWorkingMemory.requirements.length > 0 && (
+                              <div className="diag-row">
+                                <span className="diag-label">Requirements:</span>
+                                <span className="diag-value">
+                                  <ul style={{ margin: '0.25em 0', paddingLeft: '1.5em' }}>
+                                    {pmWorkingMemory.requirements.map((req, idx) => (
+                                      <li key={idx}>{req}</li>
+                                    ))}
+                                  </ul>
+                                </span>
+                              </div>
+                            )}
+                            {pmWorkingMemory.constraints && pmWorkingMemory.constraints.length > 0 && (
+                              <div className="diag-row">
+                                <span className="diag-label">Constraints:</span>
+                                <span className="diag-value">
+                                  <ul style={{ margin: '0.25em 0', paddingLeft: '1.5em' }}>
+                                    {pmWorkingMemory.constraints.map((constraint, idx) => (
+                                      <li key={idx}>{constraint}</li>
+                                    ))}
+                                  </ul>
+                                </span>
+                              </div>
+                            )}
+                            {pmWorkingMemory.decisions && pmWorkingMemory.decisions.length > 0 && (
+                              <div className="diag-row">
+                                <span className="diag-label">Decisions:</span>
+                                <span className="diag-value">
+                                  <ul style={{ margin: '0.25em 0', paddingLeft: '1.5em' }}>
+                                    {pmWorkingMemory.decisions.map((decision, idx) => (
+                                      <li key={idx}>{decision}</li>
+                                    ))}
+                                  </ul>
+                                </span>
+                              </div>
+                            )}
+                            {pmWorkingMemory.assumptions && pmWorkingMemory.assumptions.length > 0 && (
+                              <div className="diag-row">
+                                <span className="diag-label">Assumptions:</span>
+                                <span className="diag-value">
+                                  <ul style={{ margin: '0.25em 0', paddingLeft: '1.5em' }}>
+                                    {pmWorkingMemory.assumptions.map((assumption, idx) => (
+                                      <li key={idx}>{assumption}</li>
+                                    ))}
+                                  </ul>
+                                </span>
+                              </div>
+                            )}
+                            {pmWorkingMemory.open_questions && pmWorkingMemory.open_questions.length > 0 && (
+                              <div className="diag-row">
+                                <span className="diag-label">Open Questions:</span>
+                                <span className="diag-value">
+                                  <ul style={{ margin: '0.25em 0', paddingLeft: '1.5em' }}>
+                                    {pmWorkingMemory.open_questions.map((question, idx) => (
+                                      <li key={idx}>{question}</li>
+                                    ))}
+                                  </ul>
+                                </span>
+                              </div>
+                            )}
+                            {pmWorkingMemory.stakeholders && pmWorkingMemory.stakeholders.length > 0 && (
+                              <div className="diag-row">
+                                <span className="diag-label">Stakeholders:</span>
+                                <span className="diag-value">
+                                  <ul style={{ margin: '0.25em 0', paddingLeft: '1.5em' }}>
+                                    {pmWorkingMemory.stakeholders.map((stakeholder, idx) => (
+                                      <li key={idx}>{stakeholder}</li>
+                                    ))}
+                                  </ul>
+                                </span>
+                              </div>
+                            )}
+                            {pmWorkingMemory.glossary && Object.keys(pmWorkingMemory.glossary).length > 0 && (
+                              <div className="diag-row">
+                                <span className="diag-label">Glossary:</span>
+                                <span className="diag-value">
+                                  <dl style={{ margin: '0.25em 0', paddingLeft: '1.5em' }}>
+                                    {Object.entries(pmWorkingMemory.glossary).map(([term, def]) => (
+                                      <React.Fragment key={term}>
+                                        <dt style={{ fontWeight: 'bold', marginTop: '0.5em' }}>{term}</dt>
+                                        <dd style={{ marginLeft: '1em', marginBottom: '0.5em' }}>{def}</dd>
+                                      </React.Fragment>
+                                    ))}
+                                  </dl>
+                                </span>
+                              </div>
+                            )}
+                            {pmWorkingMemory.updated_at && (
+                              <div className="diag-row">
+                                <span className="diag-label">Last updated:</span>
+                                <span className="diag-value">
+                                  {new Date(pmWorkingMemory.updated_at).toLocaleString()}
+                                </span>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {selectedChatTarget === 'project-manager' && diagnostics.lastPmToolCalls && (() => {
                   const createTicketCall = diagnostics.lastPmToolCalls!.find(c => c.name === 'create_ticket')
                   const updateTicketCall = diagnostics.lastPmToolCalls!.find(c => c.name === 'update_ticket_body')

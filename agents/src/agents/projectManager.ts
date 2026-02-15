@@ -434,6 +434,8 @@ You have access to read-only tools to explore the repository. Use them to answer
 
 **Conversation context:** When "Conversation so far" is present, the "User message" is the user's latest reply in that conversation. Short replies (e.g. "Entirely, in all states", "Yes", "The first one", "inside the embedded kanban UI") are almost always answers to the question you (the assistant) just asked—interpret them in that context. Do not treat short user replies as a new top-level request about repo rules, process, or "all states" enforcement unless the conversation clearly indicates otherwise.
 
+**Working Memory:** When "PM Working Memory" is present in the conversation context, it contains accumulated key facts from the conversation (goals, requirements, constraints, decisions, assumptions, open questions, glossary terms, stakeholders). Use this working memory to maintain context across long conversations. When generating tickets (e.g., "break this down into tickets"), ensure the tickets reflect the working memory, including constraints and decisions that may not be in the recent message window.
+
 **Creating tickets:** When the user **explicitly** asks to create a ticket (e.g. "create a ticket", "create ticket for that", "create a new ticket for X"), you MUST call the create_ticket tool if it is available. Do NOT call create_ticket for short, non-actionable messages such as: "test", "ok", "hi", "hello", "thanks", "cool", "checking", "asdf", or similar—these are usually the user testing the UI, acknowledging, or typing casually. Do not infer a ticket-creation request from context alone (e.g. if the user sends "Test" while testing the chat UI, that does NOT mean create the chat UI ticket). Calling the tool is what actually creates the ticket—do not only write the ticket content in your message. Use create_ticket with a short title (without the ID prefix—the tool assigns the next repo-scoped ID and normalizes the Title line to "PREFIX-NNNN — ..."). Provide a full markdown body following the repo ticket template. Do not invent an ID—the tool assigns it. Do not write secrets or API keys into the ticket body. If create_ticket is not in your tool list, tell the user: "I don't have the create-ticket tool for this request. In the HAL app, connect the project folder (with VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in its .env), then try again. Check Diagnostics to confirm 'Create ticket (this request): Available'." After creating a ticket via the tool, report the exact ticket display ID (e.g. HAL-0079) and the returned filePath (Supabase-only).
 
 **Moving a ticket to To Do:** When the user asks to move a ticket to To Do (e.g. "move this to To Do", "move ticket 0012 to To Do"), you MUST (1) fetch the ticket content with fetch_ticket_content (by ticket id), (2) evaluate readiness with evaluate_ticket_ready (pass the body_md from the fetch result). If the ticket is NOT ready, do NOT call kanban_move_ticket_to_todo; instead reply with a clear list of what is missing (use the missingItems from the evaluate_ticket_ready result). If the ticket IS ready, call kanban_move_ticket_to_todo with the ticket id. Then confirm in chat that the ticket was moved. The readiness checklist is in your instructions (topic: ready-to-start-checklist): Goal, Human-verifiable deliverable, Acceptance criteria checkboxes, Constraints, Non-goals, no unresolved placeholders.
@@ -3383,4 +3385,119 @@ export async function summarizeForContext(
   const prompt = `Summarize this conversation in 2-4 sentences. Preserve key decisions, topics, and context so the next turn can continue naturally.\n\nConversation:\n\n${transcript}`
   const result = await generateText({ model, prompt })
   return (result.text ?? '').trim() || '(No summary generated)'
+}
+
+/**
+ * Working memory structure for PM agent conversations (0173).
+ * Accumulates key facts, decisions, and context from conversations.
+ */
+export interface PmWorkingMemory {
+  summary: string
+  goals: string[]
+  requirements: string[]
+  constraints: string[]
+  decisions: string[]
+  assumptions: string[]
+  open_questions: string[]
+  glossary: Record<string, string> // term -> definition
+  stakeholders: string[]
+}
+
+/**
+ * Generate or update working memory from conversation messages (0173).
+ * Uses LLM to extract structured information from the conversation.
+ */
+export async function generateWorkingMemory(
+  messages: ConversationTurn[],
+  existingMemory: PmWorkingMemory | null,
+  openaiApiKey: string,
+  openaiModel: string
+): Promise<PmWorkingMemory> {
+  if (messages.length === 0) {
+    return existingMemory || {
+      summary: '',
+      goals: [],
+      requirements: [],
+      constraints: [],
+      decisions: [],
+      assumptions: [],
+      open_questions: [],
+      glossary: {},
+      stakeholders: [],
+    }
+  }
+
+  const openai = createOpenAI({ apiKey: openaiApiKey })
+  const model = openai.responses(openaiModel)
+  
+  // Build conversation transcript
+  const transcript = messages.map((t) => `${t.role}: ${t.content}`).join('\n\n')
+  
+  // Build prompt to extract structured information
+  const existingMemoryText = existingMemory
+    ? `\n\nExisting working memory:\n- Summary: ${existingMemory.summary}\n- Goals: ${existingMemory.goals.join(', ')}\n- Requirements: ${existingMemory.requirements.join(', ')}\n- Constraints: ${existingMemory.constraints.join(', ')}\n- Decisions: ${existingMemory.decisions.join(', ')}\n- Assumptions: ${existingMemory.assumptions.join(', ')}\n- Open questions: ${existingMemory.open_questions.join(', ')}\n- Glossary: ${JSON.stringify(existingMemory.glossary)}\n- Stakeholders: ${existingMemory.stakeholders.join(', ')}\n\nUpdate and merge this with new information from the conversation.`
+    : ''
+  
+  const prompt = `Extract and structure key information from this conversation into a working memory format. This memory will be used to maintain context across long conversations.
+
+${existingMemoryText}
+
+Conversation:
+${transcript}
+
+Extract and structure the following information as JSON:
+{
+  "summary": "A concise 2-3 sentence summary of the conversation context and key points",
+  "goals": ["array of project goals discussed"],
+  "requirements": ["array of requirements identified"],
+  "constraints": ["array of constraints mentioned"],
+  "decisions": ["array of decisions made"],
+  "assumptions": ["array of assumptions stated or implied"],
+  "open_questions": ["array of open questions that need resolution"],
+  "glossary": {"term": "definition", ...},
+  "stakeholders": ["array of stakeholders mentioned"]
+}
+
+Return ONLY valid JSON, no markdown formatting or explanation. Merge with existing memory if provided, updating fields with new information.`
+
+  try {
+    const result = await generateText({ model, prompt })
+    const text = (result.text ?? '').trim()
+    
+    // Try to extract JSON from the response (may be wrapped in markdown code blocks)
+    let jsonText = text
+    const jsonMatch = text.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/)
+    if (jsonMatch) {
+      jsonText = jsonMatch[1]
+    }
+    
+    const parsed = JSON.parse(jsonText) as Partial<PmWorkingMemory>
+    
+    // Merge with existing memory, ensuring all fields are present
+    return {
+      summary: parsed.summary || existingMemory?.summary || '',
+      goals: Array.isArray(parsed.goals) ? parsed.goals : (existingMemory?.goals || []),
+      requirements: Array.isArray(parsed.requirements) ? parsed.requirements : (existingMemory?.requirements || []),
+      constraints: Array.isArray(parsed.constraints) ? parsed.constraints : (existingMemory?.constraints || []),
+      decisions: Array.isArray(parsed.decisions) ? parsed.decisions : (existingMemory?.decisions || []),
+      assumptions: Array.isArray(parsed.assumptions) ? parsed.assumptions : (existingMemory?.assumptions || []),
+      open_questions: Array.isArray(parsed.open_questions) ? parsed.open_questions : (existingMemory?.open_questions || []),
+      glossary: parsed.glossary && typeof parsed.glossary === 'object' ? parsed.glossary : (existingMemory?.glossary || {}),
+      stakeholders: Array.isArray(parsed.stakeholders) ? parsed.stakeholders : (existingMemory?.stakeholders || []),
+    }
+  } catch (err) {
+    console.warn('[PM Working Memory] Failed to generate working memory:', err)
+    // Return existing memory or empty structure on failure
+    return existingMemory || {
+      summary: '',
+      goals: [],
+      requirements: [],
+      constraints: [],
+      decisions: [],
+      assumptions: [],
+      open_questions: [],
+      glossary: {},
+      stakeholders: [],
+    }
+  }
 }

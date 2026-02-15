@@ -162,6 +162,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             run: (msg: string, config: object) => Promise<any>
           }
           summarizeForContext?: (msgs: unknown[], key: string, model: string) => Promise<string>
+          generateWorkingMemory?: (
+            msgs: unknown[],
+            existing: any,
+            key: string,
+            model: string
+          ) => Promise<any>
         }
       | null = null
 
@@ -177,6 +183,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const RECENT_MAX_CHARS = 12_000
     let conversationContextPack: string | undefined
     let recentImagesFromDb: Array<{ dataUrl: string; filename: string; mimeType: string }> = []
+    let workingMemoryAvailable = false
     if (projectId && supabaseUrl && supabaseAnonKey && runnerModule) {
       try {
         const { createClient } = await import('@supabase/supabase-js')
@@ -193,6 +200,87 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           content: r.content ?? '',
           images: r.images || null,
         }))
+
+        // Load existing working memory (0173)
+        let existingMemory: any = null
+        let memoryThroughSequence = 0
+        try {
+          const { data: memoryRow } = await supabase
+            .from('hal_pm_working_memory')
+            .select('*')
+            .eq('project_id', projectId)
+            .eq('agent', 'project-manager')
+            .single()
+          
+          if (memoryRow) {
+            existingMemory = {
+              summary: memoryRow.summary || '',
+              goals: memoryRow.goals || [],
+              requirements: memoryRow.requirements || [],
+              constraints: memoryRow.constraints || [],
+              decisions: memoryRow.decisions || [],
+              assumptions: memoryRow.assumptions || [],
+              open_questions: memoryRow.open_questions || [],
+              glossary: memoryRow.glossary || {},
+              stakeholders: memoryRow.stakeholders || [],
+            }
+            memoryThroughSequence = memoryRow.through_sequence || 0
+          }
+        } catch (memErr) {
+          // Working memory table might not exist yet, or no memory found - that's OK
+          console.warn('[PM] Working memory load failed (may not exist yet):', memErr)
+        }
+
+        // Generate/update working memory if we have new messages (0173)
+        const newMessagesCount = messages.length
+        const needMemoryUpdate = newMessagesCount > memoryThroughSequence
+        let workingMemory: any = existingMemory
+        
+        if (needMemoryUpdate && typeof runnerModule.generateWorkingMemory === 'function' && messages.length > 0) {
+          try {
+            // Generate memory from all messages (or just new ones if we want incremental updates)
+            workingMemory = await runnerModule.generateWorkingMemory(messages, existingMemory, key, model)
+            workingMemoryAvailable = true
+            
+            // Save updated working memory to DB
+            await supabase.from('hal_pm_working_memory').upsert(
+              {
+                project_id: projectId,
+                agent: 'project-manager',
+                summary: workingMemory.summary || '',
+                goals: workingMemory.goals || [],
+                requirements: workingMemory.requirements || [],
+                constraints: workingMemory.constraints || [],
+                decisions: workingMemory.decisions || [],
+                assumptions: workingMemory.assumptions || [],
+                open_questions: workingMemory.open_questions || [],
+                glossary: workingMemory.glossary || {},
+                stakeholders: workingMemory.stakeholders || [],
+                through_sequence: newMessagesCount,
+                updated_at: new Date().toISOString(),
+              },
+              { onConflict: 'project_id,agent' }
+            )
+          } catch (memGenErr) {
+            console.warn('[PM] Working memory generation failed, using existing or empty:', memGenErr)
+            // Continue with existing memory or empty structure
+            workingMemoryAvailable = !!existingMemory
+            workingMemory = existingMemory || {
+              summary: '',
+              goals: [],
+              requirements: [],
+              constraints: [],
+              decisions: [],
+              assumptions: [],
+              open_questions: [],
+              glossary: {},
+              stakeholders: [],
+            }
+          }
+        } else if (existingMemory) {
+          workingMemory = existingMemory
+          workingMemoryAvailable = true
+        }
 
         const recentFromEnd: typeof messages = []
         let recentLen = 0
@@ -216,6 +304,48 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
                 }
               }
             }
+          }
+        }
+
+        // Build context pack with working memory + summary + recent messages (0173)
+        const contextParts: string[] = []
+        
+        // Add working memory section if available
+        if (workingMemoryAvailable && workingMemory) {
+          const memParts: string[] = []
+          if (workingMemory.summary) {
+            memParts.push(`**Summary:** ${workingMemory.summary}`)
+          }
+          if (workingMemory.goals && workingMemory.goals.length > 0) {
+            memParts.push(`**Goals:** ${workingMemory.goals.join('; ')}`)
+          }
+          if (workingMemory.requirements && workingMemory.requirements.length > 0) {
+            memParts.push(`**Requirements:** ${workingMemory.requirements.join('; ')}`)
+          }
+          if (workingMemory.constraints && workingMemory.constraints.length > 0) {
+            memParts.push(`**Constraints:** ${workingMemory.constraints.join('; ')}`)
+          }
+          if (workingMemory.decisions && workingMemory.decisions.length > 0) {
+            memParts.push(`**Decisions:** ${workingMemory.decisions.join('; ')}`)
+          }
+          if (workingMemory.assumptions && workingMemory.assumptions.length > 0) {
+            memParts.push(`**Assumptions:** ${workingMemory.assumptions.join('; ')}`)
+          }
+          if (workingMemory.open_questions && workingMemory.open_questions.length > 0) {
+            memParts.push(`**Open Questions:** ${workingMemory.open_questions.join('; ')}`)
+          }
+          if (workingMemory.stakeholders && workingMemory.stakeholders.length > 0) {
+            memParts.push(`**Stakeholders:** ${workingMemory.stakeholders.join('; ')}`)
+          }
+          if (workingMemory.glossary && Object.keys(workingMemory.glossary).length > 0) {
+            const glossaryEntries = Object.entries(workingMemory.glossary)
+              .map(([term, def]) => `- **${term}**: ${def}`)
+              .join('\n')
+            memParts.push(`**Glossary:**\n${glossaryEntries}`)
+          }
+          
+          if (memParts.length > 0) {
+            contextParts.push('## PM Working Memory\n\n' + memParts.join('\n\n') + '\n')
           }
         }
 
@@ -251,19 +381,27 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             summaryText = `(${older.length} older messages)`
           }
 
-          conversationContextPack = `Summary of earlier conversation:\n\n${summaryText}\n\nRecent conversation (within ${RECENT_MAX_CHARS.toLocaleString()} characters):\n\n${recentFromEnd
+          contextParts.push(`## Summary of earlier conversation\n\n${summaryText}\n`)
+          contextParts.push(`## Recent conversation (within ${RECENT_MAX_CHARS.toLocaleString()} characters)\n\n${recentFromEnd
             .map((t) => `**${t.role}**: ${t.content}`)
-            .join('\n\n')}`
+            .join('\n\n')}`)
+          
+          conversationContextPack = contextParts.join('\n\n')
         } else if (messages.length > 0) {
-          conversationContextPack = messages
+          contextParts.push(`## Recent conversation\n\n${messages
             .map((t) => `**${t.role}**: ${t.content}`)
-            .join('\n\n')
+            .join('\n\n')}`)
+          
+          conversationContextPack = contextParts.join('\n\n')
+        } else if (contextParts.length > 0) {
+          conversationContextPack = contextParts.join('\n\n')
         }
 
         // Use DB-derived context pack instead of client-provided history
         conversationHistory = undefined
-      } catch {
+      } catch (err) {
         // If DB context fails, fall back to client history.
+        console.warn('[PM] Context pack build failed, falling back to client history:', err)
       }
     }
 

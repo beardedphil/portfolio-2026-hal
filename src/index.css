@@ -1715,10 +1715,34 @@ body {
 }
 
 .diag-section-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  justify-content: space-between;
   font-size: 0.8rem;
   font-weight: 500;
   color: var(--hal-text-muted);
   padding: 0.4rem 0;
+}
+
+.diag-refresh-button {
+  background: transparent;
+  border: 1px solid var(--hal-border);
+  border-radius: 4px;
+  padding: 0.25em 0.5em;
+  cursor: pointer;
+  font-size: 0.9em;
+  color: var(--hal-text);
+  transition: background-color 0.2s;
+}
+
+.diag-refresh-button:hover:not(:disabled) {
+  background: var(--hal-purple-50);
+}
+
+.diag-refresh-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .diag-section-content {
