@@ -1175,6 +1175,7 @@ function SortableColumn({
     // Library mode: HAL owns data; tell HAL to open chat (HAL will move ticket to Doing for Implement if needed)
     // For QA All Tickets, launch QA for all tickets in col-qa concurrently
     if (halCtx?.onOpenChatAndSend && buttonConfig.chatTarget) {
+      const onOpenChatAndSend = halCtx.onOpenChatAndSend
       if (col.id === 'col-qa' && buttonConfig.chatTarget === 'qa-agent') {
         // Get all tickets in col-qa column
         // In library mode, use col.cardIds (HAL owns the data)
@@ -1190,7 +1191,7 @@ function SortableColumn({
         qaTicketIds.forEach((ticketPk) => {
           const card = cards[ticketPk]
           const ticketRef = card?.displayId ?? extractTicketId(ticketPk) ?? ticketPk
-          halCtx.onOpenChatAndSend({
+          onOpenChatAndSend({
             chatTarget: buttonConfig.chatTarget as import('./HalKanbanContext').HalChatTarget,
             message: `QA ticket ${ticketRef}.`,
             ticketPk: ticketPk,
@@ -1198,7 +1199,7 @@ function SortableColumn({
         })
       } else {
         // For other columns, use single ticket behavior
-        halCtx.onOpenChatAndSend({
+        onOpenChatAndSend({
           chatTarget: buttonConfig.chatTarget as import('./HalKanbanContext').HalChatTarget,
           message: buttonConfig.message,
           ticketPk: firstCardId ?? undefined,
