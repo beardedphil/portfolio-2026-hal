@@ -1954,7 +1954,7 @@ function SortableColumn({
     } else if (col.id === 'col-todo') {
       return { label: 'Implement top ticket', chatTarget: 'implementation-agent' as const, message: `Implement ticket ${ticketRef}.` }
     } else if (col.id === 'col-qa') {
-      return { label: 'QA top ticket', chatTarget: 'qa-agent' as const, message: `QA ticket ${ticketRef}.` }
+      return { label: 'QA All Tickets', chatTarget: 'qa-agent' as const, message: `QA ticket ${ticketRef}.` }
     } else if (col.id === 'col-process-review') {
       return { label: 'Review top ticket', isProcessReview: true as const }
     }
@@ -1998,12 +1998,34 @@ function SortableColumn({
     }
 
     // Library mode: HAL owns data; tell HAL to open chat (HAL will move ticket to Doing for Implement if needed)
+    // For QA All Tickets, launch QA for all tickets in col-qa concurrently
     if (halCtx?.onOpenChatAndSend && buttonConfig.chatTarget) {
-      halCtx.onOpenChatAndSend({
-        chatTarget: buttonConfig.chatTarget as import('./HalKanbanContext').HalChatTarget,
-        message: buttonConfig.message,
-        ticketPk: firstCardId ?? undefined,
-      })
+      if (col.id === 'col-qa' && buttonConfig.chatTarget === 'qa-agent') {
+        // Get all tickets in col-qa column
+        // In library mode, use col.cardIds (HAL owns the data)
+        // In Supabase mode, filter supabaseTickets by kanban_column_id
+        const qaTicketIds = supabaseBoardActive && supabaseTickets
+          ? supabaseTickets.filter((t) => t.kanban_column_id === 'col-qa').map((t) => t.pk)
+          : col.cardIds
+        
+        // Launch QA for all tickets concurrently
+        qaTicketIds.forEach((ticketPk) => {
+          const card = cards[ticketPk]
+          const ticketRef = card?.displayId ?? extractTicketId(ticketPk) ?? ticketPk
+          halCtx.onOpenChatAndSend({
+            chatTarget: buttonConfig.chatTarget as import('./HalKanbanContext').HalChatTarget,
+            message: `QA ticket ${ticketRef}.`,
+            ticketPk: ticketPk,
+          })
+        })
+      } else {
+        // For other columns, use single ticket behavior
+        halCtx.onOpenChatAndSend({
+          chatTarget: buttonConfig.chatTarget as import('./HalKanbanContext').HalChatTarget,
+          message: buttonConfig.message,
+          ticketPk: firstCardId ?? undefined,
+        })
+      }
       return
     }
 
@@ -2053,27 +2075,61 @@ function SortableColumn({
         }
       }
     }
-    // Iframe/standalone: For QA agent, move ticket from QA to Active Work (col-doing) when QA Top Ticket clicked (0159)
-    if (buttonConfig.chatTarget === 'qa-agent' && supabaseBoardActive && updateSupabaseTicketKanban && refetchSupabaseTickets && firstCardId) {
-      const ticket = supabaseTickets.find((t) => t.pk === firstCardId)
-      if (ticket && ticket.kanban_column_id === 'col-qa') {
+    // Iframe/standalone: For QA agent, move all tickets from QA to Active Work (col-doing) when QA All Tickets clicked (0616)
+    if (buttonConfig.chatTarget === 'qa-agent' && supabaseBoardActive && updateSupabaseTicketKanban && refetchSupabaseTickets) {
+      // Get all tickets in col-qa column
+      const qaTickets = supabaseTickets.filter((t) => t.kanban_column_id === 'col-qa')
+      
+      if (qaTickets.length > 0) {
         const targetColumn = supabaseColumns.find((c) => c.id === 'col-doing')
         if (targetColumn) {
-          const targetPosition = targetColumn.cardIds.length
-          const movedAt = new Date().toISOString()
-          // Set agent type label immediately when button is clicked (0135)
-          if (setActiveWorkAgentTypes) {
-            setActiveWorkAgentTypes((prev) => ({ ...prev, [firstCardId]: 'QA' }))
-          }
-          const result = await updateSupabaseTicketKanban(firstCardId, {
-            kanban_column_id: 'col-doing',
-            kanban_position: targetPosition,
-            kanban_moved_at: movedAt,
+          // Move all tickets concurrently (don't await - launch all at once)
+          const movePromises = qaTickets.map(async (ticket, index) => {
+            const targetPosition = targetColumn.cardIds.length + index
+            const movedAt = new Date().toISOString()
+            const ticketPk = ticket.pk
+            const ticketRef = ticket.display_id ?? ticket.id
+            
+            // Set agent type label immediately when button is clicked (0135)
+            if (setActiveWorkAgentTypes) {
+              setActiveWorkAgentTypes((prev) => ({ ...prev, [ticketPk]: 'QA' }))
+            }
+            
+            const result = await updateSupabaseTicketKanban(ticketPk, {
+              kanban_column_id: 'col-doing',
+              kanban_position: targetPosition,
+              kanban_moved_at: movedAt,
+            })
+            
+            if (result.ok) {
+              // Launch QA for this ticket via postMessage (non-blocking)
+              if (typeof window !== 'undefined' && window.parent !== window) {
+                window.parent.postMessage(
+                  { type: 'HAL_OPEN_CHAT_AND_SEND', chatTarget: 'qa-agent', message: `QA ticket ${ticketRef}.` },
+                  '*'
+                )
+              }
+            } else if (result.error) {
+              // Show explicit error message (0159, 0616)
+              console.error(`[QA All Tickets] Failed to move ticket ${ticketRef}:`, result.error)
+              // Clear agent type on failure
+              if (setActiveWorkAgentTypes) {
+                setActiveWorkAgentTypes((prev) => {
+                  const next = { ...prev }
+                  delete next[ticketPk]
+                  return next
+                })
+              }
+            }
+            
+            return result
           })
-          if (result.ok) {
+          
+          // Wait for all moves to complete, then refetch once
+          Promise.all(movePromises).then(() => {
             setTimeout(() => {
               refetchSupabaseTickets(false).then((result) => {
-                // Refetch agent runs since ticket moved to Doing (0135)
+                // Refetch agent runs since tickets moved to Doing (0135)
                 // Pass fresh tickets directly from refetch result to avoid stale state reads
                 if (fetchActiveAgentRuns && result.freshTickets) {
                   fetchActiveAgentRuns(result.freshTickets)
@@ -2083,24 +2139,14 @@ function SortableColumn({
                 }
               })
             }, 500)
-          } else if (result.error) {
-            // Show explicit error message (0159)
-            console.error('[QA Top Ticket] Failed to move ticket:', result.error)
-            // Error will be visible via updateSupabaseTicketKanban error handling
-            // Clear agent type on failure
-            if (setActiveWorkAgentTypes) {
-              setActiveWorkAgentTypes((prev) => {
-                const next = { ...prev }
-                delete next[firstCardId]
-                return next
-              })
-            }
-          }
+          })
         }
       }
     }
 
-    if (typeof window !== 'undefined' && window.parent !== window && buttonConfig.chatTarget) {
+    // PostMessage fallback for iframe/standalone mode (only if not already handled above)
+    // For QA All Tickets, postMessage is handled in the QA agent section above
+    if (typeof window !== 'undefined' && window.parent !== window && buttonConfig.chatTarget && !(col.id === 'col-qa' && buttonConfig.chatTarget === 'qa-agent' && supabaseBoardActive)) {
       window.parent.postMessage(
         { type: 'HAL_OPEN_CHAT_AND_SEND', chatTarget: buttonConfig.chatTarget, message: buttonConfig.message },
         '*'
