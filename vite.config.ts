@@ -258,6 +258,57 @@ export default defineConfig({
       },
     },
     {
+      name: 'pm-working-memory-endpoints',
+      configureServer(server) {
+        // Working memory get endpoint
+        server.middlewares.use(async (req, res, next) => {
+          if (req.url !== '/api/pm/working-memory/get' || req.method !== 'POST') {
+            next()
+            return
+          }
+          try {
+            const handler = (await import('./api/pm/working-memory/get.js')).default
+            await handler(req, res)
+          } catch (err) {
+            res.statusCode = 500
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }))
+          }
+        })
+        // Working memory update endpoint
+        server.middlewares.use(async (req, res, next) => {
+          if (req.url !== '/api/pm/working-memory/update' || req.method !== 'POST') {
+            next()
+            return
+          }
+          try {
+            const handler = (await import('./api/pm/working-memory/update.js')).default
+            await handler(req, res)
+          } catch (err) {
+            res.statusCode = 500
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }))
+          }
+        })
+        // Working memory refresh endpoint
+        server.middlewares.use(async (req, res, next) => {
+          if (req.url !== '/api/pm/working-memory/refresh' || req.method !== 'POST') {
+            next()
+            return
+          }
+          try {
+            const handler = (await import('./api/pm/working-memory/refresh.js')).default
+            await handler(req, res)
+          } catch (err) {
+            res.statusCode = 500
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }))
+          }
+        })
+        next()
+      },
+    },
+    {
       name: 'pm-agent-endpoint',
       configureServer(server) {
         server.middlewares.use(async (req, res, next) => {

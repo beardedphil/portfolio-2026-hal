@@ -3384,3 +3384,128 @@ export async function summarizeForContext(
   const result = await generateText({ model, prompt })
   return (result.text ?? '').trim() || '(No summary generated)'
 }
+
+/**
+ * Extract working memory from conversation messages (0173).
+ * Uses LLM to extract structured information: goals, requirements, constraints, decisions, etc.
+ */
+export async function extractWorkingMemory(
+  messages: ConversationTurn[],
+  openaiApiKey: string,
+  openaiModel: string
+): Promise<{
+  summary?: string
+  goals?: string[]
+  requirements?: string[]
+  constraints?: string[]
+  decisions?: string[]
+  assumptions?: string[]
+  open_questions?: string[]
+  glossary?: Record<string, string>
+  stakeholders?: string[]
+}> {
+  if (messages.length === 0) {
+    return {
+      summary: 'No conversation yet',
+      goals: [],
+      requirements: [],
+      constraints: [],
+      decisions: [],
+      assumptions: [],
+      open_questions: [],
+      glossary: {},
+      stakeholders: [],
+    }
+  }
+
+  const openai = createOpenAI({ apiKey: openaiApiKey })
+  const model = openai.responses(openaiModel)
+  const transcript = messages.map((t) => `**${t.role}**: ${t.content}`).join('\n\n')
+
+  const prompt = `You are analyzing a Project Manager conversation to extract key information for working memory.
+
+Extract and structure the following information from the conversation:
+- Summary: A concise 2-3 sentence summary of the conversation context
+- Goals: Array of project goals discussed (as JSON array of strings)
+- Requirements: Array of requirements identified (as JSON array of strings)
+- Constraints: Array of constraints mentioned (as JSON array of strings)
+- Decisions: Array of decisions made (as JSON array of strings)
+- Assumptions: Array of assumptions noted (as JSON array of strings)
+- Open Questions: Array of open questions (as JSON array of strings)
+- Glossary: Object mapping terms to definitions (as JSON object with string keys and string values)
+- Stakeholders: Array of stakeholders mentioned (as JSON array of strings)
+
+Return ONLY a valid JSON object with these exact field names: summary, goals, requirements, constraints, decisions, assumptions, open_questions, glossary, stakeholders.
+
+Use empty arrays [] for list fields and empty object {} for glossary if no information is found.
+
+Conversation messages:
+${transcript}
+
+Return the JSON object:`
+
+  try {
+    const result = await generateText({
+      model,
+      prompt,
+      maxTokens: 2000,
+    })
+
+    const text = (result.text ?? '').trim()
+    if (!text) {
+      throw new Error('Empty response from LLM')
+    }
+
+    // Try to extract JSON from the response (might be wrapped in markdown code blocks)
+    let jsonText = text
+    const jsonMatch = text.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/)
+    if (jsonMatch) {
+      jsonText = jsonMatch[1]
+    } else {
+      // Try to find JSON object in the text
+      const braceMatch = text.match(/\{[\s\S]*\}/)
+      if (braceMatch) {
+        jsonText = braceMatch[0]
+      }
+    }
+
+    const parsed = JSON.parse(jsonText) as {
+      summary?: string
+      goals?: string[]
+      requirements?: string[]
+      constraints?: string[]
+      decisions?: string[]
+      assumptions?: string[]
+      open_questions?: string[]
+      glossary?: Record<string, string>
+      stakeholders?: string[]
+    }
+
+    // Normalize to ensure all fields exist
+    return {
+      summary: parsed.summary || 'No summary available',
+      goals: Array.isArray(parsed.goals) ? parsed.goals : [],
+      requirements: Array.isArray(parsed.requirements) ? parsed.requirements : [],
+      constraints: Array.isArray(parsed.constraints) ? parsed.constraints : [],
+      decisions: Array.isArray(parsed.decisions) ? parsed.decisions : [],
+      assumptions: Array.isArray(parsed.assumptions) ? parsed.assumptions : [],
+      open_questions: Array.isArray(parsed.open_questions) ? parsed.open_questions : [],
+      glossary: parsed.glossary && typeof parsed.glossary === 'object' ? parsed.glossary : {},
+      stakeholders: Array.isArray(parsed.stakeholders) ? parsed.stakeholders : [],
+    }
+  } catch (err) {
+    console.error('[PM Working Memory] Failed to extract working memory:', err)
+    // Return empty structure on error
+    return {
+      summary: 'Failed to extract working memory',
+      goals: [],
+      requirements: [],
+      constraints: [],
+      decisions: [],
+      assumptions: [],
+      open_questions: [],
+      glossary: {},
+      stakeholders: [],
+    }
+  }
+}

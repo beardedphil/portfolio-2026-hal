@@ -177,15 +177,55 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const RECENT_MAX_CHARS = 12_000
     let conversationContextPack: string | undefined
     let recentImagesFromDb: Array<{ dataUrl: string; filename: string; mimeType: string }> = []
+    let workingMemory: {
+      summary?: string | null
+      goals?: string[]
+      requirements?: string[]
+      constraints?: string[]
+      decisions?: string[]
+      assumptions?: string[]
+      open_questions?: string[]
+      glossary?: Record<string, string> | null
+      stakeholders?: string[]
+    } | null = null
+    const conversationId = 'project-manager-1' // Default PM conversation ID
     if (projectId && supabaseUrl && supabaseAnonKey && runnerModule) {
       try {
         const { createClient } = await import('@supabase/supabase-js')
         const supabase = createClient(supabaseUrl, supabaseAnonKey)
+        
+        // Fetch working memory (0173: PM working memory)
+        try {
+          const { data: memoryData, error: memoryError } = await supabase
+            .from('hal_pm_working_memory')
+            .select('*')
+            .eq('project_id', projectId)
+            .eq('conversation_id', conversationId)
+            .single()
+          
+          if (!memoryError && memoryData) {
+            workingMemory = {
+              summary: memoryData.summary,
+              goals: memoryData.goals || [],
+              requirements: memoryData.requirements || [],
+              constraints: memoryData.constraints || [],
+              decisions: memoryData.decisions || [],
+              assumptions: memoryData.assumptions || [],
+              open_questions: memoryData.open_questions || [],
+              glossary: memoryData.glossary || {},
+              stakeholders: memoryData.stakeholders || [],
+            }
+          }
+        } catch (memoryErr) {
+          console.warn('[PM] Failed to fetch working memory, continuing without it:', memoryErr)
+          // Continue without working memory - graceful degradation
+        }
+        
         const { data: rows } = await supabase
           .from('hal_conversation_messages')
           .select('role, content, sequence, images')
           .eq('project_id', projectId)
-          .eq('agent', 'project-manager')
+          .eq('agent', conversationId)
           .order('sequence', { ascending: true })
 
         const messages = (rows ?? []).map((r: any) => ({
@@ -258,6 +298,45 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           conversationContextPack = messages
             .map((t) => `**${t.role}**: ${t.content}`)
             .join('\n\n')
+        }
+        
+        // Add working memory to context pack (0173: PM working memory)
+        if (workingMemory) {
+          const memoryParts: string[] = []
+          if (workingMemory.summary) {
+            memoryParts.push(`## Working Memory Summary\n\n${workingMemory.summary}`)
+          }
+          if (workingMemory.goals && workingMemory.goals.length > 0) {
+            memoryParts.push(`## Goals\n\n${workingMemory.goals.map(g => `- ${g}`).join('\n')}`)
+          }
+          if (workingMemory.requirements && workingMemory.requirements.length > 0) {
+            memoryParts.push(`## Requirements\n\n${workingMemory.requirements.map(r => `- ${r}`).join('\n')}`)
+          }
+          if (workingMemory.constraints && workingMemory.constraints.length > 0) {
+            memoryParts.push(`## Constraints\n\n${workingMemory.constraints.map(c => `- ${c}`).join('\n')}`)
+          }
+          if (workingMemory.decisions && workingMemory.decisions.length > 0) {
+            memoryParts.push(`## Decisions\n\n${workingMemory.decisions.map(d => `- ${d}`).join('\n')}`)
+          }
+          if (workingMemory.assumptions && workingMemory.assumptions.length > 0) {
+            memoryParts.push(`## Assumptions\n\n${workingMemory.assumptions.map(a => `- ${a}`).join('\n')}`)
+          }
+          if (workingMemory.open_questions && workingMemory.open_questions.length > 0) {
+            memoryParts.push(`## Open Questions\n\n${workingMemory.open_questions.map(q => `- ${q}`).join('\n')}`)
+          }
+          if (workingMemory.glossary && Object.keys(workingMemory.glossary).length > 0) {
+            memoryParts.push(`## Glossary\n\n${Object.entries(workingMemory.glossary).map(([term, def]) => `- **${term}**: ${def}`).join('\n')}`)
+          }
+          if (workingMemory.stakeholders && workingMemory.stakeholders.length > 0) {
+            memoryParts.push(`## Stakeholders\n\n${workingMemory.stakeholders.map(s => `- ${s}`).join('\n')}`)
+          }
+          
+          if (memoryParts.length > 0) {
+            const memorySection = `\n\n---\n\n# PM Working Memory\n\n${memoryParts.join('\n\n')}\n\n---\n\n`
+            conversationContextPack = conversationContextPack 
+              ? `${conversationContextPack}${memorySection}`
+              : memorySection
+          }
         }
 
         // Use DB-derived context pack instead of client-provided history
@@ -371,6 +450,107 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       createTicketAvailable,
       agentRunner: runner.label,
       ...(result.promptText != null && { promptText: result.promptText }),
+    }
+
+    // Automatically update working memory after response (0173: PM working memory)
+    // Update asynchronously so it doesn't block the response
+    if (projectId && supabaseUrl && supabaseAnonKey && runnerModule && !result.error) {
+      // Only update if we have messages to process
+      if (projectId && supabaseUrl && supabaseAnonKey) {
+        // Update working memory in background (don't await - fire and forget)
+        ;(async () => {
+          try {
+            const { createClient } = await import('@supabase/supabase-js')
+            const supabase = createClient(supabaseUrl, supabaseAnonKey)
+            
+            // Fetch all messages for this conversation
+            const { data: allMessages } = await supabase
+              .from('hal_conversation_messages')
+              .select('role, content, sequence')
+              .eq('project_id', projectId)
+              .eq('agent', conversationId)
+              .order('sequence', { ascending: true })
+
+            if (allMessages && allMessages.length > 0) {
+              const messagesForExtraction = allMessages.map((m: any) => ({
+                role: m.role as 'user' | 'assistant',
+                content: m.content ?? '',
+              }))
+
+              // Extract working memory using LLM
+              let extractedMemory: {
+                summary?: string
+                goals?: string[]
+                requirements?: string[]
+                constraints?: string[]
+                decisions?: string[]
+                assumptions?: string[]
+                open_questions?: string[]
+                glossary?: Record<string, string>
+                stakeholders?: string[]
+              } = {}
+
+              if (typeof runnerModule.extractWorkingMemory === 'function') {
+                extractedMemory = await runnerModule.extractWorkingMemory(messagesForExtraction, key, model)
+              } else {
+                // Fallback: use OpenAI directly
+                const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${key}`,
+                  },
+                  body: JSON.stringify({
+                    model,
+                    messages: [
+                      {
+                        role: 'system',
+                        content: 'You are a helpful assistant that extracts structured information from conversations. Always return valid JSON.',
+                      },
+                      {
+                        role: 'user',
+                        content: `Extract working memory from this conversation. Return JSON with: summary, goals, requirements, constraints, decisions, assumptions, open_questions, glossary, stakeholders.\n\n${messagesForExtraction.map(m => `**${m.role}**: ${m.content}`).join('\n\n')}`,
+                      },
+                    ],
+                    temperature: 0.3,
+                    response_format: { type: 'json_object' },
+                  }),
+                })
+
+                if (openaiRes.ok) {
+                  const data = (await openaiRes.json()) as { choices?: Array<{ message?: { content?: string } }> }
+                  const content = data.choices?.[0]?.message?.content
+                  if (content) {
+                    extractedMemory = JSON.parse(content)
+                  }
+                }
+              }
+
+              // Upsert working memory
+              await supabase.from('hal_pm_working_memory').upsert(
+                {
+                  project_id: projectId,
+                  conversation_id: conversationId,
+                  summary: extractedMemory.summary || null,
+                  goals: extractedMemory.goals || [],
+                  requirements: extractedMemory.requirements || [],
+                  constraints: extractedMemory.constraints || [],
+                  decisions: extractedMemory.decisions || [],
+                  assumptions: extractedMemory.assumptions || [],
+                  open_questions: extractedMemory.open_questions || [],
+                  glossary: extractedMemory.glossary || {},
+                  stakeholders: extractedMemory.stakeholders || [],
+                  last_updated: new Date().toISOString(),
+                },
+                { onConflict: 'project_id,conversation_id' }
+              )
+            }
+          } catch (updateErr) {
+            // Log but don't fail the request - working memory update is best-effort
+            console.warn('[PM] Failed to update working memory automatically:', updateErr)
+          }
+        })()
+      }
     }
 
     // Debug: log what we're returning (0119) - include in response for frontend debugging
