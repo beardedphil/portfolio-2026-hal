@@ -164,6 +164,26 @@ function getMessageAuthorLabel(agent: Message['agent']): string {
   return 'System'
 }
 
+/** Calculate color gradient from red (0%) to green (100%) for QA metrics (0667) */
+function getMetricColor(percentage: number | null): string {
+  if (percentage === null) {
+    return '#888888' // Gray for N/A
+  }
+  // Red (0%) to Green (100%) gradient
+  // Red: rgb(220, 53, 69) or #dc3545
+  // Green: rgb(40, 167, 69) or #28a745
+  const red = 220
+  const green = 40
+  const blueRed = 53
+  const blueGreen = 167
+  const greenRed = 69
+  const greenGreen = 69
+  const r = Math.round(red + (green - red) * (percentage / 100))
+  const g = Math.round(blueRed + (blueGreen - blueRed) * (percentage / 100))
+  const b = Math.round(greenRed + (greenGreen - greenRed) * (percentage / 100))
+  return `rgb(${r}, ${g}, ${b})`
+}
+
 type Theme = 'light' | 'dark'
 
 const THEME_STORAGE_KEY = 'hal-theme'
@@ -220,6 +240,11 @@ function App() {
   const [cancelAllAgentsMessage, setCancelAllAgentsMessage] = useState<string | null>(null)
   const [agentInstructionsOpen, setAgentInstructionsOpen] = useState(false)
   const [promptModalMessage, setPromptModalMessage] = useState<Message | null>(null)
+  /** QA quality metrics (0667) */
+  const [qaMetrics, setQaMetrics] = useState<{
+    coverage: number | null // 0-100 or null for N/A
+    overcomplication: number | null // 0-100 or null for N/A
+  } | null>(null)
   /** Working memory for PM conversation (0173) */
   const [pmWorkingMemory, setPmWorkingMemory] = useState<{
     summary: string
@@ -881,6 +906,7 @@ function App() {
       restoredSelectedConvRef.current = null
     }
   }, [connectedProject, loadConversationsForProject])
+
 
   // Auto-expand QA, Implementation, and Process Review groups when conversations are restored after reconnect (0097, 0111)
   useEffect(() => {
@@ -2157,6 +2183,59 @@ function App() {
     },
     [connectedProject, supabaseUrl, supabaseAnonKey, openChatTarget, selectedConversationId]
   )
+
+  /** Fetch latest QA report artifact for connected repo and parse metrics (0667) */
+  const fetchQaMetrics = useCallback(
+    async (repoFullName: string): Promise<{ coverage: number | null; overcomplication: number | null }> => {
+      const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
+      const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
+      if (!url || !key) {
+        return { coverage: null, overcomplication: null }
+      }
+      try {
+        const supabase = getSupabaseClient(url, key)
+        // Fetch latest QA report artifact for this repo
+        const { data, error } = await supabase
+          .from('agent_artifacts')
+          .select('artifact_id, ticket_pk, repo_full_name, agent_type, title, body_md, created_at, updated_at')
+          .eq('repo_full_name', repoFullName)
+          .eq('agent_type', 'qa')
+          .ilike('title', '%QA report%')
+          .order('created_at', { ascending: false })
+          .limit(1)
+        if (error || !data || data.length === 0) {
+          return { coverage: null, overcomplication: null }
+        }
+        const qaReport = data[0]
+        const bodyMd = qaReport.body_md || ''
+        // Best-effort parsing: look for Coverage and Overcomplication metrics
+        // Try patterns like "Coverage: 85%", "Coverage 85%", "Coverage: 85", etc.
+        const coverageMatch = bodyMd.match(/(?:^|\n|##?\s+)(?:Coverage|Test Coverage|Code Coverage)[:\s]+(\d+(?:\.\d+)?)\s*%/i)
+        const overcomplicationMatch = bodyMd.match(/(?:^|\n|##?\s+)(?:Overcomplication|Over-complication|Over complication)[:\s]+(\d+(?:\.\d+)?)\s*%/i)
+        const coverage = coverageMatch ? Math.min(100, Math.max(0, parseFloat(coverageMatch[1]))) : null
+        const overcomplication = overcomplicationMatch ? Math.min(100, Math.max(0, parseFloat(overcomplicationMatch[1]))) : null
+        return { coverage, overcomplication }
+      } catch (e) {
+        console.warn('[HAL] fetchQaMetrics:', e)
+        return { coverage: null, overcomplication: null }
+      }
+    },
+    [supabaseUrl, supabaseAnonKey]
+  )
+
+  // Fetch QA metrics when repo is connected (0667)
+  useEffect(() => {
+    if (connectedGithubRepo?.fullName) {
+      fetchQaMetrics(connectedGithubRepo.fullName).then((metrics) => {
+        setQaMetrics(metrics)
+      }).catch((err) => {
+        console.warn('[HAL] Error fetching QA metrics:', err)
+        setQaMetrics(null)
+      })
+    } else {
+      setQaMetrics(null)
+    }
+  }, [connectedGithubRepo?.fullName, fetchQaMetrics])
 
   /** Fetch artifacts for a ticket (same Supabase as tickets). Used by Kanban when opening ticket detail. */
   const fetchArtifactsForTicket = useCallback(
@@ -3485,18 +3564,48 @@ function App() {
           ) : (
             <div className="project-info">
               {connectedGithubRepo && (
-                <span className="project-name" title={connectedGithubRepo.fullName}>
-                  {connectedGithubRepo.fullName}
-                </span>
+                <>
+                  <div className="project-info-row">
+                    <span className="project-name" title={connectedGithubRepo.fullName}>
+                      {connectedGithubRepo.fullName}
+                    </span>
+                    <button
+                      ref={disconnectButtonRef}
+                      type="button"
+                      className="disconnect-btn"
+                      onClick={handleDisconnectClick}
+                    >
+                      Disconnect
+                    </button>
+                  </div>
+                  {/* QA quality metrics (0667) */}
+                  <div className="qa-metrics">
+                    <div
+                      className="qa-metric-box"
+                      style={{ backgroundColor: getMetricColor(qaMetrics?.coverage ?? null) }}
+                      title={qaMetrics?.coverage !== null && qaMetrics !== null ? `Coverage: ${qaMetrics.coverage.toFixed(0)}%` : 'Coverage: N/A'}
+                    >
+                      <span className="qa-metric-label">Coverage</span>
+                      <span className="qa-metric-value">
+                        {qaMetrics?.coverage !== null && qaMetrics !== null ? `${qaMetrics.coverage.toFixed(0)}%` : 'N/A'}
+                      </span>
+                    </div>
+                    <div
+                      className="qa-metric-box"
+                      style={{ backgroundColor: getMetricColor(qaMetrics?.overcomplication ?? null) }}
+                      title={qaMetrics?.overcomplication !== null && qaMetrics !== null ? `Overcomplication: ${qaMetrics.overcomplication.toFixed(0)}%` : 'Overcomplication: N/A'}
+                    >
+                      <span className="qa-metric-label">Overcomplication</span>
+                      <span className="qa-metric-value">
+                        {qaMetrics?.overcomplication !== null && qaMetrics !== null ? `${qaMetrics.overcomplication.toFixed(0)}%` : 'N/A'}
+                      </span>
+                    </div>
+                    {qaMetrics === null && (
+                      <span className="qa-metrics-hint">Run QA to generate metrics</span>
+                    )}
+                  </div>
+                </>
               )}
-              <button
-                ref={disconnectButtonRef}
-                type="button"
-                className="disconnect-btn"
-                onClick={handleDisconnectClick}
-              >
-                Disconnect
-              </button>
             </div>
           )}
         </div>
