@@ -6,8 +6,6 @@ import * as Kanban from 'portfolio-2026-kanban'
 import type { KanbanTicketRow, KanbanColumnRow, KanbanAgentRunRow, KanbanBoardProps } from 'portfolio-2026-kanban'
 import 'portfolio-2026-kanban/style.css'
 import { AgentInstructionsViewer } from './AgentInstructionsViewer'
-import { DiagnosticsSection } from './components/diagnostics/DiagnosticsSection'
-import { useDiagnostics } from './hooks/useDiagnostics'
 
 const KanbanBoard = Kanban.default
 const _kanbanBuild = (Kanban as unknown as { KANBAN_BUILD?: string }).KANBAN_BUILD
@@ -54,7 +52,6 @@ type TicketCreationResult = {
   autoFixed?: boolean
 }
 
-// DiagnosticsInfo type moved to src/components/diagnostics/types.ts
 
 type GithubAuthMe = {
   authenticated: boolean
@@ -164,7 +161,6 @@ function App() {
   const [conversationHistoryResetMessage, setConversationHistoryResetMessage] = useState<string | null>(null)
   const [openaiLastStatus, setOpenaiLastStatus] = useState<string | null>(null)
   const [openaiLastError, setOpenaiLastError] = useState<string | null>(null)
-  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const [connectedProject, setConnectedProject] = useState<string | null>(null)
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
   const [lastPmOutboundRequest, setLastPmOutboundRequest] = useState<object | null>(null)
@@ -187,41 +183,6 @@ function App() {
   const [cancelAllAgentsMessage, setCancelAllAgentsMessage] = useState<string | null>(null)
   const [agentInstructionsOpen, setAgentInstructionsOpen] = useState(false)
   const [promptModalMessage, setPromptModalMessage] = useState<Message | null>(null)
-  /** Working memory for PM conversation (0173) */
-  const [pmWorkingMemory, setPmWorkingMemory] = useState<{
-    summary: string
-    goals: string[]
-    requirements: string[]
-    constraints: string[]
-    decisions: string[]
-    assumptions: string[]
-    open_questions: string[]
-    glossary: Record<string, string>
-    stakeholders: string[]
-    updated_at: string
-    through_sequence: number
-  } | null>(null)
-  const [pmWorkingMemoryOpen, setPmWorkingMemoryOpen] = useState(false)
-  const [pmWorkingMemoryLoading, setPmWorkingMemoryLoading] = useState(false)
-  const [pmWorkingMemoryError, setPmWorkingMemoryError] = useState<string | null>(null)
-  
-  // Alias workingMemory to pmWorkingMemory for UI compatibility (declared early so it can be used in useEffects)
-  const workingMemory = pmWorkingMemory ? {
-    summary: pmWorkingMemory.summary,
-    goals: pmWorkingMemory.goals,
-    requirements: pmWorkingMemory.requirements,
-    constraints: pmWorkingMemory.constraints,
-    decisions: pmWorkingMemory.decisions,
-    assumptions: pmWorkingMemory.assumptions,
-    openQuestions: pmWorkingMemory.open_questions,
-    glossary: pmWorkingMemory.glossary,
-    stakeholders: pmWorkingMemory.stakeholders,
-    lastUpdatedAt: pmWorkingMemory.updated_at,
-  } : null
-  const workingMemoryOpen = pmWorkingMemoryOpen
-  const workingMemoryLoading = pmWorkingMemoryLoading
-  const workingMemoryError = pmWorkingMemoryError
-  const setWorkingMemoryOpen = setPmWorkingMemoryOpen
   
   const disconnectConfirmButtonRef = useRef<HTMLButtonElement>(null)
   const disconnectButtonRef = useRef<HTMLButtonElement>(null)
@@ -237,8 +198,6 @@ function App() {
   const lastRealtimeUpdateRef = useRef<number>(0)
   /** Track subscription status for realtime channels (0140). */
   const realtimeSubscriptionsRef = useRef<{ tickets: boolean; agentRuns: boolean }>({ tickets: false, agentRuns: false })
-  const [outboundRequestExpanded, setOutboundRequestExpanded] = useState(false)
-  const [toolCallsExpanded, setToolCallsExpanded] = useState(false)
   const messageIdRef = useRef(0)
   const pmMaxSequenceRef = useRef(0) // Keep for backward compatibility during migration
   // Track max sequence per agent instance (e.g., "project-manager-1", "implementation-agent-2")
@@ -249,8 +208,6 @@ function App() {
   const [loadingOlderMessages, setLoadingOlderMessages] = useState<string | null>(null) // conversationId loading older messages
   const MESSAGES_PER_PAGE = 50 // Number of messages to load per page
   const selectedChatTargetRef = useRef<ChatTarget>(selectedChatTarget)
-  
-  // Load working memory when PM chat is selected and project is connected (0173) - moved after fetchPmWorkingMemory definition
   
   const [unreadByTarget, setUnreadByTarget] = useState<Record<ChatTarget, number>>(() => ({
     'project-manager': 0,
@@ -457,8 +414,6 @@ function App() {
       setSelectedConversationId(null)
     }
   }, [openChatTarget])
-
-  // Auto-load working memory when PM chat opens (0173) - moved after loadWorkingMemory definition
 
   const loadGithubRepos = useCallback(async () => {
     try {
@@ -1113,9 +1068,6 @@ function App() {
     }
   }, [qaAgentError])
 
-  // Fetch working memory when PM conversation changes (0173) - moved after fetchPmWorkingMemory definition
-  // (This useEffect is defined later after fetchPmWorkingMemory is declared)
-
   // Get active messages from selected conversation (0070)
   // For PM, always use default conversation; for Implementation/QA, use selected conversation if modal is open
   const activeMessages = (() => {
@@ -1181,150 +1133,6 @@ function App() {
     return `HAL-${padded}`
   }, [])
 
-  // Fetch working memory for current PM conversation (0173) — use API only so we never hit Supabase from client (avoids 406)
-  const fetchWorkingMemory = useCallback(async () => {
-    if (!connectedProject || !supabaseUrl || !supabaseAnonKey) {
-      setPmWorkingMemory(null)
-      return
-    }
-    if (selectedChatTarget !== 'project-manager') {
-      setPmWorkingMemory(null)
-      return
-    }
-    const convId = selectedConversationId || getConversationId('project-manager', 1)
-    setPmWorkingMemoryLoading(true)
-    setPmWorkingMemoryError(null)
-    try {
-      const res = await fetch('/api/conversations/working-memory/get', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectId: connectedProject,
-          agent: convId,
-          supabaseUrl,
-          supabaseAnonKey,
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok || !data.success) {
-        setPmWorkingMemory(null)
-        if (data.error) setPmWorkingMemoryError(data.error)
-        return
-      }
-      const wm = data.workingMemory
-      if (wm) {
-        const arr = (x: unknown) => (Array.isArray(x) ? x : typeof x === 'string' ? (x ? [x] : []) : [])
-        setPmWorkingMemory({
-          summary: wm.summary || '',
-          goals: arr(wm.goals),
-          requirements: arr(wm.requirements),
-          constraints: arr(wm.constraints),
-          decisions: arr(wm.decisions),
-          assumptions: arr(wm.assumptions),
-          open_questions: arr(wm.openQuestions ?? wm.open_questions),
-          glossary: typeof wm.glossary === 'object' && wm.glossary !== null ? (wm.glossary as Record<string, string>) : {},
-          stakeholders: arr(wm.stakeholders),
-          updated_at: wm.lastUpdatedAt || wm.last_updated_at || new Date().toISOString(),
-          through_sequence: typeof wm.throughSequence === 'number' ? wm.throughSequence : 0,
-        })
-      } else {
-        setPmWorkingMemory(null)
-      }
-    } catch (err) {
-      console.error('[HAL] Failed to fetch working memory:', err)
-      setPmWorkingMemoryError(err instanceof Error ? err.message : String(err))
-      setPmWorkingMemory(null)
-    } finally {
-      setPmWorkingMemoryLoading(false)
-    }
-  }, [connectedProject, supabaseUrl, supabaseAnonKey, selectedChatTarget, selectedConversationId])
-
-  // Handler for embedded PM working memory refresh (uses different API endpoint)
-  const refreshEmbeddedPmWorkingMemory = useCallback(async () => {
-    if (!connectedProject || !supabaseUrl || !supabaseAnonKey) {
-      return
-    }
-    setPmWorkingMemoryLoading(true)
-    try {
-      const baseUrl = (await fetch('/.hal/api-base-url').then(r => r.text())).trim() || window.location.origin
-      const res = await fetch(`${baseUrl}/api/pm/working-memory?projectId=${encodeURIComponent(connectedProject)}&agent=project-manager`)
-      const data = await res.json()
-      if (data.success) {
-        if (data.workingMemory) {
-          setPmWorkingMemory({
-            summary: data.workingMemory.summary || '',
-            goals: Array.isArray(data.workingMemory.goals) ? data.workingMemory.goals : [],
-            requirements: Array.isArray(data.workingMemory.requirements) ? data.workingMemory.requirements : [],
-            constraints: Array.isArray(data.workingMemory.constraints) ? data.workingMemory.constraints : [],
-            decisions: Array.isArray(data.workingMemory.decisions) ? data.workingMemory.decisions : [],
-            assumptions: Array.isArray(data.workingMemory.assumptions) ? data.workingMemory.assumptions : [],
-            open_questions: Array.isArray(data.workingMemory.openQuestions) ? data.workingMemory.openQuestions : (Array.isArray(data.workingMemory.open_questions) ? data.workingMemory.open_questions : []),
-            glossary: data.workingMemory.glossary && typeof data.workingMemory.glossary === 'object' ? data.workingMemory.glossary as Record<string, string> : {},
-            stakeholders: Array.isArray(data.workingMemory.stakeholders) ? data.workingMemory.stakeholders : [],
-            updated_at: data.workingMemory.updated_at || new Date().toISOString(),
-            through_sequence: data.workingMemory.through_sequence || 0,
-          })
-        } else {
-          setPmWorkingMemoryError(null)
-          alert('Working memory will be refreshed automatically on the next PM agent response.')
-        }
-      } else {
-        console.error('[PM] Failed to load working memory:', data.error)
-      }
-    } catch (err) {
-      console.error('[PM] Failed to load working memory:', err)
-    } finally {
-      setPmWorkingMemoryLoading(false)
-    }
-  }, [connectedProject, supabaseUrl, supabaseAnonKey])
-
-  // Legacy refreshWorkingMemory function - defined after refreshPmWorkingMemory
-  const refreshWorkingMemory = useCallback(async () => {
-    // refreshPmWorkingMemory will be defined later, so we'll use it directly in the callback
-    if (!connectedProject || !supabaseUrl || !supabaseAnonKey) {
-      return
-    }
-    try {
-      setPmWorkingMemoryLoading(true)
-      const url = supabaseUrl.trim()
-      const key = supabaseAnonKey.trim()
-      const res = await fetch('/api/pm/working-memory', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectId: connectedProject,
-          supabaseUrl: url,
-          supabaseAnonKey: key,
-          force: true,
-        }),
-      })
-      const data = await res.json() as { success: boolean; workingMemory?: any; error?: string }
-      if (!data.success) {
-        throw new Error(data.error || 'Failed to refresh working memory')
-      }
-      if (data.workingMemory) {
-        setPmWorkingMemory({
-          summary: data.workingMemory.summary || '',
-          goals: Array.isArray(data.workingMemory.goals) ? data.workingMemory.goals : [],
-          requirements: Array.isArray(data.workingMemory.requirements) ? data.workingMemory.requirements : [],
-          constraints: Array.isArray(data.workingMemory.constraints) ? data.workingMemory.constraints : [],
-          decisions: Array.isArray(data.workingMemory.decisions) ? data.workingMemory.decisions : [],
-          assumptions: Array.isArray(data.workingMemory.assumptions) ? data.workingMemory.assumptions : [],
-          open_questions: Array.isArray(data.workingMemory.openQuestions) ? data.workingMemory.openQuestions : (Array.isArray(data.workingMemory.open_questions) ? data.workingMemory.open_questions : []),
-          glossary: data.workingMemory.glossary && typeof data.workingMemory.glossary === 'object' ? data.workingMemory.glossary as Record<string, string> : {},
-          stakeholders: Array.isArray(data.workingMemory.stakeholders) ? data.workingMemory.stakeholders : [],
-          updated_at: data.workingMemory.updated_at || new Date().toISOString(),
-          through_sequence: data.workingMemory.through_sequence || 0,
-        })
-      } else {
-        setPmWorkingMemory(null)
-      }
-    } catch (err) {
-      console.error('[PM] Failed to refresh working memory:', err)
-    } finally {
-      setPmWorkingMemoryLoading(false)
-    }
-  }, [connectedProject, supabaseUrl, supabaseAnonKey, selectedConversationId])
 
   // Load older messages for a conversation (pagination)
   const loadOlderMessages = useCallback(
@@ -3157,7 +2965,6 @@ function App() {
     setAutoMoveDiagnostics([])
     setCursorRunAgentType(null)
     setOrphanedCompletionSummary(null)
-    setPmWorkingMemoryOpen(false)
     // Do NOT remove localStorage items on disconnect (0097: preserve chats and agent status across disconnect/reconnect)
     // They will be restored when reconnecting to the same repo
   }, [])
@@ -3238,29 +3045,6 @@ function App() {
     }
   })()
 
-  const diagnostics = useDiagnostics({
-    selectedChatTarget,
-    lastAgentError,
-    lastError,
-    openaiLastStatus,
-    openaiLastError,
-    connectedProject,
-    lastPmOutboundRequest,
-    lastPmToolCalls,
-    lastTicketCreationResult,
-    lastCreateTicketAvailable,
-    persistenceError,
-    pmLastResponseId,
-    previousResponseIdInLastRequest,
-    agentRunner,
-    autoMoveDiagnostics,
-    theme,
-    themeSource,
-    lastSendPayloadSummary,
-    connectedGithubRepo,
-    conversationHistoryResetMessage,
-    kanbanBuild: KANBAN_BUILD,
-  })
 
   const kanbanBoardProps: KanbanBoardProps = {
     tickets: kanbanTickets,
@@ -4078,37 +3862,6 @@ function App() {
             </div>
           )}
 
-          {/* Diagnostics panel - Hidden per ticket 0105, code kept intact */}
-          {false && (
-            <DiagnosticsSection
-              diagnostics={diagnostics}
-              diagnosticsOpen={diagnosticsOpen}
-              onToggleDiagnostics={() => setDiagnosticsOpen(!diagnosticsOpen)}
-              chatWidth={chatWidth}
-              isDragging={isDragging}
-              lastWorkButtonClick={lastWorkButtonClick}
-              outboundRequestExpanded={outboundRequestExpanded}
-              onToggleOutboundRequest={() => setOutboundRequestExpanded(!outboundRequestExpanded)}
-              toolCallsExpanded={toolCallsExpanded}
-              onToggleToolCalls={() => setToolCallsExpanded(!toolCallsExpanded)}
-              pmWorkingMemoryOpen={pmWorkingMemoryOpen}
-              onTogglePmWorkingMemory={() => setPmWorkingMemoryOpen(!pmWorkingMemoryOpen)}
-              onRefreshPmWorkingMemory={refreshEmbeddedPmWorkingMemory}
-              workingMemory={workingMemory}
-              workingMemoryLoading={workingMemoryLoading}
-              workingMemoryError={workingMemoryError}
-              standaloneWorkingMemoryOpen={workingMemoryOpen}
-              onToggleStandaloneWorkingMemory={() => {
-                setWorkingMemoryOpen(!workingMemoryOpen)
-                if (!workingMemoryOpen && !workingMemory && !workingMemoryLoading) {
-                  fetchWorkingMemory()
-                }
-              }}
-              onFetchWorkingMemory={fetchWorkingMemory}
-              onRefreshStandaloneWorkingMemory={refreshWorkingMemory}
-            />
-          )}
-          {/* Legacy diagnostics section code removed - extracted to DiagnosticsSection component */}
           </section>
         )}
         {/* Restore chat button when collapsed (0160) */}
