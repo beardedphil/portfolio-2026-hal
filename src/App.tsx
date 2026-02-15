@@ -5332,16 +5332,19 @@ function App() {
                                 <div style={{ marginTop: '4px', whiteSpace: 'pre-wrap' }}>{workingMemory.assumptions}</div>
                               </div>
                             )}
-                            {workingMemory && workingMemory.openQuestions && workingMemory.openQuestions.length > 0 && (
-                              <div style={{ marginBottom: '12px' }}>
-                                <strong>Open Questions:</strong>
-                                <ul style={{ marginTop: '4px', paddingLeft: '20px' }}>
-                                  {workingMemory.openQuestions.map((q, idx) => (
-                                    <li key={idx}>{q}</li>
-                                  ))}
-                                </ul>
-                              </div>
-                            )}
+                            {workingMemory && workingMemory.openQuestions && workingMemory.openQuestions.length > 0 && (() => {
+                              const wm = workingMemory!
+                              return (
+                                <div style={{ marginBottom: '12px' }}>
+                                  <strong>Open Questions:</strong>
+                                  <ul style={{ marginTop: '4px', paddingLeft: '20px' }}>
+                                    {wm.openQuestions.map((q, idx) => (
+                                      <li key={idx}>{q}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )
+                            })()}
                             {workingMemory && workingMemory.glossary && Object.keys(workingMemory!.glossary || {}).length > 0 && (() => {
                               const wm = workingMemory!
                               return (
