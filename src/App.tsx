@@ -133,7 +133,7 @@ const CONVERSATION_RECENT_MAX_CHARS = 12_000
 // PM_AGENT_ID kept for reference but conversation IDs are used now (0124)
 // const PM_AGENT_ID = 'project-manager'
 
-// Conversation ID parsing/formatting helpers moved to src/utils/conversationId.ts (0550)
+// Conversation ID parsing/formatting helpers are now imported from './utils/conversationId' (0550)
 
 // Get next instance number for an agent role (0070)
 function getNextInstanceNumber(conversations: Map<string, Conversation>, agentRole: Agent): number {
