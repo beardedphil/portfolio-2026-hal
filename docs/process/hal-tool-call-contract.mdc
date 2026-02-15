@@ -1,0 +1,11 @@
+# HAL Tool Call Contract
+
+Agents call HAL API for Supabase operations. No credentials needed.
+
+**Endpoints:** POST to base URL from `.hal/api-base-url`:
+- `/api/artifacts/insert-implementation` — `{ ticketId, artifactType, title, body_md }`
+- `/api/artifacts/insert-qa` — `{ ticketId, title, body_md }`
+- `/api/artifacts/get` — `{ ticketId }`
+- `/api/tickets/get`, `/api/tickets/update`, `/api/tickets/move` — `{ ticketId, ... }`
+
+**8 implementation artifact types:** plan, worklog, changed-files, decisions, verification, pm-review, git-diff, instructions-used.
