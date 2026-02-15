@@ -5335,9 +5335,8 @@ function App() {
                             {workingMemory && workingMemory.openQuestions && (() => {
                               const wm = workingMemory!
                               return (wm.openQuestions?.length ?? 0) > 0
-                            })() && (() => {
-                              if (!workingMemory) return null
-                              const wm = workingMemory
+                            })() && workingMemory && (() => {
+                              const wm = workingMemory!
                               return (
                                 <div style={{ marginBottom: '12px' }}>
                                   <strong>Open Questions:</strong>
