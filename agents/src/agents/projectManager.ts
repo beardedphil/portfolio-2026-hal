@@ -448,6 +448,10 @@ You have access to read-only tools to explore the repository. Use them to answer
 
 **Moving tickets to named columns:** When the user asks to move a ticket to a column by name (e.g. "move HAL-0121 to Ready to Do", "put ticket 0121 in QA", "move this to Human in the Loop"), use move_ticket_to_column with the ticket_id and column_name. You can also specify position: "top" (move to top of column), "bottom" (move to bottom, default), or a number (0-based index, e.g. 0 for first position, 1 for second). The tool automatically resolves column names to column IDs. After moving, confirm the ticket appears in the specified column and position in the Kanban UI.
 
+**Bulk operations (move all / move multiple):** When the user asks to move ALL tickets from one column to another (e.g. "move all tickets from Unassigned to Will Not Implement", "move everything in Unassigned to To Do"), you MUST process in batches to avoid timeouts. (1) Call list_tickets_by_column with the source column (e.g. col-unassigned) to get the tickets. (2) Process at most 5 tickets per request: call move_ticket_to_column for each of the first 5 tickets, then stop. (3) In your reply, state how many you moved and how many remain. If any remain, end with: "Reply with **Continue** to move the next batch." The user can then say "Continue" (or "continue") and you will list the source column again (which now has fewer tickets), move the next batch of up to 5, and repeat until all are moved. Do NOT attempt to move more than 5 tickets in a single request—this causes timeouts.
+
+**Continue (batch operations):** When the user says "Continue", "continue", or similar, check the conversation: if your previous reply ended with "Reply with **Continue** to move the next batch", then list the source column again, move up to 5 more tickets, and report progress. If more remain, again end with "Reply with **Continue** to move the next batch." If none remain, confirm that all tickets have been moved.
+
 **Moving tickets to other repositories:** When the user asks to move a ticket to another repository's To Do column (e.g. "Move ticket HAL-0012 to owner/other-repo To Do"), use kanban_move_ticket_to_other_repo_todo with the ticket_id and target_repo_full_name. This tool works from any Kanban column (not only Unassigned). The ticket will be moved to the target repository and placed in its To Do column, and the ticket's display_id will be updated to match the target repo's prefix. If the target repo does not exist or the user lacks access, the tool will return a clear error message. If the ticket ID is invalid or not found, the tool will return a clear error message. After a successful move, confirm in chat the target repository and that the ticket is now in To Do.
 
 **Listing available repositories:** When the user asks "what repos can I move tickets to?" or similar questions about available target repositories, use list_available_repos to get a list of all repositories (repo_full_name) that have tickets in the database. Format the results clearly in your reply, showing the repository names.
@@ -473,6 +477,9 @@ function isUniqueViolation(err: { code?: string; message?: string } | null): boo
 }
 /** Cap on character count for "recent conversation" so long technical messages don't dominate. (~3k tokens) */
 const CONVERSATION_RECENT_MAX_CHARS = 12_000
+
+/** Use minimal bootstrap to avoid context overflow: do not inline full instruction bodies or long topic index. Agent loads instructions on demand via get_instruction_set. */
+const USE_MINIMAL_BOOTSTRAP = true
 
 function recentTurnsWithinCharBudget(
   turns: ConversationTurn[],
@@ -733,9 +740,38 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
     const appendInstructionBootstrap = (
       sourceLabel: string,
       basicInstructions: InstructionRecord[],
-      situationalInstructions: InstructionRecord[]
+      situationalInstructions: InstructionRecord[],
+      minimalBootstrap: boolean
     ): boolean => {
       const globalBasic = basicInstructions.filter(appliesToAllAgents)
+
+      if (basicInstructions.length === 0 && situationalInstructions.length === 0) {
+        return false
+      }
+
+      sections.push(`### Global bootstrap instructions (${sourceLabel})\n`)
+
+      if (minimalBootstrap) {
+        sections.push(
+          'Instructions are stored in Supabase. **Load your full PM instructions first:** `get_instruction_set({ agentType: "project-manager" })`. '
+        )
+        sections.push(
+          'For ticket creation or readiness checks, load `get_instruction_set({ topicId: "ticket-template" })` and `get_instruction_set({ topicId: "ready-to-start-checklist" })`.\n'
+        )
+        sections.push(
+          '**Request a topic by ID:** `get_instruction_set({ topicId: "<topic-id>" })`.'
+        )
+        return true
+      }
+
+      if (globalBasic.length === 0) {
+        sections.push('_No global bootstrap instruction bodies were found._')
+      } else {
+        for (const inst of globalBasic) {
+          sections.push(`#### ${inst.filename}\n\n${inst.contentMd}\n`)
+        }
+      }
+
       const sharedSituational = dedupeTopicSummaries(
         situationalInstructions
           .filter(appliesToAllAgents)
@@ -745,19 +781,6 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
             description: inst.topicMetadata?.description || inst.description,
           }))
       )
-
-      if (basicInstructions.length === 0 && situationalInstructions.length === 0) {
-        return false
-      }
-
-      sections.push(`### Global bootstrap instructions (${sourceLabel})\n`)
-      if (globalBasic.length === 0) {
-        sections.push('_No global bootstrap instruction bodies were found._')
-      } else {
-        for (const inst of globalBasic) {
-          sections.push(`#### ${inst.filename}\n\n${inst.contentMd}\n`)
-        }
-      }
 
       sections.push('### Instruction loading workflow\n')
       sections.push('1. Start with the global bootstrap instructions (all agents).')
@@ -870,7 +893,8 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
         bootstrapLoaded = appendInstructionBootstrap(
           'HAL API',
           basicInstructions,
-          situationalInstructions
+          situationalInstructions,
+          USE_MINIMAL_BOOTSTRAP
         )
         const templateInst = basicInstructions.find((i) => i.topicId === 'ticket-template')
         const checklistInst = basicInstructions.find((i) => i.topicId === 'ready-to-start-checklist')
@@ -913,7 +937,8 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
       bootstrapLoaded = appendInstructionBootstrap(
         'Direct Supabase fallback',
         basicInstructions,
-        situationalInstructions
+        situationalInstructions,
+        USE_MINIMAL_BOOTSTRAP
       )
       const templateInst = basicInstructions.find((i) => i.topicId === 'ticket-template')
       const checklistInst = basicInstructions.find((i) => i.topicId === 'ready-to-start-checklist')
@@ -947,25 +972,31 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
   }
   }
 
-  sections.push('## Ticket template (required structure for create_ticket)')
-  if (ticketTemplateContent) {
+  if (!localLoaded && USE_MINIMAL_BOOTSTRAP) {
     sections.push(
-      ticketTemplateContent +
-        '\n\nWhen creating a ticket, use this exact section structure. Replace every placeholder in angle brackets (e.g. `<what we want to achieve>`, `<AC 1>`) with concrete content—the resulting ticket must pass the Ready-to-start checklist (no unresolved placeholders, all required sections filled).'
+      '## Ticket template and Ready-to-start checklist\n\nLoad when creating or evaluating tickets: `get_instruction_set({ topicId: "ticket-template" })` and `get_instruction_set({ topicId: "ready-to-start-checklist" })`.'
     )
   } else {
-    sections.push(
-      '(Ticket template not found in instructions. Ensure migrate-docs has been run and instructions are loaded from Supabase.)'
-    )
-  }
+    sections.push('## Ticket template (required structure for create_ticket)')
+    if (ticketTemplateContent) {
+      sections.push(
+        ticketTemplateContent +
+          '\n\nWhen creating a ticket, use this exact section structure. Replace every placeholder in angle brackets (e.g. `<what we want to achieve>`, `<AC 1>`) with concrete content—the resulting ticket must pass the Ready-to-start checklist (no unresolved placeholders, all required sections filled).'
+      )
+    } else {
+      sections.push(
+        '(Ticket template not found in instructions. Ensure migrate-docs has been run and instructions are loaded from Supabase.)'
+      )
+    }
 
-  sections.push('## Ready-to-start checklist (Definition of Ready)')
-  if (checklistContent) {
-    sections.push(checklistContent)
-  } else {
-    sections.push(
-      '(Ready-to-start checklist not found in instructions. Ensure migrate-docs has been run and instructions are loaded from Supabase.)'
-    )
+    sections.push('## Ready-to-start checklist (Definition of Ready)')
+    if (checklistContent) {
+      sections.push(checklistContent)
+    } else {
+      sections.push(
+        '(Ready-to-start checklist not found in instructions. Ensure migrate-docs has been run and instructions are loaded from Supabase.)'
+      )
+    }
   }
 
   sections.push('## Git status (git status -sb)')
@@ -2096,12 +2127,12 @@ export async function runPmAgent(
       )
       return tool({
         description:
-          'List all tickets in a given Kanban column (e.g. "col-qa", "col-todo", "col-unassigned", "col-human-in-the-loop"). Returns ticket ID, title, and column. Use when the user asks to see tickets in a specific column, especially QA.',
+          'List all tickets in a given Kanban column (e.g. "col-qa", "col-todo", "col-unassigned", "col-human-in-the-loop", "col-will-not-implement"). Returns ticket ID, title, and column. Use when the user asks to see tickets in a specific column, or as the first step for bulk move operations (e.g. list Unassigned before moving all to Will Not Implement).',
         parameters: z.object({
           column_id: z
             .string()
             .describe(
-              'Kanban column ID (e.g. "col-qa", "col-todo", "col-unassigned", "col-human-in-the-loop")'
+              'Kanban column ID (e.g. "col-qa", "col-todo", "col-unassigned", "col-human-in-the-loop", "col-will-not-implement")'
             ),
         }),
         execute: async (input: { column_id: string }) => {
@@ -2178,7 +2209,7 @@ export async function runPmAgent(
     (() => {
       return tool({
         description:
-          'Move a ticket to a specified Kanban column by name (e.g. "Ready to Do", "QA", "Human in the Loop") or column ID. Optionally specify position: "top", "bottom", or a numeric index (0-based). The Kanban UI will reflect the change within ~10 seconds. Use when the user asks to move a ticket to a named column or reorder within a column.',
+          'Move a ticket to a specified Kanban column by name (e.g. "Ready to Do", "QA", "Human in the Loop", "Will Not Implement") or column ID. Optionally specify position: "top", "bottom", or a numeric index (0-based). The Kanban UI will reflect the change within ~10 seconds. Use when the user asks to move a ticket to a named column or reorder within a column. For bulk moves, call this once per ticket (max 5 per request).',
         parameters: z
           .object({
             ticket_id: z.string().describe('Ticket ID (e.g. "HAL-0121", "0121", or "121").'),
