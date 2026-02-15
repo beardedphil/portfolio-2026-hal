@@ -337,6 +337,8 @@ function App() {
   const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false)
   const [agentInstructionsOpen, setAgentInstructionsOpen] = useState(false)
   const [promptModalMessage, setPromptModalMessage] = useState<Message | null>(null)
+  /** Track which message IDs have their prompt view expanded (0202) */
+  const [expandedPromptMessageIds, setExpandedPromptMessageIds] = useState<Set<number>>(new Set())
   const disconnectConfirmButtonRef = useRef<HTMLButtonElement>(null)
   const disconnectButtonRef = useRef<HTMLButtonElement>(null)
   /** Kanban data (HAL owns DB; fetches and passes to KanbanBoard). */
@@ -3663,43 +3665,133 @@ function App() {
                         <p className="transcript-empty">No messages yet. Start a conversation.</p>
                       ) : (
                         <>
-                          {displayMessages.map((msg) => (
-                            <div
-                              key={msg.id}
-                              className={`message-row message-row-${msg.agent}`}
-                              data-agent={msg.agent}
-                            >
-                              <div 
-                                className={`message message-${msg.agent} ${selectedChatTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText ? 'message-clickable' : ''}`}
-                                onClick={selectedChatTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText ? () => setPromptModalMessage(msg) : undefined}
-                                style={selectedChatTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText ? { cursor: 'pointer' } : undefined}
-                                title={selectedChatTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText ? 'Click to view sent prompt' : undefined}
+                          {displayMessages.map((msg) => {
+                            const isPmAssistant = selectedChatTarget === 'project-manager' && msg.agent === 'project-manager'
+                            const hasPrompt = !!msg.promptText
+                            const isPromptExpanded = expandedPromptMessageIds.has(msg.id)
+                            const showPromptToggle = isPmAssistant
+                            
+                            return (
+                              <div
+                                key={msg.id}
+                                className={`message-row message-row-${msg.agent}`}
+                                data-agent={msg.agent}
                               >
-                                <div className="message-header">
-                                  <span className="message-author">{getMessageAuthorLabel(msg.agent)}</span>
-                                  <span className="message-time">[{formatTime(msg.timestamp)}]</span>
-                                  {selectedChatTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText && (
-                                    <span className="message-prompt-indicator" title="Click to view sent prompt">📋</span>
-                                  )}
-                                  {msg.imageAttachments && msg.imageAttachments.length > 0 && (
-                                    <div className="message-images">
-                                      {msg.imageAttachments.map((img, idx) => (
-                                        <div key={idx} className="message-image-container">
-                                          <img src={img.dataUrl} alt={img.filename} className="message-image-thumbnail" />
-                                          <span className="message-image-filename">{img.filename}</span>
+                                <div className={`message message-${msg.agent}`}>
+                                  <div className="message-header">
+                                    <span className="message-author">{getMessageAuthorLabel(msg.agent)}</span>
+                                    <span className="message-time">[{formatTime(msg.timestamp)}]</span>
+                                    {showPromptToggle && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          setExpandedPromptMessageIds((prev) => {
+                                            const next = new Set(prev)
+                                            if (next.has(msg.id)) {
+                                              next.delete(msg.id)
+                                            } else {
+                                              next.add(msg.id)
+                                            }
+                                            return next
+                                          })
+                                        }}
+                                        style={{
+                                          marginLeft: '8px',
+                                          padding: '4px 8px',
+                                          fontSize: '12px',
+                                          background: 'transparent',
+                                          border: '1px solid var(--hal-border, #ddd)',
+                                          borderRadius: '4px',
+                                          cursor: 'pointer',
+                                          color: 'var(--hal-text, #333)',
+                                        }}
+                                        title={hasPrompt ? (isPromptExpanded ? 'Hide sent prompt' : 'Show sent prompt') : 'Prompt unavailable for this message'}
+                                      >
+                                        {hasPrompt ? (isPromptExpanded ? 'Hide sent prompt' : 'Show sent prompt') : 'Prompt unavailable'}
+                                      </button>
+                                    )}
+                                    {msg.imageAttachments && msg.imageAttachments.length > 0 && (
+                                      <div className="message-images">
+                                        {msg.imageAttachments.map((img, idx) => (
+                                          <div key={idx} className="message-image-container">
+                                            <img src={img.dataUrl} alt={img.filename} className="message-image-thumbnail" />
+                                            <span className="message-image-filename">{img.filename}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                    {msg.content.trimStart().startsWith('{') ? (
+                                      <pre className="message-content message-json">{msg.content}</pre>
+                                    ) : (
+                                      <span className="message-content">{msg.content}</span>
+                                    )}
+                                  </div>
+                                  {showPromptToggle && isPromptExpanded && (
+                                    <div style={{ marginTop: '12px', padding: '12px', background: 'var(--hal-bg-secondary, #f5f5f5)', borderRadius: '4px', border: '1px solid var(--hal-border, #ddd)' }}>
+                                      {hasPrompt ? (
+                                        <>
+                                          <div style={{ marginBottom: '8px', display: 'flex', justifyContent: 'flex-end' }}>
+                                            <button
+                                              type="button"
+                                              onClick={async (e) => {
+                                                e.stopPropagation()
+                                                if (msg.promptText) {
+                                                  try {
+                                                    await navigator.clipboard.writeText(msg.promptText)
+                                                    const btn = e.currentTarget
+                                                    const originalText = btn.textContent
+                                                    btn.textContent = 'Copied!'
+                                                    setTimeout(() => {
+                                                      btn.textContent = originalText
+                                                    }, 2000)
+                                                  } catch (err) {
+                                                    console.error('Failed to copy prompt:', err)
+                                                  }
+                                                }
+                                              }}
+                                              style={{
+                                                padding: '6px 12px',
+                                                background: 'var(--hal-primary, #007bff)',
+                                                color: 'white',
+                                                border: 'none',
+                                                borderRadius: '4px',
+                                                cursor: 'pointer',
+                                                fontSize: '14px',
+                                              }}
+                                            >
+                                              Copy prompt
+                                            </button>
+                                          </div>
+                                          <pre
+                                            style={{
+                                              fontFamily: 'monospace',
+                                              fontSize: '12px',
+                                              lineHeight: '1.5',
+                                              whiteSpace: 'pre-wrap',
+                                              wordBreak: 'break-word',
+                                              margin: 0,
+                                              overflow: 'auto',
+                                              maxHeight: '400px',
+                                            }}
+                                          >
+                                            {msg.promptText}
+                                          </pre>
+                                        </>
+                                      ) : (
+                                        <div style={{ padding: '12px', textAlign: 'center', color: 'var(--hal-text-secondary, #666)' }}>
+                                          <p style={{ margin: 0 }}>Prompt unavailable for this message</p>
+                                          <p style={{ fontSize: '12px', marginTop: '4px', margin: 0 }}>
+                                            This message was generated without an external LLM call, or the prompt data is not available.
+                                          </p>
                                         </div>
-                                      ))}
+                                      )}
                                     </div>
-                                  )}
-                                  {msg.content.trimStart().startsWith('{') ? (
-                                    <pre className="message-content message-json">{msg.content}</pre>
-                                  ) : (
-                                    <span className="message-content">{msg.content}</span>
                                   )}
                                 </div>
                               </div>
-                            </div>
-                          ))}
+                            )
+                          })}
                           {agentTypingTarget === displayTarget && (
                             <div className="message-row message-row-typing" data-agent="typing" aria-live="polite">
                               <div className="message message-typing">
