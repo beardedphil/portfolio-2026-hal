@@ -196,7 +196,7 @@ body {
   gap: 0;
   min-height: 0;
   position: relative;
-  overflow-y: auto;
+  overflow: visible; /* 0499: Remove overflow-y: auto so kanban-frame-container can be the scroll container */
   overflow-x: hidden;
 }
 
@@ -207,6 +207,7 @@ body {
   flex-direction: column;
   min-width: 280px;
   min-height: 0; /* Allow flex shrinking - required for nested scrolling to work */
+  max-height: 100%; /* 0499: Constrain height so kanban-frame-container can scroll */
   background: var(--hal-surface);
   overflow: visible;
   overflow-x: hidden;
@@ -360,8 +361,9 @@ body {
   position: relative;
   min-height: 0;
   min-width: 0;
+  max-height: 100%; /* 0499: Constrain height to create scroll context */
   overflow-x: hidden;
-  overflow-y: auto; /* This is the scroll container - all nested elements should not scroll */
+  overflow-y: auto; /* 0499: This is the scroll container - all nested elements should not scroll */
   display: flex;
   flex-direction: column;
 }
@@ -492,13 +494,14 @@ body {
   max-height: none !important;
 }
 
-/* Ensure columns-row doesn't create vertical scroll context */
+/* Ensure columns-row doesn't create vertical scroll context (0499) */
 .kanban-frame-container .columns-row {
   /* Keep horizontal scrolling for columns */
-  overflow-x: auto;
-  overflow-y: visible !important; /* No vertical scrolling */
+  overflow-x: auto !important; /* 0499: Only horizontal scrolling */
+  overflow-y: visible !important; /* 0499: No vertical scrolling - kanban-frame-container handles it */
   max-height: none !important;
   height: auto !important;
+  flex: 0 1 auto !important; /* 0499: Don't grow, allow natural height */
 }
 
 /* Ensure columns-section doesn't create scroll context */
