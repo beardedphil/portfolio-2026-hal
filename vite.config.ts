@@ -90,16 +90,28 @@ export default defineConfig({
   plugins: [
     react(),
     // Plugin to exclude istanbul-reports from processing
+    // This must run early to prevent esbuild from processing JSX in .js files
     {
       name: 'exclude-istanbul-reports',
-      resolveId(id) {
+      enforce: 'pre', // Run before other plugins
+      buildStart() {
+        // Mark istanbul-reports as external at build start
+      },
+      resolveId(id, importer) {
+        // Intercept any resolve of istanbul-reports files
         if (id.includes('istanbul-reports')) {
-          return { id: 'data:text/javascript,export {}', external: true }
+          // Return a virtual module that won't be processed
+          return { id: `\0virtual:istanbul-reports-${id.replace(/[^a-z0-9]/gi, '_')}`, external: false }
         }
       },
       load(id) {
+        // Return empty module for any istanbul-reports virtual modules
+        if (id.startsWith('\0virtual:istanbul-reports-')) {
+          return 'export {}'
+        }
+        // Also catch direct imports
         if (id.includes('istanbul-reports')) {
-          return 'export {}' // Return empty module to skip processing
+          return 'export {}'
         }
       },
     },
