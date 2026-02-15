@@ -2,7 +2,12 @@
  * Test suite for QA artifact insertion endpoint (0197).
  * Tests that artifacts with real content are accepted and stored reliably.
  * 
- * Run with: npx tsx api/artifacts/insert-qa.test.ts
+ * **Integration test** - requires Supabase credentials:
+ * - Set SUPABASE_URL and SUPABASE_ANON_KEY in .env or environment variables
+ * - Run standalone: npx tsx api/artifacts/insert-qa.test.ts
+ * 
+ * **Note:** This test is excluded from Vitest runs (see vitest.config.ts) because it requires
+ * Supabase credentials. It's designed to be run manually when testing the artifact insertion API.
  */
 
 import { createClient } from '@supabase/supabase-js'
@@ -12,12 +17,23 @@ const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL |
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || ''
 const TEST_TICKET_ID = process.env.TEST_TICKET_ID || '197' // Use a test ticket ID
 
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+// Skip tests if env vars are not available (for CI/QA environments without Supabase access)
+const hasEnvVars = !!(SUPABASE_URL && SUPABASE_ANON_KEY)
+
+// Check if running under Vitest (Vitest sets VITEST environment variable)
+const isVitest = typeof process !== 'undefined' && (process.env.VITEST !== undefined || process.env.NODE_ENV === 'test')
+const isStandalone = typeof require !== 'undefined' && require.main === module
+
+if (!hasEnvVars && !isVitest && isStandalone) {
+  // Only exit if running standalone (not via Vitest)
   console.error('Error: SUPABASE_URL and SUPABASE_ANON_KEY must be set')
+  console.error('These tests require Supabase credentials to run.')
+  console.error('Set them in .env or as environment variables.')
   process.exit(1)
 }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+// Only create Supabase client if env vars are available
+const supabase = hasEnvVars ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null
 const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:5173'
 
 /**
@@ -163,7 +179,7 @@ async function testArtifactInsertion(title: string, body_md: string): Promise<bo
     console.log(`   Action: ${result.action}`)
     
     // Verify the artifact was actually stored
-    if (result.artifact_id) {
+    if (result.artifact_id && supabase) {
       const { data: artifact, error: readError } = await supabase
         .from('agent_artifacts')
         .select('artifact_id, title, body_md')
@@ -195,6 +211,12 @@ async function testArtifactInsertion(title: string, body_md: string): Promise<bo
 }
 
 async function runTests() {
+  if (!hasEnvVars) {
+    console.log('⚠️  Skipping tests: SUPABASE_URL and SUPABASE_ANON_KEY not set')
+    console.log('   These are integration tests that require Supabase credentials.')
+    return
+  }
+  
   console.log('Starting artifact insertion tests...')
   console.log(`API Base URL: ${API_BASE_URL}`)
   console.log(`Test Ticket ID: ${TEST_TICKET_ID}`)
@@ -232,15 +254,19 @@ async function runTests() {
   
   if (passed === total) {
     console.log('✅ All tests passed!')
-    process.exit(0)
+    if (require.main === module) {
+      process.exit(0)
+    }
   } else {
     console.log('❌ Some tests failed')
-    process.exit(1)
+    if (require.main === module) {
+      process.exit(1)
+    }
   }
 }
 
 // Run tests if this file is executed directly
-if (require.main === module) {
+if (typeof require !== 'undefined' && require.main === module) {
   runTests().catch(error => {
     console.error('Test execution failed:', error)
     process.exit(1)
