@@ -24,7 +24,8 @@
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
     "report:lines": "node scripts/report-lines.js",
-    "check:lines": "node scripts/check-lines.js"
+    "check:lines": "node scripts/check-lines.js",
+    "overcomplication:report": "node scripts/overcomplication-report.js"
   },
   "dependencies": {
     "@ai-sdk/openai": "^1.2.0",

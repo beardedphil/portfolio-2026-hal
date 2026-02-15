@@ -30,9 +30,36 @@ When you **QA a ticket** (verify, check a ticket that is allegedly complete), st
 4. Code review — PASS/FAIL with evidence
 5. Build verification — **MANDATORY:** `npm run build:hal`; TypeScript errors = FAIL
 6. Coverage — **MANDATORY:** Test coverage report with 4-metric table (lines/functions/branches/statements) and command used; see "Coverage section" below
-7. UI verification — automated and/or manual steps
-8. AC Confirmation Checklist — enumerate each AC, Met/Not met with evidence; see `ac-confirmation-checklist.mdc`
-9. Verdict — PASS or FAIL
+7. Overcomplication — **MANDATORY:** Numeric indicators that surface multi-purpose / overly-large modules. This section must include:
+   - **Max allowed lines:** The repository's configured max-lines policy (from `.line-limit-allowlist.json` or line-limit tooling)
+   - **Gate pass status:** Whether the line-limit gate passed (`npm run check:lines` exit code 0 = pass, non-zero = fail)
+   - **Allowlisted file count:** Number of files in the allowlist
+   - **Top 10 largest source files:** Ranked list of the 10 largest source files by line count with their line counts
+   
+   **How to generate:** Run `npm run overcomplication:report` to get JSON output with all required data. The numbers must reflect the current commit under test (not hardcoded).
+   
+   **Format example:**
+   ```markdown
+   ## Overcomplication
+   
+   - **Max allowed lines:** 250
+   - **Gate pass status:** ✅ PASS (all files comply with line limits)
+   - **Allowlisted file count:** 35
+   - **Top 10 largest source files:**
+     1. `src/App.tsx` — 5,146 lines
+     2. `projects/kanban/src/App.tsx` — 4,137 lines
+     3. `agents/src/agents/projectManager.ts` — 3,590 lines
+     4. `api/implementation-agent/run.ts` — 528 lines
+     5. `api/instructions/migrate-process-docs.ts` — 434 lines
+     6. `api/tickets/create.ts` — 420 lines
+     7. `api/agent-runs/launch.ts` — 404 lines
+     8. `api/tickets/move.ts` — 379 lines
+     9. `scripts/migrate-process-docs-to-supabase.js` — 377 lines
+     10. `api/process-review/create-tickets.ts` — 365 lines
+   ```
+8. UI verification — automated and/or manual steps
+9. AC Confirmation Checklist — enumerate each AC, Met/Not met with evidence; see `ac-confirmation-checklist.mdc`
+10. Verdict — PASS or FAIL
 
 ## Coverage section
 
