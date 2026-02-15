@@ -1727,6 +1727,12 @@ function ArtifactsSection({
     ? requiredArtifactTypes.filter(({ key }) => !hasArtifact(key))
     : []
   
+  // Check for "Missing Artifact Explanation" artifact (0201)
+  const hasMissingArtifactExplanation = artifacts.some((a) => {
+    const titleLower = (a.title || '').toLowerCase().trim()
+    return titleLower.includes('missing artifact explanation')
+  })
+  
   // Legacy checks for backward compatibility
   const hasChangedFiles = hasArtifact('changed-files')
   const hasVerification = hasArtifact('verification')
@@ -1787,7 +1793,18 @@ function ArtifactsSection({
       )}
 
       {/* Error states for missing expected artifacts (0196) */}
-      {missingArtifacts.length > 0 && (
+      {/* Show note if explanation exists, otherwise show error (0201) */}
+      {missingArtifacts.length > 0 && hasMissingArtifactExplanation && (
+        <div className="artifacts-warning-banner" role="alert" style={{ backgroundColor: '#e8f5e9', borderLeft: '4px solid #4caf50' }}>
+          <strong>Allowed due to Missing Artifact Explanation:</strong> The following {missingArtifacts.length} required artifact{missingArtifacts.length > 1 ? 's are' : ' is'} missing, but a "Missing Artifact Explanation" artifact is attached explaining why:
+          <ul style={{ marginTop: '0.5em', marginBottom: '0.5em', paddingLeft: '1.5em' }}>
+            {missingArtifacts.map(({ title }) => (
+              <li key={title}>{title}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {missingArtifacts.length > 0 && !hasMissingArtifactExplanation && (
         <div className="artifacts-error-state" role="alert">
           <strong>Missing required implementation artifacts:</strong> The following {missingArtifacts.length} required artifact{missingArtifacts.length > 1 ? 's are' : ' is'} missing or empty:
           <ul style={{ marginTop: '0.5em', marginBottom: '0.5em', paddingLeft: '1.5em' }}>
