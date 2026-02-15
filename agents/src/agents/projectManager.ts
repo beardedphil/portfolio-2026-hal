@@ -578,9 +578,10 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
   }
 
   // Skip loading all Supabase instructions - agent should load on-demand
+  // All the instruction loading code below is commented out - agent loads on-demand
   /*
   if (!localLoaded) {
-  try {
+    try {
     type TopicMeta = {
       title?: string
       description?: string
@@ -915,10 +916,11 @@ async function buildContextPack(config: PmAgentConfig, userMessage: string): Pro
         sections.push('- Use HAL API endpoint `/api/instructions/get-topic` (or `get_instruction_set({ topicId })`) for specific topics\n')
       }
     }
-  } catch (err) {
-    sections.push(`(error loading rules: ${err instanceof Error ? err.message : String(err)})`)
+    } catch (err) {
+      sections.push(`(error loading rules: ${err instanceof Error ? err.message : String(err)})`)
+    }
   }
-  }
+  */
 
   // Don't include full ticket template and checklist - agent should load on-demand
   // Only include minimal hint
@@ -3476,5 +3478,4 @@ Return only valid JSON, no markdown formatting or code blocks.`
       }
     )
   }
-}
 }
