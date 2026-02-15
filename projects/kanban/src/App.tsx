@@ -1174,6 +1174,7 @@ function SortableColumn({
 
     // Library mode: QA All Tickets - process sequentially
     if (col.id === 'col-qa' && buttonConfig.chatTarget === 'qa-agent' && halCtx?.onOpenChatAndSend) {
+      const onOpenChatAndSend = halCtx.onOpenChatAndSend
       // Launch QA for tickets sequentially (one at a time, wait for each to move)
       const processNextTicket = () => {
         // Get fresh tickets from halCtx (library mode - HAL owns the data)
@@ -1196,7 +1197,7 @@ function SortableColumn({
         const ticketRef = topTicket?.display_id ?? topTicket?.id ?? topTicketPk
         
         // Launch QA for this ticket
-        halCtx.onOpenChatAndSend({
+        onOpenChatAndSend({
           chatTarget: 'qa-agent',
           message: `QA ticket ${ticketRef}.`,
           ticketPk: topTicketPk,
