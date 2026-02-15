@@ -3404,7 +3404,7 @@ function App() {
           constraints: Array.isArray(data.workingMemory.constraints) ? data.workingMemory.constraints : [],
           decisions: Array.isArray(data.workingMemory.decisions) ? data.workingMemory.decisions : [],
           assumptions: Array.isArray(data.workingMemory.assumptions) ? data.workingMemory.assumptions : [],
-          open_questions: Array.isArray(data.workingMemory.open_questions) ? data.workingMemory.open_questions : [],
+          open_questions: Array.isArray(data.workingMemory.openQuestions) ? data.workingMemory.openQuestions : (Array.isArray(data.workingMemory.open_questions) ? data.workingMemory.open_questions : []),
           glossary: data.workingMemory.glossary && typeof data.workingMemory.glossary === 'object' ? data.workingMemory.glossary as Record<string, string> : {},
           stakeholders: Array.isArray(data.workingMemory.stakeholders) ? data.workingMemory.stakeholders : [],
           updated_at: data.workingMemory.updated_at || new Date().toISOString(),
@@ -4231,11 +4231,11 @@ function App() {
                                     </ul>
                                   </div>
                                 )}
-                                {workingMemory.open_questions && workingMemory.open_questions.length > 0 && (
+                                {workingMemory.openQuestions && workingMemory.openQuestions.length > 0 && (
                                   <div>
                                     <strong>Open Questions:</strong>
                                     <ul style={{ margin: '4px 0 0 0', paddingLeft: '20px' }}>
-                                      {workingMemory.open_questions.map((question, idx) => (
+                                      {workingMemory.openQuestions.map((question, idx) => (
                                         <li key={idx}>{question}</li>
                                       ))}
                                     </ul>
@@ -4979,11 +4979,11 @@ function App() {
                       </div>
                     )}
                     
-                    {workingMemory.open_questions.length > 0 && (
+                    {workingMemory && workingMemory.openQuestions && workingMemory.openQuestions.length > 0 && (
                       <div style={{ marginBottom: '16px' }}>
                         <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Open Questions</div>
                         <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
-                          {workingMemory.open_questions.map((question, idx) => (
+                          {workingMemory.openQuestions.map((question, idx) => (
                             <li key={idx} style={{ marginBottom: '4px' }}>{question}</li>
                           ))}
                         </ul>
@@ -5294,7 +5294,7 @@ function App() {
                         {workingMemory ? (
                           <div style={{ fontSize: '0.9em' }}>
                             <div style={{ marginBottom: '12px', color: '#666', fontSize: '0.85em' }}>
-                              Last updated: {new Date(workingMemory.last_updated).toLocaleString()}
+                              Last updated: {new Date(workingMemory.lastUpdatedAt).toLocaleString()}
                             </div>
                             {workingMemory.summary && (
                               <div style={{ marginBottom: '12px' }}>
@@ -5365,9 +5365,9 @@ function App() {
                                 </ul>
                               </div>
                             )}
-                            {!workingMemory.summary && !workingMemory.goals && !workingMemory.requirements && 
-                             !workingMemory.constraints && !workingMemory.decisions && !workingMemory.assumptions && 
-                             !workingMemory.openQuestions && !workingMemory.glossary && Object.keys(workingMemory.glossary).length === 0 && !workingMemory.stakeholders && (
+                            {workingMemory && !workingMemory.summary && (!workingMemory.goals || workingMemory.goals.length === 0) && (!workingMemory.requirements || workingMemory.requirements.length === 0) && 
+                             (!workingMemory.constraints || workingMemory.constraints.length === 0) && (!workingMemory.decisions || workingMemory.decisions.length === 0) && (!workingMemory.assumptions || workingMemory.assumptions.length === 0) && 
+                             (!workingMemory.openQuestions || workingMemory.openQuestions.length === 0) && (!workingMemory.glossary || Object.keys(workingMemory.glossary).length === 0) && (!workingMemory.stakeholders || workingMemory.stakeholders.length === 0) && (
                               <div style={{ color: '#666', fontStyle: 'italic' }}>
                                 Working memory is empty. It will be populated automatically as the conversation grows.
                               </div>
