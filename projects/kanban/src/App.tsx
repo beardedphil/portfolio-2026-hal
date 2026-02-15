@@ -1172,10 +1172,8 @@ function SortableColumn({
       return
     }
 
-    // Library mode: HAL owns data; tell HAL to open chat (HAL will move ticket to Doing for Implement if needed)
-    // For QA All Tickets, launch QA for tickets sequentially
     // Library mode: QA All Tickets - process sequentially
-    if (halCtx?.onOpenChatAndSend && buttonConfig.chatTarget && col.id === 'col-qa' && buttonConfig.chatTarget === 'qa-agent') {
+    if (col.id === 'col-qa' && buttonConfig.chatTarget === 'qa-agent' && halCtx?.onOpenChatAndSend) {
       // Launch QA for tickets sequentially (one at a time, wait for each to move)
       const processNextTicket = () => {
         // Get fresh tickets from halCtx (library mode - HAL owns the data)
