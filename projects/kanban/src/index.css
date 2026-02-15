@@ -85,12 +85,23 @@ body[data-embedded="true"] #root,
 }
 
 /* When embedded in HAL's kanban-frame-container, remove scroll container so parent handles scrolling */
-.kanban-frame-container #root {
-  overflow: visible !important;
+/* HAL's .hal-main is the scroll container, not Kanban's #root or any child elements */
+.kanban-frame-container [data-kanban-build],
+.kanban-frame-container .columns-section,
+.kanban-frame-container .columns-row,
+.kanban-frame-container .column-card,
+.kanban-frame-container .column-content,
+.kanban-frame-container .column-cards,
+.kanban-frame-container .active-work-row {
   overflow-y: visible !important;
-  overflow-x: hidden !important;
   height: auto !important;
   min-height: 0 !important;
+}
+
+/* Columns row can scroll horizontally (preserved for wide boards) */
+.kanban-frame-container .columns-row {
+  overflow-x: auto;
+  overflow-y: visible !important;
 }
 
 h1 {
