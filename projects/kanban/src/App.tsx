@@ -1300,7 +1300,7 @@ function ProcessReviewSection({
   )
 }
 
-/** Artifacts section component (0082) with error state detection (0137) */
+/** Artifacts section component (0082) with error state detection (0137) and gate check (0201) */
 function ArtifactsSection({
   artifacts,
   loading,
@@ -1309,6 +1309,9 @@ function ArtifactsSection({
   onRefresh: _onRefresh = undefined,
   refreshing = false,
   columnId = null,
+  ticketPk = null,
+  supabaseUrl = null,
+  supabaseAnonKey = null,
 }: {
   artifacts: SupabaseAgentArtifactRow[]
   loading: boolean
@@ -1317,12 +1320,68 @@ function ArtifactsSection({
   onRefresh?: () => void
   refreshing?: boolean
   columnId?: string | null
+  ticketPk?: string | null
+  supabaseUrl?: string | null
+  supabaseAnonKey?: string | null
 }) {
   const isLoading = loading || refreshing
+  const [gateCheckResult, setGateCheckResult] = useState<{
+    passed: boolean
+    reason: string
+    loading: boolean
+  } | null>(null)
 
   // Detect missing expected artifacts for implementation tickets in QA or later columns (0196)
   const isImplementationTicket = artifacts.some((a) => a.agent_type === 'implementation')
   const isInQaOrLater = columnId === 'col-qa' || columnId === 'col-human-in-the-loop' || columnId === 'col-process-review'
+  
+  // Get ticket PK from props or artifacts (0201)
+  const resolvedTicketPk = ticketPk || (artifacts.length > 0 ? artifacts[0].ticket_pk : null)
+  
+  // Check artifact gate when in QA or later columns (0201)
+  useEffect(() => {
+    if (!isInQaOrLater || !resolvedTicketPk || !supabaseUrl || !supabaseAnonKey) {
+      setGateCheckResult(null)
+      return
+    }
+    
+    setGateCheckResult({ passed: false, reason: 'Checking...', loading: true })
+    
+    fetch('/api/artifacts/check-gate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        ticketPk: resolvedTicketPk,
+        supabaseUrl,
+        supabaseAnonKey,
+      }),
+    })
+      .then((r) => r.json())
+      .then((result: { success: boolean; passed: boolean; reason: string; error?: string }) => {
+        if (result.success) {
+          setGateCheckResult({
+            passed: result.passed,
+            reason: result.reason,
+            loading: false,
+          })
+        } else {
+          setGateCheckResult({
+            passed: false,
+            reason: result.error || 'Failed to check gate',
+            loading: false,
+          })
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to check artifact gate:', err)
+        setGateCheckResult({
+          passed: false,
+          reason: 'Failed to check gate',
+          loading: false,
+        })
+      })
+  }, [isInQaOrLater, resolvedTicketPk, supabaseUrl, supabaseAnonKey, artifacts.length])
   
   // Check for all 8 required implementation artifacts
   const requiredArtifactTypes = [
@@ -1490,6 +1549,24 @@ function ArtifactsSection({
       <h3 className="artifacts-section-title">Artifacts</h3>
       {statusMessage && <p className="artifacts-status" role="status">{statusMessage}</p>}
       
+      {/* Artifact gate check result (0201) */}
+      {isInQaOrLater && gateCheckResult && !gateCheckResult.loading && (
+        <div
+          className={gateCheckResult.passed ? 'artifacts-success-state' : 'artifacts-error-state'}
+          role="status"
+          style={{
+            marginBottom: '1em',
+            padding: '0.75em',
+            borderRadius: '4px',
+            backgroundColor: gateCheckResult.passed ? '#e8f5e9' : '#ffebee',
+            border: `1px solid ${gateCheckResult.passed ? '#4caf50' : '#f44336'}`,
+          }}
+        >
+          <strong>Artifact Gate: {gateCheckResult.passed ? 'Pass' : 'Fail'}</strong>
+          <div style={{ marginTop: '0.5em' }}>{gateCheckResult.reason}</div>
+        </div>
+      )}
+      
       {/* Warning banner for contradictory information (0137) */}
       {hasContradiction && (
         <div className="artifacts-warning-banner" role="alert">
@@ -1497,72 +1574,35 @@ function ArtifactsSection({
         </div>
       )}
 
-      {/* Artifact gate result display (0201) */}
-      {isImplementationTicket && isInQaOrLater && missingArtifacts.length > 0 && (
-        <>
-          {gatePasses ? (
-            <div className="artifacts-success-state" role="status" style={{ 
-              padding: '1em', 
-              marginBottom: '1em', 
-              backgroundColor: '#d4edda', 
-              border: '1px solid #c3e6cb', 
-              borderRadius: '4px',
-              color: '#155724'
-            }}>
-              <strong>✓ Artifact Gate: Pass</strong>
-              <p style={{ marginTop: '0.5em', marginBottom: '0' }}>
-                <em>Allowed due to Missing Artifact Explanation</em>
-              </p>
-              <p style={{ marginTop: '0.5em', marginBottom: '0', fontSize: '0.9em' }}>
-                The following {missingArtifacts.length} required artifact{missingArtifacts.length > 1 ? 's are' : ' is'} missing, but a "Missing Artifact Explanation" artifact is present that explains why.
-              </p>
-            </div>
-          ) : gateFails ? (
-            <div className="artifacts-error-state" role="alert">
-              <strong>✗ Artifact Gate: Fail</strong>
-              <p style={{ marginTop: '0.5em', marginBottom: '0.5em' }}>
-                Missing required implementation artifacts:
-              </p>
-              <ul style={{ marginTop: '0.5em', marginBottom: '0.5em', paddingLeft: '1.5em' }}>
-                {missingArtifacts.map(({ title }) => (
-                  <li key={title}>{title}</li>
-                ))}
-              </ul>
-              {hasOtherGateFailures && (
-                <p style={{ marginTop: '0.5em', marginBottom: '0.5em', fontWeight: 'bold' }}>
-                  Additional gate failures detected:
-                </p>
-              )}
-              {hasOtherGateFailures && (
-                <ul style={{ marginTop: '0.5em', marginBottom: '0.5em', paddingLeft: '1.5em' }}>
-                  {hasDuplicateArtifacts && <li>Duplicate artifacts detected</li>}
-                  {hasBlankArtifacts && <li>Blank or placeholder artifacts detected</li>}
-                  {hasMalformedQaReport && <li>Malformed QA report detected</li>}
-                </ul>
-              )}
-              {!hasMissingArtifactExplanation && (
-                <p style={{ marginTop: '0.5em', marginBottom: '0' }}>
-                  This may indicate that artifact insertion failed (API error, validation error, or network error). Check the implementation agent logs for error messages.
-                </p>
-              )}
-              {hasMissingArtifactExplanation && hasOtherGateFailures && (
-                <p style={{ marginTop: '0.5em', marginBottom: '0' }}>
-                  A "Missing Artifact Explanation" artifact is present, but other gate failures prevent the ticket from passing.
-                </p>
-              )}
-            </div>
-          ) : (
-            <div className="artifacts-error-state" role="alert">
-              <strong>Missing required implementation artifacts:</strong> The following {missingArtifacts.length} required artifact{missingArtifacts.length > 1 ? 's are' : ' is'} missing or empty:
-              <ul style={{ marginTop: '0.5em', marginBottom: '0.5em', paddingLeft: '1.5em' }}>
-                {missingArtifacts.map(({ title }) => (
-                  <li key={title}>{title}</li>
-                ))}
-              </ul>
-              This may indicate that artifact insertion failed (API error, validation error, or network error). Check the implementation agent logs for error messages.
-            </div>
-          )}
-        </>
+      {/* Artifact gate check result (0201) */}
+      {isInQaOrLater && gateCheckResult && !gateCheckResult.loading && (
+        <div
+          className={gateCheckResult.passed ? 'artifacts-success-state' : 'artifacts-error-state'}
+          role="status"
+          style={{
+            marginBottom: '1em',
+            padding: '0.75em',
+            borderRadius: '4px',
+            backgroundColor: gateCheckResult.passed ? '#e8f5e9' : '#ffebee',
+            border: `1px solid ${gateCheckResult.passed ? '#4caf50' : '#f44336'}`,
+          }}
+        >
+          <strong>Artifact Gate: {gateCheckResult.passed ? 'Pass' : 'Fail'}</strong>
+          <div style={{ marginTop: '0.5em' }}>{gateCheckResult.reason}</div>
+        </div>
+      )}
+      
+      {/* Error states for missing expected artifacts (0196) - only show if gate check didn't pass */}
+      {missingArtifacts.length > 0 && (!gateCheckResult || !gateCheckResult.passed) && (
+        <div className="artifacts-error-state" role="alert">
+          <strong>Missing required implementation artifacts:</strong> The following {missingArtifacts.length} required artifact{missingArtifacts.length > 1 ? 's are' : ' is'} missing or empty:
+          <ul style={{ marginTop: '0.5em', marginBottom: '0.5em', paddingLeft: '1.5em' }}>
+            {missingArtifacts.map(({ title }) => (
+              <li key={title}>{title}</li>
+            ))}
+          </ul>
+          This may indicate that artifact insertion failed (API error, validation error, or network error). Check the implementation agent logs for error messages.
+        </div>
       )}
       {/* Legacy error states for backward compatibility (0137) */}
       {missingChangedFiles && !missingArtifacts.some(a => a.key === 'changed-files') && (
@@ -2001,6 +2041,9 @@ function TicketDetailModal({
                 onRefresh={onRefreshArtifacts}
                 refreshing={false}
                 columnId={columnId}
+                ticketPk={ticketId}
+                supabaseUrl={supabaseUrl}
+                supabaseAnonKey={supabaseKey}
               />
               <AttachmentsSection
                 attachments={attachments}
