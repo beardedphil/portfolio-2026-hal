@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { getSupabaseClient } from './lib/supabase'
 import { saveConversationsToStorage, loadConversationsFromStorage, type Agent, type Message, type Conversation, type ImageAttachment } from './lib/conversationStorage'
+import { getInitialTheme, THEME_STORAGE_KEY, type Theme } from './lib/theme'
 import * as Kanban from 'portfolio-2026-kanban'
 import type { KanbanTicketRow, KanbanColumnRow, KanbanAgentRunRow, KanbanBoardProps } from 'portfolio-2026-kanban'
 import 'portfolio-2026-kanban/style.css'
@@ -163,17 +164,6 @@ function getMessageAuthorLabel(agent: Message['agent']): string {
   return 'System'
 }
 
-type Theme = 'light' | 'dark'
-
-const THEME_STORAGE_KEY = 'hal-theme'
-
-function getInitialTheme(): Theme {
-  const stored = localStorage.getItem(THEME_STORAGE_KEY)
-  if (stored === 'light' || stored === 'dark') {
-    return stored
-  }
-  return 'light' // default
-}
 
 function App() {
   const [selectedChatTarget, setSelectedChatTarget] = useState<ChatTarget>('project-manager')
