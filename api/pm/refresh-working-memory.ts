@@ -102,8 +102,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }))
 
     // Force update working memory
-    // Use conversationId as the agent field (conversation IDs are stored in agent field)
-    const agentFilter = conversationId || 'project-manager'
     const workingMemory = await updateWorkingMemoryIfNeeded(
       supabase,
       projectId,
