@@ -75,42 +75,6 @@ The template includes all required sections. Key sections:
 
 Make actual HTTP calls: `POST ${baseUrl}/api/artifacts/insert-qa` with `{ ticketId, title, body_md }`. Use `curl` or run_terminal_cmd. Do not just include JSON in your message.
 
-<<<<<<< HEAD
-## Implementation Agent Note (for FAIL verdicts)
-
-**MANDATORY:** When a ticket fails QA (or HITL), you **MUST** create a separate, concise "Implementation agent note" artifact that explains why the ticket failed. This note is for implementation agents to quickly understand what needs to be fixed.
-
-**Format:**
-- Title: `Implementation agent note for ticket HAL-XXXX` (preferred) or `Note for implementation agent: HAL-XXXX`
-- Keep it short (2-4 bullet points max)
-- Focus on actionable items
-- No detailed analysis—just what's wrong and what to fix
-- Implementation agents are required to check for this artifact first before starting work
-
-**Example structure:**
-```markdown
-# Implementation Agent Note: HAL-XXXX
-
-## Status: FAIL
-
-## Why This Ticket Failed
-
-1. **Issue 1:** Brief description
-2. **Issue 2:** Brief description
-
-## Required Actions
-
-1. Action item 1
-2. Action item 2
-3. Action item 3
-
-## Code Review Notes
-
-Brief note if implementation is otherwise correct.
-```
-
-**Store via:** `POST ${baseUrl}/api/artifacts/insert-qa` with `{ ticketId, title: "Implementation agent note for ticket HAL-XXXX", body_md }`
-
 ## Implementation Agent Note (for FAIL verdicts)
 
 **MANDATORY:** When a ticket fails QA (or HITL), you **MUST** create a separate, concise "Implementation agent note" artifact that explains why the ticket failed. This note is for implementation agents to quickly understand what needs to be fixed.

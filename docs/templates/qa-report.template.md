@@ -1,225 +1,272 @@
 # QA Report Template
 
-**MANDATORY:** QA agents **MUST** use this template when publishing QA artifacts via `/api/artifacts/insert-qa`. Copy this template and fill in all sections. Remove placeholder text and replace with actual content.
+**MANDATORY:** QA agents **MUST** use this template when publishing QA artifacts via `/api/artifacts/insert-qa`. Copy this template and fill in all sections. Do not leave placeholder text—replace all sections with actual content.
+
+## Verdict
+
+**PASS** or **FAIL**
+
+*(Place verdict at the top for immediate visibility. Include brief rationale below.)*
+
+### Rationale
+
+[1-3 sentences explaining why PASS or FAIL. For FAIL, summarize the primary blocking issues.]
+
+---
 
 ## Ticket & Deliverable
 
-**Ticket ID:** HAL-XXXX  
-**Repo:** [repository name]
+**Ticket ID:** HAL-XXXX
 
-**Goal:** [One sentence goal from ticket]
+**Goal:** [Copy goal from ticket]
 
-**Human-verifiable deliverable (UI-only):** [What a human will see/click/verify]
+**Human-verifiable deliverable:** [Copy deliverable from ticket]
 
-**Acceptance criteria (UI-only):**
+**Acceptance criteria:**
 - [ ] [AC 1 from ticket]
 - [ ] [AC 2 from ticket]
 - [ ] [AC 3 from ticket]
-[... list all ACs from ticket ...]
+- *(List all ACs from ticket)*
 
-**Verification commit/branch:** [commit hash or branch name]
+---
 
-## Missing Artifacts (if any)
+## Environment
 
-**Status:** [All artifacts present / Missing artifacts detected]
+**App version/branch:** [e.g., `main` commit abc123, or `ticket/XXXX-implementation` branch]
 
-If missing artifacts:
-- ❌ [Artifact name] — Missing
-- ❌ [Artifact name] — Missing
+**Browser/Platform:** [e.g., Chrome 120 on macOS, Firefox 121 on Linux]
 
-**Action:** QA FAIL — Missing required artifacts. See "Verdict" section below.
+**Verification date:** [YYYY-MM-DD]
 
-## Audit Artifacts Present
+**Note:** If ticket states "merged to main for QA access", verify from `main`. Otherwise use feature branch.
 
-**Status:** ✅ All required artifacts present
+---
 
-- ✅ Plan for ticket HAL-XXXX
-- ✅ Worklog for ticket HAL-XXXX
-- ✅ Changed Files for ticket HAL-XXXX
-- ✅ Decisions for ticket HAL-XXXX
-- ✅ Verification for ticket HAL-XXXX
-- ✅ PM Review for ticket HAL-XXXX
-- ✅ Git Diff for ticket HAL-XXXX
-- ✅ Instructions Used for ticket HAL-XXXX
+## Audit Artifacts
+
+**Status:** ✅ All present / ⚠️ Missing artifacts
+
+**Required artifacts (8 total):**
+1. ✅/❌ Plan
+2. ✅/❌ Worklog
+3. ✅/❌ Changed Files
+4. ✅/❌ Decisions
+5. ✅/❌ Verification
+6. ✅/❌ PM Review
+7. ✅/❌ Git Diff
+8. ✅/❌ Instructions Used
+
+**Missing artifacts (if any):**
+- [List any missing artifacts. If any are missing, QA MUST FAIL immediately.]
+
+**Changed Files validation:**
+- ✅/❌ Changed Files artifact is NON-EMPTY (contains file paths with descriptions OR explicitly states "No files changed." with reason)
+
+---
 
 ## Code Review
 
-**Status:** [✅ PASS / ❌ FAIL]
+**Status:** ✅ PASS / ❌ FAIL
 
 ### Implementation Summary
 
-[Brief summary of what was implemented, key files changed, approach taken]
+[Brief summary of what was implemented, key files changed, and approach taken. Cite specific file paths and line numbers per `.cursor/rules/code-location-citations.mdc`.]
 
-### Detailed Code Analysis
+### Code Quality Assessment
 
-[For each significant code change, provide:]
-- **File:** `path/to/file.ts:line-range`
-- **Change:** [Description of what changed]
-- **Analysis:** [✅ CORRECT / ❌ INCORRECT / ⚠️ CONCERN] — [Reasoning]
+- ✅/❌ **Correctness:** [Assessment of whether implementation correctly addresses requirements]
+- ✅/❌ **Error handling:** [Assessment of error handling and edge cases]
+- ✅/❌ **Code structure:** [Assessment of code organization and maintainability]
+- ✅/❌ **Documentation:** [Assessment of code comments and documentation]
+- ⚠️ **Issues identified:** [List any code quality issues, if any]
 
-### Code Quality
+### Files Changed
 
-- [✅ / ❌] **Linter errors:** [None / List errors]
-- [✅ / ❌] **TypeScript errors:** [None / List errors]
-- [✅ / ❌] **Build verification:** [PASS / FAIL] — `npm run build:hal` [result]
-- [✅ / ❌] **Follows existing patterns:** [Yes / No]
-- [✅ / ❌] **No breaking changes:** [Yes / No]
+[List files changed with brief descriptions, or reference Changed Files artifact]
+
+---
 
 ## Build Verification
 
-**MANDATORY:** `npm run build:hal` must pass. TypeScript errors = FAIL.
+**Status:** ✅ PASS / ❌ FAIL
 
-**Command:** `npm run build:hal`  
-**Status:** [✅ PASS / ❌ FAIL]  
-**Output:**
+**Command executed:** `npm run build:hal`
+
+**Result:**
 ```
-[paste build output here]
+[Paste build output or summary]
 ```
 
 **TypeScript errors:** [None / List errors if any]
 
-## UI Verification
-
-### Automated Checks
-
-- [✅ / ❌] **Code review:** [PASS / FAIL]
-- [✅ / ❌] **Build:** [PASS / FAIL]
-- [✅ / ❌] **Lint:** [PASS / FAIL]
-
-### Manual Verification Steps
-
-[For PASS reports: List what was verified]
-1. [Test step 1]
-2. [Test step 2]
-3. [Test step 3]
-
-[For FAIL reports: List what failed and what was expected]
-1. **Expected:** [What should happen]
-   **Actual:** [What actually happened]
-   **Location:** [Where in UI/code this was observed]
-
-## Test Matrix / Scenarios Executed
-
-| Scenario | Steps | Expected Result | Actual Result | Status |
-|----------|-------|-----------------|---------------|--------|
-| [Scenario 1] | [Steps] | [Expected] | [Actual] | [✅ PASS / ❌ FAIL] |
-| [Scenario 2] | [Steps] | [Expected] | [Actual] | [✅ PASS / ❌ FAIL] |
-| [Scenario 3] | [Steps] | [Expected] | [Actual] | [✅ PASS / ❌ FAIL] |
-
-## Acceptance Criteria Verification
-
-**MANDATORY:** Enumerate each AC from the ticket. For each AC, state Met/Not met with evidence.
-
-### AC 1: "[Full text of AC 1 from ticket]"
-- **Status:** [✅ Met / ❌ Not met]
-- **Evidence:**
-  - [File path:line-range — implementation location]
-  - [Artifact reference: "See Plan artifact for ticket HAL-XXXX, section X"]
-  - [Reproduction steps: "Navigate to X, click Y, verify Z appears"]
-  - [Screenshot reference: "See screenshot in Verification artifact"]
-
-### AC 2: "[Full text of AC 2 from ticket]"
-- **Status:** [✅ Met / ❌ Not met]
-- **Evidence:**
-  - [Evidence type 1]
-  - [Evidence type 2]
-
-### AC 3: "[Full text of AC 3 from ticket]"
-- **Status:** [✅ Met / ❌ Not met]
-- **Evidence:**
-  - [Evidence type 1]
-  - [Evidence type 2]
-
-[... continue for all ACs from ticket ...]
-
-## Evidence
-
-**What was observed during verification:**
-
-### Code Evidence
-- [File paths and line ranges where requirements are implemented]
-- [Code snippets or references to specific functions/classes]
-
-### Artifact Evidence
-- [References to implementation artifacts (Plan, Worklog, etc.)]
-- [Specific sections in artifacts that demonstrate requirements are met]
-
-### UI Evidence
-- [Screenshots or descriptions of UI behavior]
-- [Manual test results]
-- [User-visible changes observed]
-
-### Build/Test Evidence
-- [Build output]
-- [Test results]
-- [Linter output]
-
-## Repro Steps (for FAIL reports)
-
-**MANDATORY for FAIL verdicts:** Provide clear reproduction steps so implementation agents can reproduce and fix issues.
-
-### Issue 1: [Brief description]
-1. [Step 1]
-2. [Step 2]
-3. [Step 3]
-4. **Expected:** [What should happen]
-5. **Actual:** [What actually happened]
-6. **Suspected area:** [File path or component where issue likely exists]
-
-### Issue 2: [Brief description]
-[Same format as Issue 1]
-
-## Environment
-
-**App version/branch:** [branch name or commit hash]  
-**Browser:** [Browser name and version, e.g., "Chrome 120.0.6099.129"]  
-**OS:** [Operating system, e.g., "macOS 14.2.1"]  
-**Node version:** [Node.js version if relevant, e.g., "Node.js 20.10.0"]  
-**Build environment:** [Any relevant build environment details]
-
-## Notes / Risks
-
-### Potential Issues
-- [⚠️ / ✅] **Issue 1:** [Description] — [Risk level: LOW / MEDIUM / HIGH] — [Mitigation or recommendation]
-- [⚠️ / ✅] **Issue 2:** [Description] — [Risk level: LOW / MEDIUM / HIGH] — [Mitigation or recommendation]
-
-### Recommendations
-- [Recommendation 1]
-- [Recommendation 2]
-
-### Blocking Issues
-- [None / List any blocking issues that prevent merge]
-
-## Verdict
-
-**Status:** [✅ PASS / ❌ FAIL]
-
-### Rationale
-
-[Brief explanation of why PASS or FAIL]
-
-### Summary
-
-- **Implementation complete:** [Yes / No]
-- **Acceptance criteria met:** [All / Partial: X of Y / None]
-- **Build verification:** [✅ PASS / ❌ FAIL]
-- **Code quality:** [✅ PASS / ❌ FAIL]
-- **OK to merge:** [Yes / No]
-
-### Next Steps
-
-**If PASS:**
-- Move ticket to "Human in the Loop"
-- Merge to main (if applicable)
-- Delete feature branch (if applicable)
-
-**If FAIL:**
-- Move ticket to "To Do"
-- Create Implementation agent note (see qa-audit-report.mdc)
-- List required actions for implementation agent
+**Note:** TypeScript errors = FAIL. Build must succeed for PASS verdict.
 
 ---
 
-**QA Completed:** [YYYY-MM-DD]  
-**QA Agent:** [Agent name/identifier]  
-**Verified on:** [Commit hash or branch name]
+## UI Verification
+
+**Status:** ✅ PASS / ❌ FAIL / ⚠️ Manual verification required
+
+### Automated Checks
+
+- ✅/❌ **Build:** [Result]
+- ✅/❌ **Lint:** [Result]
+- ✅/❌ **Type checking:** [Result]
+- *(Add other automated checks as applicable)*
+
+### Manual Verification Steps
+
+[If manual verification is required, list the steps from verification.md or acceptance criteria. For each step:]
+
+**Test Case 1: [Test name]**
+- **Steps:** [1. Do X, 2. Do Y, 3. Verify Z]
+- **Expected:** [What should happen]
+- **Actual:** [What was observed]
+- **Result:** ✅ PASS / ❌ FAIL
+
+**Test Case 2: [Test name]**
+- *(Repeat for each test case)*
+
+**Note:** If manual verification cannot be performed in QA environment, state: "Manual UI verification required in Human in the Loop phase."
+
+---
+
+## Acceptance Criteria Verification
+
+**MANDATORY:** Enumerate each Acceptance Criteria from the ticket. For each AC, state **Met** or **Not met** with evidence. See `.cursor/rules/ac-confirmation-checklist.mdc` for requirements.
+
+### AC 1: [Full text of AC 1]
+
+**Status:** ✅ Met / ❌ Not met
+
+**Evidence:**
+- [File path and line numbers where implemented, e.g., `src/App.tsx:123-145`]
+- [Reproduction steps: "Navigate to X, click Y, verify Z appears"]
+- [Reference to artifacts: "See Plan artifact, section X"]
+- *(Provide concrete, verifiable evidence)*
+
+### AC 2: [Full text of AC 2]
+
+**Status:** ✅ Met / ❌ Not met
+
+**Evidence:**
+- [Evidence for AC 2]
+
+### AC 3: [Full text of AC 3]
+
+**Status:** ✅ Met / ❌ Not met
+
+**Evidence:**
+- [Evidence for AC 3]
+
+*(Continue for all ACs from ticket)*
+
+---
+
+## Test Matrix / Scenarios Executed
+
+[Table or list of all test scenarios executed during QA]
+
+| Test Scenario | Type | Status | Notes |
+|--------------|------|--------|-------|
+| Build verification | Automated | ✅ PASS | No TypeScript errors |
+| Code review | Manual | ✅ PASS | Implementation matches requirements |
+| AC 1 verification | Manual | ✅ PASS | Verified via UI |
+| AC 2 verification | Manual | ✅ PASS | Verified via code review |
+| *(Add more rows as needed)* |
+
+---
+
+## Evidence
+
+**What was observed during QA:**
+
+[Detailed description of what was verified, including:]
+- [Screenshots or references to artifacts]
+- [Code locations reviewed]
+- [UI behavior observed]
+- [Any anomalies or edge cases tested]
+
+**Key findings:**
+- [Finding 1]
+- [Finding 2]
+- *(List key observations)*
+
+---
+
+## Repro Steps (for FAIL verdicts)
+
+**MANDATORY for FAIL verdicts:** Provide clear reproduction steps so implementation agents can reproduce and fix issues.
+
+### Issue 1: [Issue description]
+
+**Expected:** [What should happen]
+
+**Actual:** [What actually happens]
+
+**Repro steps:**
+1. [Step 1]
+2. [Step 2]
+3. [Step 3]
+4. [Observe: actual behavior]
+
+**Suspected area:** [File path and function/component where issue likely exists, e.g., `src/App.tsx:123 — function handleClick()`]
+
+**Screenshots/logs:** [If applicable, reference screenshots or error logs]
+
+### Issue 2: [Issue description]
+
+*(Repeat for each blocking issue)*
+
+---
+
+## Notes / Risks
+
+**Additional observations:**
+- [Note 1]
+- [Note 2]
+
+**Risks identified:**
+- [Risk 1: Description and potential impact]
+- [Risk 2: Description and potential impact]
+
+**Recommendations:**
+- [Recommendation 1]
+- [Recommendation 2]
+
+**Blocking issues:** [List any blocking issues that prevent PASS verdict]
+
+**Non-blocking issues:** [List any issues that don't block PASS but should be addressed]
+
+---
+
+## Summary
+
+[2-3 paragraph summary of QA findings, verdict rationale, and next steps]
+
+**Verdict:** **PASS** / **FAIL**
+
+**Next steps:**
+- [If PASS: Ready for Human in the Loop verification]
+- [If FAIL: Implementation agent should address issues listed in "Repro Steps" section]
+
+---
+
+## Implementation Agent Note (for FAIL verdicts)
+
+**MANDATORY:** When verdict is FAIL, QA agents **MUST** create a separate "Implementation agent note" artifact. See `.cursor/rules/qa-audit-report.mdc` section "Implementation Agent Note" for format requirements.
+
+**Store via:** `POST ${baseUrl}/api/artifacts/insert-qa` with `{ ticketId, title: "Implementation agent note for ticket HAL-XXXX", body_md }`
+
+---
+
+## Template Usage Notes
+
+- **Copy this entire template** when creating a QA report
+- **Replace all placeholder text** with actual content
+- **Do not leave sections empty** — if a section doesn't apply, state "N/A" with brief explanation
+- **Ensure minimum 100 characters** total (validation requirement)
+- **Cite code locations** per `.cursor/rules/code-location-citations.mdc`
+- **Enumerate all ACs** per `.cursor/rules/ac-confirmation-checklist.mdc`
+- **For PASS:** Focus on evidence that ACs are met
+- **For FAIL:** Focus on clear repro steps and suspected areas
