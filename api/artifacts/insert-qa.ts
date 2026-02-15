@@ -147,13 +147,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     if (!body_md || typeof body_md !== 'string') {
       const errorMsg = 'body_md is required and must be a string'
       console.error(`[insert-qa] ${errorMsg}: body_md type=${typeof body_md}, value=${body_md?.substring(0, 100) ?? 'null/undefined'}`)
-      await logStorageAttempt(
-        supabase,
-        ticket.pk,
-        ticket.repo_full_name || '',
-        'qa-report',
-        'qa',
-        '/api/artifacts/insert-qa',
+          await logStorageAttempt(
+            supabase,
+            ticket.pk,
+            ticket.repo_full_name || '',
+            artifactType,
+            'qa',
+            '/api/artifacts/insert-qa',
         'rejected by validation',
         errorMsg,
         errorMsg
@@ -170,13 +170,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     console.log(`[insert-qa] Content validation: valid=${contentValidation.valid}, reason=${contentValidation.reason || 'none'}, body_md length=${body_md.length}`)
     if (!contentValidation.valid) {
       // Log validation failure attempt (0175)
-      await logStorageAttempt(
-        supabase,
-        ticket.pk,
-        ticket.repo_full_name || '',
-        'qa-report',
-        'qa',
-        '/api/artifacts/insert-qa',
+          await logStorageAttempt(
+            supabase,
+            ticket.pk,
+            ticket.repo_full_name || '',
+            artifactType,
+            'qa',
+            '/api/artifacts/insert-qa',
         'rejected by validation',
         contentValidation.reason || 'Artifact body must contain substantive QA report content',
         contentValidation.reason || undefined
@@ -192,7 +192,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     // Normalize title to use ticket's display_id for consistent formatting (0121)
     const displayId = (ticket as { display_id?: string }).display_id || ticketId
-    const canonicalTitle = createCanonicalTitle('qa-report', displayId)
+    
+    // Detect artifact type from title (implementation agent note vs qa report)
+    const detectedArtifactType = extractArtifactTypeFromTitle(title) || 'qa-report'
+    const artifactType = detectedArtifactType === 'implementation-agent-note' ? 'implementation-agent-note' : 'qa-report'
+    const canonicalTitle = createCanonicalTitle(artifactType, displayId)
     
     // Find existing artifacts by canonical identifier (ticket_pk + agent_type + artifact_type)
     // instead of exact title match to handle different title formats (0121)
@@ -200,7 +204,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       supabase,
       ticket.pk,
       'qa',
-      'qa-report'
+      artifactType
     )
 
     if (findError) {
@@ -209,7 +213,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         supabase,
         ticket.pk,
         ticket.repo_full_name || '',
-        'qa-report',
+        artifactType,
         'qa',
         '/api/artifacts/insert-qa',
         'request failed',
@@ -312,13 +316,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       if (updateError) {
         console.error(`[insert-qa] Update failed: ${updateError.message}`)
         // Log request failure attempt (0175)
-        await logStorageAttempt(
-          supabase,
-          ticket.pk,
-          ticket.repo_full_name || '',
-          'qa-report',
-          'qa',
-          '/api/artifacts/insert-qa',
+          await logStorageAttempt(
+            supabase,
+            ticket.pk,
+            ticket.repo_full_name || '',
+            artifactType,
+            'qa',
+            '/api/artifacts/insert-qa',
           'request failed',
           `Failed to update artifact: ${updateError.message}`
         )
@@ -344,13 +348,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       }
 
       // Log successful storage attempt (0175)
-      await logStorageAttempt(
-        supabase,
-        ticket.pk,
-        ticket.repo_full_name || '',
-        'qa-report',
-        'qa',
-        '/api/artifacts/insert-qa',
+          await logStorageAttempt(
+            supabase,
+            ticket.pk,
+            ticket.repo_full_name || '',
+            artifactType,
+            'qa',
+            '/api/artifacts/insert-qa',
         'stored'
       )
 
@@ -418,13 +422,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
           if (!updateError) {
             // Log successful storage attempt (0175)
-            await logStorageAttempt(
-              supabase,
-              ticket.pk,
-              ticket.repo_full_name || '',
-              'qa-report',
-              'qa',
-              '/api/artifacts/insert-qa',
+          await logStorageAttempt(
+            supabase,
+            ticket.pk,
+            ticket.repo_full_name || '',
+            artifactType,
+            'qa',
+            '/api/artifacts/insert-qa',
               'stored'
             )
             json(res, 200, {
@@ -441,13 +445,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
       console.error(`[insert-qa] Insert failed: ${insertError.message}`)
       // Log request failure attempt (0175)
-      await logStorageAttempt(
-        supabase,
-        ticket.pk,
-        ticket.repo_full_name || '',
-        'qa-report',
-        'qa',
-        '/api/artifacts/insert-qa',
+          await logStorageAttempt(
+            supabase,
+            ticket.pk,
+            ticket.repo_full_name || '',
+            artifactType,
+            'qa',
+            '/api/artifacts/insert-qa',
         'request failed',
         `Failed to insert artifact: ${insertError.message}`
       )
@@ -474,13 +478,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     // Log successful storage attempt (0175)
-    await logStorageAttempt(
-      supabase,
-      ticket.pk,
-      ticket.repo_full_name || '',
-      'qa-report',
-      'qa',
-      '/api/artifacts/insert-qa',
+          await logStorageAttempt(
+            supabase,
+            ticket.pk,
+            ticket.repo_full_name || '',
+            artifactType,
+            'qa',
+            '/api/artifacts/insert-qa',
       'stored'
     )
 
