@@ -5335,7 +5335,7 @@ function App() {
                 ×
               </button>
             </div>
-            <div className="conversation-modal-content" style={{ flex: 1, overflow: 'auto', padding: '16px' }}">
+            <div className="conversation-modal-content" style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
               {processReviewRecommendations.length === 0 ? (
                 <p>All recommendations have been processed.</p>
               ) : (
