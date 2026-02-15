@@ -3108,14 +3108,24 @@ export async function runPmAgent(
 
   const promptBase = `${contextPack}\n\n---\n\nRespond to the user message above using the tools as needed.`
 
-  // Build full prompt text for display (system instructions + context pack + user message)
-  const fullPromptText = `## System Instructions\n\n${PM_SYSTEM_INSTRUCTIONS}\n\n---\n\n## User Prompt\n\n${promptBase}`
+  // Build full prompt text for display (system instructions + context pack + user message + images if present)
+  const hasImages = config.images && config.images.length > 0
+  const isVisionModel = config.openaiModel.includes('vision') || config.openaiModel.includes('gpt-4o')
+  let imageInfo = ''
+  if (hasImages) {
+    const imageList = config.images!.map((img, idx) => `  ${idx + 1}. ${img.filename || `Image ${idx + 1}`} (${img.mimeType || 'image'})`).join('\n')
+    if (isVisionModel) {
+      imageInfo = `\n\n## Images (included in prompt)\n\n${imageList}\n\n(Note: Images are sent as base64-encoded data URLs in the prompt array, but are not shown in this text representation.)`
+    } else {
+      imageInfo = `\n\n## Images (provided but ignored)\n\n${imageList}\n\n(Note: Images were provided but the model (${config.openaiModel}) does not support vision. Images are ignored.)`
+    }
+  }
+  const fullPromptText = `## System Instructions\n\n${PM_SYSTEM_INSTRUCTIONS}\n\n---\n\n## User Prompt\n\n${promptBase}${imageInfo}`
 
   // Build prompt with images if present
   // For vision models, prompt must be an array of content parts
   // For non-vision models, prompt is a string (images are ignored)
-  const hasImages = config.images && config.images.length > 0
-  const isVisionModel = config.openaiModel.includes('vision') || config.openaiModel.includes('gpt-4o')
+  // Note: hasImages and isVisionModel are already defined above when building fullPromptText
   
   let prompt: string | Array<{ type: 'text' | 'image'; text?: string; image?: string }>
   if (hasImages && isVisionModel) {
