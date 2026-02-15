@@ -67,22 +67,30 @@ async function fetchConversationHistory(
   conversationId: string,
   projectId: string
 ): Promise<Array<{ role: string; content: string }>> {
-  const { data: messages, error } = await supabase
-    .from('hal_conversation_messages')
-    .select('role, content')
-    .eq('project_id', projectId)
-    .eq('agent', conversationId)
-    .order('sequence', { ascending: true })
-    .limit(50) // Limit to most recent 50 messages for context
-
-  if (error || !messages) return []
-
-  return messages
-    .filter((m: any) => m.role === 'user' || m.role === 'assistant')
-    .map((m: any) => ({
-      role: m.role === 'assistant' ? 'assistant' : 'user',
-      content: m.content || '',
-    }))
+  try {
+    const { data, error } = await supabase
+      .from('hal_conversation_messages')
+      .select('role, content')
+      .eq('project_id', projectId)
+      .eq('agent', conversationId)
+      .order('sequence', { ascending: true })
+      .limit(50) // Limit to most recent 50 messages for context
+    
+    if (error) {
+      console.warn('[pm-agent/launch] Failed to fetch conversation history:', error.message)
+      return []
+    }
+    
+    return (data || [])
+      .filter((msg: any) => msg.role === 'user' || msg.role === 'assistant')
+      .map((msg: any) => ({
+        role: msg.role === 'assistant' ? 'assistant' : 'user',
+        content: msg.content || '',
+      }))
+  } catch (e) {
+    console.warn('[pm-agent/launch] Error fetching conversation history:', e instanceof Error ? e.message : e)
+    return []
+  }
 }
 
 function buildPromptText(
@@ -92,19 +100,7 @@ function buildPromptText(
   message: string,
   conversationHistory?: Array<{ role: string; content: string }>
 ): string {
-  const historySection = conversationHistory && conversationHistory.length > 0
-    ? [
-        '',
-        '## Previous conversation history',
-        ...conversationHistory.map((msg, idx) => {
-          const roleLabel = msg.role === 'user' ? 'User' : 'Assistant'
-          return `${roleLabel}: ${msg.content}`
-        }),
-        '',
-      ].join('\n')
-    : ''
-
-  return [
+  const parts = [
     'You are the Project Manager agent for this repository. Use the codebase and any available tools to help with planning, prioritization, ticket creation, and project decisions.',
     '',
     '## Inputs (provided by HAL)',
@@ -115,10 +111,19 @@ function buildPromptText(
     '## Tools you can use',
     '- Cursor Cloud Agent built-ins: read/search/edit files, run shell commands (git, npm), and use `gh` for GitHub.',
     '- HAL server endpoints (no Supabase creds required for ticket moves): `POST /api/tickets/move`, `POST /api/tickets/get`, `POST /api/tickets/list-by-column`, `POST /api/columns/list`.',
-    historySection,
-    '**User message:**',
-    message,
-  ].join('\n')
+  ]
+  
+  if (conversationHistory && conversationHistory.length > 0) {
+    parts.push('', '## Conversation history', '')
+    for (const msg of conversationHistory) {
+      const roleLabel = msg.role === 'user' ? 'User' : msg.role === 'assistant' ? 'Assistant' : 'System'
+      parts.push(`${roleLabel}: ${msg.content}`, '')
+    }
+  }
+  
+  parts.push('**Current user message:**', message)
+  
+  return parts.join('\n')
 }
 
 async function createNewAgent(
@@ -228,7 +233,7 @@ async function createNewAgent(
 
 /**
  * Launch a Cursor Cloud Agent for the Project Manager role.
- * Uses gpt-5.2; no conversation history — Cursor handles context from the repo.
+ * Uses gpt-5.2. When continuing a conversation, includes conversation history in the prompt.
  */
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   if (req.method !== 'POST') {
@@ -305,13 +310,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     let cursorStatus: string
     let runId: string
 
-    // Note: Cursor Cloud Agents API doesn't support sending follow-up messages to existing agents.
-    // Each agent run is independent. When continuing a conversation, we create a new agent but:
-    // 1. Include conversation history in the prompt for context
-    // 2. Reuse the same cursor_agent_id in the thread mapping (update it to the new agent)
-    // This enables multi-turn conversations while working within Cursor API limitations.
-    
-    // Always create a new agent run (even when continuing), but include history if available
+    // Always create a new agent run (even when continuing) because Cursor API doesn't support
+    // sending follow-up messages to existing agents. We include conversation history in the prompt
+    // so the agent has context from previous turns.
     try {
       const result = await createNewAgent(
         supabase,
