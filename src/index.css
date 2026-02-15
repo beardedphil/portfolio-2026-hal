@@ -1471,6 +1471,99 @@ body {
   white-space: nowrap;
 }
 
+/* Prompt display for PM messages (0202) */
+.message-prompt-toggle {
+  margin-left: auto;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  background: transparent;
+  border: 1px solid var(--hal-border-muted);
+  border-radius: 4px;
+  color: var(--hal-text-muted);
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.message-prompt-toggle:hover {
+  background: var(--hal-surface-alt);
+  border-color: var(--hal-border);
+  color: var(--hal-text);
+}
+
+.message-prompt-toggle:focus-visible {
+  outline: 2px solid var(--hal-primary);
+  outline-offset: 2px;
+}
+
+.message-prompt-display {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: var(--hal-surface-alt);
+  border: 1px solid var(--hal-border);
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+.message-prompt-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--hal-border);
+}
+
+.message-prompt-label {
+  font-weight: 600;
+  color: var(--hal-text);
+  font-size: 0.9rem;
+}
+
+.message-prompt-copy {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  background: var(--hal-primary);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.message-prompt-copy:hover {
+  background: var(--hal-primary-hover);
+}
+
+.message-prompt-copy:focus-visible {
+  outline: 2px solid var(--hal-primary);
+  outline-offset: 2px;
+}
+
+.message-prompt-content {
+  margin: 0;
+  padding: 0.75rem;
+  background: var(--hal-surface);
+  border: 1px solid var(--hal-border-muted);
+  border-radius: 4px;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  color: var(--hal-text);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-x: auto;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.message-prompt-unavailable {
+  padding: 0.5rem;
+  color: var(--hal-text-muted);
+  font-style: italic;
+  text-align: center;
+  font-size: 0.85rem;
+}
+
 /* Configuration Status Panel (0042) */
 .config-status-panel {
   padding: 0.75rem 1rem;
