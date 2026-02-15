@@ -5,22 +5,7 @@ import {
   hasMissingArtifactExplanation,
   type ArtifactRowForCheck,
 } from '../artifacts/_shared.js'
-
-async function readJsonBody(req: IncomingMessage): Promise<unknown> {
-  const chunks: Uint8Array[] = []
-  for await (const chunk of req) {
-    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk)
-  }
-  const raw = Buffer.concat(chunks).toString('utf8').trim()
-  if (!raw) return {}
-  return JSON.parse(raw) as unknown
-}
-
-function json(res: ServerResponse, statusCode: number, body: unknown) {
-  res.statusCode = statusCode
-  res.setHeader('Content-Type', 'application/json')
-  res.end(JSON.stringify(body))
-}
+import { readJsonBody, json, parseSupabaseCredentials } from './_shared.js'
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   // CORS: Allow cross-origin requests (for scripts calling from different origins)
@@ -57,16 +42,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const columnName = typeof body.columnName === 'string' ? body.columnName.trim() || undefined : undefined
     const position = body.position
     // Use credentials from request body if provided, otherwise fall back to server environment variables
-    const supabaseUrl =
-      (typeof body.supabaseUrl === 'string' ? body.supabaseUrl.trim() : undefined) ||
-      process.env.SUPABASE_URL?.trim() ||
-      process.env.VITE_SUPABASE_URL?.trim() ||
-      undefined
-    const supabaseAnonKey =
-      (typeof body.supabaseAnonKey === 'string' ? body.supabaseAnonKey.trim() : undefined) ||
-      process.env.SUPABASE_ANON_KEY?.trim() ||
-      process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
-      undefined
+    const { supabaseUrl, supabaseAnonKey } = parseSupabaseCredentials(body)
 
     if (!ticketId && !ticketPk) {
       json(res, 400, {
