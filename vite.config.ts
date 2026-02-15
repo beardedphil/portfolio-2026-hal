@@ -47,11 +47,10 @@ export default defineConfig({
           id.includes('/dist/cli.js') ||
           id.includes('/dist/bin/') ||
           (id.includes('/scripts/') && id.endsWith('.js')) ||
-          // Exclude problematic packages that cause build errors during config loading
-          id.includes('istanbul-reports/lib/html-spa/') ||
+          // Exclude problematic packages that cause build errors
+          id.includes('istanbul-reports/') ||
           id.includes('node-domexception/.history/') ||
           id.includes('rxjs/src/Rx.global.js') ||
-          id.includes('istanbul-reports/') ||
           // Exclude React Native specific files
           id.includes('.native.js') ||
           id.includes('nanoid/async/index.native') ||
@@ -71,7 +70,7 @@ export default defineConfig({
     target: 'esnext',
   },
   esbuild: {
-    // Configure esbuild to handle JSX in .js files (for istanbul-reports)
+    // Configure esbuild to handle JSX in .js files
     jsx: 'automatic',
   },
   publicDir: 'public',
@@ -90,6 +89,20 @@ export default defineConfig({
   },
   plugins: [
     react(),
+    // Plugin to exclude istanbul-reports from processing
+    {
+      name: 'exclude-istanbul-reports',
+      resolveId(id) {
+        if (id.includes('istanbul-reports')) {
+          return { id: 'data:text/javascript,export {}', external: true }
+        }
+      },
+      load(id) {
+        if (id.includes('istanbul-reports')) {
+          return 'export {}' // Return empty module to skip processing
+        }
+      },
+    },
     prebuildPlugin(),
     pmWorkingMemoryGetPlugin(),
     pmRefreshWorkingMemoryPlugin(),
