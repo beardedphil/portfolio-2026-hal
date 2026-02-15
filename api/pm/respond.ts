@@ -280,7 +280,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             .select('summary_text, through_sequence')
             .eq('project_id', projectId)
             .eq('agent', agentFilter)
-            .single()
+            .maybeSingle()
 
           const needNewSummary =
             !summaryRow || (summaryRow.through_sequence ?? 0) < olderCount
@@ -336,7 +336,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             .select('*')
             .eq('project_id', projectId)
             .eq('agent', 'project-manager')
-            .single()
+            .maybeSingle()
 
           if (memoryRow) {
             const parts: string[] = []
@@ -457,7 +457,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           .select('*')
           .eq('project_id', projectId)
           .eq('agent', 'project-manager')
-          .single()
+          .maybeSingle()
         
         // Fetch all messages to extract working memory from
         const { data: allMessages } = await supabase
@@ -578,7 +578,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             .select('*')
             .eq('project_id', projectId)
             .eq('agent', 'project-manager')
-            .single()
+            .maybeSingle()
 
           // Only update if we have new messages (check last_sequence)
           const maxSequence = Math.max(...allMessages.map((m: any) => m.sequence ?? 0))

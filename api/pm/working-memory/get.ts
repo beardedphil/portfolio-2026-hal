@@ -52,9 +52,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       .select('*')
       .eq('project_id', projectId)
       .eq('agent', agent)
-      .single()
+      .maybeSingle()
 
-    if (error && error.code !== 'PGRST116') {
+    if (error) {
       // PGRST116 is "not found", which is OK (no memory yet)
       json(res, 500, {
         success: false,

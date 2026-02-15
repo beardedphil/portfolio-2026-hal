@@ -229,7 +229,7 @@ Return ONLY the JSON object, no other text.`
 
       // Parse JSON from response (may have markdown code blocks)
       let jsonStr = content
-      const jsonMatch = content.match(/```(?:json)?\s*(\{[\s\S]*\})\})\s*```/s)
+      const jsonMatch = content.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/s)
       if (jsonMatch) {
         jsonStr = jsonMatch[1]
       }

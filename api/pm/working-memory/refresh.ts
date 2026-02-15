@@ -120,7 +120,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       .select('*')
       .eq('project_id', projectId)
       .eq('agent', agent)
-      .single()
+      .maybeSingle()
 
     // Generate new working memory
     const newMemory = (await runnerModule.generateWorkingMemory(

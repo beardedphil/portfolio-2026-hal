@@ -146,8 +146,8 @@ export async function getWorkingMemory(
     .select('*')
     .eq('project_id', projectId)
     .eq('agent', agent)
-    .single()
-  
+    .maybeSingle()
+
   if (error || !data) return null
   
   return {

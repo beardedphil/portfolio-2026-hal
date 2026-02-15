@@ -406,6 +406,8 @@ function App() {
   // Track max sequence per agent instance (e.g., "project-manager-1", "implementation-agent-2")
   const agentSequenceRefs = useRef<Map<string, number>>(new Map())
   const transcriptRef = useRef<HTMLDivElement>(null)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const composerRef = useRef<HTMLTextAreaElement>(null)
   const [loadingOlderMessages, setLoadingOlderMessages] = useState<string | null>(null) // conversationId loading older messages
   const MESSAGES_PER_PAGE = 50 // Number of messages to load per page
   const selectedChatTargetRef = useRef<ChatTarget>(selectedChatTarget)
@@ -1455,48 +1457,50 @@ function App() {
     return `HAL-${padded}`
   }, [])
 
-  // Fetch working memory for current PM conversation (0173)
+  // Fetch working memory for current PM conversation (0173) — use API only so we never hit Supabase from client (avoids 406)
   const fetchWorkingMemory = useCallback(async () => {
     if (!connectedProject || !supabaseUrl || !supabaseAnonKey) {
       setWorkingMemory(null)
       return
     }
-    
     if (selectedChatTarget !== 'project-manager') {
       setWorkingMemory(null)
       return
     }
-    
     const convId = selectedConversationId || getConversationId('project-manager', 1)
-    
     setWorkingMemoryLoading(true)
     setWorkingMemoryError(null)
-    
     try {
-      const supabase = getSupabaseClient(supabaseUrl, supabaseAnonKey)
-      const { data, error } = await supabase
-        .from('hal_pm_working_memory')
-        .select('summary, goals, requirements, constraints, decisions, assumptions, open_questions, glossary, stakeholders, last_updated_at')
-        .eq('project_id', connectedProject)
-        .eq('conversation_id', convId)
-        .single()
-      
-      if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
-        throw error
+      const res = await fetch('/api/conversations/working-memory/get', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: connectedProject,
+          agent: convId,
+          supabaseUrl,
+          supabaseAnonKey,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        setWorkingMemory(null)
+        if (data.error) setWorkingMemoryError(data.error)
+        return
       }
-      
-      if (data) {
+      const wm = data.workingMemory
+      if (wm) {
+        const arr = (x: unknown) => (Array.isArray(x) ? x : typeof x === 'string' ? (x ? [x] : []) : [])
         setWorkingMemory({
-          summary: data.summary || '',
-          goals: Array.isArray(data.goals) ? data.goals : [],
-          requirements: Array.isArray(data.requirements) ? data.requirements : [],
-          constraints: Array.isArray(data.constraints) ? data.constraints : [],
-          decisions: Array.isArray(data.decisions) ? data.decisions : [],
-          assumptions: Array.isArray(data.assumptions) ? data.assumptions : [],
-          open_questions: Array.isArray(data.open_questions) ? data.open_questions : [],
-          glossary: typeof data.glossary === 'object' && data.glossary !== null ? (data.glossary as Record<string, string>) : {},
-          stakeholders: Array.isArray(data.stakeholders) ? data.stakeholders : [],
-          last_updated_at: data.last_updated_at || new Date().toISOString(),
+          summary: wm.summary || '',
+          goals: arr(wm.goals),
+          requirements: arr(wm.requirements),
+          constraints: arr(wm.constraints),
+          decisions: arr(wm.decisions),
+          assumptions: arr(wm.assumptions),
+          open_questions: arr(wm.openQuestions ?? wm.open_questions),
+          glossary: typeof wm.glossary === 'object' && wm.glossary !== null ? (wm.glossary as Record<string, string>) : {},
+          stakeholders: arr(wm.stakeholders),
+          last_updated_at: wm.lastUpdatedAt || wm.last_updated_at || new Date().toISOString(),
         })
       } else {
         setWorkingMemory(null)
@@ -3406,7 +3410,7 @@ function App() {
     }
   }, [handleSend])
 
-  // Fetch PM working memory (0173)
+  // Fetch PM working memory (0173) — use API only so we never hit Supabase from client (avoids 406 on hal_conversation_working_memory)
   const fetchPmWorkingMemory = useCallback(async (conversationId: string) => {
     if (!connectedProject || !supabaseUrl || !supabaseAnonKey) {
       setPmWorkingMemory(null)
@@ -3416,33 +3420,38 @@ function App() {
     try {
       setPmWorkingMemoryLoading(true)
       setPmWorkingMemoryError(null)
-      const supabase = getSupabaseClient(supabaseUrl, supabaseAnonKey)
-      // Use conversationId as the agent field (conversation IDs are stored in agent field)
-      const agentFilter = conversationId || 'project-manager'
-      const { data, error } = await supabase
-        .from('hal_pm_working_memory')
-        .select('*')
-        .eq('project_id', connectedProject)
-        .eq('agent', agentFilter)
-        .single()
-
-      if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
-        throw error
+      const res = await fetch('/api/conversations/working-memory/get', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: connectedProject,
+          agent: conversationId || 'project-manager',
+          supabaseUrl,
+          supabaseAnonKey,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        setPmWorkingMemory(null)
+        if (data.error) setPmWorkingMemoryError(data.error)
+        return
       }
-
-      if (data) {
+      const wm = data.workingMemory
+      if (wm && (wm.summary || (Array.isArray(wm.goals) && wm.goals.length) || (Array.isArray(wm.requirements) && wm.requirements.length))) {
+        const arr = (x: unknown) => (Array.isArray(x) ? x : typeof x === 'string' ? (x ? [x] : []) : [])
+        const str = (x: unknown) => (Array.isArray(x) ? x.join('\n') : typeof x === 'string' ? x : '')
         setPmWorkingMemory({
-          summary: data.summary || '',
-          goals: data.goals || '',
-          requirements: data.requirements || '',
-          constraints: data.constraints || '',
-          decisions: data.decisions || '',
-          assumptions: data.assumptions || '',
-          open_questions: data.open_questions || '',
-          glossary_terms: data.glossary_terms || '',
-          stakeholders: data.stakeholders || '',
-          last_updated: data.last_updated || new Date().toISOString(),
-          through_sequence: data.through_sequence || 0,
+          summary: wm.summary || '',
+          goals: str(wm.goals),
+          requirements: str(wm.requirements),
+          constraints: str(wm.constraints),
+          decisions: str(wm.decisions),
+          assumptions: str(wm.assumptions),
+          open_questions: str(wm.openQuestions ?? wm.open_questions),
+          glossary_terms: typeof wm.glossary === 'object' && wm.glossary !== null ? JSON.stringify(wm.glossary) : '',
+          stakeholders: str(wm.stakeholders),
+          last_updated: wm.lastUpdatedAt || wm.last_updated_at || new Date().toISOString(),
+          through_sequence: typeof wm.throughSequence === 'number' ? wm.throughSequence : wm.through_sequence || 0,
         })
       } else {
         setPmWorkingMemory(null)
@@ -3703,6 +3712,167 @@ function App() {
     lastSendPayloadSummary,
     repoInspectionAvailable: !!connectedGithubRepo?.fullName,
   }
+
+  const kanbanBoardProps: KanbanBoardProps = {
+    tickets: kanbanTickets,
+    columns: kanbanColumns,
+    agentRunsByTicketPk: kanbanAgentRunsByTicketPk,
+    repoFullName: connectedProject ?? null,
+    theme,
+    onMoveTicket: handleKanbanMoveTicket,
+    onReorderColumn: handleKanbanReorderColumn,
+    onUpdateTicketBody: handleKanbanUpdateTicketBody,
+    onOpenChatAndSend: handleKanbanOpenChatAndSend,
+    onProcessReview: handleKanbanProcessReview,
+    processReviewRunningForTicketPk: processReviewStatus === 'running' ? processReviewTicketPk : null,
+    implementationAgentTicketId: implAgentTicketId,
+    qaAgentTicketId: qaAgentTicketId,
+    fetchArtifactsForTicket,
+    supabaseUrl: supabaseUrl ?? (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? null,
+    supabaseAnonKey: supabaseAnonKey ?? (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? null,
+    onTicketCreated: fetchKanbanData,
+  }
+
+  const chatPanelContent = (function renderChatPanelContent() {
+    const displayMessages = activeMessages
+    const displayTarget = selectedChatTarget
+    return (
+      <div className="hal-chat-panel-inner">
+        {/* Agent stub banners and status panels */}
+        {displayTarget === 'implementation-agent' && (
+          <>
+            <div className="agent-stub-banner" role="status">
+              <p className="agent-stub-title">Implementation Agent — Cursor Cloud Agents</p>
+              <p className="agent-stub-hint">
+                {import.meta.env.VITE_CURSOR_API_KEY
+                  ? 'Say "Implement ticket XXXX" (e.g. Implement ticket 0046) to fetch the ticket, launch a Cursor cloud agent, and move the ticket to QA when done.'
+                  : 'Cursor API is not configured. Set CURSOR_API_KEY and VITE_CURSOR_API_KEY in .env to enable.'}
+              </p>
+            </div>
+            {(implAgentRunStatus !== 'idle' || implAgentError) && (
+              <div className="impl-agent-status-panel" role="status" aria-live="polite">
+                <div className="impl-agent-status-header">
+                  <span className="impl-agent-status-label">Status:</span>
+                  <span className={`impl-agent-status-value impl-status-${implAgentRunStatus}`}>
+                    {implAgentRunStatus === 'preparing' ? 'Preparing' :
+                     implAgentRunStatus === 'fetching_ticket' ? 'Fetching ticket' :
+                     implAgentRunStatus === 'resolving_repo' ? 'Resolving repository' :
+                     implAgentRunStatus === 'launching' ? 'Launching agent' :
+                     implAgentRunStatus === 'polling' ? 'Running agent' :
+                     implAgentRunStatus === 'completed' ? 'Done' :
+                     implAgentRunStatus === 'failed' ? 'Error' : implAgentRunStatus}
+                  </span>
+                </div>
+                {implAgentError && <div className="impl-agent-error">{implAgentError}</div>}
+              </div>
+            )}
+          </>
+        )}
+        {displayTarget === 'qa-agent' && (
+          <>
+            <div className="agent-stub-banner" role="status">
+              <p className="agent-stub-title">QA Agent — Cursor Cloud Agents</p>
+              <p className="agent-stub-hint">
+                {import.meta.env.VITE_CURSOR_API_KEY
+                  ? 'Say "QA ticket XXXX" to run QA for a ticket. The agent will run in the cloud and report results here.'
+                  : 'Cursor API is not configured.'}
+              </p>
+            </div>
+            {(qaAgentRunStatus !== 'idle' || qaAgentError) && (
+              <div className="impl-agent-status-panel" role="status" aria-live="polite">
+                <div className="impl-agent-status-header">
+                  <span className="impl-agent-status-label">Status:</span>
+                  <span className={`impl-agent-status-value impl-status-${qaAgentRunStatus}`}>
+                    {qaAgentRunStatus === 'preparing' ? 'Preparing' :
+                     qaAgentRunStatus === 'fetching_ticket' ? 'Fetching ticket' :
+                     qaAgentRunStatus === 'fetching_branch' ? 'Fetching branch' :
+                     qaAgentRunStatus === 'launching' ? 'Launching agent' :
+                     qaAgentRunStatus === 'polling' ? 'Running agent' :
+                     qaAgentRunStatus === 'generating_report' ? 'Generating report' :
+                     qaAgentRunStatus === 'merging' ? 'Merging' :
+                     qaAgentRunStatus === 'moving_ticket' ? 'Moving ticket' :
+                     qaAgentRunStatus === 'completed' ? 'Done' :
+                     qaAgentRunStatus === 'failed' ? 'Error' : qaAgentRunStatus}
+                  </span>
+                </div>
+                {qaAgentError && <div className="impl-agent-error">{qaAgentError}</div>}
+              </div>
+            )}
+          </>
+        )}
+        {/* Messages list */}
+        <div className="messages-container" ref={messagesEndRef}>
+          {displayMessages.length === 0 && (
+            <div className="messages-empty">
+              {displayTarget === 'project-manager'
+                ? 'Send a message to the Project Manager to get started.'
+                : displayTarget === 'implementation-agent'
+                ? 'Ask to implement a ticket (e.g. "Implement ticket 0046").'
+                : displayTarget === 'qa-agent'
+                ? 'Ask to run QA on a ticket (e.g. "QA ticket 0046").'
+                : 'Send a message to start the conversation.'}
+            </div>
+          )}
+          {displayMessages.map((msg) => (
+            <div key={msg.id} className={`message message-${msg.agent}`}>
+              <div className="message-meta">
+                <span className="message-author">{getMessageAuthorLabel(msg.agent)}</span>
+                <span className="message-time">{formatTime(msg.timestamp)}</span>
+              </div>
+              <div className="message-content">{msg.content}</div>
+              {msg.imageAttachments && msg.imageAttachments.length > 0 && (
+                <div className="message-images">
+                  {msg.imageAttachments.map((att, i) => (
+                    <img key={i} src={att.dataUrl} alt={att.filename} className="message-image" />
+                  ))}
+                </div>
+              )}
+              {msg.promptText != null && msg.promptText !== '' && (
+                <button
+                  type="button"
+                  className="conversation-prompt-link"
+                  onClick={() => setPromptModalMessage({ id: msg.id, agent: msg.agent, content: msg.content, timestamp: msg.timestamp, promptText: msg.promptText })}
+                >
+                  View sent prompt
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+        {/* Composer */}
+        <div className="composer">
+          <div className="composer-inner">
+            {imageError && <div className="composer-error" role="alert">{imageError}</div>}
+            <div className="composer-row">
+              <textarea
+                ref={composerRef}
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Type a message..."
+                rows={2}
+                className="composer-input"
+                aria-label="Message input"
+              />
+              <label className="composer-attach" title="Attach image">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageSelect}
+                  className="composer-file"
+                  aria-label="Attach image"
+                />
+                📎
+              </label>
+              <button type="button" className="send-btn" onClick={handleSend} disabled={!!imageError}>
+                Send
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  })()
 
   return (
     <div className="hal-app">
@@ -4119,535 +4289,7 @@ function App() {
                     </div>
                   )}
                   {/* Render the chat UI here - same as the right panel chat */}
-                  {(() => {
-                // Use activeMessages which is computed based on selectedChatTarget and selectedConversationId
-                // These are set when opening a chat, so they should be correct
-                const displayMessages = activeMessages
-                const displayTarget = selectedChatTarget
-
-                return (
-                  <>
-                    {/* Agent stub banners and status panels */}
-                    {displayTarget === 'implementation-agent' && (
-                      <>
-                        <div className="agent-stub-banner" role="status">
-                          <p className="agent-stub-title">Implementation Agent — Cursor Cloud Agents</p>
-                          <p className="agent-stub-hint">
-                            {import.meta.env.VITE_CURSOR_API_KEY
-                              ? 'Say "Implement ticket XXXX" (e.g. Implement ticket 0046) to fetch the ticket, launch a Cursor cloud agent, and move the ticket to QA when done.'
-                              : 'Cursor API is not configured. Set CURSOR_API_KEY and VITE_CURSOR_API_KEY in .env to enable.'}
-                          </p>
-                        </div>
-                        {(implAgentRunStatus !== 'idle' || implAgentError) && (
-                          <div className="impl-agent-status-panel" role="status" aria-live="polite">
-                            <div className="impl-agent-status-header">
-                              <span className="impl-agent-status-label">Status:</span>
-                              <span className={`impl-agent-status-value impl-status-${implAgentRunStatus}`}>
-                                {implAgentRunStatus === 'preparing' ? 'Preparing' :
-                                 implAgentRunStatus === 'fetching_ticket' ? 'Fetching ticket' :
-                                 implAgentRunStatus === 'resolving_repo' ? 'Resolving repository' :
-                                 implAgentRunStatus === 'launching' ? 'Launching agent' :
-                                 implAgentRunStatus === 'polling' ? 'Running' :
-                                 implAgentRunStatus === 'completed' ? 'Completed' :
-                                 implAgentRunStatus === 'failed' ? 'Failed' : 'Idle'}
-                              </span>
-                            </div>
-                            {implAgentError && (
-                              <div className="impl-agent-error" role="alert">
-                                <strong>Error:</strong> {implAgentError}
-                              </div>
-                            )}
-                            {implAgentProgress.length > 0 && (
-                              <div className="impl-agent-progress-feed">
-                                <div className="impl-agent-progress-label">Progress:</div>
-                                <div className="impl-agent-progress-items">
-                                  {implAgentProgress.slice(-5).map((p, idx) => (
-                                    <div key={idx} className="impl-agent-progress-item">
-                                      <span className="impl-agent-progress-time">[{formatTime(p.timestamp)}]</span>
-                                      <span className="impl-agent-progress-message">{p.message}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </>
-                    )}
-                    {displayTarget === 'qa-agent' && (
-                      <>
-                        <div className="agent-stub-banner" role="status">
-                          <p className="agent-stub-title">QA Agent — Cursor Cloud Agents</p>
-                          <p className="agent-stub-hint">
-                            {import.meta.env.VITE_CURSOR_API_KEY
-                              ? 'Say "QA ticket XXXX" (e.g. QA ticket 0046) to review the ticket implementation, generate a QA report, and merge to main if it passes.'
-                              : 'Cursor API is not configured. Set CURSOR_API_KEY and VITE_CURSOR_API_KEY in .env to enable.'}
-                          </p>
-                        </div>
-                        {(qaAgentRunStatus !== 'idle' || qaAgentError) && (
-                          <div className="impl-agent-status-panel" role="status" aria-live="polite">
-                            <div className="impl-agent-status-header">
-                              <span className="impl-agent-status-label">Status:</span>
-                              <span className={`impl-agent-status-value impl-status-${qaAgentRunStatus}`}>
-                                {qaAgentRunStatus === 'preparing' ? 'Preparing' :
-                                 qaAgentRunStatus === 'fetching_ticket' ? 'Fetching ticket' :
-                                 qaAgentRunStatus === 'fetching_branch' ? 'Finding branch' :
-                                 qaAgentRunStatus === 'launching' ? 'Launching QA' :
-                                 qaAgentRunStatus === 'polling' ? 'Reviewing' :
-                                 qaAgentRunStatus === 'generating_report' ? 'Generating report' :
-                                 qaAgentRunStatus === 'merging' ? 'Merging' :
-                                 qaAgentRunStatus === 'moving_ticket' ? 'Moving ticket' :
-                                 qaAgentRunStatus === 'completed' ? 'Completed' :
-                                 qaAgentRunStatus === 'failed' ? 'Failed' : 'Idle'}
-                              </span>
-                            </div>
-                            {qaAgentError && (
-                              <div className="impl-agent-error" role="alert">
-                                <strong>Error:</strong> {qaAgentError}
-                              </div>
-                            )}
-                            {qaAgentProgress.length > 0 && (
-                              <div className="impl-agent-progress-feed">
-                                <div className="impl-agent-progress-label">Progress:</div>
-                                <div className="impl-agent-progress-items">
-                                  {qaAgentProgress.slice(-5).map((p, idx) => (
-                                    <div key={idx} className="impl-agent-progress-item">
-                                      <span className="impl-agent-progress-time">[{formatTime(p.timestamp)}]</span>
-                                      <span className="impl-agent-progress-message">{p.message}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </>
-                    )}
-                    {displayTarget === 'process-review-agent' && (
-                      <>
-                        <div className="agent-stub-banner" role="status">
-                          <p className="agent-stub-title">Process Review Agent</p>
-                          <p className="agent-stub-hint">
-                            {supabaseUrl && supabaseAnonKey
-                              ? 'Process Review analyzes ticket artifacts and suggests improvements to agent instructions. Click "Review top ticket" in the Process Review column to run a review.'
-                              : 'Supabase is not configured. Process Review requires Supabase to access ticket artifacts.'}
-                          </p>
-                        </div>
-                        {(processReviewAgentRunStatus !== 'idle' || processReviewAgentError) && (
-                          <div className="impl-agent-status-panel" role="status" aria-live="polite">
-                            <div className="impl-agent-status-header">
-                              <span className="impl-agent-status-label">Status:</span>
-                              <span className={`impl-agent-status-value impl-status-${processReviewAgentRunStatus}`}>
-                                {processReviewAgentRunStatus === 'preparing' ? 'Preparing' :
-                                 processReviewAgentRunStatus === 'running' ? 'Running' :
-                                 processReviewAgentRunStatus === 'completed' ? 'Completed' :
-                                 processReviewAgentRunStatus === 'failed' ? 'Failed' : 'Idle'}
-                              </span>
-                            </div>
-                            {processReviewAgentError && (
-                              <div className="impl-agent-error" role="alert">
-                                <strong>Error:</strong> {processReviewAgentError}
-                              </div>
-                            )}
-                            {processReviewAgentProgress.length > 0 && (
-                              <div className="impl-agent-progress-feed">
-                                <div className="impl-agent-progress-label">Progress:</div>
-                                <div className="impl-agent-progress-items">
-                                  {processReviewAgentProgress.slice(-5).map((p, idx) => (
-                                    <div key={idx} className="impl-agent-progress-item">
-                                      <span className="impl-agent-progress-time">[{formatTime(p.timestamp)}]</span>
-                                      <span className="impl-agent-progress-message">{p.message}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </>
-                    )}
-
-                    {/* PM Working Memory Panel (0173) */}
-                    {displayTarget === 'project-manager' && (
-                      <div className="pm-working-memory-panel" style={{ borderBottom: '1px solid rgba(0,0,0,0.1)', padding: '12px', backgroundColor: 'rgba(0,0,0,0.02)' }}>
-                        <div
-                          style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            cursor: 'pointer',
-                            marginBottom: workingMemoryExpanded ? '12px' : '0',
-                          }}
-                          onClick={() => setWorkingMemoryExpanded(!workingMemoryExpanded)}
-                          role="button"
-                          tabIndex={0}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault()
-                              setWorkingMemoryExpanded(!workingMemoryExpanded)
-                            }
-                          }}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ fontWeight: 600, fontSize: '14px' }}>PM Working Memory</span>
-                            {workingMemoryLoading && <span style={{ fontSize: '12px', color: '#666' }}>Loading...</span>}
-                            {workingMemoryError && (
-                              <span style={{ fontSize: '12px', color: '#d32f2f' }} title={workingMemoryError}>
-                                Error
-                              </span>
-                            )}
-                            {workingMemory && !workingMemoryLoading && (
-                              <span style={{ fontSize: '12px', color: '#666' }}>
-                                Last updated: {new Date(workingMemory.updated_at).toLocaleString()}
-                              </span>
-                            )}
-                          </div>
-                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                refreshWorkingMemory()
-                              }}
-                              disabled={workingMemoryLoading}
-                              style={{
-                                padding: '4px 8px',
-                                fontSize: '12px',
-                                border: '1px solid rgba(0,0,0,0.2)',
-                                borderRadius: '4px',
-                                background: 'white',
-                                cursor: workingMemoryLoading ? 'not-allowed' : 'pointer',
-                              }}
-                              title="Refresh working memory now"
-                            >
-                              Refresh
-                            </button>
-                            <span style={{ fontSize: '12px' }}>{workingMemoryExpanded ? '▼' : '▶'}</span>
-                          </div>
-                        </div>
-                        {workingMemoryExpanded && (
-                          <div style={{ marginTop: '12px', fontSize: '13px', lineHeight: '1.6' }}>
-                            {workingMemoryError ? (
-                              <div style={{ color: '#d32f2f', padding: '8px', backgroundColor: 'rgba(211, 47, 47, 0.1)', borderRadius: '4px' }}>
-                                <strong>Error:</strong> {workingMemoryError}
-                                {workingMemoryError.includes('stale') || workingMemoryError.includes('unavailable') ? (
-                                  <div style={{ marginTop: '8px', fontSize: '12px' }}>
-                                    The PM agent will continue using recent messages. Working memory will be updated automatically when available.
-                                  </div>
-                                ) : null}
-                              </div>
-                            ) : workingMemory ? (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                {workingMemory.summary && (
-                                  <div>
-                                    <strong>Summary:</strong>
-                                    <div style={{ marginTop: '4px', padding: '8px', backgroundColor: 'white', borderRadius: '4px' }}>
-                                      {workingMemory.summary}
-                                    </div>
-                                  </div>
-                                )}
-                                {workingMemory.goals && workingMemory.goals.length > 0 && (
-                                  <div>
-                                    <strong>Goals:</strong>
-                                    <ul style={{ margin: '4px 0 0 0', paddingLeft: '20px' }}>
-                                      {workingMemory.goals.map((goal, idx) => (
-                                        <li key={idx}>{goal}</li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                )}
-                                {workingMemory.requirements && workingMemory.requirements.length > 0 && (
-                                  <div>
-                                    <strong>Requirements:</strong>
-                                    <ul style={{ margin: '4px 0 0 0', paddingLeft: '20px' }}>
-                                      {workingMemory.requirements.map((req, idx) => (
-                                        <li key={idx}>{req}</li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                )}
-                                {workingMemory.constraints && workingMemory.constraints.length > 0 && (
-                                  <div>
-                                    <strong>Constraints:</strong>
-                                    <ul style={{ margin: '4px 0 0 0', paddingLeft: '20px' }}>
-                                      {workingMemory.constraints.map((constraint, idx) => (
-                                        <li key={idx}>{constraint}</li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                )}
-                                {workingMemory.decisions && workingMemory.decisions.length > 0 && (
-                                  <div>
-                                    <strong>Decisions:</strong>
-                                    <ul style={{ margin: '4px 0 0 0', paddingLeft: '20px' }}>
-                                      {workingMemory.decisions.map((decision, idx) => (
-                                        <li key={idx}>{decision}</li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                )}
-                                {workingMemory.assumptions && workingMemory.assumptions.length > 0 && (
-                                  <div>
-                                    <strong>Assumptions:</strong>
-                                    <ul style={{ margin: '4px 0 0 0', paddingLeft: '20px' }}>
-                                      {workingMemory.assumptions.map((assumption, idx) => (
-                                        <li key={idx}>{assumption}</li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                )}
-                                {workingMemory.open_questions && workingMemory.open_questions.length > 0 && (
-                                  <div>
-                                    <strong>Open Questions:</strong>
-                                    <ul style={{ margin: '4px 0 0 0', paddingLeft: '20px' }}>
-                                      {workingMemory.open_questions.map((question, idx) => (
-                                        <li key={idx}>{question}</li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                )}
-                                {workingMemory.glossary && workingMemory.glossary.length > 0 && (
-                                  <div>
-                                    <strong>Glossary:</strong>
-                                    <ul style={{ margin: '4px 0 0 0', paddingLeft: '20px' }}>
-                                      {workingMemory.glossary.map((term, idx) => (
-                                        <li key={idx}>{term}</li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                )}
-                                {workingMemory.stakeholders && workingMemory.stakeholders.length > 0 && (
-                                  <div>
-                                    <strong>Stakeholders:</strong>
-                                    <ul style={{ margin: '4px 0 0 0', paddingLeft: '20px' }}>
-                                      {workingMemory.stakeholders.map((stakeholder, idx) => (
-                                        <li key={idx}>{stakeholder}</li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                )}
-                                {!workingMemory.summary &&
-                                  (!workingMemory.goals || workingMemory.goals.length === 0) &&
-                                  (!workingMemory.requirements || workingMemory.requirements.length === 0) &&
-                                  (!workingMemory.constraints || workingMemory.constraints.length === 0) &&
-                                  (!workingMemory.decisions || workingMemory.decisions.length === 0) &&
-                                  (!workingMemory.assumptions || workingMemory.assumptions.length === 0) &&
-                                  (!workingMemory.open_questions || workingMemory.open_questions.length === 0) &&
-                                  (!workingMemory.glossary || workingMemory.glossary.length === 0) &&
-                                  (!workingMemory.stakeholders || workingMemory.stakeholders.length === 0) && (
-                                    <div style={{ color: '#666', fontStyle: 'italic' }}>
-                                      Working memory is empty. It will be populated automatically as the conversation grows.
-                                    </div>
-                                  )}
-                              </div>
-                            ) : (
-                              <div style={{ color: '#666', fontStyle: 'italic' }}>
-                                No working memory yet. It will be created automatically as the conversation grows.
-                              </div>
-                            )}
-
-                    {/* Chat transcript */}
-                    <div className="chat-transcript" ref={transcriptRef}>
-                      {/* Loading older messages indicator */}
-                      {(() => {
-                        const currentConvId = selectedConversationId || (selectedChatTarget === 'project-manager' ? getConversationId('project-manager', 1) : null)
-                        const conv = currentConvId ? conversations.get(currentConvId) : null
-                        const isLoading = loadingOlderMessages === currentConvId
-                        const hasMore = conv?.hasMoreMessages
-                        return isLoading || hasMore ? (
-                          <div className="load-more-messages" style={{ padding: '12px', textAlign: 'center', borderBottom: '1px solid rgba(0,0,0,0.1)' }}>
-                            {isLoading ? (
-                              <span>Loading older messages...</span>
-                            ) : hasMore ? (
-                              <button
-                                type="button"
-                                onClick={() => currentConvId && loadOlderMessages(currentConvId)}
-                                style={{ background: 'transparent', border: '1px solid rgba(0,0,0,0.2)', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer' }}
-                              >
-                                Load older messages
-                              </button>
-                            ) : null}
-                          </div>
-                        ) : null
-                      })()}
-                      {displayMessages.length === 0 && agentTypingTarget !== displayTarget ? (
-                        <p className="transcript-empty">No messages yet. Start a conversation.</p>
-                      ) : (
-                        <>
-                          {displayMessages.map((msg) => (
-                            <div
-                              key={msg.id}
-                              className={`message-row message-row-${msg.agent}`}
-                              data-agent={msg.agent}
-                            >
-                              <div 
-                                className={`message message-${msg.agent} ${selectedChatTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText ? 'message-clickable' : ''}`}
-                                onClick={selectedChatTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText ? () => setPromptModalMessage(msg) : undefined}
-                                style={selectedChatTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText ? { cursor: 'pointer' } : undefined}
-                                title={selectedChatTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText ? 'Click to view sent prompt' : undefined}
-                              >
-                                <div className="message-header">
-                                  <span className="message-author">{getMessageAuthorLabel(msg.agent)}</span>
-                                  <span className="message-time">[{formatTime(msg.timestamp)}]</span>
-                                  {selectedChatTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText && (
-                                    <span className="message-prompt-indicator" title="Click to view sent prompt">📋</span>
-                                  )}
-                                  {msg.imageAttachments && msg.imageAttachments.length > 0 && (
-                                    <div className="message-images">
-                                      {msg.imageAttachments.map((img, idx) => (
-                                        <div key={idx} className="message-image-container">
-                                          <img src={img.dataUrl} alt={img.filename} className="message-image-thumbnail" />
-                                          <span className="message-image-filename">{img.filename}</span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-                                  {msg.content.trimStart().startsWith('{') ? (
-                                    <pre className="message-content message-json">{msg.content}</pre>
-                                  ) : (
-                                    <span className="message-content">{msg.content}</span>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                          {agentTypingTarget === displayTarget && (
-                            <div className="message-row message-row-typing" data-agent="typing" aria-live="polite">
-                              <div className="message message-typing">
-                                <div className="message-header">
-                                  <span className="message-author">HAL</span>
-                                </div>
-                                {displayTarget === 'implementation-agent' ? (
-                                  <div className="impl-agent-status-timeline" role="status">
-                                    <span className={implAgentRunStatus === 'preparing' ? 'impl-status-active' : ['fetching_ticket', 'resolving_repo', 'launching', 'polling', 'completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
-                                      Preparing
-                                    </span>
-                                    <span className="impl-status-arrow">→</span>
-                                    <span className={implAgentRunStatus === 'fetching_ticket' ? 'impl-status-active' : ['resolving_repo', 'launching', 'polling', 'completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
-                                      Fetching ticket
-                                    </span>
-                                    <span className="impl-status-arrow">→</span>
-                                    <span className={implAgentRunStatus === 'resolving_repo' ? 'impl-status-active' : ['launching', 'polling', 'completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
-                                      Resolving repo
-                                    </span>
-                                    <span className="impl-status-arrow">→</span>
-                                    <span className={implAgentRunStatus === 'launching' ? 'impl-status-active' : ['polling', 'completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
-                                      Launching agent
-                                    </span>
-                                    <span className="impl-status-arrow">→</span>
-                                    <span className={implAgentRunStatus === 'polling' ? 'impl-status-active' : ['completed', 'failed'].includes(implAgentRunStatus) ? 'impl-status-done' : ''}>
-                                      Running
-                                    </span>
-                                    <span className="impl-status-arrow">→</span>
-                                    <span className={implAgentRunStatus === 'completed' ? 'impl-status-done' : implAgentRunStatus === 'failed' ? 'impl-status-failed' : ''}>
-                                      {implAgentRunStatus === 'completed' ? 'Completed' : implAgentRunStatus === 'failed' ? 'Failed' : '…'}
-                                    </span>
-                                  </div>
-                                ) : displayTarget === 'qa-agent' ? (
-                                  <div className="impl-agent-status-timeline" role="status">
-                                    <span className={qaAgentRunStatus === 'preparing' ? 'impl-status-active' : ['fetching_ticket', 'fetching_branch', 'launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                      Preparing
-                                    </span>
-                                    <span className="impl-status-arrow">→</span>
-                                    <span className={qaAgentRunStatus === 'fetching_ticket' ? 'impl-status-active' : ['fetching_branch', 'launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                      Fetching ticket
-                                    </span>
-                                    <span className="impl-status-arrow">→</span>
-                                    <span className={qaAgentRunStatus === 'fetching_branch' ? 'impl-status-active' : ['launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                      Finding branch
-                                    </span>
-                                    <span className="impl-status-arrow">→</span>
-                                    <span className={qaAgentRunStatus === 'launching' ? 'impl-status-active' : ['polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                      Launching QA
-                                    </span>
-                                    <span className="impl-status-arrow">→</span>
-                                    <span className={qaAgentRunStatus === 'polling' ? 'impl-status-active' : ['generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                      Reviewing
-                                    </span>
-                                    <span className="impl-status-arrow">→</span>
-                                    <span className={qaAgentRunStatus === 'generating_report' ? 'impl-status-active' : ['merging', 'moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                      Generating report
-                                    </span>
-                                    <span className="impl-status-arrow">→</span>
-                                    <span className={qaAgentRunStatus === 'merging' ? 'impl-status-active' : ['moving_ticket', 'completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                      Merging
-                                    </span>
-                                    <span className="impl-status-arrow">→</span>
-                                    <span className={qaAgentRunStatus === 'moving_ticket' ? 'impl-status-active' : ['completed', 'failed'].includes(qaAgentRunStatus) ? 'impl-status-done' : ''}>
-                                      Moving ticket
-                                    </span>
-                                    <span className="impl-status-arrow">→</span>
-                                    <span className={qaAgentRunStatus === 'completed' ? 'impl-status-done' : qaAgentRunStatus === 'failed' ? 'impl-status-failed' : ''}>
-                                      {qaAgentRunStatus === 'completed' ? 'Completed' : qaAgentRunStatus === 'failed' ? 'Failed' : '…'}
-                                    </span>
-                                  </div>
-                                ) : (
-                                  <span className="typing-bubble">
-                                    <span className="typing-label">Thinking</span>
-                                    <span className="typing-dots">
-                                      <span className="typing-dot" />
-                                      <span className="typing-dot" />
-                                      <span className="typing-dot" />
-                                    </span>
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
-
-                    {/* Chat composer */}
-                    <div className="chat-composer">
-                      {imageAttachment && (
-                        <div className="image-attachment-preview">
-                          <img src={imageAttachment.dataUrl} alt={imageAttachment.filename} className="attachment-thumbnail" />
-                          <span className="attachment-filename">{imageAttachment.filename}</span>
-                          <button type="button" className="remove-attachment-btn" onClick={handleRemoveImage} aria-label="Remove attachment">
-                            ×
-                          </button>
-                        </div>
-                      )}
-                      {imageError && (
-                        <div className="image-error-message" role="alert">
-                          {imageError}
-                        </div>
-                      )}
-                      {sendValidationError && (
-                        <div className="image-error-message" role="alert">
-                          {sendValidationError}
-                        </div>
-                      )}
-                      <div className="composer-input-row">
-                        <textarea
-                          className="message-input"
-                          value={inputValue}
-                          onChange={(e) => setInputValue(e.target.value)}
-                          onKeyDown={handleKeyDown}
-                          placeholder="Type a message... (Enter to send)"
-                          rows={2}
-                        />
-                        <div className="composer-actions">
-                          <label className="attach-image-btn" title="Attach image">
-                            <input
-                              type="file"
-                              accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
-                              onChange={handleImageSelect}
-                              style={{ display: 'none' }}
-                              aria-label="Attach image"
-                            />
-                            📎
-                          </label>
-                          <button type="button" className="send-btn" onClick={handleSend} disabled={!!imageError}>
-                            Send
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                    </>
-                  )
-                  })()}
+                  {chatPanelContent}
                 </div>
               </>
             )}
@@ -4700,27 +4342,7 @@ function App() {
                 </button>
               </div>
             )}
-            <KanbanBoard
-              {...({
-                tickets: kanbanTickets,
-                columns: kanbanColumns,
-                agentRunsByTicketPk: kanbanAgentRunsByTicketPk,
-                repoFullName: connectedProject ?? null,
-                theme,
-                onMoveTicket: handleKanbanMoveTicket,
-                onReorderColumn: handleKanbanReorderColumn,
-                onUpdateTicketBody: handleKanbanUpdateTicketBody,
-                onOpenChatAndSend: handleKanbanOpenChatAndSend,
-                onProcessReview: handleKanbanProcessReview,
-                processReviewRunningForTicketPk: processReviewStatus === 'running' ? processReviewTicketPk : null,
-                implementationAgentTicketId: implAgentTicketId,
-                qaAgentTicketId: qaAgentTicketId,
-                fetchArtifactsForTicket,
-                supabaseUrl: supabaseUrl ?? (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? null,
-                supabaseAnonKey: supabaseAnonKey ?? (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? null,
-                onTicketCreated: fetchKanbanData,
-              } as KanbanBoardProps)}
-            />
+            <KanbanBoard {...kanbanBoardProps} />
           </div>
         </section>
 
@@ -5156,7 +4778,7 @@ function App() {
                             <li key={term} style={{ marginBottom: '4px' }}>
                               <strong>{term}:</strong> {def}
                             </li>
-                          )))}
+                          ))}
                         </ul>
                       </div>
                     )}
