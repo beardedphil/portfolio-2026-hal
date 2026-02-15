@@ -68,7 +68,7 @@ async function handleProcessReviewButtonClick(
  * Creates work button handlers for SortableColumn
  */
 export function createWorkButtonHandlers({
-  col,
+  col: _col,
   hasTickets,
   firstCardId,
   topTicketId,
