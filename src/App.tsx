@@ -1,7 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { getSupabaseClient } from './lib/supabase'
 import { saveConversationsToStorage, loadConversationsFromStorage, type Agent, type Message, type Conversation, type ImageAttachment } from './lib/conversationStorage'
-import { getConversationId, parseConversationId } from './lib/conversationId'
 import * as Kanban from 'portfolio-2026-kanban'
 import type { KanbanTicketRow, KanbanColumnRow, KanbanAgentRunRow, KanbanBoardProps } from 'portfolio-2026-kanban'
 import 'portfolio-2026-kanban/style.css'
