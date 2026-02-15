@@ -73,6 +73,24 @@ This command runs vitest with coverage enabled and outputs a text summary with c
 
 **Note:** Coverage numbers must reflect the current commit under test (not hardcoded). Run the command on the branch/commit being verified.
 
+## Simplicity section
+
+**MANDATORY:** Every QA report **MUST** include a **Simplicity** metric (0-100%, where 100% = best, like Coverage).
+
+**Simplicity section format:**
+
+```markdown
+## Simplicity
+
+Simplicity: XX%
+```
+
+**Note:** 
+- Simplicity is a quality metric where 100% represents the best (simplest, most maintainable code)
+- The metric should be included in the QA report so the header repo metrics box can display it
+- Use the format "Simplicity: XX%" (e.g., "Simplicity: 90%") for consistent parsing
+- Legacy "Overcomplication: XX%" format is still supported but deprecated; new reports should use "Simplicity: XX%"
+
 ## Storing QA report
 
 Make actual HTTP calls: `POST ${baseUrl}/api/artifacts/insert-qa` with `{ ticketId, title, body_md }`. Use `curl` or run_terminal_cmd. Do not just include JSON in your message.
