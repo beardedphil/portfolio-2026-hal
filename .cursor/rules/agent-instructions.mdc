@@ -30,4 +30,21 @@ if (!result.success) throw new Error(`Failed: ${result.error}`)
 
 **If move returns `missingArtifacts`:** Store each via `POST /api/artifacts/insert-implementation`, then retry move.
 
+**When to move (MANDATORY WORKFLOW):**
+1. ✅ After all code changes are committed and pushed
+2. ✅ After all required artifacts are stored (all 8: plan, worklog, changed-files, decisions, verification, pm-review, git-diff, instructions-used)
+3. ✅ **Before moving:** Call get_artifacts (or POST /api/artifacts/get) and confirm all 8 required implementation artifacts are present with substantive content.
+4. ✅ **MOVE THE TICKET TO READY FOR QA** (use the API call above)
+5. ✅ **THEN** send your final "implementation complete" summary message
+
+**If move returns success: false with missingArtifacts:** Store each listed artifact via POST /api/artifacts/insert-implementation with the corresponding artifactType, then retry POST /api/tickets/move. The move API will not allow moving to Ready for QA until all 8 artifacts are present.
+
+**CRITICAL WORKFLOW RULE:** 
+- **DO NOT** send a completion summary or "done" message without first moving the ticket to Ready for QA
+- **DO NOT** mark the ticket as complete in your message if you haven't moved it
+- The ticket move is **part of the completion workflow**, not an optional step
+- If the move fails, **DO NOT** proceed with completion - fix the issue and retry the move (if missingArtifacts, store those artifacts then retry move)
+
 **Column IDs:** `col-unassigned`, `col-todo`, `col-doing`, `col-qa`, `col-human-in-the-loop`, `col-process-review`, `col-done`, `col-wont-implement`.
+
+**Note:** The HAL API endpoint `/api/tickets/move` uses server-side Supabase credentials, so agents don't need to provide credentials in the request body. The API uses the ticket's primary key (pk) for updates to ensure reliable ticket movement regardless of the ticket ID format provided.
