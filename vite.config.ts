@@ -2739,7 +2739,39 @@ Return ONLY valid JSON, no markdown formatting, no explanation. Example format:
           next()
         })
 
-        // Process Review endpoints (0118, 0134, 0167)
+        // PM Cursor agent launch (replaces context-managed PM)
+        server.middlewares.use(async (req, res, next) => {
+          if (req.url === '/api/pm-agent/launch' && req.method === 'POST') {
+            try {
+              const handler = await import('./api/pm-agent/launch.js')
+              await handler.default(req, res)
+            } catch (err) {
+              res.statusCode = 500
+              res.setHeader('Content-Type', 'application/json')
+              res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }))
+            }
+            return
+          }
+          next()
+        })
+
+        // Process Review Cursor agent launch (async; frontend polls status)
+        server.middlewares.use(async (req, res, next) => {
+          if (req.url === '/api/process-review/launch' && req.method === 'POST') {
+            try {
+              const handler = await import('./api/process-review/launch.js')
+              await handler.default(req, res)
+            } catch (err) {
+              res.statusCode = 500
+              res.setHeader('Content-Type', 'application/json')
+              res.end(JSON.stringify({ success: false, error: err instanceof Error ? err.message : String(err) }))
+            }
+            return
+          }
+          next()
+        })
+
+        // Process Review endpoints (0118, 0134, 0167) — legacy sync run kept for backwards compatibility
         server.middlewares.use(async (req, res, next) => {
           if (req.url === '/api/process-review/run' && req.method === 'POST') {
             try {

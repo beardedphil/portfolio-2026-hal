@@ -41,9 +41,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       defaultBranch?: string
       // For QA: optionally provide branch hint (still read from ticket body if present)
       message?: string
+      /** Optional Cursor Cloud Agent model (e.g. "claude-4-sonnet", "gpt-5.2"). Omit for auto-selection. */
+      model?: string
     }
 
     const agentType = body.agentType === 'qa' ? 'qa' : 'implementation'
+    // Implementation and QA: do not send model — let Cursor auto-select. PM and Process Review use gpt-5.2 via their own launch endpoints.
+    const model = (typeof body.model === 'string' ? body.model.trim() : '') || ''
     const repoFullName = typeof body.repoFullName === 'string' ? body.repoFullName.trim() : ''
     const ticketNumber = typeof body.ticketNumber === 'number' ? body.ticketNumber : null
     if (!repoFullName || !ticketNumber || !Number.isFinite(ticketNumber)) {
@@ -250,6 +254,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         prompt: { text: promptText },
         source: { repository: repoUrl, ref: defaultBranch },
         target,
+        ...(model ? { model } : {}),
       }),
     })
 

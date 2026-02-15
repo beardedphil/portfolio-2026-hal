@@ -1413,24 +1413,6 @@ function App() {
     }
   }, [connectedProject, supabaseUrl, supabaseAnonKey, selectedConversationId])
 
-  // Fetch working memory when PM conversation changes (0173)
-  useEffect(() => {
-    if (selectedChatTarget === 'project-manager' && connectedProject && supabaseUrl && supabaseAnonKey) {
-      fetchPmWorkingMemory()
-    } else {
-      setPmWorkingMemory(null)
-    }
-  }, [selectedChatTarget, selectedConversationId, connectedProject, supabaseUrl, supabaseAnonKey, fetchPmWorkingMemory])
-
-  // Auto-load working memory when PM chat opens (0173)
-  useEffect(() => {
-    if (openChatTarget === 'project-manager' && connectedProject && supabaseUrl && supabaseAnonKey && workingMemoryOpen) {
-      loadWorkingMemory()
-    }
-  }, [openChatTarget, connectedProject, supabaseUrl, supabaseAnonKey, workingMemoryOpen, loadWorkingMemory])
-
-
-
   // Load older messages for a conversation (pagination)
   const loadOlderMessages = useCallback(
     async (conversationId: string) => {
@@ -1529,15 +1511,6 @@ function App() {
       transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight
     }
   }, [activeMessages, agentTypingTarget, selectedConversationId, implAgentRunStatus, qaAgentRunStatus, processReviewAgentRunStatus, implAgentProgress, qaAgentProgress, processReviewAgentProgress, loadingOlderMessages])
-
-  // Load PM working memory when PM chat is opened (0173)
-  useEffect(() => {
-    if (selectedChatTarget === 'project-manager' && connectedProject && supabaseUrl && supabaseAnonKey) {
-      fetchPmWorkingMemory()
-    } else {
-      setPmWorkingMemory(null)
-    }
-  }, [selectedChatTarget, selectedConversationId, connectedProject, supabaseUrl, supabaseAnonKey, fetchPmWorkingMemory])
 
   // Detect scroll to top and load older messages
   useEffect(() => {
@@ -2351,28 +2324,7 @@ function App() {
             const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
             const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
             
-            let body: { message: string; conversationHistory?: Array<{ role: string; content: string }>; previous_response_id?: string; projectId?: string; repoFullName?: string; supabaseUrl?: string; supabaseAnonKey?: string; conversationId?: string; images?: Array<{ dataUrl: string; filename: string; mimeType: string }> } = { message: content }
-            if (pmLastResponseId) body.previous_response_id = pmLastResponseId
-            if (connectedProject) body.projectId = connectedProject
-            if (connectedGithubRepo?.fullName) body.repoFullName = connectedGithubRepo.fullName
-            // Send conversationId for working memory (0173)
-            body.conversationId = convId
-            // Always send Supabase creds when we have them so create_ticket is available (0011)
-            // Use url/key from state or env (0119: fix Supabase credentials not being sent)
-            if (url && key) {
-              body.supabaseUrl = url
-              body.supabaseAnonKey = key
-            }
-            // Include image attachments if present
-            if (imageAttachments && imageAttachments.length > 0) {
-              body.images = imageAttachments.map((img) => ({
-                dataUrl: img.dataUrl,
-                filename: img.filename,
-                mimeType: img.file.type,
-              }))
-            }
-
-            // Add user message to UI (only once, before DB insert to avoid duplicates) (0119)
+            // Add user message to UI (only once, before DB insert to avoid duplicates)
             if (!useDb || !url || !key || !connectedProject) {
               addMessage(convId, 'user', content, undefined, imageAttachments)
             }
@@ -2415,189 +2367,74 @@ function App() {
                   addMessage(convId, 'user', content, nextSeq, imageAttachments)
                 }
               }
-            } else {
-              const pmConv = conversations.get(convId)
-              const pmMessages = pmConv?.messages ?? []
-              const turns = pmMessages.map((msg) => ({
-                role: msg.agent === 'user' ? ('user' as const) : ('assistant' as const),
-                content: msg.content,
-              }))
-              let recentLen = 0
-              const recentTurns: typeof turns = []
-              for (let i = turns.length - 1; i >= 0; i--) {
-                const t = turns[i]
-                const lineLen = (t.role?.length ?? 0) + (t.content?.length ?? 0) + 12
-                if (recentLen + lineLen > CONVERSATION_RECENT_MAX_CHARS && recentTurns.length > 0) break
-                recentTurns.unshift(t)
-                recentLen += lineLen
-              }
-              body.conversationHistory = recentTurns
             }
 
-            // Debug: log what we're sending (0119) - use console.warn for visibility
-            console.warn('[PM] Sending request to /api/pm/respond:', {
-              hasRepoFullName: !!body.repoFullName,
-              repoFullName: body.repoFullName || 'NOT SET',
-              hasProjectId: !!body.projectId,
-              projectId: body.projectId || 'NOT SET',
-              hasSupabaseUrl: !!body.supabaseUrl,
-              hasSupabaseAnonKey: !!body.supabaseAnonKey,
-              connectedGithubRepo: connectedGithubRepo?.fullName || 'NOT SET',
+            if (!connectedGithubRepo?.fullName) {
+              setAgentTypingTarget(null)
+              addMessage(convId, 'project-manager', '[PM] Connect a GitHub repo first (Connect GitHub Repo) so the PM agent can use the codebase.')
+              return
+            }
+
+            addMessage(convId, 'system', '[Status] Launching PM agent (Cursor)...')
+            const launchRes = await fetch('/api/pm-agent/launch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({
+                message: content,
+                repoFullName: connectedGithubRepo.fullName,
+                defaultBranch: connectedGithubRepo.defaultBranch || 'main',
+              }),
             })
-            // Client-side timeout (75s) so user gets feedback if server hangs; Vercel times out at 60s
-            const PM_FETCH_TIMEOUT_MS = 75_000
-            const controller = new AbortController()
-            const timeoutId = setTimeout(() => controller.abort(), PM_FETCH_TIMEOUT_MS)
-            let res: Response
-            try {
-              res = await fetch('/api/pm/respond', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include', // Include session cookie so GitHub token is available (0119: fix PM agent repo selection)
-                body: JSON.stringify(body),
-                signal: controller.signal,
-              })
-            } catch (fetchErr) {
-              clearTimeout(timeoutId)
-              if (fetchErr instanceof Error && fetchErr.name === 'AbortError') {
-                setAgentTypingTarget(null)
-                const timeoutMsg = 'Request timed out. The PM agent may need more time—try a simpler request or break bulk moves into smaller batches (e.g. "Continue" for the next 5).'
-                setOpenaiLastError(timeoutMsg)
-                setLastAgentError('Request timed out')
-                addMessage(convId, 'project-manager', `[PM] Error: ${timeoutMsg}`)
-                return
-              }
-              throw fetchErr
-            }
-            clearTimeout(timeoutId)
-            setOpenaiLastStatus(String(res.status))
-            const text = await res.text()
-
-            // 504 = gateway timeout: server took too long; response body is HTML, not JSON
-            if (res.status === 504) {
+            const launchData = (await launchRes.json()) as { runId?: string; status?: string; error?: string }
+            if (!launchData.runId || launchData.status === 'failed') {
               setAgentTypingTarget(null)
-              const timeoutMsg = 'Request timed out (504). The PM agent may need more time for this task—try breaking it into smaller steps or a simpler request.'
-              setOpenaiLastError(timeoutMsg)
-              setLastAgentError('504 Gateway Timeout')
-              addMessage(convId, 'project-manager', `[PM] Error: ${timeoutMsg}`)
-              return
-            }
-            
-            let data: PmAgentResponse & { _debug?: { repoFullName?: string; hasGithubToken?: boolean; hasGithubReadFile?: boolean; hasGithubSearchCode?: boolean; cookieHeaderPresent?: boolean; repoUsage?: Array<{ tool: string; usedGitHub: boolean; path?: string }> } }
-            try {
-              data = JSON.parse(text) as typeof data
-              // Log debug info from server (0119)
-              if (data._debug) {
-                console.warn('[PM] Server response debug info:', data._debug)
-                if (data._debug.repoUsage && data._debug.repoUsage.length > 0) {
-                  console.warn('[PM] Repo usage:', data._debug.repoUsage)
-                  const usedGitHub = data._debug.repoUsage.some(r => r.usedGitHub)
-                  const usedHAL = data._debug.repoUsage.some(r => !r.usedGitHub)
-                  if (usedHAL) {
-                    console.warn('[PM] ⚠️ PM agent used HAL repo instead of GitHub repo!', data._debug.repoUsage.filter(r => !r.usedGitHub))
-                  } else if (usedGitHub) {
-                    console.warn('[PM] ✅ PM agent used GitHub repo correctly')
-                  }
-                } else if (data.toolCalls && data.toolCalls.length > 0) {
-                  console.warn('[PM] Tool calls made but no repo usage tracked. Tools:', data.toolCalls.map(t => t.name))
-                }
-              }
-            } catch {
-              setAgentTypingTarget(null)
-              const parseErr = res.status >= 500
-                ? `Server error (${res.status}). The response was not valid JSON—this often happens when the request times out or the server crashes.`
-                : `Invalid response format (HTTP ${res.status}). Expected JSON from the PM endpoint.`
-              setOpenaiLastError(parseErr)
-              setLastAgentError('Invalid response format')
-              addMessage(convId, 'project-manager', `[PM] Error: ${parseErr}`)
-              return
-            }
-
-            // Store diagnostics data
-            setLastPmOutboundRequest(data.outboundRequest)
-            setLastPmToolCalls(data.toolCalls?.length ? data.toolCalls : null)
-            setLastTicketCreationResult(data.ticketCreationResult ?? null)
-            setLastCreateTicketAvailable(data.createTicketAvailable ?? null)
-            setAgentRunner(data.agentRunner ?? null)
-
-            if (!res.ok || data.error) {
-              setAgentTypingTarget(null)
-              const errMsg = data.error ?? `HTTP ${res.status}`
+              const errMsg = launchData.error ?? 'Launch failed'
               setOpenaiLastError(errMsg)
               setLastAgentError(errMsg)
-              // Still show reply if available, otherwise show error
-              const displayMsg = data.reply || `[PM] Error: ${errMsg}`
-              addMessage(convId, 'project-manager', displayMsg)
+              addMessage(convId, 'project-manager', `[PM] Error: ${errMsg}`)
               return
             }
 
-            setOpenaiLastError(null)
-            setLastAgentError(null)
-            if (data.responseId != null) setPmLastResponseId(data.responseId)
-
-            // When reply is empty but a ticket was just created, show ticket creation summary (0011, 0083, 0095)
-            let reply = data.reply || ''
-            if (!reply.trim() && data.ticketCreationResult) {
-              const t = data.ticketCreationResult
-              const autoFixNote = t.autoFixed ? ' (formatting issues were automatically fixed)' : ''
-              if (t.movedToTodo) {
-                reply = t.syncSuccess
-                  ? `Created ticket **${t.id}** at \`${t.filePath}\`. The ticket is **Ready-to-start**${autoFixNote} and has been automatically moved to **To Do**.`
-                  : `Created ticket **${t.id}** at \`${t.filePath}\`. The ticket is **Ready-to-start**${autoFixNote} and has been automatically moved to **To Do**. Sync to repo failed: ${t.syncError ?? 'unknown'}. You can run \`npm run sync-tickets\` from the repo root.`
-              } else if (t.moveError) {
-                reply = `Created ticket **${t.id}** at \`${t.filePath}\`. The ticket is **Ready-to-start**${autoFixNote} but could not be moved to To Do: ${t.moveError}. It remains in Unassigned. Please try moving it manually or check the error details.`
-              } else if (t.ready === false && t.missingItems && t.missingItems.length > 0) {
-                reply = `Created ticket **${t.id}** at \`${t.filePath}\`. The ticket is **not Ready-to-start**: ${t.missingItems.join('; ')}. It remains in Unassigned. Please update the ticket content to make it ready, then use "Prepare top ticket" or ask me to move it to To Do.`
+            const runId = launchData.runId
+            addMessage(convId, 'system', '[Progress] PM agent running. Polling status...')
+            const poll = async (): Promise<{ done: boolean; reply?: string; error?: string }> => {
+              const r = await fetch(`/api/agent-runs/status?runId=${encodeURIComponent(runId)}`, { credentials: 'include' })
+              const data = await r.json() as { status?: string; summary?: string; error?: string }
+              const s = String(data.status ?? '')
+              if (s === 'failed') return { done: true, error: data.error ?? 'Unknown error' }
+              if (s === 'finished') return { done: true, reply: data.summary ?? 'Done.' }
+              return { done: false }
+            }
+            for (;;) {
+              const result = await poll()
+              if (!result.done) {
+                await new Promise((r) => setTimeout(r, 4000))
+                continue
+              }
+              setAgentTypingTarget(null)
+              setOpenaiLastError(null)
+              setLastAgentError(null)
+              const reply = result.error ? `[PM] Error: ${result.error}` : (result.reply ?? '')
+              if (useDb && url && key && connectedProject) {
+                const currentMaxSeq = agentSequenceRefs.current.get(convId) ?? 0
+                const nextSeq = currentMaxSeq + 1
+                const supabase = getSupabaseClient(url, key)
+                await supabase.from('hal_conversation_messages').insert({
+                  project_id: connectedProject,
+                  agent: convId,
+                  role: 'assistant',
+                  content: reply,
+                  sequence: nextSeq,
+                })
+                agentSequenceRefs.current.set(convId, nextSeq)
+                const parsed = parseConversationId(convId)
+                if (parsed?.agentRole === 'project-manager' && parsed.instanceNumber === 1) pmMaxSequenceRef.current = nextSeq
+                addMessage(convId, 'project-manager', reply, nextSeq)
               } else {
-                reply = t.syncSuccess
-                  ? `Created ticket **${t.id}** at \`${t.filePath}\`. It should appear in Unassigned.`
-                  : `Created ticket **${t.id}** at \`${t.filePath}\`. Sync to repo failed: ${t.syncError ?? 'unknown'}. You can run \`npm run sync-tickets\` from the repo root.`
+                addMessage(convId, 'project-manager', reply)
               }
-            }
-            if (!reply.trim()) {
-              reply =
-                data.createTicketAvailable === false
-                  ? '[PM] (No response). Create ticket was not available for this request—ensure the project is connected and .env has VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY, then try again.'
-                  : '[PM] (No response). Check whether create_ticket was available and any tool calls were made.'
-            }
-            setAgentTypingTarget(null)
-            if (useDb && supabaseUrl && supabaseAnonKey && connectedProject) {
-              const currentMaxSeq = agentSequenceRefs.current.get(convId) ?? 0
-              const nextSeq = currentMaxSeq + 1
-              const supabase = getSupabaseClient(supabaseUrl, supabaseAnonKey)
-              await supabase.from('hal_conversation_messages').insert({
-                project_id: connectedProject,
-                agent: convId, // Use conversation ID (e.g., "project-manager-1") (0124)
-                role: 'assistant',
-                content: reply,
-                sequence: nextSeq,
-              })
-              agentSequenceRefs.current.set(convId, nextSeq)
-              // Backward compatibility: update pmMaxSequenceRef for PM conversations
-              const parsed = parseConversationId(convId)
-              if (parsed && parsed.agentRole === 'project-manager' && parsed.instanceNumber === 1) {
-                pmMaxSequenceRef.current = nextSeq
-              }
-              addMessage(convId, 'project-manager', reply, nextSeq, undefined, data.promptText)
-            } else {
-              addMessage(convId, 'project-manager', reply, undefined, undefined, data.promptText)
-            }
-            
-            // Refresh working memory after PM agent responds (0173)
-            if (connectedProject && supabaseUrl && supabaseAnonKey) {
-              // Refresh working memory in the background (non-blocking)
-              fetchPmWorkingMemory().catch((err) => {
-                console.warn('[PM] Failed to refresh working memory after response:', err)
-              })
-            }
-            
-            // If a ticket was just created, immediately refresh Kanban data (0133)
-            // Error is non-blocking: if refresh fails, normal polling will pick up the new ticket within 10s
-            if (data.ticketCreationResult) {
-              fetchKanbanData().catch((err) => {
-                console.warn('[HAL] Failed to refresh Kanban after ticket creation (non-blocking):', err)
-                // Continue normal polling; ticket will appear on next poll cycle
-              })
+              break
             }
           } catch (err) {
             setAgentTypingTarget(null)
@@ -3036,11 +2873,11 @@ function App() {
         setProcessReviewAgentProgress((prev) => [...prev, progressEntry])
         addMessage(convId, 'process-review-agent', `[Progress] ${message}`)
       }
-      addProgress('Fetching ticket and artifacts...')
+      addProgress('Launching Process Review agent (Cursor)...')
       setProcessReviewAgentRunStatus('running')
 
       try {
-        const response = await fetch('/api/process-review/run', {
+        const launchRes = await fetch('/api/process-review/launch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -3050,57 +2887,69 @@ function App() {
             supabaseAnonKey: supabaseAnonKey ?? (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? undefined,
           }),
         })
-
-        const result = await response.json()
-
-        if (!result.success) {
+        const launchData = (await launchRes.json()) as { success?: boolean; runId?: string; status?: string; error?: string }
+        if (!launchData.success || !launchData.runId || launchData.status === 'failed') {
           setProcessReviewStatus('failed')
           setProcessReviewAgentRunStatus('failed')
-          const errorMsg = result.error || 'Unknown error'
+          const errorMsg = launchData.error || 'Launch failed'
           setProcessReviewMessage(`Process Review failed: ${errorMsg}`)
           setProcessReviewAgentError(errorMsg)
           addMessage(convId, 'process-review-agent', `[Process Review] ❌ Failed: ${errorMsg}`)
           return
         }
 
-        // Success - Process Review completed, show recommendations in modal (0484)
-        const suggestionCount = result.suggestions?.length || 0
-        const reviewId = result.reviewId || null
-        
-        if (suggestionCount > 0 && result.suggestions) {
-          // Show recommendations in modal instead of auto-creating tickets (0484)
-          const recommendations = result.suggestions.map((s: { text: string; justification: string }, idx: number) => ({
+        addProgress('Process Review agent running. Polling status...')
+        const runId = launchData.runId
+        let lastStatus: string
+        let suggestions: Array<{ text: string; justification: string }> = []
+        let reviewId: string | null = null
+        for (;;) {
+          await new Promise((r) => setTimeout(r, 4000))
+          const r = await fetch(`/api/agent-runs/status?runId=${encodeURIComponent(runId)}`, { credentials: 'include' })
+          const pollData = (await r.json()) as { status?: string; error?: string; suggestions?: Array<{ text: string; justification: string }> }
+          lastStatus = String(pollData.status ?? '')
+          if (pollData.suggestions) suggestions = pollData.suggestions
+          if (lastStatus === 'failed') {
+            setProcessReviewStatus('failed')
+            setProcessReviewAgentRunStatus('failed')
+            const errorMsg = pollData.error || 'Unknown error'
+            setProcessReviewMessage(`Process Review failed: ${errorMsg}`)
+            setProcessReviewAgentError(errorMsg)
+            addMessage(convId, 'process-review-agent', `[Process Review] ❌ Failed: ${errorMsg}`)
+            return
+          }
+          if (lastStatus === 'finished') break
+        }
+
+        const suggestionCount = suggestions?.length || 0
+        if (suggestionCount > 0 && suggestions) {
+          const recommendations = suggestions.map((s: { text: string; justification: string }, idx: number) => ({
             text: s.text,
             justification: s.justification,
-            id: `rec-${Date.now()}-${idx}`, // Unique ID for tracking
-            error: undefined,
+            id: `rec-${Date.now()}-${idx}`,
+            error: undefined as string | undefined,
             isCreating: false,
           }))
-          
           setProcessReviewRecommendations(recommendations)
           setProcessReviewModalTicketPk(data.ticketPk)
           setProcessReviewModalTicketId(data.ticketId || null)
           setProcessReviewModalReviewId(reviewId)
-          
+
           setProcessReviewStatus('completed')
           setProcessReviewAgentRunStatus('completed')
           const successMsg = `Process Review completed for ticket ${ticketDisplayId}. ${suggestionCount} recommendation${suggestionCount !== 1 ? 's' : ''} ready for review.`
           setProcessReviewMessage(successMsg)
           addMessage(convId, 'process-review-agent', `[Process Review] ✅ ${successMsg}\n\nReview the recommendations in the modal and click "Implement" to create tickets.`)
         } else {
-          // No suggestions - mark as completed
           setProcessReviewStatus('completed')
           setProcessReviewAgentRunStatus('completed')
           const successMsg = `Process Review completed for ticket ${ticketDisplayId}. No recommendations found.`
           setProcessReviewMessage(successMsg)
           addMessage(convId, 'process-review-agent', `[Process Review] ✅ ${successMsg}`)
-          
-          // Move Process Review ticket to Done after completion (0167)
+
           const doneCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-done').length
           await handleKanbanMoveTicket(data.ticketPk, 'col-done', doneCount)
           addProgress('Process Review ticket moved to Done')
-          
-          // Reset after 5 seconds (Kanban banner only)
           setTimeout(() => {
             setProcessReviewStatus('idle')
             setProcessReviewMessage(null)
@@ -3369,8 +3218,6 @@ function App() {
     setAutoMoveDiagnostics([])
     setCursorRunAgentType(null)
     setOrphanedCompletionSummary(null)
-    // Clear working memory on disconnect (0173)
-    setPmWorkingMemory(null)
     setPmWorkingMemoryOpen(false)
     // Do NOT remove localStorage items on disconnect (0097: preserve chats and agent status across disconnect/reconnect)
     // They will be restored when reconnecting to the same repo
@@ -3928,161 +3775,7 @@ function App() {
                   </div>
                 </div>
                 <div className="chat-window-content">
-                  {/* Working Memory Panel (0173) - only for PM agent */}
-                  {openChatTarget === 'project-manager' && connectedProject && supabaseUrl && supabaseAnonKey && (
-                    <div className={`working-memory-panel ${workingMemoryOpen ? 'working-memory-open' : ''}`}>
-                      <div className="working-memory-header">
-                        <button
-                          type="button"
-                          className="working-memory-toggle"
-                          onClick={() => {
-                            setWorkingMemoryOpen(!workingMemoryOpen)
-                            if (!workingMemoryOpen && !workingMemory && !workingMemoryLoading) {
-                              loadWorkingMemory()
-                            }
-                          }}
-                          aria-label={workingMemoryOpen ? 'Hide working memory' : 'Show working memory'}
-                        >
-                          <span className="working-memory-icon">{workingMemoryOpen ? '▼' : '▶'}</span>
-                          <span>PM Working Memory</span>
-                        </button>
-                        {workingMemoryOpen && (
-                          <button
-                            type="button"
-                            className="working-memory-refresh"
-                            onClick={() => refreshWorkingMemory()}
-                            disabled={workingMemoryLoading}
-                            aria-label="Refresh working memory"
-                            title="Refresh working memory now"
-                          >
-                            ↻
-                          </button>
-                        )}
-                      </div>
-                      {workingMemoryOpen && (
-                        <div className="working-memory-content">
-                          {workingMemoryLoading && <div className="working-memory-loading">Loading...</div>}
-                          {workingMemoryError && (
-                            <div className="working-memory-error" role="alert">
-                              Error: {workingMemoryError}
-                            </div>
-                          )}
-                          {!workingMemoryLoading && !workingMemoryError && workingMemory && (
-                            <div className="working-memory-body">
-                              {workingMemory.lastUpdatedAt && (
-                                <div className="working-memory-timestamp">
-                                  Last updated: {new Date(workingMemory.lastUpdatedAt).toLocaleString()}
-                                </div>
-                              )}
-                              {workingMemory.summary && (
-                                <div className="working-memory-section">
-                                  <h4>Summary</h4>
-                                  <p>{workingMemory.summary}</p>
-                                </div>
-                              )}
-                              {workingMemory.goals.length > 0 && (
-                                <div className="working-memory-section">
-                                  <h4>Goals</h4>
-                                  <ul>
-                                    {workingMemory.goals.map((goal, i) => (
-                                      <li key={i}>{goal}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                              {workingMemory.requirements.length > 0 && (
-                                <div className="working-memory-section">
-                                  <h4>Requirements</h4>
-                                  <ul>
-                                    {workingMemory.requirements.map((req, i) => (
-                                      <li key={i}>{req}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                              {workingMemory.constraints.length > 0 && (
-                                <div className="working-memory-section">
-                                  <h4>Constraints</h4>
-                                  <ul>
-                                    {workingMemory.constraints.map((constraint, i) => (
-                                      <li key={i}>{constraint}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                              {workingMemory.decisions.length > 0 && (
-                                <div className="working-memory-section">
-                                  <h4>Decisions</h4>
-                                  <ul>
-                                    {workingMemory.decisions.map((decision, i) => (
-                                      <li key={i}>{decision}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                              {workingMemory.assumptions.length > 0 && (
-                                <div className="working-memory-section">
-                                  <h4>Assumptions</h4>
-                                  <ul>
-                                    {workingMemory.assumptions.map((assumption, i) => (
-                                      <li key={i}>{assumption}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                              {workingMemory.openQuestions.length > 0 && (
-                                <div className="working-memory-section">
-                                  <h4>Open Questions</h4>
-                                  <ul>
-                                    {workingMemory.openQuestions.map((question, i) => (
-                                      <li key={i}>{question}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                              {workingMemory.stakeholders.length > 0 && (
-                                <div className="working-memory-section">
-                                  <h4>Stakeholders</h4>
-                                  <ul>
-                                    {workingMemory.stakeholders.map((stakeholder, i) => (
-                                      <li key={i}>{stakeholder}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                              {Object.keys(workingMemory.glossary).length > 0 && (
-                                <div className="working-memory-section">
-                                  <h4>Glossary</h4>
-                                  <dl>
-                                    {Object.entries(workingMemory.glossary).map(([term, def]) => (
-                                      <div key={term}>
-                                        <dt>{term}</dt>
-                                        <dd>{def}</dd>
-                                      </div>
-                                    ))}
-                                  </dl>
-                                </div>
-                              )}
-                              {!workingMemory.summary &&
-                                workingMemory.goals.length === 0 &&
-                                workingMemory.requirements.length === 0 &&
-                                workingMemory.constraints.length === 0 &&
-                                workingMemory.decisions.length === 0 &&
-                                workingMemory.assumptions.length === 0 &&
-                                workingMemory.openQuestions.length === 0 &&
-                                workingMemory.stakeholders.length === 0 &&
-                                Object.keys(workingMemory.glossary).length === 0 && (
-                                  <div className="working-memory-empty">No working memory data yet. It will be generated automatically as the conversation grows.</div>
-                                )}
-                            </div>
-                          )}
-                          {!workingMemoryLoading && !workingMemoryError && !workingMemory && (
-                            <div className="working-memory-empty">No working memory found. Click refresh to generate it.</div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  {/* PM Working Memory panel removed — PM now uses Cursor agent (context handled by Cursor) */}
                   {/* Render the chat UI here - same as the right panel chat */}
                   {chatPanelContent}
                   {/* duplicate chat panel IIFE removed - content is in chatPanelContent */}

@@ -6,7 +6,7 @@ import {
 } from '../_lib/github/githubApi.js'
 import { getServerSupabase, appendProgress, upsertArtifact, buildWorklogBodyFromProgress, type ProgressEntry } from './_shared.js'
 
-type AgentType = 'implementation' | 'qa'
+type AgentType = 'implementation' | 'qa' | 'project-manager' | 'process-review'
 
 function getCursorApiKey(): string {
   const key = (process.env.CURSOR_API_KEY || process.env.VITE_CURSOR_API_KEY || '').trim()
@@ -117,11 +117,16 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     const cursorStatus = statusData.status ?? (run as any).cursor_status ?? 'RUNNING'
+    const agentType = (run as any).agent_type as AgentType
+    const repoFullName = (run as any).repo_full_name as string
+    const ticketPk = (run as any).ticket_pk as string | null
+    const displayId = ((run as any).display_id as string) ?? ''
     let nextStatus = 'polling'
     let summary: string | null = null
     let prUrl: string | null = (run as any).pr_url ?? null
     let errMsg: string | null = null
     let finishedAt: string | null = null
+    let processReviewSuggestions: Array<{ text: string; justification: string }> | null = null
 
     if (cursorStatus === 'FINISHED') {
       nextStatus = 'finished'
@@ -132,8 +137,55 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       if (!prUrl && repo && branchName) {
         prUrl = `https://github.com/${repo}/tree/${encodeURIComponent(branchName)}`
       }
-      if (!prUrl) console.warn('[agent-runs] FINISHED but no prUrl in Cursor response. target=', JSON.stringify(statusData.target))
+      if (!prUrl && agentType === 'implementation') console.warn('[agent-runs] FINISHED but no prUrl in Cursor response. target=', JSON.stringify(statusData.target))
       finishedAt = new Date().toISOString()
+
+      // Process-review: fetch conversation, parse JSON suggestions, store in process_reviews
+      if (agentType === 'process-review' && ticketPk) {
+        const cursorAgentId = (run as any).cursor_agent_id as string
+        if (cursorAgentId) {
+          try {
+            const convRes = await fetch(`https://api.cursor.com/v0/agents/${cursorAgentId}/conversation`, {
+              method: 'GET',
+              headers: { Authorization: `Basic ${auth}` },
+            })
+            const convText = await convRes.text()
+            if (convRes.ok && convText) {
+              const conv = JSON.parse(convText) as { messages?: Array<{ role?: string; content?: string }> }
+              const messages = conv.messages ?? []
+              const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant' && m.content)
+              const content = lastAssistant?.content ?? ''
+              const jsonMatch = content.match(/\[[\s\S]*\]/)
+              const jsonStr = jsonMatch ? jsonMatch[0] : ''
+              let suggestions: Array<{ text: string; justification: string }> = []
+              if (jsonStr) {
+                try {
+                  const parsed = JSON.parse(jsonStr) as unknown[]
+                  if (Array.isArray(parsed)) {
+                    suggestions = parsed
+                      .filter((item): item is { text?: string; justification?: string } => item != null && typeof item === 'object')
+                      .filter((item) => typeof item.text === 'string' && typeof item.justification === 'string')
+                      .map((item) => ({ text: String(item.text).trim(), justification: String(item.justification).trim() }))
+                  }
+                } catch {
+                  // ignore parse error
+                }
+              }
+              processReviewSuggestions = suggestions
+              const repoFullNameForReview = (run as any).repo_full_name as string
+              await supabase.from('process_reviews').insert({
+                ticket_pk: ticketPk,
+                repo_full_name: repoFullNameForReview,
+                suggestions,
+                status: 'success',
+                error_message: null,
+              })
+            }
+          } catch (e) {
+            console.warn('[agent-runs] process-review conversation fetch/parse failed:', e instanceof Error ? e.message : e)
+          }
+        }
+      }
     } else if (cursorStatus === 'FAILED' || cursorStatus === 'CANCELLED' || cursorStatus === 'ERROR') {
       nextStatus = 'failed'
       errMsg = statusData.summary ?? `Agent ended with status ${cursorStatus}.`
@@ -143,9 +195,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const progress = appendProgress((run as any).progress, `Status: ${cursorStatus}`) as ProgressEntry[]
 
     // Implementation runs: update worklog artifact on every poll (so we have a trail even if agent crashes)
-    const repoFullName = (run as any).repo_full_name as string
-    const ticketPk = (run as any).ticket_pk as string | null
-    const displayId = ((run as any).display_id as string) ?? ''
     if (
       ((run as any).agent_type as AgentType) === 'implementation' &&
       repoFullName &&
@@ -250,7 +299,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
-    json(res, 200, updated ?? run)
+    const payload = updated ?? run
+    if (processReviewSuggestions != null) {
+      json(res, 200, { ...(payload as object), suggestions: processReviewSuggestions })
+      return
+    }
+    json(res, 200, payload)
   } catch (err) {
     json(res, 500, { error: err instanceof Error ? err.message : String(err) })
   }
