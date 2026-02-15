@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { getMetricColor, getInitialTheme, THEME_STORAGE_KEY, type Theme } from './metricColor'
+import { getMetricColor, getInitialTheme, THEME_STORAGE_KEY } from './metricColor'
+import type { Theme } from '../types/hal'
 
 // Mock localStorage
 const localStorageMock = (() => {

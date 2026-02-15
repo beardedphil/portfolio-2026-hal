@@ -2,6 +2,8 @@
  * Helper module for calculating QA metric colors and theme initialization.
  */
 
+import type { Theme } from '../types/hal'
+
 /**
  * Calculate color gradient from red (0%) to green (100%) for QA metrics.
  * Returns gray for null values.
@@ -27,8 +29,6 @@ export function getMetricColor(percentage: number | null): string {
   const b = Math.round(greenRed + (greenGreen - greenRed) * (percentage / 100))
   return `rgb(${r}, ${g}, ${b})`
 }
-
-export type Theme = 'light' | 'dark'
 
 export const THEME_STORAGE_KEY = 'hal-theme'
 
