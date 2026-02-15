@@ -4,19 +4,15 @@
   "files": [
     {
       "file": "src/App.tsx",
-      "baseline": 5173
+      "baseline": 5146
     },
     {
       "file": "projects/kanban/src/App.tsx",
-      "baseline": 4418
+      "baseline": 4137
     },
     {
       "file": "agents/src/agents/projectManager.ts",
       "baseline": 3590
-    },
-    {
-      "file": "src/AgentInstructionsViewer.tsx",
-      "baseline": 747
     },
     {
       "file": "api/implementation-agent/run.ts",
@@ -25,10 +21,6 @@
     {
       "file": "api/instructions/migrate-process-docs.ts",
       "baseline": 434
-    },
-    {
-      "file": "src/lib/conversationStorage.test.ts",
-      "baseline": 423
     },
     {
       "file": "api/tickets/create.ts",
@@ -45,10 +37,6 @@
     {
       "file": "scripts/migrate-process-docs-to-supabase.js",
       "baseline": 377
-    },
-    {
-      "file": "api/_lib/github/githubApi.test.ts",
-      "baseline": 369
     },
     {
       "file": "api/process-review/create-tickets.ts",
@@ -139,8 +127,16 @@
       "baseline": 260
     },
     {
+      "file": "scripts/generate-overcomplication-section.js",
+      "baseline": 260
+    },
+    {
       "file": "projects/kanban/src/components/ProcessReviewSection.tsx",
       "baseline": 258
+    },
+    {
+      "file": "scripts/generate-overcomplication-section.js",
+      "baseline": 260
     }
   ]
 }
