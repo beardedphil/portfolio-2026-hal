@@ -5348,8 +5348,8 @@ function App() {
                             {workingMemory && workingMemory.glossary && (() => {
                               const wm = workingMemory!
                               return Object.keys(wm.glossary || {}).length > 0
-                            })() && (() => {
-                              const wm = workingMemory!
+                            })() && workingMemory && (() => {
+                              const wm = workingMemory
                               return (
                                 <div style={{ marginBottom: '12px' }}>
                                   <strong>Glossary:</strong>
@@ -5367,8 +5367,8 @@ function App() {
                             {workingMemory && workingMemory.stakeholders && (() => {
                               const wm = workingMemory!
                               return wm.stakeholders.length > 0
-                            })() && (() => {
-                              const wm = workingMemory!
+                            })() && workingMemory && (() => {
+                              const wm = workingMemory
                               return (
                                 <div style={{ marginBottom: '12px' }}>
                                   <strong>Stakeholders:</strong>
