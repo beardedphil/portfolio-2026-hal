@@ -37,7 +37,7 @@ import {
   checkMergedToMain,
   normalizeTitleLineInBody,
 } from './lib/ticketBody'
-import { normalizeTicketRow, type SupabaseTicketRow as NormalizedSupabaseTicketRow } from './lib/normalizeTicketRow'
+import { normalizeTicketRow } from './lib/normalizeTicketRow'
 import { canonicalizeColumnRows, type SupabaseKanbanColumnRow } from './lib/canonicalizeColumns'
 import { TicketDetailModal } from './components/TicketDetailModal'
 import { QAInfoSection } from './components/QAInfoSection'
