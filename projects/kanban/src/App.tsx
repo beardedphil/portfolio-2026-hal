@@ -860,14 +860,16 @@ function StatusIndicator({
         const viewportWidth = window.innerWidth
         const viewportHeight = window.innerHeight
         
-        // Find the closest scrollable container (active-work-item, active-work-items, or document)
-        let container = indicator.closest('.active-work-item') || indicator.closest('.active-work-items')
+        // 0676: Use active-work-items container (not active-work-item) to allow tooltip to extend over neighboring cards
+        // Find the parent container that holds all Active Work cards
+        let container = indicator.closest('.active-work-items')
         let containerRect: DOMRect | null = null
         if (container) {
           containerRect = container.getBoundingClientRect()
         }
         
         // Use container boundaries if available, otherwise use viewport
+        // This allows tooltip to extend over neighboring cards within the active-work-items container
         const maxRight = containerRect ? containerRect.right : viewportWidth
         const maxBottom = containerRect ? containerRect.bottom : viewportHeight
         const minLeft = containerRect ? containerRect.left : 0
