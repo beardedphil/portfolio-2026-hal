@@ -4,6 +4,7 @@ import * as Kanban from 'portfolio-2026-kanban'
 import type { KanbanTicketRow, KanbanColumnRow, KanbanAgentRunRow, KanbanBoardProps } from 'portfolio-2026-kanban'
 import 'portfolio-2026-kanban/style.css'
 import { AgentInstructionsViewer } from './AgentInstructionsViewer'
+import { getConversationId, parseConversationId } from './utils/conversationId'
 
 const KanbanBoard = Kanban.default
 const _kanbanBuild = (Kanban as unknown as { KANBAN_BUILD?: string }).KANBAN_BUILD
@@ -171,21 +172,6 @@ type SerializedMessage = Omit<Message, 'timestamp' | 'imageAttachments'> & {
 type SerializedConversation = Omit<Conversation, 'messages' | 'createdAt'> & {
   messages: SerializedMessage[]
   createdAt: string
-}
-
-// Generate conversation ID for an agent role and instance number (0070)
-function getConversationId(agentRole: Agent, instanceNumber: number): string {
-  return `${agentRole}-${instanceNumber}`
-}
-
-// Parse conversation ID to get agent role and instance number (0070)
-function parseConversationId(conversationId: string): { agentRole: Agent; instanceNumber: number } | null {
-  const match = conversationId.match(/^(project-manager|implementation-agent|qa-agent|process-review-agent)-(\d+)$/)
-  if (!match) return null
-  return {
-    agentRole: match[1] as Agent,
-    instanceNumber: parseInt(match[2], 10),
-  }
 }
 
 // Get next instance number for an agent role (0070)
@@ -4753,6 +4739,10 @@ function App() {
                 <div className="diag-row">
                   <span className="diag-label">Chat target:</span>
                   <span className="diag-value">{diagnostics.selectedChatTarget}</span>
+                </div>
+                <div className="diag-row">
+                  <span className="diag-label">Current conversation ID:</span>
+                  <span className="diag-value">{selectedConversationId ?? '—'}</span>
                 </div>
                 <div className="diag-row">
                   <span className="diag-label">PM implementation source:</span>
