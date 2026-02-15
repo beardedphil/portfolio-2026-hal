@@ -103,6 +103,7 @@ export type DiagnosticsInfo = {
   lastSendPayloadSummary: string | null
   repoInspectionAvailable: boolean
   kanbanBuild: string
+  unitTestsConfigured: boolean
 }
 
 export type GithubAuthMe = {

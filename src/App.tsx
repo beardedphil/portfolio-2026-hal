@@ -126,6 +126,8 @@ type DiagnosticsInfo = {
   lastSendPayloadSummary: string | null
   /** True when GitHub repo is connected; enables PM agent read_file/search_files via GitHub API. */
   repoInspectionAvailable: boolean
+  /** Unit tests configuration status (0548). */
+  unitTestsConfigured: boolean
 }
 
 type GithubAuthMe = {
@@ -3558,6 +3560,7 @@ function App() {
     themeSource,
     lastSendPayloadSummary,
     repoInspectionAvailable: !!connectedGithubRepo?.fullName,
+    unitTestsConfigured: true,
   }
 
   const kanbanBoardProps: KanbanBoardProps = {
@@ -4821,6 +4824,18 @@ function App() {
                     {diagnostics.persistenceError ?? 'none'}
                   </span>
                 </div>
+                <div className="diag-row">
+                  <span className="diag-label">Unit tests:</span>
+                  <span className="diag-value" data-status={diagnostics.unitTestsConfigured ? 'ok' : 'error'}>
+                    {diagnostics.unitTestsConfigured ? 'configured (Vitest)' : 'not configured'}
+                  </span>
+                </div>
+                {diagnostics.unitTestsConfigured && (
+                  <div className="diag-row" style={{ fontSize: '0.9em', color: '#666', fontStyle: 'italic', marginTop: '-8px', marginBottom: '8px' }}>
+                    <span className="diag-label" style={{ visibility: 'hidden' }}>Unit tests:</span>
+                    <span className="diag-value">This project is set up for unit tests to keep refactors safe.</span>
+                  </div>
+                )}
                 {selectedChatTarget === 'project-manager' && (
                   <>
                     <div className="diag-row">
