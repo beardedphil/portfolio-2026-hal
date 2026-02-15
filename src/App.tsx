@@ -5332,27 +5332,42 @@ function App() {
                                 <div style={{ marginTop: '4px', whiteSpace: 'pre-wrap' }}>{workingMemory.assumptions}</div>
                               </div>
                             )}
-                            {workingMemory.open_questions && (
+                            {workingMemory.openQuestions && workingMemory.openQuestions.length > 0 && (
                               <div style={{ marginBottom: '12px' }}>
                                 <strong>Open Questions:</strong>
-                                <div style={{ marginTop: '4px', whiteSpace: 'pre-wrap' }}>{workingMemory.open_questions}</div>
+                                <ul style={{ marginTop: '4px', paddingLeft: '20px' }}>
+                                  {workingMemory.openQuestions.map((q, idx) => (
+                                    <li key={idx}>{q}</li>
+                                  ))}
+                                </ul>
                               </div>
                             )}
-                            {workingMemory.glossary_terms && (
+                            {workingMemory.glossary && Object.keys(workingMemory.glossary).length > 0 && (
                               <div style={{ marginBottom: '12px' }}>
-                                <strong>Glossary/Terms:</strong>
-                                <div style={{ marginTop: '4px', whiteSpace: 'pre-wrap' }}>{workingMemory.glossary_terms}</div>
+                                <strong>Glossary:</strong>
+                                <dl style={{ marginTop: '4px', paddingLeft: '20px' }}>
+                                  {Object.entries(workingMemory.glossary).map(([term, def]) => (
+                                    <React.Fragment key={term}>
+                                      <dt style={{ fontWeight: 'bold' }}>{term}:</dt>
+                                      <dd style={{ marginLeft: '20px', marginBottom: '4px' }}>{def}</dd>
+                                    </React.Fragment>
+                                  ))}
+                                </dl>
                               </div>
                             )}
-                            {workingMemory.stakeholders && (
+                            {workingMemory.stakeholders && workingMemory.stakeholders.length > 0 && (
                               <div style={{ marginBottom: '12px' }}>
                                 <strong>Stakeholders:</strong>
-                                <div style={{ marginTop: '4px', whiteSpace: 'pre-wrap' }}>{workingMemory.stakeholders}</div>
+                                <ul style={{ marginTop: '4px', paddingLeft: '20px' }}>
+                                  {workingMemory.stakeholders.map((s, idx) => (
+                                    <li key={idx}>{s}</li>
+                                  ))}
+                                </ul>
                               </div>
                             )}
                             {!workingMemory.summary && !workingMemory.goals && !workingMemory.requirements && 
                              !workingMemory.constraints && !workingMemory.decisions && !workingMemory.assumptions && 
-                             !workingMemory.open_questions && !workingMemory.glossary_terms && !workingMemory.stakeholders && (
+                             !workingMemory.openQuestions && !workingMemory.glossary && Object.keys(workingMemory.glossary).length === 0 && !workingMemory.stakeholders && (
                               <div style={{ color: '#666', fontStyle: 'italic' }}>
                                 Working memory is empty. It will be populated automatically as the conversation grows.
                               </div>
