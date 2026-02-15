@@ -176,8 +176,6 @@ interface PmAgentResponse {
     output: unknown
   }>
   outboundRequest: object | null
-  /** OpenAI Responses API response id for continuity (send as previous_response_id on next turn). */
-  responseId?: string
   error?: string
   errorPhase?: 'context-pack' | 'openai' | 'tool' | 'not-implemented'
   /** When create_ticket succeeded: id, file path, sync result; retried/attempts when collision retry (0023). */
@@ -208,53 +206,6 @@ export default defineConfig({
         // Pre-build hal-agents at dev server start so first /api/pm/check-unassigned is fast (avoids "Failed to fetch" from long build)
         const repoRoot = path.resolve(__dirname)
         spawn('npm', ['run', 'build:agents'], { cwd: repoRoot, stdio: ['ignore', 'ignore', 'ignore'] }).on('error', () => {})
-      },
-    },
-    {
-      name: 'openai-responses-proxy',
-      configureServer(server) {
-        server.middlewares.use(async (req, res, next) => {
-          if (req.url !== '/api/openai/responses' || req.method !== 'POST') {
-            next()
-            return
-          }
-          try {
-            const body = (await readJsonBody(req)) as { input?: string }
-            const key = process.env.OPENAI_API_KEY
-            const model = process.env.OPENAI_MODEL
-            if (!key || !model) {
-              res.statusCode = 503
-              res.setHeader('Content-Type', 'application/json')
-              res.end(
-                JSON.stringify({
-                  error:
-                    'OpenAI API is not configured. Set OPENAI_API_KEY and OPENAI_MODEL in .env.',
-                })
-              )
-              return
-            }
-            const openaiRes = await fetch('https://api.openai.com/v1/responses', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${key}`,
-              },
-              body: JSON.stringify({ model, input: body.input ?? '' }),
-            })
-            const text = await openaiRes.text()
-            res.statusCode = openaiRes.status
-            res.setHeader('Content-Type', 'application/json')
-            res.end(text)
-          } catch (err) {
-            res.statusCode = 500
-            res.setHeader('Content-Type', 'application/json')
-            res.end(
-              JSON.stringify({
-                error: err instanceof Error ? err.message : String(err),
-              })
-            )
-          }
-        })
       },
     },
     {
@@ -342,19 +293,20 @@ export default defineConfig({
       },
     },
     {
-      name: 'pm-agent-endpoint',
+      name: 'pm-working-memory-refresh-endpoint',
       configureServer(server) {
         server.middlewares.use(async (req, res, next) => {
-          if (req.url !== '/api/pm/respond' || req.method !== 'POST') {
+          if (req.url !== '/api/pm/working-memory/refresh' || req.method !== 'POST') {
             next()
             return
           }
 
           try {
             const body = (await readJsonBody(req)) as {
-              message?: string
-              conversationHistory?: Array<{ role: string; content: string }>
-              previous_response_id?: string
+              projectId?: string
+              conversationId?: string
+              supabaseUrl?: string
+              supabaseAnonKey?: string
               projectId?: string
               supabaseUrl?: string
               supabaseAnonKey?: string
