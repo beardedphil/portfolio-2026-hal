@@ -146,6 +146,28 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       }
     }
 
+    // Fetch Implementation agent note (QA failure summary) if present — inject into prompt so agent sees exact failure reason
+    let implementationAgentNote: string | null = null
+    try {
+      const { data: qaArtifacts } = await supabase
+        .from('agent_artifacts')
+        .select('title, body_md')
+        .eq('ticket_pk', ticketPk)
+        .eq('agent_type', 'qa')
+        .order('created_at', { ascending: false })
+      const noteArtifact = (qaArtifacts || []).find(
+        (a: { title?: string }) =>
+          a.title &&
+          (a.title.toLowerCase().includes('implementation agent note') ||
+            a.title.toLowerCase().includes('note for implementation agent'))
+      ) as { title?: string; body_md?: string } | undefined
+      if (noteArtifact?.body_md && noteArtifact.body_md.trim().length > 0) {
+        implementationAgentNote = noteArtifact.body_md.trim()
+      }
+    } catch {
+      // Non-fatal: continue without injected note
+    }
+
     // Build prompt
     const goalMatch = bodyMd.match(/##\s*Goal\s*\([^)]*\)\s*\n([\s\S]*?)(?=\n##|$)/i)
     const deliverableMatch = bodyMd.match(/##\s*Human-verifiable deliverable[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
@@ -159,6 +181,35 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     
     // Determine HAL API URL (use environment variable or default to localhost)
     const halApiUrl = process.env.HAL_API_URL || process.env.APP_ORIGIN || 'http://localhost:5173'
+    
+    // Failure notes section: inject Implementation agent note when available (concise QA summary for failed tickets)
+    const failureNotesSection = implementationAgentNote
+      ? [
+          '## IMPORTANT: Previous QA Failure — Implementation Agent Note',
+          '',
+          '**This ticket previously failed QA. The following note from QA explains what went wrong and what you must fix:**',
+          '',
+          '```',
+          implementationAgentNote,
+          '```',
+          '',
+          '**You MUST address every issue and required action above. Do NOT simply re-implement the same solution.**',
+          '',
+        ]
+      : [
+          '## IMPORTANT: Read Failure Notes Before Starting',
+          '',
+          '**BEFORE you start implementing, you MUST:**',
+          '',
+          '1. **Read the full ticket body above** - Look for any failure notes, QA feedback, or comments that explain why this ticket was previously failed or moved back to To Do.',
+          '',
+          '2. **Check for QA artifacts** - Call the HAL API to fetch all artifacts for this ticket. Look for QA reports (agent_type: "qa") that may contain failure reasons or feedback.',
+          '',
+          '3. **Address any failure reasons** - If the ticket was previously failed, you MUST read and address the specific issues mentioned in QA reports or ticket notes. Do NOT simply re-implement the same solution.',
+          '',
+          isBackInTodo ? '**⚠️ This ticket is back in To Do - it may have been moved back after a failure. Check for QA reports and failure notes before starting.**' : '',
+          '',
+        ]
     
     const promptText = [
       'Implement this ticket.',
@@ -183,17 +234,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       bodyMd,
       '```',
       '',
-      '## IMPORTANT: Read Failure Notes Before Starting',
-      '',
-      '**BEFORE you start implementing, you MUST:**',
-      '',
-      '1. **Read the full ticket body above** - Look for any failure notes, QA feedback, or comments that explain why this ticket was previously failed or moved back to To Do.',
-      '',
-      '2. **Check for QA artifacts** - Call the HAL API to fetch all artifacts for this ticket. Look for QA reports (agent_type: "qa") that may contain failure reasons or feedback.',
-      '',
-      '3. **Address any failure reasons** - If the ticket was previously failed, you MUST read and address the specific issues mentioned in QA reports or ticket notes. Do NOT simply re-implement the same solution.',
-      '',
-      isBackInTodo ? '**⚠️ This ticket is back in To Do - it may have been moved back after a failure. Check for QA reports and failure notes before starting.**' : '',
+      ...failureNotesSection,
       '',
       '## MANDATORY: Store All Required Artifacts',
       '',
