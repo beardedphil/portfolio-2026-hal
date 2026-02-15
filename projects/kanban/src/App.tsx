@@ -2076,7 +2076,7 @@ function SortableColumn({
       }
     }
     // Iframe/standalone: For QA agent, move all tickets from QA to Active Work (col-doing) when QA All Tickets clicked (0616)
-    if (buttonConfig.chatTarget === 'qa-agent' && supabaseBoardActive && updateSupabaseTicketKanban && refetchSupabaseTickets) {
+    if (buttonConfig.chatTarget === 'qa-agent' && supabaseBoardActive && updateSupabaseTicketKanban && refetchSupabaseTickets && supabaseTickets) {
       // Get all tickets in col-qa column
       const qaTickets = supabaseTickets.filter((t) => t.kanban_column_id === 'col-qa')
       
