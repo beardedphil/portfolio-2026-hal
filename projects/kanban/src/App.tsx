@@ -1174,60 +1174,59 @@ function SortableColumn({
 
     // Library mode: HAL owns data; tell HAL to open chat (HAL will move ticket to Doing for Implement if needed)
     // For QA All Tickets, launch QA for tickets sequentially
-    if (halCtx?.onOpenChatAndSend && buttonConfig.chatTarget) {
+    // Library mode: QA All Tickets - process sequentially
+    if (halCtx?.onOpenChatAndSend && buttonConfig.chatTarget && col.id === 'col-qa' && buttonConfig.chatTarget === 'qa-agent') {
       const onOpenChatAndSend = halCtx.onOpenChatAndSend
-      if (col.id === 'col-qa' && buttonConfig.chatTarget === 'qa-agent') {
-        // Launch QA for tickets sequentially (one at a time, wait for each to move)
-        const processNextTicket = async () => {
-          // Get fresh tickets from halCtx (library mode) or supabaseTickets
-          let currentQaTickets: string[] = []
-          if (halCtx?.tickets) {
-            // Library mode: get fresh tickets from halCtx
-            currentQaTickets = halCtx.tickets
-              .filter((t) => t.kanban_column_id === 'col-qa')
-              .map((t) => t.pk)
-          } else if (supabaseBoardActive && supabaseTickets) {
-            // Supabase mode: use supabaseTickets (will be refetched in iframe handler)
-            currentQaTickets = supabaseTickets.filter((t) => t.kanban_column_id === 'col-qa').map((t) => t.pk)
-          } else {
-            // Fallback: use col.cardIds
-            currentQaTickets = col.cardIds
-          }
-          
-          if (currentQaTickets.length === 0) {
-            return // No more tickets to process
-          }
-          
-          // Process the top ticket (first one)
-          const topTicketPk = currentQaTickets[0]
-          const card = cards[topTicketPk]
-          const ticketRef = card?.displayId ?? extractTicketId(topTicketPk) ?? topTicketPk
-          
-          // Launch QA for this ticket
-          onOpenChatAndSend({
-            chatTarget: buttonConfig.chatTarget as import('./HalKanbanContext').HalChatTarget,
-            message: `QA ticket ${ticketRef}.`,
-            ticketPk: topTicketPk,
-          })
-          
-          // Wait a bit for the ticket to move, then process next ticket
-          setTimeout(() => {
-            processNextTicket()
-          }, 2000) // Wait 2 seconds before processing next ticket
+      // Launch QA for tickets sequentially (one at a time, wait for each to move)
+      const processNextTicket = async () => {
+        // Get fresh tickets from halCtx (library mode)
+        let currentQaTickets: string[] = []
+        if (halCtx?.tickets) {
+          // Library mode: get fresh tickets from halCtx
+          currentQaTickets = halCtx.tickets
+            .filter((t) => t.kanban_column_id === 'col-qa')
+            .map((t) => t.pk)
+        } else {
+          // Fallback: use col.cardIds (might be stale, but better than nothing)
+          currentQaTickets = col.cardIds
         }
         
-        // Start processing
-        processNextTicket()
-        return
-      } else {
-        // For other columns, use single ticket behavior
+        if (currentQaTickets.length === 0) {
+          return // No more tickets to process
+        }
+        
+        // Process the top ticket (first one)
+        const topTicketPk = currentQaTickets[0]
+        const card = cards[topTicketPk]
+        const ticketRef = card?.displayId ?? extractTicketId(topTicketPk) ?? topTicketPk
+        
+        // Launch QA for this ticket
         onOpenChatAndSend({
           chatTarget: buttonConfig.chatTarget as import('./HalKanbanContext').HalChatTarget,
-          message: buttonConfig.message,
-          ticketPk: firstCardId ?? undefined,
+          message: `QA ticket ${ticketRef}.`,
+          ticketPk: topTicketPk,
         })
-        return
+        
+        // Wait a bit for the ticket to move, then process next ticket
+        // Note: In library mode, HAL will update halCtx.tickets, so next iteration will see updated data
+        setTimeout(() => {
+          processNextTicket()
+        }, 2000) // Wait 2 seconds before processing next ticket
       }
+      
+      // Start processing
+      processNextTicket()
+      return
+    }
+
+    // Library mode: For other columns (not QA All Tickets), use single ticket behavior
+    if (halCtx?.onOpenChatAndSend && buttonConfig.chatTarget) {
+      halCtx.onOpenChatAndSend({
+        chatTarget: buttonConfig.chatTarget as import('./HalKanbanContext').HalChatTarget,
+        message: buttonConfig.message,
+        ticketPk: firstCardId ?? undefined,
+      })
+      return
     }
 
     // Iframe/standalone: For Implementation agent, move ticket to Doing (0084) then postMessage
