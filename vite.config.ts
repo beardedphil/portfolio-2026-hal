@@ -2182,6 +2182,22 @@ export default defineConfig({
             }
             return
           }
+          if (req.url === '/api/tickets/find-duplicates' && req.method === 'POST') {
+            try {
+              const findDuplicatesHandler = await import('./api/tickets/find-duplicates')
+              await findDuplicatesHandler.default(req, res)
+            } catch (err) {
+              res.statusCode = 500
+              res.setHeader('Content-Type', 'application/json')
+              res.end(
+                JSON.stringify({
+                  success: false,
+                  error: err instanceof Error ? err.message : String(err),
+                })
+              )
+            }
+            return
+          }
           next()
         })
 
