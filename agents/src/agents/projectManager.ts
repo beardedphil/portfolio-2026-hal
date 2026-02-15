@@ -24,11 +24,6 @@ import {
   searchFiles,
   type ToolContext,
 } from './tools.js'
-import {
-  normalizeBodyForReady,
-  sectionContent,
-  normalizeTitleLineInBody,
-} from '../lib/ticketBodyNormalization.js'
 
 const execAsync = promisify(exec)
 
