@@ -2333,52 +2333,80 @@ function _DraggableSupabaseTicketItem({
   )
 }
 
-/** Map agent run status to user-friendly status info (0203) */
-function getTicketStatusInfo(
-  agentRun: SupabaseAgentRunRow | undefined,
-  agentName: string | null
-): { label: string; description: string; state: 'starting' | 'in-progress' | 'blocked' | 'done' | 'unassigned' } {
-  if (!agentRun) {
-    return {
-      label: 'Unassigned',
-      description: 'No agent is currently working on this ticket.',
-      state: 'unassigned',
-    }
+/** Get workflow steps for an agent type (0203) */
+function getAgentWorkflowSteps(agentType: 'implementation' | 'qa' | null): Array<{ id: string; label: string }> {
+  if (agentType === 'qa') {
+    return [
+      { id: 'preparing', label: 'Preparing' },
+      { id: 'fetching_ticket', label: 'Fetching ticket' },
+      { id: 'fetching_branch', label: 'Finding branch' },
+      { id: 'launching', label: 'Launching QA' },
+      { id: 'polling', label: 'Reviewing' },
+      { id: 'generating_report', label: 'Generating report' },
+      { id: 'merging', label: 'Merging' },
+      { id: 'moving_ticket', label: 'Moving ticket' },
+      { id: 'completed', label: 'Completed' },
+    ]
+  } else if (agentType === 'implementation') {
+    return [
+      { id: 'preparing', label: 'Preparing' },
+      { id: 'fetching_ticket', label: 'Fetching ticket' },
+      { id: 'resolving_repo', label: 'Resolving repo' },
+      { id: 'launching', label: 'Launching agent' },
+      { id: 'polling', label: 'Running' },
+      { id: 'completed', label: 'Completed' },
+    ]
   }
+  return []
+}
 
-  switch (agentRun.status) {
-    case 'created':
-    case 'launching':
-      return {
-        label: 'Starting',
-        description: `The ${agentName || 'agent'} is being launched and initialized.`,
-        state: 'starting',
-      }
-    case 'polling':
-      return {
-        label: 'In Progress',
-        description: `The ${agentName || 'agent'} is actively working on this ticket.`,
-        state: 'in-progress',
-      }
-    case 'failed':
-      return {
-        label: 'Blocked',
-        description: `The ${agentName || 'agent'} encountered an error and cannot proceed.`,
-        state: 'blocked',
-      }
-    case 'finished':
-      return {
-        label: 'Done',
-        description: `The ${agentName || 'agent'} has completed work on this ticket.`,
-        state: 'done',
-      }
-    default:
-      return {
-        label: 'In Progress',
-        description: `The ${agentName || 'agent'} is working on this ticket.`,
-        state: 'in-progress',
-      }
+/** Map database status to workflow step ID (0203) */
+function mapStatusToStepId(status: string, agentType: 'implementation' | 'qa' | null): string {
+  // Map database statuses to workflow steps
+  // Database has: 'created' | 'launching' | 'polling' | 'finished' | 'failed'
+  if (status === 'failed') return 'failed'
+  if (status === 'finished') return 'completed'
+  
+  if (agentType === 'qa') {
+    // For QA, map database status to workflow step
+    // Note: 'polling' in database could mean Reviewing, Generating report, Merging, or Moving ticket
+    // We'll show it as 'polling' (Reviewing) since that's the first polling step
+    if (status === 'created') return 'fetching_ticket'
+    if (status === 'launching') return 'launching'
+    if (status === 'polling') return 'polling'
+    return 'preparing'
+  } else if (agentType === 'implementation') {
+    if (status === 'created') return 'fetching_ticket'
+    if (status === 'launching') return 'launching'
+    if (status === 'polling') return 'polling'
+    return 'preparing'
   }
+  return 'preparing'
+}
+
+/** Determine step status: 'done' | 'active' | 'pending' (0203) */
+function getStepStatus(
+  stepId: string,
+  currentStepId: string,
+  workflowSteps: Array<{ id: string; label: string }>
+): 'done' | 'active' | 'pending' {
+  // Handle failed status - all steps before completed are done, completed step shows as active (will be styled as failed in tooltip)
+  if (currentStepId === 'failed') {
+    const completedIndex = workflowSteps.findIndex(s => s.id === 'completed')
+    const stepIndex = workflowSteps.findIndex(s => s.id === stepId)
+    if (stepIndex === -1) return 'pending'
+    if (stepIndex < completedIndex) return 'done'
+    if (stepId === 'completed') return 'active' // Show completed step as active when failed (will be styled red in tooltip)
+    return 'pending'
+  }
+  
+  const currentIndex = workflowSteps.findIndex(s => s.id === currentStepId)
+  const stepIndex = workflowSteps.findIndex(s => s.id === stepId)
+  
+  if (currentIndex === -1 || stepIndex === -1) return 'pending'
+  if (stepIndex < currentIndex) return 'done'
+  if (stepIndex === currentIndex) return 'active'
+  return 'pending'
 }
 
 /** Multi-dot status indicator component with tooltip (0203) */
@@ -2394,7 +2422,16 @@ function StatusIndicator({
   const tooltipRef = useRef<HTMLDivElement>(null)
   const indicatorRef = useRef<HTMLDivElement>(null)
 
-  const statusInfo = getTicketStatusInfo(agentRun, agentName)
+  // Determine agent type from agentRun or agentName
+  const agentType: 'implementation' | 'qa' | null = agentRun?.agent_type || 
+    (agentName === 'QA' ? 'qa' : agentName === 'Implementation' ? 'implementation' : null)
+  
+  // Get workflow steps for this agent type
+  const workflowSteps = getAgentWorkflowSteps(agentType)
+  
+  // Map current status to step ID
+  const currentStepId = agentRun ? mapStatusToStepId(agentRun.status, agentType) : null
+  
   const showTooltip = isHovered || isFocused
 
   // Position tooltip to avoid clipping
@@ -2429,6 +2466,46 @@ function StatusIndicator({
     }
   }, [showTooltip])
 
+  // If no agent run or no workflow steps, show unassigned state
+  if (!agentRun || workflowSteps.length === 0) {
+    return (
+      <div
+        className="active-work-status-indicator-wrapper"
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+      >
+        <div
+          ref={indicatorRef}
+          className="active-work-status-indicator"
+          tabIndex={0}
+          role="button"
+          aria-label="Status: Unassigned"
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setIsFocused(false)}
+        >
+          <span className="status-dot status-dot-pending" />
+        </div>
+        {showTooltip && (
+          <div
+            ref={tooltipRef}
+            className="active-work-status-tooltip"
+            role="tooltip"
+          >
+            <div className="active-work-status-tooltip-header">
+              <span className="active-work-status-tooltip-label">Status:</span>
+              <span className="active-work-status-tooltip-value status-value-unassigned">
+                Unassigned
+              </span>
+            </div>
+            <div className="active-work-status-tooltip-description">
+              No agent is currently working on this ticket.
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div
       className="active-work-status-indicator-wrapper"
@@ -2437,33 +2514,56 @@ function StatusIndicator({
     >
       <div
         ref={indicatorRef}
-        className={`active-work-status-indicator status-indicator-${statusInfo.state}`}
+        className="active-work-status-indicator"
         tabIndex={0}
         role="button"
-        aria-label={`Status: ${statusInfo.label}`}
-        aria-describedby={showTooltip ? `status-tooltip-${agentRun?.run_id || 'none'}` : undefined}
+        aria-label={`Status: ${workflowSteps.find(s => s.id === currentStepId)?.label || 'Unknown'}`}
+        aria-describedby={showTooltip ? `status-tooltip-${agentRun.run_id}` : undefined}
         onFocus={() => setIsFocused(true)}
         onBlur={() => setIsFocused(false)}
       >
-        <span className="status-dot status-dot-1" />
-        <span className="status-dot status-dot-2" />
-        <span className="status-dot status-dot-3" />
+        {workflowSteps.map((step, index) => {
+          const stepStatus = getStepStatus(step.id, currentStepId || 'preparing', workflowSteps)
+          return (
+            <span
+              key={step.id}
+              className={`status-dot status-dot-${stepStatus}`}
+              aria-label={step.label}
+            />
+          )
+        })}
       </div>
       {showTooltip && (
         <div
           ref={tooltipRef}
-          id={`status-tooltip-${agentRun?.run_id || 'none'}`}
-          className="active-work-status-tooltip"
+          id={`status-tooltip-${agentRun.run_id}`}
+          className="active-work-status-tooltip active-work-status-timeline-tooltip"
           role="tooltip"
         >
-          <div className="active-work-status-tooltip-header">
-            <span className="active-work-status-tooltip-label">Status:</span>
-            <span className={`active-work-status-tooltip-value status-value-${statusInfo.state}`}>
-              {statusInfo.label}
-            </span>
-          </div>
-          <div className="active-work-status-tooltip-description">
-            {statusInfo.description}
+          <div className="impl-agent-status-timeline" role="status">
+            {workflowSteps.map((step, index) => {
+              const stepStatus = getStepStatus(step.id, currentStepId || 'preparing', workflowSteps)
+              const isLast = index === workflowSteps.length - 1
+              const isFailed = currentStepId === 'failed' && step.id === 'completed'
+              return (
+                <React.Fragment key={step.id}>
+                  <span
+                    className={
+                      isFailed
+                        ? 'impl-status-failed'
+                        : stepStatus === 'active'
+                        ? 'impl-status-active'
+                        : stepStatus === 'done'
+                        ? 'impl-status-done'
+                        : ''
+                    }
+                  >
+                    {isFailed ? 'Failed' : step.label}
+                  </span>
+                  {!isLast && <span className="impl-status-arrow">→</span>}
+                </React.Fragment>
+              )
+            })}
           </div>
         </div>
       )}
