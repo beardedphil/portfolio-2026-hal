@@ -38,6 +38,9 @@ export default defineConfig({
   build: {
     cssMinify: false,
   },
+  optimizeDeps: {
+    disabled: true, // Disable dependency optimization to avoid processing CLI files
+  },
   plugins: [
     react(),
     prebuildPlugin(),
