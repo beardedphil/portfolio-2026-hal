@@ -3143,6 +3143,7 @@ function App() {
             id: `rec-${Date.now()}-${idx}`, // Generate unique ID for each recommendation
           })).filter((r: { text: string; justification: string; id: string }) => r.text.trim())
           
+          console.log('[Process Review] Opening modal with', recommendationsWithIds.length, 'recommendations')
           setProcessReviewRecommendations(recommendationsWithIds)
           setProcessReviewModalTicketPk(data.ticketPk)
           setProcessReviewModalTicketId(data.ticketId || null)
@@ -3150,6 +3151,7 @@ function App() {
           setProcessReviewRecommendationErrors({})
           setProcessReviewRecommendationLoading({})
           setProcessReviewModalOpen(true)
+          console.log('[Process Review] Modal state set to open')
           
           setProcessReviewStatus('completed')
           setProcessReviewAgentRunStatus('completed')
