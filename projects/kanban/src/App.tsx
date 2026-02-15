@@ -12,6 +12,7 @@ import {
   useSensor,
   useSensors,
   useDraggable,
+  useDroppable,
   type CollisionDetection,
   type DragEndEvent,
   type DragStartEvent,
@@ -34,6 +35,8 @@ import {
   checkMergedToMain,
   normalizeTitleLineInBody,
 } from './lib/ticketBody'
+import { normalizeTicketRow } from './lib/normalizeTicketRow'
+import { canonicalizeColumnRows, type SupabaseKanbanColumnRow } from './lib/canonicalizeColumns'
 import { TicketDetailModal } from './components/TicketDetailModal'
 import { QAInfoSection } from './components/QAInfoSection'
 import { AutoDismissMessage } from './components/AutoDismissMessage'
@@ -67,14 +70,7 @@ type SupabaseTicketRow = {
   display_id?: string
 }
 
-/** Supabase kanban_columns table row (0020) */
-type SupabaseKanbanColumnRow = {
-  id: string
-  title: string
-  position: number
-  created_at: string
-  updated_at: string
-}
+/** Supabase kanban_columns table row (0020) - use imported type from canonicalizeColumns */
 
 /** Supabase agent_artifacts table row (0082) - exported from components/types.ts */
 type SupabaseAgentArtifactRow = {
@@ -164,28 +160,6 @@ const DEFAULT_KANBAN_COLUMNS_SEED = [
   { id: 'col-wont-implement', title: 'Will Not Implement', position: 7 },
 ] as const
 
-function normalizeTicketRow(row: Partial<SupabaseTicketRow> & { id?: string }): SupabaseTicketRow {
-  const legacyId = String(row.id ?? '').trim() || '0000'
-  const pk = typeof row.pk === 'string' && row.pk.trim() ? row.pk.trim() : legacyId
-  const displayId =
-    typeof row.display_id === 'string' && row.display_id.trim()
-      ? row.display_id.trim()
-      : `LEG-${legacyId.padStart(4, '0')}`
-  return {
-    pk,
-    id: legacyId,
-    filename: String(row.filename ?? ''),
-    title: String(row.title ?? ''),
-    body_md: String(row.body_md ?? ''),
-    kanban_column_id: (row.kanban_column_id ?? null) as string | null,
-    kanban_position: (row.kanban_position ?? null) as number | null,
-    kanban_moved_at: (row.kanban_moved_at ?? null) as string | null,
-    updated_at: String(row.updated_at ?? ''),
-    repo_full_name: row.repo_full_name,
-    ticket_number: row.ticket_number,
-    display_id: displayId,
-  }
-}
 
 const DEFAULT_COLUMNS: Column[] = [
   { id: 'col-unassigned', title: 'Unassigned', cardIds: [] },
@@ -198,40 +172,6 @@ const DEFAULT_COLUMNS: Column[] = [
   { id: 'col-wont-implement', title: 'Will Not Implement', cardIds: [] },
 ]
 
-/** Unassigned, To-do, Doing, Ready for QA, Human in the Loop, Process Review, Done, Will Not Implement; tickets with null or col-unassigned go in Unassigned */
-const KANBAN_COLUMN_IDS = [
-  'col-unassigned',
-  'col-todo',
-  'col-doing',
-  'col-qa',
-  'col-human-in-the-loop',
-  'col-process-review',
-  'col-done',
-  'col-wont-implement',
-] as const
-
-/** Filter raw DB columns to canonical 7, in order; create fallbacks for missing. Use in connectSupabase and refetchSupabaseTickets. */
-function canonicalizeColumnRows(
-  rows: SupabaseKanbanColumnRow[]
-): SupabaseKanbanColumnRow[] {
-  const canonicalOrder = KANBAN_COLUMN_IDS as unknown as string[]
-  const filtered = rows.filter((c) => canonicalOrder.includes(c.id))
-  const titleById: Record<string, string> = {
-    'col-qa': 'Ready for QA',
-  }
-  return canonicalOrder.map((id, i) => {
-    const row = filtered.find((c) => c.id === id)
-    return (
-      row ?? {
-        id,
-        title: titleById[id] ?? id.replace('col-', '').replace(/-/g, ' '),
-        position: i,
-        created_at: '',
-        updated_at: '',
-      }
-    )
-  }) as SupabaseKanbanColumnRow[]
-}
 const EMPTY_KANBAN_COLUMNS: Column[] = [
   { id: 'col-unassigned', title: 'Unassigned', cardIds: [] },
   { id: 'col-todo', title: 'To-do', cardIds: [] },
@@ -652,6 +592,68 @@ function ArtifactReportViewer({
 // QAInfoSection extracted to components/QAInfoSection.tsx
 // TicketDetailModal extracted to components/TicketDetailModal.tsx
 
+/** Droppable Active Work row component (0669): makes Active Work row a drop target */
+function DroppableActiveWorkRow({
+  doingTickets,
+  activeWorkAgentTypes,
+  agentRunsByTicketPk,
+  onOpenDetail,
+  pendingMoves,
+}: {
+  doingTickets: SupabaseTicketRow[]
+  activeWorkAgentTypes: Record<string, 'Implementation' | 'QA'>
+  agentRunsByTicketPk: Record<string, SupabaseAgentRunRow>
+  onOpenDetail: (ticketPk: string) => void
+  pendingMoves: Set<string>
+}) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: 'col-doing',
+    data: { type: 'active-work-drop', columnId: 'col-doing' },
+  })
+
+  return (
+    <section 
+      className="active-work-row" 
+      aria-label="Active work"
+      ref={setNodeRef}
+    >
+      <h2 className="active-work-title">Active work</h2>
+      <div className={`active-work-items ${isOver ? 'active-work-items-over' : ''}`}>
+        {doingTickets.length > 0 ? (
+          doingTickets.map((ticket) => {
+            // Use simple string storage from button click (0135) - no DB lookup
+            const agentName = activeWorkAgentTypes[ticket.pk] || null
+            // Get agent run data from context (0203)
+            const agentRun = agentRunsByTicketPk[ticket.pk]
+            const timestamp = ticket.kanban_moved_at
+              ? new Date(ticket.kanban_moved_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              : ticket.updated_at
+              ? new Date(ticket.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              : null
+            const displayId = ticket.display_id || (ticket.ticket_number ? `HAL-${String(ticket.ticket_number).padStart(4, '0')}` : null)
+            const ticketIdentifier = displayId ? `${displayId}: ${ticket.title}` : ticket.title
+            
+            return (
+              <DraggableActiveWorkItem
+                key={ticket.pk}
+                ticket={ticket}
+                agentName={agentName}
+                agentRun={agentRun}
+                timestamp={timestamp}
+                ticketIdentifier={ticketIdentifier}
+                onOpenDetail={onOpenDetail}
+                isSaving={pendingMoves.has(ticket.pk)}
+              />
+            )
+          })
+        ) : (
+          <div className="active-work-empty">No active work</div>
+        )}
+      </div>
+    </section>
+  )
+}
+
 export function SortableCard({
   card,
   columnId,
@@ -723,6 +725,83 @@ export function SortableCard({
   )
 }
 
+/** Draggable Active Work item (0669): makes tickets in Active Work row draggable */
+function DraggableActiveWorkItem({
+  ticket,
+  agentName,
+  agentRun,
+  timestamp,
+  ticketIdentifier,
+  onOpenDetail,
+  isSaving = false,
+}: {
+  ticket: SupabaseTicketRow
+  agentName: string | null
+  agentRun: SupabaseAgentRunRow | undefined
+  timestamp: string | null
+  ticketIdentifier: string
+  onOpenDetail: (ticketPk: string) => void
+  isSaving?: boolean
+}) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: ticket.pk,
+    data: { type: 'active-work-item', ticketPk: ticket.pk, columnId: 'col-doing' },
+  })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    opacity: isDragging ? 0.5 : isSaving ? 0.7 : 1,
+  }
+  
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`active-work-item ${isSaving ? 'active-work-item-saving' : ''}`}
+      data-ticket-pk={ticket.pk}
+      aria-busy={isSaving}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onOpenDetail(ticket.pk)
+        }
+      }}
+      aria-label={`Open ticket ${ticketIdentifier}`}
+    >
+      <span
+        className="active-work-item-drag-handle"
+        {...attributes}
+        {...listeners}
+        aria-label="Drag to move"
+        title="Drag to move"
+        onClick={(e) => {
+          e.stopPropagation()
+        }}
+        onMouseDown={(e) => {
+          e.stopPropagation()
+        }}
+      />
+      <div 
+        className="active-work-item-content"
+        onClick={() => onOpenDetail(ticket.pk)}
+      >
+        <div className="active-work-item-title">{ticketIdentifier}</div>
+        <div className="active-work-item-meta">
+          <span className="active-work-item-agent">{agentName || 'Unassigned'}</span>
+          <div className="active-work-item-status-row">
+            <StatusIndicator agentRun={agentRun} agentName={agentName} />
+            {timestamp && (
+              <span className="active-work-item-timestamp" title={`Updated ${timestamp}`}>
+                {timestamp}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 /** Draggable Supabase ticket list item (0013): id is ticket id for DnD. */
 function _DraggableSupabaseTicketItem({
@@ -2698,12 +2777,19 @@ function App() {
       const sourceColumn = findColumnByCardId(String(active.id))
       const overColumn = findColumnById(String(effectiveOverId)) ?? findColumnByCardId(String(effectiveOverId))
 
-      // Library mode: ticket dropped into column (HAL owns data)
+      // Library mode: ticket dropped into column (HAL owns data) - includes Active Work items (0669)
       if (halCtx && !sourceColumn && overColumn && sourceTickets.some((t) => t.pk === String(active.id))) {
         const ticketPk = String(active.id)
         let overIndex = overColumn.cardIds.indexOf(String(effectiveOverId))
         if (overIndex < 0) overIndex = overColumn.cardIds.length
         halCtx.onMoveTicket(ticketPk, overColumn.id, overIndex)
+        return
+      }
+      
+      // Library mode: ticket dropped into Active Work (col-doing) - 0669
+      if (halCtx && sourceColumn && effectiveOverId === 'col-doing' && sourceTickets.some((t) => t.pk === String(active.id))) {
+        const ticketPk = String(active.id)
+        halCtx.onMoveTicket(ticketPk, 'col-doing')
         return
       }
 
@@ -2861,6 +2947,100 @@ function App() {
               }
             }
           }) // Full refetch to restore correct state
+          addLog(`Supabase update failed: ${result.error}`)
+        }
+        return
+      }
+
+      // Handle drag to Active Work (col-doing) - 0669
+      const isDroppingOnActiveWork = effectiveOverId === 'col-doing'
+      if (isDroppingOnActiveWork && sourceColumn && supabaseBoardActive) {
+        const ticketPk = String(active.id)
+        const ticket = supabaseTickets.find((t) => t.pk === ticketPk)
+        if (!ticket) return
+        
+        // Calculate position in Active Work (col-doing)
+        const doingTickets = supabaseTickets.filter((t) => t.kanban_column_id === 'col-doing')
+        const overIndex = doingTickets.length // Append to end
+        const movedAt = new Date().toISOString()
+        
+        // Optimistic update
+        setPendingMoves((prev) => new Set(prev).add(ticketPk))
+        
+        // Immediately update agent runs state when ticket moves to Doing (0135)
+        const sourceColumnId = ticket.kanban_column_id || null
+        let agentType: 'Implementation' | 'QA' | null = null
+        if (sourceColumnId === 'col-todo' || sourceColumnId === 'col-unassigned' || !sourceColumnId) {
+          agentType = 'Implementation'
+        } else if (sourceColumnId === 'col-qa') {
+          agentType = 'QA'
+        }
+        if (agentType) {
+          setActiveWorkAgentTypes((prev) => ({ ...prev, [ticketPk]: agentType! }))
+        }
+        
+        setSupabaseTickets((prev) =>
+          prev.map((t) =>
+            t.pk === ticketPk
+              ? { ...t, kanban_column_id: 'col-doing', kanban_position: overIndex, kanban_moved_at: movedAt }
+              : t
+          )
+        )
+        
+        const result = await updateSupabaseTicketKanban(ticketPk, {
+          kanban_column_id: 'col-doing',
+          kanban_position: overIndex,
+          kanban_moved_at: movedAt,
+        })
+        
+        if (result.ok) {
+          setLastMovePersisted({ success: true, timestamp: new Date(), ticketId: ticketPk })
+          addLog(`Supabase ticket moved to Active Work`)
+          const expectedColumnId = 'col-doing'
+          const expectedPosition = overIndex
+          setTimeout(() => {
+            refetchSupabaseTickets(false).then((result) => {
+              setSupabaseTickets((currentTickets) => {
+                const currentTicket = currentTickets.find((t) => t.pk === ticketPk)
+                if (currentTicket && 
+                    currentTicket.kanban_column_id === expectedColumnId && 
+                    currentTicket.kanban_position === expectedPosition) {
+                  setPendingMoves((prev) => {
+                    if (!prev.has(ticketPk)) return prev
+                    const next = new Set(prev)
+                    next.delete(ticketPk)
+                    return next
+                  })
+                }
+                return currentTickets
+              })
+              if (result.freshTickets) {
+                fetchActiveAgentRuns(result.freshTickets)
+              } else if (fetchActiveAgentRuns) {
+                fetchActiveAgentRuns()
+              }
+            }).catch(() => {
+              setPendingMoves((prev) => {
+                const next = new Set(prev)
+                next.delete(ticketPk)
+                return next
+              })
+            })
+          }, REFETCH_AFTER_MOVE_MS)
+        } else {
+          setLastMovePersisted({ success: false, timestamp: new Date(), ticketId: ticketPk, error: result.error })
+          setPendingMoves((prev) => {
+            const next = new Set(prev)
+            next.delete(ticketPk)
+            return next
+          })
+          refetchSupabaseTickets(false).then((result) => {
+            if (result.freshTickets) {
+              fetchActiveAgentRuns(result.freshTickets)
+            } else {
+              fetchActiveAgentRuns()
+            }
+          })
           addLog(`Supabase update failed: ${result.error}`)
         }
         return
@@ -3673,62 +3853,6 @@ ${notes || '(none provided)'}
         onNavigate={handleNavigateArtifact}
       />
 
-      {/* Active work row: shows tickets in Doing column (0145) - positioned above DndContext */}
-      {supabaseBoardActive && (
-        <section className="active-work-row" aria-label="Active work">
-          <h2 className="active-work-title">Active work</h2>
-          <div className="active-work-items">
-            {doingTickets.length > 0 ? (
-              doingTickets.map((ticket) => {
-                // Use simple string storage from button click (0135) - no DB lookup
-                const agentName = activeWorkAgentTypes[ticket.pk] || null
-                // Get agent run data from context (0203)
-                const agentRun = halCtx?.agentRunsByTicketPk?.[ticket.pk] || agentRunsByTicketPk[ticket.pk]
-                const timestamp = ticket.kanban_moved_at
-                  ? new Date(ticket.kanban_moved_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                  : ticket.updated_at
-                  ? new Date(ticket.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                  : null
-                const displayId = ticket.display_id || (ticket.ticket_number ? `HAL-${String(ticket.ticket_number).padStart(4, '0')}` : null)
-                const ticketIdentifier = displayId ? `${displayId}: ${ticket.title}` : ticket.title
-                
-                return (
-                  <div
-                    key={ticket.pk}
-                    className="active-work-item"
-                    onClick={() => handleOpenTicketDetail(ticket.pk)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        handleOpenTicketDetail(ticket.pk)
-                      }
-                    }}
-                    aria-label={`Open ticket ${ticketIdentifier}`}
-                  >
-                    <div className="active-work-item-title">{ticketIdentifier}</div>
-                    <div className="active-work-item-meta">
-                      <span className="active-work-item-agent">{agentName || 'Unassigned'}</span>
-                      <div className="active-work-item-status-row">
-                        <StatusIndicator agentRun={agentRun} agentName={agentName} />
-                        {timestamp && (
-                          <span className="active-work-item-timestamp" title={`Updated ${timestamp}`}>
-                            {timestamp}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )
-              })
-            ) : (
-              <div className="active-work-empty">No active work</div>
-            )}
-          </div>
-        </section>
-      )}
-
       <DndContext
         sensors={sensors}
         collisionDetection={collisionDetection}
@@ -3736,6 +3860,15 @@ ${notes || '(none provided)'}
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
       >
+        {/* Active work row: shows tickets in Doing column (0145) - now inside DndContext for drag-and-drop (0669) */}
+        {supabaseBoardActive && <DroppableActiveWorkRow
+          doingTickets={doingTickets}
+          activeWorkAgentTypes={activeWorkAgentTypes}
+          agentRunsByTicketPk={halCtx?.agentRunsByTicketPk || agentRunsByTicketPk}
+          onOpenDetail={handleOpenTicketDetail}
+          pendingMoves={pendingMoves}
+        />}
+
         <section className="columns-section" aria-label="Columns">
           {!isEmbedded && (
             <>
@@ -3811,13 +3944,30 @@ ${notes || '(none provided)'}
         </section>
 
         <DragOverlay>
-          {activeCardId && cardsForDisplay[String(activeCardId)] ? (
-            <div className="ticket-card" data-card-id={activeCardId}>
-              <div className="ticket-card-top-row">
-                <span className="ticket-card-drag-handle" aria-hidden />
-                <span className="ticket-card-title">{cardsForDisplay[String(activeCardId)].title}</span>
+          {activeCardId ? (
+            cardsForDisplay[String(activeCardId)] ? (
+              <div className="ticket-card" data-card-id={activeCardId}>
+                <div className="ticket-card-top-row">
+                  <span className="ticket-card-drag-handle" aria-hidden />
+                  <span className="ticket-card-title">{cardsForDisplay[String(activeCardId)].title}</span>
+                </div>
               </div>
-            </div>
+            ) : supabaseBoardActive && doingTickets.some((t) => t.pk === String(activeCardId)) ? (
+              (() => {
+                const ticket = doingTickets.find((t) => t.pk === String(activeCardId))
+                if (!ticket) return null
+                const displayId = ticket.display_id || (ticket.ticket_number ? `HAL-${String(ticket.ticket_number).padStart(4, '0')}` : null)
+                const ticketIdentifier = displayId ? `${displayId}: ${ticket.title}` : ticket.title
+                return (
+                  <div className="active-work-item" data-ticket-pk={ticket.pk}>
+                    <div className="active-work-item-title">{ticketIdentifier}</div>
+                    <div className="active-work-item-meta">
+                      <span className="active-work-item-agent">{activeWorkAgentTypes[ticket.pk] || 'Unassigned'}</span>
+                    </div>
+                  </div>
+                )
+              })()
+            ) : null
           ) : null}
         </DragOverlay>
       </DndContext>
