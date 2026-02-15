@@ -615,12 +615,7 @@ function App() {
     }
   }, [openChatTarget])
 
-  // Auto-load working memory when PM chat opens (0173)
-  useEffect(() => {
-    if (openChatTarget === 'project-manager' && connectedProject && supabaseUrl && supabaseAnonKey && workingMemoryOpen) {
-      loadWorkingMemory()
-    }
-  }, [openChatTarget, connectedProject, supabaseUrl, supabaseAnonKey, workingMemoryOpen, loadWorkingMemory])
+  // Auto-load working memory when PM chat opens (0173) - moved after loadWorkingMemory definition
 
   const loadGithubRepos = useCallback(async () => {
     try {
@@ -1273,14 +1268,7 @@ function App() {
     }
   }, [qaAgentError])
 
-  // Fetch working memory when PM conversation changes (0173)
-  useEffect(() => {
-    if (selectedChatTarget === 'project-manager' && connectedProject && supabaseUrl && supabaseAnonKey) {
-      fetchPmWorkingMemory()
-    } else {
-      setPmWorkingMemory(null)
-    }
-  }, [selectedChatTarget, selectedConversationId, connectedProject, supabaseUrl, supabaseAnonKey, fetchPmWorkingMemory])
+  // Fetch working memory when PM conversation changes (0173) - moved after fetchPmWorkingMemory definition
 
   // Get active messages from selected conversation (0070)
   // For PM, always use default conversation; for Implementation/QA, use selected conversation if modal is open
@@ -1424,6 +1412,22 @@ function App() {
     const convId = selectedConversationId || getConversationId('project-manager', 1)
     await refreshPmWorkingMemory(convId)
   }, [selectedConversationId, refreshPmWorkingMemory])
+
+  // Fetch working memory when PM conversation changes (0173)
+  useEffect(() => {
+    if (selectedChatTarget === 'project-manager' && connectedProject && supabaseUrl && supabaseAnonKey) {
+      fetchPmWorkingMemory()
+    } else {
+      setPmWorkingMemory(null)
+    }
+  }, [selectedChatTarget, selectedConversationId, connectedProject, supabaseUrl, supabaseAnonKey, fetchPmWorkingMemory])
+
+  // Auto-load working memory when PM chat opens (0173)
+  useEffect(() => {
+    if (openChatTarget === 'project-manager' && connectedProject && supabaseUrl && supabaseAnonKey && workingMemoryOpen) {
+      loadWorkingMemory()
+    }
+  }, [openChatTarget, connectedProject, supabaseUrl, supabaseAnonKey, workingMemoryOpen, loadWorkingMemory])
 
 
 
@@ -4217,7 +4221,7 @@ function App() {
                                   (!workingMemory.constraints || workingMemory.constraints.length === 0) &&
                                   (!workingMemory.decisions || workingMemory.decisions.length === 0) &&
                                   (!workingMemory.assumptions || workingMemory.assumptions.length === 0) &&
-                                  (!workingMemory.open_questions || workingMemory.open_questions.length === 0) &&
+                                  (!workingMemory.openQuestions || workingMemory.openQuestions.length === 0) &&
                                   (!workingMemory.glossary || Object.keys(workingMemory.glossary).length === 0) &&
                                   (!workingMemory.stakeholders || workingMemory.stakeholders.length === 0) && (
                                     <div style={{ color: '#666', fontStyle: 'italic' }}>
