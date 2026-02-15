@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'http'
 import { createClient } from '@supabase/supabase-js'
 import {
   getMissingRequiredImplementationArtifacts,
+  hasMissingArtifactExplanation,
   type ArtifactRowForCheck,
 } from '../artifacts/_shared.js'
 
@@ -179,7 +180,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const currentColumnId = (ticket as any).kanban_column_id
     const resolvedTicketPk = (ticket as any).pk as string
 
+    // Track if move was allowed due to explanation artifact (0201)
+    let allowedWithExplanation = false
+
     // Gate: moving to Ready for QA requires all 8 implementation artifacts (substantive)
+    // Exception: if a "Missing Artifact Explanation" artifact exists, allow move when only missing artifacts are the issue
     if (columnId === 'col-qa') {
       if (!resolvedTicketPk) {
         json(res, 200, {
@@ -189,11 +194,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         return
       }
       
+      // Fetch all artifacts (both implementation and any explanation artifacts)
       const { data: artifactRows, error: artErr } = await supabase
         .from('agent_artifacts')
         .select('title, agent_type, body_md')
         .eq('ticket_pk', resolvedTicketPk)
-        .eq('agent_type', 'implementation')
 
       if (artErr) {
         json(res, 200, {
@@ -208,18 +213,32 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         agent_type: r.agent_type,
         body_md: r.body_md,
       }))
-      const missingArtifacts = getMissingRequiredImplementationArtifacts(artifactsForCheck)
+      
+      // Filter to implementation artifacts for the missing check
+      const implementationArtifacts = artifactsForCheck.filter((a) => a.agent_type === 'implementation')
+      const missingArtifacts = getMissingRequiredImplementationArtifacts(implementationArtifacts)
+      
+      // Check if explanation artifact exists (can be any agent_type)
+      const hasExplanation = hasMissingArtifactExplanation(artifactsForCheck)
 
       if (missingArtifacts.length > 0) {
-        json(res, 200, {
-          success: false,
-          error:
-            'Cannot move to Ready for QA: missing required implementation artifacts.',
-          missingArtifacts,
-          remedy:
-            'Store each listed artifact via POST /api/artifacts/insert-implementation with the corresponding artifactType, then retry POST /api/tickets/move.',
-        })
-        return
+        // If explanation exists and missing artifacts are the only issue, allow the move
+        if (hasExplanation) {
+          // Allow the move, track that explanation was used
+          allowedWithExplanation = true
+        } else {
+          // No explanation, fail the move
+          json(res, 200, {
+            success: false,
+            error:
+              'Cannot move to Ready for QA: missing required implementation artifacts.',
+            missingArtifacts,
+            remedy:
+              'Store each listed artifact via POST /api/artifacts/insert-implementation with the corresponding artifactType, then retry POST /api/tickets/move. Alternatively, attach a "Missing Artifact Explanation" artifact to explain why artifacts are missing.',
+            allowedWithExplanation: true,
+          })
+          return
+        }
       }
     }
 
@@ -339,6 +358,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       movedAt,
       columnId,
       columnName: columnName || undefined,
+      ...(allowedWithExplanation ? { allowedWithExplanation: true, note: 'Move allowed due to Missing Artifact Explanation artifact' } : {}),
     })
   } catch (err) {
     console.error('[api/tickets/move] Error:', err)
