@@ -30,8 +30,9 @@ When you **QA a ticket** (verify, check a ticket that is allegedly complete), st
 4. Code review — PASS/FAIL with evidence
 5. Build verification — **MANDATORY:** `npm run build:hal`; TypeScript errors = FAIL
 6. UI verification — automated and/or manual steps
-7. AC Confirmation Checklist — enumerate each AC, Met/Not met with evidence; see `ac-confirmation-checklist.mdc`
-8. Verdict — PASS or FAIL
+7. Overcomplication — **MANDATORY:** Run `node scripts/generate-overcomplication-section.js` and include the output. This section shows: max allowed lines, gate pass/fail status, count of allowlisted files, and top 10 largest source files by line count.
+8. AC Confirmation Checklist — enumerate each AC, Met/Not met with evidence; see `ac-confirmation-checklist.mdc`
+9. Verdict — PASS or FAIL
 
 ## Storing QA report
 
