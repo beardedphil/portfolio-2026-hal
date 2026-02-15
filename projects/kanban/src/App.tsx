@@ -11,7 +11,6 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
-  useDroppable,
   useDraggable,
   type CollisionDetection,
   type DragEndEvent,
@@ -23,7 +22,6 @@ import {
   SortableContext,
   sortableKeyboardCoordinates,
   horizontalListSortingStrategy,
-  verticalListSortingStrategy,
   useSortable,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -32,7 +30,6 @@ import ReactMarkdown from 'react-markdown'
 import type { Components } from 'react-markdown'
 import { GitDiffViewer } from './GitDiffViewer'
 import {
-  extractTicketId,
   extractFeatureBranch,
   checkMergedToMain,
   normalizeTitleLineInBody,

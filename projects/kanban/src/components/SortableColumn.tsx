@@ -7,7 +7,6 @@ import type { Column, Card } from '../lib/columnTypes'
 import {
   shouldShowWorkButton,
   getWorkButtonConfig,
-  isProcessReviewConfig,
 } from '../lib/workButtonConfig'
 import { createWorkButtonHandlers } from '../lib/workButtonHandlers'
 import type { SupabaseTicketRow } from '../lib/workButtonHandlers'
@@ -88,17 +87,13 @@ export function SortableColumn({
   const buttonConfig = shouldShowWorkButton(col.id)
     ? getWorkButtonConfig(col, firstCard)
     : null
-  const isProcessReview =
-    buttonConfig !== null && isProcessReviewConfig(buttonConfig)
   const isProcessReviewRunning =
     halCtx?.processReviewRunningForTicketPk === firstCardId
 
   // Create work button handlers
   const { handleWorkButtonClick } = createWorkButtonHandlers({
     col,
-    cards,
     hasTickets,
-    firstCard,
     firstCardId,
     topTicketId,
     buttonConfig,
