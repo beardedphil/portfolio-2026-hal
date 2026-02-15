@@ -2,6 +2,8 @@ import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { getSupabaseClient } from './lib/supabase'
 import { saveConversationsToStorage, loadConversationsFromStorage, type Agent, type Message, type Conversation, type ImageAttachment } from './lib/conversationStorage'
 import { getChatWidth, setChatWidth, getChatCollapsed, setChatCollapsed } from './lib/persistedUiState'
+import { getMetricColor } from './lib/metricColor'
+import { getInitialTheme, THEME_STORAGE_KEY, type Theme } from './lib/theme'
 import * as Kanban from 'portfolio-2026-kanban'
 import type { KanbanTicketRow, KanbanColumnRow, KanbanAgentRunRow, KanbanBoardProps } from 'portfolio-2026-kanban'
 import 'portfolio-2026-kanban/style.css'
@@ -162,37 +164,6 @@ function getMessageAuthorLabel(agent: Message['agent']): string {
   return 'System'
 }
 
-/** Calculate color gradient from red (0%) to green (100%) for QA metrics (0667) */
-function getMetricColor(percentage: number | null): string {
-  if (percentage === null) {
-    return '#888888' // Gray for N/A
-  }
-  // Red (0%) to Green (100%) gradient
-  // Red: rgb(220, 53, 69) or #dc3545
-  // Green: rgb(40, 167, 69) or #28a745
-  const red = 220
-  const green = 40
-  const blueRed = 53
-  const blueGreen = 167
-  const greenRed = 69
-  const greenGreen = 69
-  const r = Math.round(red + (green - red) * (percentage / 100))
-  const g = Math.round(blueRed + (blueGreen - blueRed) * (percentage / 100))
-  const b = Math.round(greenRed + (greenGreen - greenRed) * (percentage / 100))
-  return `rgb(${r}, ${g}, ${b})`
-}
-
-type Theme = 'light' | 'dark'
-
-const THEME_STORAGE_KEY = 'hal-theme'
-
-function getInitialTheme(): Theme {
-  const stored = localStorage.getItem(THEME_STORAGE_KEY)
-  if (stored === 'light' || stored === 'dark') {
-    return stored
-  }
-  return 'light' // default
-}
 
 function App() {
   const [selectedChatTarget, setSelectedChatTarget] = useState<ChatTarget>('project-manager')
