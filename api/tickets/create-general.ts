@@ -175,12 +175,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           kanban_moved_at: now,
         })
 
-        if (!insert.error) {
+        if (!insert.error && insert.data && insert.data.length > 0) {
+          const insertedTicket = insert.data[0] as { pk: string }
           json(res, 200, {
             success: true,
             ticketId: displayId,
             id,
-            pk: insert.data && insert.data[0] ? insert.data[0].pk : crypto.randomUUID(),
+            pk: insertedTicket.pk,
           })
           return
         }
