@@ -3665,6 +3665,7 @@ function App() {
                         <p className="transcript-empty">No messages yet. Start a conversation.</p>
                       ) : (
                         <>
+<<<<<<< HEAD
                           {displayMessages.map((msg) => {
                             const isPmAssistant = selectedChatTarget === 'project-manager' && msg.agent === 'project-manager'
                             const hasPrompt = !!msg.promptText
@@ -3784,6 +3785,39 @@ function App() {
                                           <p style={{ fontSize: '12px', marginTop: '4px', margin: 0 }}>
                                             This message was generated without an external LLM call, or the prompt data is not available.
                                           </p>
+=======
+                          {displayMessages.map((msg) => (
+                            <div
+                              key={msg.id}
+                              className={`message-row message-row-${msg.agent}`}
+                              data-agent={msg.agent}
+                            >
+                              <div 
+                                className={`message message-${msg.agent}`}
+                              >
+                                <div className="message-header">
+                                  <span className="message-author">{getMessageAuthorLabel(msg.agent)}</span>
+                                  <span className="message-time">[{formatTime(msg.timestamp)}]</span>
+                                  {selectedChatTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText && (
+                                    <button
+                                      type="button"
+                                      className="message-prompt-toggle"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        setPromptModalMessage(msg)
+                                      }}
+                                      title="View the full prompt sent to the LLM"
+                                    >
+                                      Show sent prompt
+                                    </button>
+                                  )}
+                                  {msg.imageAttachments && msg.imageAttachments.length > 0 && (
+                                    <div className="message-images">
+                                      {msg.imageAttachments.map((img, idx) => (
+                                        <div key={idx} className="message-image-container">
+                                          <img src={img.dataUrl} alt={img.filename} className="message-image-thumbnail" />
+                                          <span className="message-image-filename">{img.filename}</span>
+>>>>>>> 36b8d66 (Add explicit 'Show sent prompt' button to PM assistant messages (0202))
                                         </div>
                                       )}
                                     </div>
