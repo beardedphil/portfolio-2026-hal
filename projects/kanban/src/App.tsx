@@ -1023,102 +1023,11 @@ function SortableColumn({
       return
     }
 
-    // Library mode: QA All Tickets - process sequentially
-    if (col.id === 'col-qa' && buttonConfig.chatTarget === 'qa-agent' && halCtx?.onOpenChatAndSend) {
-      const onOpenChatAndSend = halCtx.onOpenChatAndSend
-      
-      // Get initial list of tickets in QA column
-      if (!halCtx?.tickets) {
-        return // No tickets available
-      }
-      
-      const initialQaTickets = halCtx.tickets
-        .filter((t) => t.kanban_column_id === 'col-qa')
-        .map((t) => t.pk)
-      
-      if (initialQaTickets.length === 0) {
-        return // No tickets to process
-      }
-      
-      // Track which tickets we've already processed to avoid duplicates
-      const processedTickets = new Set<string>()
-      let currentIndex = 0
-      
-      // Launch QA for tickets sequentially (one at a time, wait for each to move)
-      const processNextTicket = () => {
-        // Get fresh tickets from halCtx (library mode - HAL owns the data)
-        if (!halCtx?.tickets) {
-          return // No tickets available
-        }
-        
-        const currentQaTickets = halCtx.tickets
-          .filter((t) => t.kanban_column_id === 'col-qa')
-          .map((t) => t.pk)
-        
-        // Check if we've processed all initial tickets
-        if (currentIndex >= initialQaTickets.length) {
-          // All initial tickets processed, check if any new tickets remain
-          const remainingTickets = currentQaTickets.filter(pk => !processedTickets.has(pk))
-          if (remainingTickets.length === 0) {
-            return // No more tickets to process
-          }
-          // Process remaining tickets
-          const nextTicketPk = remainingTickets[0]
-          processedTickets.add(nextTicketPk)
-          const nextTicket = halCtx.tickets.find((t) => t.pk === nextTicketPk)
-          const ticketRef = nextTicket?.display_id ?? nextTicket?.id ?? nextTicketPk
-          
-          onOpenChatAndSend({
-            chatTarget: 'qa-agent',
-            message: `QA ticket ${ticketRef}.`,
-            ticketPk: nextTicketPk,
-          })
-          
-          // Wait before processing next ticket
-          setTimeout(() => {
-            processNextTicket()
-          }, 3000) // Wait 3 seconds before processing next ticket
-          return
-        }
-        
-        // Process next ticket from initial list
-        const topTicketPk = initialQaTickets[currentIndex]
-        
-        // Skip if already processed or no longer in QA
-        if (processedTickets.has(topTicketPk) || !currentQaTickets.includes(topTicketPk)) {
-          currentIndex++
-          // Immediately try next ticket (don't wait if this one is already gone)
-          setTimeout(() => {
-            processNextTicket()
-          }, 500)
-          return
-        }
-        
-        processedTickets.add(topTicketPk)
-        currentIndex++
-        
-        const topTicket = halCtx.tickets.find((t) => t.pk === topTicketPk)
-        const ticketRef = topTicket?.display_id ?? topTicket?.id ?? topTicketPk
-        
-        // Launch QA for this ticket
-        onOpenChatAndSend({
-          chatTarget: 'qa-agent',
-          message: `QA ticket ${ticketRef}.`,
-          ticketPk: topTicketPk,
-        })
-        
-        // Wait a bit for HAL to process and update tickets, then process next ticket
-        setTimeout(() => {
-          processNextTicket()
-        }, 3000) // Wait 3 seconds before processing next ticket
-      }
-      
-      // Start processing
-      processNextTicket()
-      return
-    }
-
-    // Library mode: For other columns (not QA All Tickets), use single ticket behavior
+    // Library mode: QA column uses single-ticket behavior only (QA top ticket).
+    // Previously "QA All" launched one agent per ticket via a loop; that caused multiple agents
+    // to run against the same ticket (HAL-0607) due to stale closure / duplicate launches.
+    // Removed until we implement proper "QA All" in HAL: move all to Doing first, then stagger launches.
+    // Library mode: single ticket for all columns (including QA)
     if (halCtx?.onOpenChatAndSend && buttonConfig.chatTarget) {
       halCtx.onOpenChatAndSend({
         chatTarget: buttonConfig.chatTarget as import('./HalKanbanContext').HalChatTarget,
