@@ -18,34 +18,14 @@ import { createClient } from '@supabase/supabase-js'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
+// Import shared helper from compiled TypeScript output (requires npm run build:agents first)
+import { normalizeBodyForReady } from '../agents/dist/lib/ticketBodyNormalization.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const projectRoot = process.env.PROJECT_ROOT
   ? path.resolve(process.env.PROJECT_ROOT)
   : path.resolve(__dirname, '..')
 const ticketsDir = path.join(projectRoot, 'docs', 'tickets')
-
-/** Section titles that evaluateTicketReady expects with ## (H2). */
-const REQUIRED_SECTIONS = [
-  'Goal (one sentence)',
-  'Human-verifiable deliverable (UI-only)',
-  'Acceptance criteria (UI-only)',
-  'Constraints',
-  'Non-goals',
-]
-
-/**
- * Normalize # Section to ## Section for required readiness headings.
- * evaluateTicketReady expects exactly "## Section Title" - see projectManager.ts.
- */
-function normalizeBodyForReady(body) {
-  let out = body
-  for (const title of REQUIRED_SECTIONS) {
-    const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    out = out.replace(new RegExp(`^# (${escaped})\\s*$`, 'gm'), `## ${title}`)
-  }
-  return out
-}
 
 function extractTicketId(filename) {
   const match = filename.match(/^(\d{4})/)
