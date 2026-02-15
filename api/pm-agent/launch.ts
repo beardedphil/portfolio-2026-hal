@@ -18,6 +18,172 @@ function json(res: ServerResponse, statusCode: number, body: unknown) {
   res.end(JSON.stringify(body))
 }
 
+async function checkExistingThread(
+  supabase: any,
+  conversationId: string,
+  projectId: string,
+  auth: string
+): Promise<{ cursorAgentId: string | null; runId: string | null }> {
+  const { data: thread } = await supabase
+    .from('hal_pm_conversation_threads')
+    .select('cursor_agent_id')
+    .eq('project_id', projectId)
+    .eq('conversation_id', conversationId)
+    .maybeSingle()
+  
+  if (!thread?.cursor_agent_id) return { cursorAgentId: null, runId: null }
+  
+  try {
+    const statusRes = await fetch(`https://api.cursor.com/v0/agents/${thread.cursor_agent_id}`, {
+      method: 'GET',
+      headers: { Authorization: `Basic ${auth}` },
+    })
+    if (statusRes.ok) {
+      const statusData = (await statusRes.json()) as { status?: string }
+      const status = statusData.status ?? ''
+      if (status === 'RUNNING' || status === 'CREATING') {
+        const { data: existingRun } = await supabase
+          .from('hal_agent_runs')
+          .select('run_id, status')
+          .eq('cursor_agent_id', thread.cursor_agent_id)
+          .eq('agent_type', 'project-manager')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        
+        if (existingRun?.run_id && existingRun.status === 'polling') {
+          return { cursorAgentId: thread.cursor_agent_id, runId: existingRun.run_id as string }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[pm-agent/launch] Failed to check existing agent status:', e instanceof Error ? e.message : e)
+  }
+  return { cursorAgentId: null, runId: null }
+}
+
+function buildPromptText(repoFullName: string, defaultBranch: string, halApiBaseUrl: string, message: string): string {
+  return [
+    'You are the Project Manager agent for this repository. Use the codebase and any available tools to help with planning, prioritization, ticket creation, and project decisions.',
+    '',
+    '## Inputs (provided by HAL)',
+    `- **repoFullName**: ${repoFullName}`,
+    `- **defaultBranch**: ${defaultBranch}`,
+    `- **HAL API base URL**: ${halApiBaseUrl}`,
+    '',
+    '## Tools you can use',
+    '- Cursor Cloud Agent built-ins: read/search/edit files, run shell commands (git, npm), and use `gh` for GitHub.',
+    '- HAL server endpoints (no Supabase creds required for ticket moves): `POST /api/tickets/move`, `POST /api/tickets/get`, `POST /api/tickets/list-by-column`, `POST /api/columns/list`.',
+    '',
+    '**User message:**',
+    message,
+  ].join('\n')
+}
+
+async function createNewAgent(
+  supabase: any,
+  repoFullName: string,
+  defaultBranch: string,
+  message: string,
+  halApiBaseUrl: string,
+  auth: string,
+  repoUrl: string
+): Promise<{ runId: string; cursorAgentId: string; cursorStatus: string }> {
+  const initialProgress = appendProgress([], `Launching PM agent for ${repoFullName}`)
+  const { data: runRow, error: runInsErr } = await supabase
+    .from('hal_agent_runs')
+    .insert({
+      agent_type: 'project-manager',
+      repo_full_name: repoFullName,
+      ticket_pk: null,
+      ticket_number: null,
+      display_id: null,
+      status: 'launching',
+      progress: initialProgress,
+    })
+    .select('run_id')
+    .maybeSingle()
+
+  if (runInsErr || !runRow?.run_id) {
+    throw new Error(`Failed to create run row: ${runInsErr?.message ?? 'unknown'}`)
+  }
+
+  const runId = runRow.run_id as string
+  const promptText = buildPromptText(repoFullName, defaultBranch, halApiBaseUrl, message)
+
+  const launchRes = await fetch('https://api.cursor.com/v0/agents', {
+    method: 'POST',
+    headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      prompt: { text: promptText },
+      source: { repository: repoUrl, ref: defaultBranch },
+      target: { branchName: defaultBranch },
+      model: PM_CURSOR_MODEL,
+    }),
+  })
+
+  const launchText = await launchRes.text()
+  if (!launchRes.ok) {
+    const msg = humanReadableCursorError(launchRes.status, launchText)
+    await supabase
+      .from('hal_agent_runs')
+      .update({
+        status: 'failed',
+        error: msg,
+        progress: appendProgress(initialProgress, `Launch failed: ${msg}`),
+        finished_at: new Date().toISOString(),
+      })
+      .eq('run_id', runId)
+    throw new Error(msg)
+  }
+
+  let launchData: { id?: string; status?: string }
+  try {
+    launchData = JSON.parse(launchText) as typeof launchData
+  } catch {
+    const msg = 'Invalid response from Cursor API when launching agent.'
+    await supabase
+      .from('hal_agent_runs')
+      .update({
+        status: 'failed',
+        error: msg,
+        progress: appendProgress(initialProgress, msg),
+        finished_at: new Date().toISOString(),
+      })
+      .eq('run_id', runId)
+    throw new Error(msg)
+  }
+
+  const cursorAgentId = launchData.id ?? ''
+  const cursorStatus = launchData.status ?? 'CREATING'
+  if (!cursorAgentId) {
+    const msg = 'Cursor API did not return an agent ID.'
+    await supabase
+      .from('hal_agent_runs')
+      .update({
+        status: 'failed',
+        error: msg,
+        progress: appendProgress(initialProgress, msg),
+        finished_at: new Date().toISOString(),
+      })
+      .eq('run_id', runId)
+    throw new Error(msg)
+  }
+
+  const progressAfterLaunch = appendProgress(initialProgress, `Launched Cursor agent (${cursorStatus}).`)
+  await supabase
+    .from('hal_agent_runs')
+    .update({
+      status: 'polling',
+      cursor_agent_id: cursorAgentId,
+      cursor_status: cursorStatus,
+      progress: progressAfterLaunch,
+    })
+    .eq('run_id', runId)
+
+  return { runId, cursorAgentId, cursorStatus }
+}
+
 /**
  * Launch a Cursor Cloud Agent for the Project Manager role.
  * Uses gpt-5.2; no conversation history — Cursor handles context from the repo.
@@ -68,47 +234,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     let isContinuing = false
     let existingRunId: string | null = null
     if (conversationId && projectId && !restart) {
-      const { data: thread } = await supabase
-        .from('hal_pm_conversation_threads')
-        .select('cursor_agent_id')
-        .eq('project_id', projectId)
-        .eq('conversation_id', conversationId)
-        .maybeSingle()
-      
-      if (thread?.cursor_agent_id) {
-        // Check if the agent is still active and find the most recent run
-        try {
-          const statusRes = await fetch(`https://api.cursor.com/v0/agents/${thread.cursor_agent_id}`, {
-            method: 'GET',
-            headers: { Authorization: `Basic ${auth}` },
-          })
-          if (statusRes.ok) {
-            const statusData = (await statusRes.json()) as { status?: string }
-            const status = statusData.status ?? ''
-            // Reuse agent if it's still RUNNING or CREATING
-            if (status === 'RUNNING' || status === 'CREATING') {
-              existingCursorAgentId = thread.cursor_agent_id
-              isContinuing = true
-              
-              // Find the most recent run for this agent
-              const { data: existingRun } = await supabase
-                .from('hal_agent_runs')
-                .select('run_id, status')
-                .eq('cursor_agent_id', existingCursorAgentId)
-                .eq('agent_type', 'project-manager')
-                .order('created_at', { ascending: false })
-                .limit(1)
-                .maybeSingle()
-              
-              if (existingRun?.run_id && existingRun.status === 'polling') {
-                existingRunId = existingRun.run_id as string
-              }
-            }
-          }
-        } catch (e) {
-          // If check fails, proceed to create new agent
-          console.warn('[pm-agent/launch] Failed to check existing agent status:', e instanceof Error ? e.message : e)
-        }
+      const existing = await checkExistingThread(supabase, conversationId, projectId, auth)
+      if (existing.cursorAgentId && existing.runId) {
+        existingCursorAgentId = existing.cursorAgentId
+        existingRunId = existing.runId
+        isContinuing = true
       }
     }
 
@@ -143,116 +273,16 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       // we should use that here instead of creating a new agent.
     } else {
       // Creating new agent
-      const initialProgress = appendProgress([], `Launching PM agent for ${repoFullName}`)
-      const { data: runRow, error: runInsErr } = await supabase
-        .from('hal_agent_runs')
-        .insert({
-          agent_type: 'project-manager',
-          repo_full_name: repoFullName,
-          ticket_pk: null,
-          ticket_number: null,
-          display_id: null,
-          status: 'launching',
-          progress: initialProgress,
-        })
-        .select('run_id')
-        .maybeSingle()
-
-      if (runInsErr || !runRow?.run_id) {
-        json(res, 500, { error: `Failed to create run row: ${runInsErr?.message ?? 'unknown'}` })
-        return
-      }
-
-      runId = runRow.run_id as string
-
-      const promptText = [
-        'You are the Project Manager agent for this repository. Use the codebase and any available tools to help with planning, prioritization, ticket creation, and project decisions.',
-        '',
-        '## Inputs (provided by HAL)',
-        `- **repoFullName**: ${repoFullName}`,
-        `- **defaultBranch**: ${defaultBranch}`,
-        `- **HAL API base URL**: ${halApiBaseUrl}`,
-        '',
-        '## Tools you can use',
-        '- Cursor Cloud Agent built-ins: read/search/edit files, run shell commands (git, npm), and use `gh` for GitHub.',
-        '- HAL server endpoints (no Supabase creds required for ticket moves): `POST /api/tickets/move`, `POST /api/tickets/get`, `POST /api/tickets/list-by-column`, `POST /api/columns/list`.',
-        '',
-        '**User message:**',
-        message,
-      ].join('\n')
-
-      const launchRes = await fetch('https://api.cursor.com/v0/agents', {
-        method: 'POST',
-        headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: { text: promptText },
-          source: { repository: repoUrl, ref: defaultBranch },
-          target: { branchName: defaultBranch },
-          model: PM_CURSOR_MODEL,
-        }),
-      })
-
-      const launchText = await launchRes.text()
-      if (!launchRes.ok) {
-        const msg = humanReadableCursorError(launchRes.status, launchText)
-        await supabase
-          .from('hal_agent_runs')
-          .update({
-            status: 'failed',
-            error: msg,
-            progress: appendProgress(initialProgress, `Launch failed: ${msg}`),
-            finished_at: new Date().toISOString(),
-          })
-          .eq('run_id', runId)
-        json(res, 200, { runId, status: 'failed', error: msg })
-        return
-      }
-
-      let launchData: { id?: string; status?: string }
       try {
-        launchData = JSON.parse(launchText) as typeof launchData
-      } catch {
-        const msg = 'Invalid response from Cursor API when launching agent.'
-        await supabase
-          .from('hal_agent_runs')
-          .update({
-            status: 'failed',
-            error: msg,
-            progress: appendProgress(initialProgress, msg),
-            finished_at: new Date().toISOString(),
-          })
-          .eq('run_id', runId)
-        json(res, 200, { runId, status: 'failed', error: msg })
+        const result = await createNewAgent(supabase, repoFullName, defaultBranch, message, halApiBaseUrl, auth, repoUrl)
+        runId = result.runId
+        cursorAgentId = result.cursorAgentId
+        cursorStatus = result.cursorStatus
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        json(res, 200, { runId: '', status: 'failed', error: msg })
         return
       }
-
-      cursorAgentId = launchData.id ?? ''
-      cursorStatus = launchData.status ?? 'CREATING'
-      if (!cursorAgentId) {
-        const msg = 'Cursor API did not return an agent ID.'
-        await supabase
-          .from('hal_agent_runs')
-          .update({
-            status: 'failed',
-            error: msg,
-            progress: appendProgress(initialProgress, msg),
-            finished_at: new Date().toISOString(),
-          })
-          .eq('run_id', runId)
-        json(res, 200, { runId, status: 'failed', error: msg })
-        return
-      }
-
-      const progressAfterLaunch = appendProgress(initialProgress, `Launched Cursor agent (${cursorStatus}).`)
-      await supabase
-        .from('hal_agent_runs')
-        .update({
-          status: 'polling',
-          cursor_agent_id: cursorAgentId,
-          cursor_status: cursorStatus,
-          progress: progressAfterLaunch,
-        })
-        .eq('run_id', runId)
     }
 
     // Store or update the conversation thread mapping
