@@ -1,4 +1,3 @@
-import React from 'react'
 import type { TicketAttachment } from './types'
 
 /** Attachments Section: displays file attachments for tickets (0092) */

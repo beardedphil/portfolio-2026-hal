@@ -27,9 +27,6 @@ import {
   useSortable,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import {
-  parseFrontmatter,
-} from './frontmatter'
 import { createClient } from '@supabase/supabase-js'
 import ReactMarkdown from 'react-markdown'
 import type { Components } from 'react-markdown'
@@ -37,15 +34,12 @@ import { GitDiffViewer } from './GitDiffViewer'
 import {
   extractTicketId,
   extractFeatureBranch,
-  stripQAInformationBlockFromBody,
   checkMergedToMain,
   normalizeTitleLineInBody,
 } from './lib/ticketBody'
 import { TicketDetailModal } from './components/TicketDetailModal'
-import { ArtifactsSection } from './components/ArtifactsSection'
 import { QAInfoSection } from './components/QAInfoSection'
-import { AttachmentsSection } from './components/AttachmentsSection'
-import { ProcessReviewSection } from './components/ProcessReviewSection'
+import { AutoDismissMessage } from './components/AutoDismissMessage'
 import { getAgentTypeDisplayName } from './components/utils'
 
 type LogEntry = { id: number; message: string; at: string }
