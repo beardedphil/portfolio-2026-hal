@@ -369,23 +369,6 @@ function App() {
   const realtimeSubscriptionsRef = useRef<{ tickets: boolean; agentRuns: boolean }>({ tickets: false, agentRuns: false })
   const [outboundRequestExpanded, setOutboundRequestExpanded] = useState(false)
   const [toolCallsExpanded, setToolCallsExpanded] = useState(false)
-  // PM Working Memory (0173)
-  /** Working memory for PM conversation (0173) */
-  const [pmWorkingMemory, setPmWorkingMemory] = useState<{
-    summary: string
-    goals: string[]
-    requirements: string[]
-    constraints: string[]
-    decisions: string[]
-    assumptions: string[]
-    open_questions: string[]
-    glossary: Record<string, string>
-    stakeholders: string[]
-    updated_at: string
-    through_sequence: number
-  } | null>(null)
-  const [pmWorkingMemoryOpen, setPmWorkingMemoryOpen] = useState(false)
-  const [pmWorkingMemoryLoading, setPmWorkingMemoryLoading] = useState(false)
   const messageIdRef = useRef(0)
   const pmMaxSequenceRef = useRef(0) // Keep for backward compatibility during migration
   // Track max sequence per agent instance (e.g., "project-manager-1", "implementation-agent-2")
