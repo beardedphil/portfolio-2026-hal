@@ -729,7 +729,12 @@ function App() {
     
     // Fetch working memory when project is loaded (0173)
     if (url && key) {
-      setTimeout(() => fetchPmWorkingMemory(), 500) // Small delay to avoid blocking
+      // Fetch working memory after a short delay to ensure Supabase is ready
+      setTimeout(() => {
+        if (connectedProject === projectName) {
+          fetchPmWorkingMemory()
+        }
+      }, 1000)
     }
 
     // If Supabase is available, load from Supabase asynchronously and merge/overwrite localStorage data
