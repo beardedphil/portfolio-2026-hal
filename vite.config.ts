@@ -34,25 +34,35 @@ import {
 import { pmCheckUnassignedPlugin } from './vite/middleware/pm-check-unassigned'
 import { pmFileAccessPlugin } from './vite/middleware/pm-file-access'
 
-// Note: Plugin approach doesn't work because errors happen during config loading,
-// before plugins are initialized. This is a vite 6.x limitation where esbuild
-// scans the entire workspace during config processing.
-
 export default defineConfig({
   build: {
     cssMinify: false,
     rollupOptions: {
-      input: 'index.html', // Explicitly specify entry point
-      onwarn(warning, warn) {
-        // Suppress warnings about CLI files
-        if (warning.message && (warning.message.includes('/bin/') || warning.message.includes('/cli.js'))) {
-          return
+      input: 'index.html',
+      external: (id) => {
+        // Mark CLI files, scripts, and problematic node_modules files as external
+        // This prevents rollup from processing them, but errors still occur during config loading
+        if (
+          id.includes('/bin/') ||
+          id.endsWith('/cli.js') ||
+          id.includes('/dist/cli.js') ||
+          id.includes('/dist/bin/') ||
+          (id.includes('/scripts/') && id.endsWith('.js')) ||
+          id.includes('node_modules/rxjs/src/Rx.global.js') ||
+          id.includes('node_modules/node-domexception/.history/') ||
+          id.includes('node_modules/istanbul-reports/')
+        ) {
+          return true
         }
-        warn(warning)
+        return false
       },
     },
-    // Exclude scripts and node_modules from build
     outDir: 'dist',
+    target: 'esnext',
+  },
+  esbuild: {
+    // Configure esbuild to handle JSX in .js files (for istanbul-reports)
+    jsx: 'automatic',
   },
   publicDir: 'public',
   root: '.',
@@ -64,8 +74,14 @@ export default defineConfig({
     ],
     dedupe: [], // Don't dedupe dependencies
   },
-  // Skip dependency optimization during build to avoid processing CLI files
-  // optimizeDeps is only used in dev mode, not during build
+  optimizeDeps: {
+    exclude: [
+      // Exclude problematic packages that cause build errors during config loading
+      'istanbul-reports',
+      'node-domexception',
+      'rxjs',
+    ],
+  },
   plugins: [
     react(),
     prebuildPlugin(),
