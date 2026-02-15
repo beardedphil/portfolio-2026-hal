@@ -556,6 +556,10 @@ function App() {
 
   useEffect(() => {
     selectedChatTargetRef.current = selectedChatTarget
+    // Close prompt view when switching away from Project Manager
+    if (selectedChatTarget !== 'project-manager') {
+      setShowPmPrompt(false)
+    }
   }, [selectedChatTarget])
 
   // Apply theme to document root on mount and when theme changes (0078)
