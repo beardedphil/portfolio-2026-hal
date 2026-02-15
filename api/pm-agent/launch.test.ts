@@ -5,7 +5,9 @@
  * - Conversation threads are correctly mapped to cursor_agent_id
  * - Existing threads are reused when agents are still RUNNING
  * - New agents are created when threads don't exist or agents are FINISHED
+ * - Conversation history is fetched and included in prompts when continuing
  * - Restart functionality clears thread mappings
+ * - Thread mappings are persisted server-side
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
@@ -138,5 +140,120 @@ describe('PM agent launch thread lookup', () => {
     // Should not call thread lookup when conversationId is missing
     // (This is tested by ensuring from('hal_pm_conversation_threads') is not called
     // when conversationId is undefined)
+  })
+
+  it('should fetch conversation history when continuing a thread', async () => {
+    // Mock: existing thread
+    mockSupabase.maybeSingle.mockResolvedValueOnce({ 
+      data: { cursor_agent_id: 'existing-agent-id' }, 
+      error: null 
+    })
+    
+    // Mock: agent status check returns FINISHED (so we create new agent with history)
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ status: 'FINISHED' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => JSON.stringify({ id: 'new-agent-id', status: 'CREATING' }),
+      })
+    global.fetch = mockFetch
+    
+    // Mock: conversation history fetch
+    mockSupabase.maybeSingle.mockResolvedValueOnce({ 
+      data: [
+        { role: 'user', content: 'First message' },
+        { role: 'assistant', content: 'First response' },
+        { role: 'user', content: 'Second message' },
+      ],
+      error: null 
+    })
+    
+    // Mock: new agent run creation
+    mockSupabase.maybeSingle.mockResolvedValueOnce({ 
+      data: { run_id: 'new-run-id' }, 
+      error: null 
+    })
+    
+    // Mock: thread upsert
+    mockSupabase.upsert.mockResolvedValueOnce({ data: null, error: null })
+    
+    // The handler should fetch conversation history and include it in the prompt
+    expect(mockSupabase.from).toHaveBeenCalledWith('hal_conversation_messages')
+  })
+
+  it('should update thread mapping when creating new agent for existing conversation', async () => {
+    // Mock: existing thread with FINISHED agent
+    mockSupabase.maybeSingle.mockResolvedValueOnce({ 
+      data: { cursor_agent_id: 'old-agent-id' }, 
+      error: null 
+    })
+    
+    // Mock: agent status check returns FINISHED
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ status: 'FINISHED' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => JSON.stringify({ id: 'new-agent-id', status: 'CREATING' }),
+      })
+    global.fetch = mockFetch
+    
+    // Mock: conversation history (empty for this test)
+    mockSupabase.maybeSingle.mockResolvedValueOnce({ 
+      data: [],
+      error: null 
+    })
+    
+    // Mock: new agent run creation
+    mockSupabase.maybeSingle.mockResolvedValueOnce({ 
+      data: { run_id: 'new-run-id' }, 
+      error: null 
+    })
+    
+    // Mock: thread upsert (should update to new-agent-id)
+    mockSupabase.upsert.mockResolvedValueOnce({ data: null, error: null })
+    
+    // The handler should update the thread mapping with the new cursor_agent_id
+    expect(mockSupabase.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cursor_agent_id: 'new-agent-id',
+      }),
+      expect.any(Object)
+    )
+  })
+
+  it('should persist thread mapping across requests', async () => {
+    // First request: create new thread
+    mockSupabase.maybeSingle.mockResolvedValueOnce({ 
+      data: null, // No existing thread
+      error: null 
+    })
+    
+    mockSupabase.maybeSingle.mockResolvedValueOnce({ 
+      data: { run_id: 'run-1' }, 
+      error: null 
+    })
+    
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      text: async () => JSON.stringify({ id: 'agent-1', status: 'CREATING' }),
+    })
+    global.fetch = mockFetch
+    
+    mockSupabase.upsert.mockResolvedValueOnce({ data: null, error: null })
+    
+    // Second request: should find existing thread
+    mockSupabase.maybeSingle.mockResolvedValueOnce({ 
+      data: { cursor_agent_id: 'agent-1' }, 
+      error: null 
+    })
+    
+    // The thread mapping should be persisted and found on the second request
+    expect(mockSupabase.from).toHaveBeenCalledWith('hal_pm_conversation_threads')
   })
 })

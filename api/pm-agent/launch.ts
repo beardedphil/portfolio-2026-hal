@@ -62,7 +62,48 @@ async function checkExistingThread(
   return { cursorAgentId: null, runId: null }
 }
 
-function buildPromptText(repoFullName: string, defaultBranch: string, halApiBaseUrl: string, message: string): string {
+async function fetchConversationHistory(
+  supabase: any,
+  conversationId: string,
+  projectId: string
+): Promise<Array<{ role: string; content: string }>> {
+  const { data: messages, error } = await supabase
+    .from('hal_conversation_messages')
+    .select('role, content')
+    .eq('project_id', projectId)
+    .eq('agent', conversationId)
+    .order('sequence', { ascending: true })
+    .limit(50) // Limit to most recent 50 messages for context
+
+  if (error || !messages) return []
+
+  return messages
+    .filter((m: any) => m.role === 'user' || m.role === 'assistant')
+    .map((m: any) => ({
+      role: m.role === 'assistant' ? 'assistant' : 'user',
+      content: m.content || '',
+    }))
+}
+
+function buildPromptText(
+  repoFullName: string,
+  defaultBranch: string,
+  halApiBaseUrl: string,
+  message: string,
+  conversationHistory?: Array<{ role: string; content: string }>
+): string {
+  const historySection = conversationHistory && conversationHistory.length > 0
+    ? [
+        '',
+        '## Previous conversation history',
+        ...conversationHistory.map((msg, idx) => {
+          const roleLabel = msg.role === 'user' ? 'User' : 'Assistant'
+          return `${roleLabel}: ${msg.content}`
+        }),
+        '',
+      ].join('\n')
+    : ''
+
   return [
     'You are the Project Manager agent for this repository. Use the codebase and any available tools to help with planning, prioritization, ticket creation, and project decisions.',
     '',
@@ -74,7 +115,7 @@ function buildPromptText(repoFullName: string, defaultBranch: string, halApiBase
     '## Tools you can use',
     '- Cursor Cloud Agent built-ins: read/search/edit files, run shell commands (git, npm), and use `gh` for GitHub.',
     '- HAL server endpoints (no Supabase creds required for ticket moves): `POST /api/tickets/move`, `POST /api/tickets/get`, `POST /api/tickets/list-by-column`, `POST /api/columns/list`.',
-    '',
+    historySection,
     '**User message:**',
     message,
   ].join('\n')
@@ -87,7 +128,8 @@ async function createNewAgent(
   message: string,
   halApiBaseUrl: string,
   auth: string,
-  repoUrl: string
+  repoUrl: string,
+  conversationHistory?: Array<{ role: string; content: string }>
 ): Promise<{ runId: string; cursorAgentId: string; cursorStatus: string }> {
   const initialProgress = appendProgress([], `Launching PM agent for ${repoFullName}`)
   const { data: runRow, error: runInsErr } = await supabase
@@ -109,7 +151,7 @@ async function createNewAgent(
   }
 
   const runId = runRow.run_id as string
-  const promptText = buildPromptText(repoFullName, defaultBranch, halApiBaseUrl, message)
+  const promptText = buildPromptText(repoFullName, defaultBranch, halApiBaseUrl, message, conversationHistory)
 
   const launchRes = await fetch('https://api.cursor.com/v0/agents', {
     method: 'POST',
@@ -253,36 +295,41 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
+    // Fetch conversation history if continuing
+    let conversationHistory: Array<{ role: string; content: string }> | undefined
+    if (isContinuing && conversationId && projectId) {
+      conversationHistory = await fetchConversationHistory(supabase, conversationId, projectId)
+    }
+
     let cursorAgentId: string
     let cursorStatus: string
     let runId: string
 
-    if (isContinuing && existingCursorAgentId && existingRunId) {
-      // Continuing existing conversation - reuse the existing run
-      runId = existingRunId
-      cursorAgentId = existingCursorAgentId
-      cursorStatus = 'RUNNING'
-      
-      // Note: Cursor Cloud Agents API doesn't appear to support sending follow-up messages
-      // to existing agents. Each agent run is independent. However, we're reusing the same
-      // cursor_agent_id mapping so the frontend knows this is a continuation.
-      // The agent will need to be recreated for the new message, but we maintain the mapping
-      // so future messages can also reference the same conversation thread.
-      // 
-      // TODO: If Cursor API adds support for multi-turn conversations on the same agent,
-      // we should use that here instead of creating a new agent.
-    } else {
-      // Creating new agent
-      try {
-        const result = await createNewAgent(supabase, repoFullName, defaultBranch, message, halApiBaseUrl, auth, repoUrl)
-        runId = result.runId
-        cursorAgentId = result.cursorAgentId
-        cursorStatus = result.cursorStatus
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        json(res, 200, { runId: '', status: 'failed', error: msg })
-        return
-      }
+    // Note: Cursor Cloud Agents API doesn't support sending follow-up messages to existing agents.
+    // Each agent run is independent. When continuing a conversation, we create a new agent but:
+    // 1. Include conversation history in the prompt for context
+    // 2. Reuse the same cursor_agent_id in the thread mapping (update it to the new agent)
+    // This enables multi-turn conversations while working within Cursor API limitations.
+    
+    // Always create a new agent run (even when continuing), but include history if available
+    try {
+      const result = await createNewAgent(
+        supabase,
+        repoFullName,
+        defaultBranch,
+        message,
+        halApiBaseUrl,
+        auth,
+        repoUrl,
+        conversationHistory
+      )
+      runId = result.runId
+      cursorAgentId = result.cursorAgentId
+      cursorStatus = result.cursorStatus
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      json(res, 200, { runId: '', status: 'failed', error: msg })
+      return
     }
 
     // Store or update the conversation thread mapping

@@ -2337,7 +2337,6 @@ function App() {
               return
             }
 
-            addPmSystemMessage('[Status] Launching PM agent (Cursor)...')
             const launchRes = await fetch('/api/pm-agent/launch', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -2346,9 +2345,16 @@ function App() {
                 message: content,
                 repoFullName: connectedGithubRepo.fullName,
                 defaultBranch: connectedGithubRepo.defaultBranch || 'main',
+                conversationId: convId,
+                projectId: connectedProject || undefined,
               }),
             })
-            const launchData = (await launchRes.json()) as { runId?: string; status?: string; error?: string }
+            const launchData = (await launchRes.json()) as { runId?: string; status?: string; error?: string; isContinuing?: boolean }
+            if (launchData.isContinuing) {
+              addPmSystemMessage('[Status] Continuing PM thread...')
+            } else {
+              addPmSystemMessage('[Status] Launching PM agent (Cursor)...')
+            }
             if (!launchData.runId || launchData.status === 'failed') {
               setAgentTypingTarget(null)
               const errMsg = launchData.error ?? 'Launch failed'
@@ -3766,6 +3772,49 @@ function App() {
                       : 'Chat'}
                   </div>
                   <div className="chat-window-actions">
+                    {/* Start new PM thread button (0663) */}
+                    {(() => {
+                      const currentConvId = typeof openChatTarget === 'string' && conversations.has(openChatTarget)
+                        ? openChatTarget
+                        : openChatTarget === 'project-manager'
+                        ? getConversationId('project-manager', 1)
+                        : null
+                      const isPmChat = currentConvId && parseConversationId(currentConvId)?.agentRole === 'project-manager'
+                      return isPmChat && connectedProject ? (
+                        <button
+                          type="button"
+                          className="chat-window-clear"
+                          onClick={async () => {
+                            if (currentConvId && window.confirm('Start a new PM thread? This will clear the thread mapping and start a fresh conversation.')) {
+                              try {
+                                const restartRes = await fetch('/api/pm-agent/launch', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  credentials: 'include',
+                                  body: JSON.stringify({
+                                    restart: true,
+                                    conversationId: currentConvId,
+                                    projectId: connectedProject,
+                                  }),
+                                })
+                                const restartData = await restartRes.json()
+                                if (restartData.success) {
+                                  addMessage(currentConvId, 'system', '[Status] PM thread restarted. Next message will start a new conversation.')
+                                } else {
+                                  addMessage(currentConvId, 'system', `[Error] Failed to restart thread: ${restartData.error || 'Unknown error'}`)
+                                }
+                              } catch (err) {
+                                addMessage(currentConvId, 'system', `[Error] Failed to restart thread: ${err instanceof Error ? err.message : 'Unknown error'}`)
+                              }
+                            }
+                          }}
+                          aria-label="Start new PM thread"
+                          title="Start new PM thread"
+                        >
+                          Start new PM thread
+                        </button>
+                      ) : null
+                    })()}
                     {/* Clear conversation button (0124) */}
                     {(() => {
                       const currentConvId = typeof openChatTarget === 'string' && conversations.has(openChatTarget)
