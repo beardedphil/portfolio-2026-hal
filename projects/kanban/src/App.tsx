@@ -35,6 +35,8 @@ import {
   checkMergedToMain,
   normalizeTitleLineInBody,
 } from './lib/ticketBody'
+import { normalizeTicketRow } from './lib/normalizeTicketRow'
+import { canonicalizeColumnRows, type SupabaseKanbanColumnRow } from './lib/canonicalizeColumns'
 import { TicketDetailModal } from './components/TicketDetailModal'
 import { QAInfoSection } from './components/QAInfoSection'
 import { AutoDismissMessage } from './components/AutoDismissMessage'
@@ -68,14 +70,7 @@ type SupabaseTicketRow = {
   display_id?: string
 }
 
-/** Supabase kanban_columns table row (0020) */
-type SupabaseKanbanColumnRow = {
-  id: string
-  title: string
-  position: number
-  created_at: string
-  updated_at: string
-}
+/** Supabase kanban_columns table row (0020) - use imported type from canonicalizeColumns */
 
 /** Supabase agent_artifacts table row (0082) - exported from components/types.ts */
 type SupabaseAgentArtifactRow = {
@@ -165,28 +160,6 @@ const DEFAULT_KANBAN_COLUMNS_SEED = [
   { id: 'col-wont-implement', title: 'Will Not Implement', position: 7 },
 ] as const
 
-function normalizeTicketRow(row: Partial<SupabaseTicketRow> & { id?: string }): SupabaseTicketRow {
-  const legacyId = String(row.id ?? '').trim() || '0000'
-  const pk = typeof row.pk === 'string' && row.pk.trim() ? row.pk.trim() : legacyId
-  const displayId =
-    typeof row.display_id === 'string' && row.display_id.trim()
-      ? row.display_id.trim()
-      : `LEG-${legacyId.padStart(4, '0')}`
-  return {
-    pk,
-    id: legacyId,
-    filename: String(row.filename ?? ''),
-    title: String(row.title ?? ''),
-    body_md: String(row.body_md ?? ''),
-    kanban_column_id: (row.kanban_column_id ?? null) as string | null,
-    kanban_position: (row.kanban_position ?? null) as number | null,
-    kanban_moved_at: (row.kanban_moved_at ?? null) as string | null,
-    updated_at: String(row.updated_at ?? ''),
-    repo_full_name: row.repo_full_name,
-    ticket_number: row.ticket_number,
-    display_id: displayId,
-  }
-}
 
 const DEFAULT_COLUMNS: Column[] = [
   { id: 'col-unassigned', title: 'Unassigned', cardIds: [] },
@@ -199,40 +172,6 @@ const DEFAULT_COLUMNS: Column[] = [
   { id: 'col-wont-implement', title: 'Will Not Implement', cardIds: [] },
 ]
 
-/** Unassigned, To-do, Doing, Ready for QA, Human in the Loop, Process Review, Done, Will Not Implement; tickets with null or col-unassigned go in Unassigned */
-const KANBAN_COLUMN_IDS = [
-  'col-unassigned',
-  'col-todo',
-  'col-doing',
-  'col-qa',
-  'col-human-in-the-loop',
-  'col-process-review',
-  'col-done',
-  'col-wont-implement',
-] as const
-
-/** Filter raw DB columns to canonical 7, in order; create fallbacks for missing. Use in connectSupabase and refetchSupabaseTickets. */
-function canonicalizeColumnRows(
-  rows: SupabaseKanbanColumnRow[]
-): SupabaseKanbanColumnRow[] {
-  const canonicalOrder = KANBAN_COLUMN_IDS as unknown as string[]
-  const filtered = rows.filter((c) => canonicalOrder.includes(c.id))
-  const titleById: Record<string, string> = {
-    'col-qa': 'Ready for QA',
-  }
-  return canonicalOrder.map((id, i) => {
-    const row = filtered.find((c) => c.id === id)
-    return (
-      row ?? {
-        id,
-        title: titleById[id] ?? id.replace('col-', '').replace(/-/g, ' '),
-        position: i,
-        created_at: '',
-        updated_at: '',
-      }
-    )
-  }) as SupabaseKanbanColumnRow[]
-}
 const EMPTY_KANBAN_COLUMNS: Column[] = [
   { id: 'col-unassigned', title: 'Unassigned', cardIds: [] },
   { id: 'col-todo', title: 'To-do', cardIds: [] },
