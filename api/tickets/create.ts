@@ -1,6 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { createClient } from '@supabase/supabase-js'
-import crypto from 'node:crypto'
 import { readJsonBody, json, repoHintPrefix, parseSupabaseCredentials } from './_shared.js'
 import {
   generateSingleSuggestionBody,
@@ -9,6 +8,7 @@ import {
   getNextTicketNumber,
   createTicketWithRetry,
 } from './_create-helpers.js'
+import { computeSuggestionHash } from './_processReviewIdempotency.js'
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   // CORS: Allow cross-origin requests
@@ -117,7 +117,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     // Always generate hash for single suggestions to enable duplicate detection
     // Use normalized (trimmed) suggestion to match idempotency check
     const suggestionHash = isSingleSuggestion && normalizedSuggestion
-      ? crypto.createHash('sha256').update(normalizedSuggestion).digest('hex').slice(0, 16)
+      ? computeSuggestionHash(normalizedSuggestion)
       : null
     // Always include hash in body when available (for idempotency), reviewId is optional
     const idempotencySection = suggestionHash

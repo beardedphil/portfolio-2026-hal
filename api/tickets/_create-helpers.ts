@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
 import { slugFromTitle, isUniqueViolation } from './_shared.js'
+import { computeSuggestionHash, buildHashPattern, buildSourcePattern } from './_processReviewIdempotency.js'
 
 export function generateSingleSuggestionBody(sourceRef: string, suggestion: string, idempotencySection: string): string {
   return `# Ticket
@@ -103,9 +104,9 @@ export async function checkIdempotency(
   if (!singleSuggestion) return null
 
   const normalizedSuggestion = singleSuggestion.trim()
-  const suggestionHash = crypto.createHash('sha256').update(normalizedSuggestion).digest('hex').slice(0, 16)
-  const hashPattern = `Suggestion Hash**: ${suggestionHash}`
-  const sourcePattern = `Proposed from**: ${sourceRef} — Process Review`
+  const suggestionHash = computeSuggestionHash(normalizedSuggestion)
+  const hashPattern = buildHashPattern(suggestionHash)
+  const sourcePattern = buildSourcePattern(sourceRef)
 
   const { data: existingTickets } = await supabase
     .from('tickets')
