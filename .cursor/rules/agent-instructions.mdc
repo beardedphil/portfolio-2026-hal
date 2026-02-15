@@ -7,6 +7,33 @@ alwaysApply: true
 
 Instructions are loaded from `.cursor/rules` and `docs/`. See `docs/process/hal-tool-call-contract.mdc` for HAL API endpoints.
 
+## Pre-Merge TypeScript Verification
+
+**MANDATORY:** Before merging any branch to `main`, implementation agents **MUST** verify TypeScript compilation succeeds:
+
+1. **Install dependencies:**
+   ```bash
+   npm install
+   ```
+
+2. **Run TypeScript compiler:**
+   ```bash
+   npm run build:hal
+   ```
+   
+   Or if you need to check specific projects:
+   ```bash
+   tsc -b  # Check all TypeScript projects
+   cd projects/kanban && npx tsc --noEmit  # Check kanban project specifically
+   ```
+
+3. **Fix any TypeScript errors before merging:**
+   - All TypeScript errors must be resolved
+   - Build must complete successfully
+   - Do not merge if `tsc` or `npm run build:hal` fails
+
+**This check prevents build failures in CI/CD and ensures code quality.**
+
 ## Moving Tickets After Implementation
 
 **MANDATORY:** After implementation, the implementation agent **MUST** move the ticket to **Ready for QA** before sending a completion summary.
