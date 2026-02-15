@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 
 /**
- * Generates overcomplication data for QA reports.
- * Outputs: max allowed lines, gate pass status, allowlist count, and top 10 largest files.
+ * Reports overcomplication metrics for QA reports:
+ * - Max allowed lines (from allowlist)
+ * - Whether the gate passed
+ * - Count of allowlisted files
+ * - Top 10 largest source files with line counts
  * 
- * This script is designed to be run by QA agents to populate the Overcomplication section
- * of QA reports. It uses the same logic as check-lines.js and report-lines.js to ensure
- * consistency with the repository's line-limit tooling.
+ * Outputs markdown format suitable for inclusion in QA reports.
  */
 
 import fs from 'fs'
@@ -47,7 +48,8 @@ const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']
  */
 function loadAllowlist() {
   if (!fs.existsSync(ALLOWLIST_PATH)) {
-    throw new Error(`Allowlist file not found: ${ALLOWLIST_PATH}`)
+    console.error(`Error: Allowlist file not found: ${ALLOWLIST_PATH}`)
+    process.exit(1)
   }
   
   try {
@@ -59,7 +61,8 @@ function loadAllowlist() {
       files: Array.isArray(data.files) ? data.files : []
     }
   } catch (err) {
-    throw new Error(`Error reading allowlist: ${err.message}`)
+    console.error(`Error reading allowlist: ${err.message}`)
+    process.exit(1)
   }
 }
 
@@ -136,13 +139,14 @@ function findSourceFiles(dirPath, relativePath = '') {
 }
 
 /**
- * Check if line limit gate passes
+ * Check if line limit gate passed
  */
-function checkGatePasses() {
+function checkGatePassed() {
   try {
+    // Run check:lines and capture exit code
     execSync('npm run check:lines', { 
-      cwd: ROOT_DIR, 
-      stdio: 'pipe' 
+      cwd: ROOT_DIR,
+      stdio: 'pipe' // Suppress output
     })
     return true
   } catch (err) {
@@ -151,12 +155,11 @@ function checkGatePasses() {
 }
 
 /**
- * Get all source files with line counts, sorted by line count (descending)
+ * Get all source files with line counts
  */
-function getAllFilesWithLineCounts() {
+function getAllSourceFiles() {
   const allFiles = []
   
-  // Find all source files in source directories
   for (const sourceDir of SOURCE_DIRS) {
     const dirPath = path.join(ROOT_DIR, sourceDir)
     
@@ -165,47 +168,51 @@ function getAllFilesWithLineCounts() {
     }
     
     const files = findSourceFiles(dirPath, sourceDir)
-    
-    for (const file of files) {
-      const fullPath = path.join(ROOT_DIR, file)
-      const lineCount = countLines(fullPath)
-      allFiles.push({ path: file, lines: lineCount })
-    }
+    allFiles.push(...files)
   }
   
-  // Sort by line count (descending)
-  allFiles.sort((a, b) => b.lines - a.lines)
+  // Count lines for each file
+  const filesWithCounts = allFiles.map(file => {
+    const fullPath = path.join(ROOT_DIR, file)
+    return {
+      path: file,
+      lines: countLines(fullPath)
+    }
+  })
   
-  return allFiles
+  // Sort by line count (descending)
+  filesWithCounts.sort((a, b) => b.lines - a.lines)
+  
+  return filesWithCounts
 }
 
 /**
  * Main function
  */
-function generateOvercomplicationReport() {
+function reportOvercomplication() {
   const allowlist = loadAllowlist()
-  const gatePasses = checkGatePasses()
-  const allFiles = getAllFilesWithLineCounts()
-  const top10Files = allFiles.slice(0, 10)
+  const maxLines = allowlist.maxLines
+  const allowlistCount = allowlist.files.length
+  const gatePassed = checkGatePassed()
+  const allFiles = getAllSourceFiles()
+  const top10 = allFiles.slice(0, 10)
   
-  // Output as JSON for easy parsing
-  const report = {
-    maxAllowedLines: allowlist.maxLines,
-    gatePasses: gatePasses,
-    allowlistedFileCount: allowlist.files.length,
-    top10LargestFiles: top10Files.map(f => ({
-      path: f.path,
-      lines: f.lines
-    }))
+  // Output markdown format
+  console.log('## Overcomplication')
+  console.log('')
+  console.log(`**Max allowed lines:** ${maxLines}`)
+  console.log(`**Gate passed:** ${gatePassed ? '✅ Yes' : '❌ No'}`)
+  console.log(`**Allowlisted files:** ${allowlistCount}`)
+  console.log('')
+  console.log('**Top 10 largest source files:**')
+  console.log('')
+  console.log('| Lines | Path |')
+  console.log('|-------|------|')
+  
+  for (const file of top10) {
+    console.log(`| ${file.lines} | \`${file.path}\` |`)
   }
-  
-  console.log(JSON.stringify(report, null, 2))
 }
 
 // Run the report
-try {
-  generateOvercomplicationReport()
-} catch (err) {
-  console.error(`Error generating overcomplication report: ${err.message}`)
-  process.exit(1)
-}
+reportOvercomplication()
