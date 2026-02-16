@@ -4,8 +4,7 @@ import { saveConversationsToStorage, loadConversationsFromStorage, type Agent, t
 // Chat width/collapse state no longer needed - floating widget replaces sidebar (0698)
 import { getInitialTheme, THEME_STORAGE_KEY } from './lib/metricColor'
 import { getConversationId, parseConversationId, getNextInstanceNumber, formatTime, getMessageAuthorLabel } from './lib/conversation-helpers'
-import { CoverageBadge } from './components/CoverageBadge'
-import { SimplicityBadge } from './components/SimplicityBadge'
+import { QAMetricsCard, CoverageBadge, SimplicityBadge } from './components/QAMetricsCard'
 import type { Theme } from './types/hal'
 import * as Kanban from 'portfolio-2026-kanban'
 import type { KanbanTicketRow, KanbanColumnRow, KanbanAgentRunRow, KanbanBoardProps } from 'portfolio-2026-kanban'
@@ -3120,27 +3119,32 @@ function App() {
               Connect GitHub Repo
             </button>
           ) : (
-            connectedGithubRepo && (
-              <div className="header-center-metrics">
-                <CoverageBadge />
-                <div className="project-info">
-                  <div className="project-info-row">
-                    <span className="project-name" title={connectedGithubRepo.fullName}>
-                      {connectedGithubRepo.fullName}
-                    </span>
-                    <button
-                      ref={disconnectButtonRef}
-                      type="button"
-                      className="disconnect-btn"
-                      onClick={handleDisconnectClick}
-                    >
-                      Disconnect
-                    </button>
+            <>
+              {connectedGithubRepo && (
+                <>
+                  {/* Coverage badge on the left (0699) */}
+                  <CoverageBadge />
+                  {/* Repo/Disconnect box in the middle (0699) */}
+                  <div className="project-info">
+                    <div className="project-info-row">
+                      <span className="project-name" title={connectedGithubRepo.fullName}>
+                        {connectedGithubRepo.fullName}
+                      </span>
+                      <button
+                        ref={disconnectButtonRef}
+                        type="button"
+                        className="disconnect-btn"
+                        onClick={handleDisconnectClick}
+                      >
+                        Disconnect
+                      </button>
+                    </div>
                   </div>
-                </div>
-                <SimplicityBadge />
-              </div>
-            )
+                  {/* Simplicity badge on the right (0699) */}
+                  <SimplicityBadge />
+                </>
+              )}
+            </>
           )}
         </div>
         <div className="hal-header-actions">
