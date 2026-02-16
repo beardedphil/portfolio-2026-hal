@@ -1,221 +1,160 @@
 /**
- * Unit tests for ticket ID resolution helper.
- * Tests the pure helper that generates lookup attempts for multi-strategy ticket ID resolution.
+ * Unit tests for ticket reference resolution helper.
+ * Tests the pure function that generates lookup strategies for resolving ticket IDs.
  */
 
 import { describe, it, expect } from 'vitest'
-import { generateTicketLookupAttempts, type TicketLookupAttempt } from './_resolveTicketRef.js'
+import { resolveTicketRefStrategies, type TicketLookupStrategy } from './_resolveTicketRef.js'
 
-describe('generateTicketLookupAttempts', () => {
-  it('returns empty array for undefined ticketId', () => {
-    const attempts = generateTicketLookupAttempts(undefined)
-    expect(attempts).toEqual([])
+describe('resolveTicketRefStrategies', () => {
+  it('returns null for empty or whitespace-only input', () => {
+    expect(resolveTicketRefStrategies('')).toBeNull()
+    expect(resolveTicketRefStrategies('   ')).toBeNull()
+    expect(resolveTicketRefStrategies(null)).toBeNull()
+    expect(resolveTicketRefStrategies(undefined)).toBeNull()
   })
 
-  it('returns empty array for empty string ticketId', () => {
-    const attempts = generateTicketLookupAttempts('')
-    expect(attempts).toEqual([])
+  it('generates strategies for simple numeric ID', () => {
+    const strategies = resolveTicketRefStrategies('172')
+    expect(strategies).toEqual([
+      { type: 'id', value: '172' },
+      { type: 'display_id', value: '172' },
+    ])
   })
 
-  describe('Strategy 1: Try by id field as-is', () => {
-    it('includes id lookup for numeric ticketId', () => {
-      const attempts = generateTicketLookupAttempts('172')
-      expect(attempts.length).toBeGreaterThan(0)
-      expect(attempts[0].strategy).toEqual({ type: 'id', value: '172' })
-      expect(attempts[0].description).toContain('id field as-is')
-    })
-
-    it('includes id lookup for zero-padded ticketId', () => {
-      const attempts = generateTicketLookupAttempts('0172')
-      expect(attempts.length).toBeGreaterThan(0)
-      expect(attempts[0].strategy).toEqual({ type: 'id', value: '0172' })
-    })
-
-    it('includes id lookup for display_id format', () => {
-      const attempts = generateTicketLookupAttempts('HAL-0172')
-      expect(attempts.length).toBeGreaterThan(0)
-      expect(attempts[0].strategy).toEqual({ type: 'id', value: 'HAL-0172' })
-    })
+  it('generates strategies for numeric ID with leading zeros', () => {
+    const strategies = resolveTicketRefStrategies('0172')
+    expect(strategies).toEqual([
+      { type: 'id', value: '0172' },
+      { type: 'display_id', value: '0172' },
+      { type: 'id', value: '172' }, // Strategy 4: without leading zeros
+    ])
   })
 
-  describe('Strategy 2: Try by display_id', () => {
-    it('includes display_id lookup for any ticketId', () => {
-      const attempts = generateTicketLookupAttempts('172')
-      expect(attempts.length).toBeGreaterThanOrEqual(2)
-      expect(attempts[1].strategy).toEqual({ type: 'display_id', value: '172' })
-      expect(attempts[1].description).toContain('display_id')
-    })
-
-    it('includes display_id lookup for display_id format', () => {
-      const attempts = generateTicketLookupAttempts('HAL-0172')
-      expect(attempts.length).toBeGreaterThanOrEqual(2)
-      expect(attempts[1].strategy).toEqual({ type: 'display_id', value: 'HAL-0172' })
-    })
+  it('generates strategies for display ID format (e.g., HAL-0172)', () => {
+    const strategies = resolveTicketRefStrategies('HAL-0172')
+    expect(strategies).toEqual([
+      { type: 'id', value: 'HAL-0172' }, // Strategy 1: as-is
+      { type: 'display_id', value: 'HAL-0172' }, // Strategy 2: by display_id
+      { type: 'id', value: '172' }, // Strategy 3: extract numeric, remove leading zeros
+    ])
   })
 
-  describe('Strategy 3: Extract numeric part from display_id and try by id', () => {
-    it('extracts numeric part from display_id format (HAL-0172)', () => {
-      const attempts = generateTicketLookupAttempts('HAL-0172')
-      // Should have at least 3 attempts: id as-is, display_id, and extracted numeric id
-      expect(attempts.length).toBeGreaterThanOrEqual(3)
-      
-      const extractedAttempt = attempts.find(
-        (a) => a.strategy.type === 'id' && a.strategy.value === '172'
-      )
-      expect(extractedAttempt).toBeDefined()
-      expect(extractedAttempt?.description).toContain('Extract numeric part')
-      expect(extractedAttempt?.description).toContain('HAL-0172')
-      expect(extractedAttempt?.description).toContain('172')
-    })
-
-    it('extracts numeric part from display_id format without leading zeros (HAL-172)', () => {
-      const attempts = generateTicketLookupAttempts('HAL-172')
-      // Should have at least 3 attempts: id as-is, display_id, and extracted numeric id
-      expect(attempts.length).toBeGreaterThanOrEqual(3)
-      
-      const extractedAttempt = attempts.find(
-        (a) => a.strategy.type === 'id' && a.strategy.value === '172'
-      )
-      expect(extractedAttempt).toBeDefined()
-    })
-
-    it('handles display_id with all zeros in numeric part (HAL-0000)', () => {
-      const attempts = generateTicketLookupAttempts('HAL-0000')
-      // Should have at least 3 attempts
-      expect(attempts.length).toBeGreaterThanOrEqual(3)
-      
-      const extractedAttempt = attempts.find(
-        (a) => a.strategy.type === 'id' && a.strategy.value === '0'
-      )
-      expect(extractedAttempt).toBeDefined()
-    })
-
-    it('does not add extracted attempt if numeric part equals original ticketId', () => {
-      const attempts = generateTicketLookupAttempts('HAL-172')
-      // The extracted numeric part "172" should not duplicate the first attempt
-      // But it should still be present as a separate attempt
-      const idAttempts = attempts.filter((a) => a.strategy.type === 'id' && a.strategy.value === '172')
-      // Should have at least one (from extraction), but may have more
-      expect(idAttempts.length).toBeGreaterThanOrEqual(1)
-    })
-
-    it('does not add extracted attempt for non-display_id format', () => {
-      const attempts = generateTicketLookupAttempts('172')
-      // Should not have an extracted attempt since it doesn't match display_id pattern
-      const extractedAttempts = attempts.filter((a) => 
-        a.description.includes('Extract numeric part')
-      )
-      expect(extractedAttempts.length).toBe(0)
-    })
+  it('generates strategies for display ID without leading zeros', () => {
+    const strategies = resolveTicketRefStrategies('HAL-172')
+    expect(strategies).toEqual([
+      { type: 'id', value: 'HAL-172' },
+      { type: 'display_id', value: 'HAL-172' },
+      { type: 'id', value: '172' }, // Strategy 3: extract numeric part
+    ])
   })
 
-  describe('Strategy 4: Remove leading zeros from numeric ticketId', () => {
-    it('removes leading zeros from zero-padded numeric ticketId (0172)', () => {
-      const attempts = generateTicketLookupAttempts('0172')
-      // Should have at least 3 attempts: id as-is, display_id, and without leading zeros
-      expect(attempts.length).toBeGreaterThanOrEqual(3)
-      
-      const withoutZerosAttempt = attempts.find(
-        (a) => a.strategy.type === 'id' && a.strategy.value === '172'
-      )
-      expect(withoutZerosAttempt).toBeDefined()
-      expect(withoutZerosAttempt?.description).toContain('Remove leading zeros')
-      expect(withoutZerosAttempt?.description).toContain('0172')
-      expect(withoutZerosAttempt?.description).toContain('172')
-    })
-
-    it('removes leading zeros from multiple leading zeros (000172)', () => {
-      const attempts = generateTicketLookupAttempts('000172')
-      const withoutZerosAttempt = attempts.find(
-        (a) => a.strategy.type === 'id' && a.strategy.value === '172'
-      )
-      expect(withoutZerosAttempt).toBeDefined()
-    })
-
-    it('handles all zeros (0000)', () => {
-      const attempts = generateTicketLookupAttempts('0000')
-      const withoutZerosAttempt = attempts.find(
-        (a) => a.strategy.type === 'id' && a.strategy.value === '0'
-      )
-      expect(withoutZerosAttempt).toBeDefined()
-    })
-
-    it('does not add attempt if ticketId has no leading zeros', () => {
-      const attempts = generateTicketLookupAttempts('172')
-      const withoutZerosAttempts = attempts.filter((a) => 
-        a.description.includes('Remove leading zeros')
-      )
-      expect(withoutZerosAttempts.length).toBe(0)
-    })
-
-    it('does not add attempt for non-numeric ticketId', () => {
-      const attempts = generateTicketLookupAttempts('HAL-0172')
-      const withoutZerosAttempts = attempts.filter((a) => 
-        a.description.includes('Remove leading zeros')
-      )
-      expect(withoutZerosAttempts.length).toBe(0)
-    })
+  it('handles different prefix formats', () => {
+    const strategies = resolveTicketRefStrategies('PROJ-001')
+    expect(strategies).toEqual([
+      { type: 'id', value: 'PROJ-001' },
+      { type: 'display_id', value: 'PROJ-001' },
+      { type: 'id', value: '1' }, // Leading zeros removed: "001" -> "1"
+    ])
   })
 
-  describe('Complete resolution order for different formats', () => {
-    it('generates correct order for numeric ticketId (172)', () => {
-      const attempts = generateTicketLookupAttempts('172')
-      expect(attempts.length).toBe(2) // id as-is, display_id
-      expect(attempts[0].strategy).toEqual({ type: 'id', value: '172' })
-      expect(attempts[1].strategy).toEqual({ type: 'display_id', value: '172' })
-    })
-
-    it('generates correct order for zero-padded numeric ticketId (0172)', () => {
-      const attempts = generateTicketLookupAttempts('0172')
-      expect(attempts.length).toBe(3) // id as-is, display_id, without leading zeros
-      expect(attempts[0].strategy).toEqual({ type: 'id', value: '0172' })
-      expect(attempts[1].strategy).toEqual({ type: 'display_id', value: '0172' })
-      expect(attempts[2].strategy).toEqual({ type: 'id', value: '172' })
-      expect(attempts[2].description).toContain('Remove leading zeros')
-    })
-
-    it('generates correct order for display_id format (HAL-0172)', () => {
-      const attempts = generateTicketLookupAttempts('HAL-0172')
-      expect(attempts.length).toBe(3) // id as-is, display_id, extracted numeric id
-      expect(attempts[0].strategy).toEqual({ type: 'id', value: 'HAL-0172' })
-      expect(attempts[1].strategy).toEqual({ type: 'display_id', value: 'HAL-0172' })
-      expect(attempts[2].strategy).toEqual({ type: 'id', value: '172' })
-      expect(attempts[2].description).toContain('Extract numeric part')
-    })
-
-    it('generates correct order for display_id without leading zeros (HAL-172)', () => {
-      const attempts = generateTicketLookupAttempts('HAL-172')
-      expect(attempts.length).toBe(3) // id as-is, display_id, extracted numeric id
-      expect(attempts[0].strategy).toEqual({ type: 'id', value: 'HAL-172' })
-      expect(attempts[1].strategy).toEqual({ type: 'display_id', value: 'HAL-172' })
-      expect(attempts[2].strategy).toEqual({ type: 'id', value: '172' })
-    })
+  it('handles display ID with all zeros after prefix', () => {
+    const strategies = resolveTicketRefStrategies('HAL-000')
+    expect(strategies).toEqual([
+      { type: 'id', value: 'HAL-000' },
+      { type: 'display_id', value: 'HAL-000' },
+      { type: 'id', value: '000' }, // "000" -> "000" (empty after strip, so keep original)
+    ])
   })
 
-  describe('Edge cases', () => {
-    it('handles single digit ticketId', () => {
-      const attempts = generateTicketLookupAttempts('5')
-      expect(attempts.length).toBe(2)
-      expect(attempts[0].strategy).toEqual({ type: 'id', value: '5' })
-      expect(attempts[1].strategy).toEqual({ type: 'display_id', value: '5' })
-    })
+  it('handles display ID with single zero', () => {
+    const strategies = resolveTicketRefStrategies('HAL-0')
+    expect(strategies).toEqual([
+      { type: 'id', value: 'HAL-0' },
+      { type: 'display_id', value: 'HAL-0' },
+      { type: 'id', value: '0' }, // "0" -> "0" (empty after strip, so keep original)
+    ])
+  })
 
-    it('handles display_id with single digit (HAL-5)', () => {
-      const attempts = generateTicketLookupAttempts('HAL-5')
-      expect(attempts.length).toBe(3)
-      expect(attempts[2].strategy).toEqual({ type: 'id', value: '5' })
-    })
+  it('trims whitespace from input', () => {
+    const strategies = resolveTicketRefStrategies('  172  ')
+    expect(strategies).toEqual([
+      { type: 'id', value: '172' },
+      { type: 'display_id', value: '172' },
+    ])
+  })
 
-    it('handles display_id with different prefix (PROJ-123)', () => {
-      const attempts = generateTicketLookupAttempts('PROJ-123')
-      expect(attempts.length).toBe(3)
-      expect(attempts[2].strategy).toEqual({ type: 'id', value: '123' })
-    })
+  it('does not add duplicate strategies', () => {
+    // For "172", strategy 3 and 4 don't apply, so we only get 2 strategies
+    const strategies = resolveTicketRefStrategies('172')
+    expect(strategies).toHaveLength(2)
+    expect(strategies).toEqual([
+      { type: 'id', value: '172' },
+      { type: 'display_id', value: '172' },
+    ])
+  })
 
-    it('handles very long numeric ticketId', () => {
-      const attempts = generateTicketLookupAttempts('1234567890')
-      expect(attempts.length).toBe(2)
-      expect(attempts[0].strategy).toEqual({ type: 'id', value: '1234567890' })
-    })
+  it('handles numeric string that is all zeros', () => {
+    const strategies = resolveTicketRefStrategies('000')
+    expect(strategies).toEqual([
+      { type: 'id', value: '000' },
+      { type: 'display_id', value: '000' },
+      // Strategy 4 doesn't add duplicate (withoutLeadingZeros === trimmed)
+    ])
+  })
+
+  it('handles single zero', () => {
+    const strategies = resolveTicketRefStrategies('0')
+    expect(strategies).toEqual([
+      { type: 'id', value: '0' },
+      { type: 'display_id', value: '0' },
+      // Strategy 4 applies (starts with '0'), but result is same as original, so not added
+    ])
+  })
+
+  it('handles display ID with multiple leading zeros', () => {
+    const strategies = resolveTicketRefStrategies('HAL-000172')
+    expect(strategies).toEqual([
+      { type: 'id', value: 'HAL-000172' },
+      { type: 'display_id', value: 'HAL-000172' },
+      { type: 'id', value: '172' }, // "000172" -> "172"
+    ])
+  })
+
+  it('handles numeric with multiple leading zeros', () => {
+    const strategies = resolveTicketRefStrategies('000172')
+    expect(strategies).toEqual([
+      { type: 'id', value: '000172' },
+      { type: 'display_id', value: '000172' },
+      { type: 'id', value: '172' }, // Strategy 4: without leading zeros
+    ])
+  })
+
+  it('handles display ID format that does not match pattern', () => {
+    // This should not trigger strategy 3 (no prefix match)
+    const strategies = resolveTicketRefStrategies('hal-172') // lowercase prefix
+    expect(strategies).toEqual([
+      { type: 'id', value: 'hal-172' },
+      { type: 'display_id', value: 'hal-172' },
+      // Strategy 3 doesn't apply (lowercase prefix doesn't match /^[A-Z]+-/)
+    ])
+  })
+
+  it('handles mixed case display ID', () => {
+    const strategies = resolveTicketRefStrategies('HAL-0172')
+    expect(strategies).toEqual([
+      { type: 'id', value: 'HAL-0172' },
+      { type: 'display_id', value: 'HAL-0172' },
+      { type: 'id', value: '172' },
+    ])
+  })
+
+  it('generates correct order of strategies', () => {
+    // The order matters: we want to try most specific first
+    const strategies = resolveTicketRefStrategies('HAL-0172')
+    expect(strategies).toHaveLength(3)
+    expect(strategies![0]).toEqual({ type: 'id', value: 'HAL-0172' })
+    expect(strategies![1]).toEqual({ type: 'display_id', value: 'HAL-0172' })
+    expect(strategies![2]).toEqual({ type: 'id', value: '172' })
   })
 })

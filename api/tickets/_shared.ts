@@ -4,7 +4,7 @@
  */
 
 import type { IncomingMessage, ServerResponse } from 'http'
-import { generateTicketLookupAttempts } from './_resolveTicketRef.js'
+import { resolveTicketRefStrategies } from './_resolveTicketRef.js'
 
 /**
  * Reads and parses JSON body from an HTTP request.
@@ -102,14 +102,16 @@ export function parseSupabaseCredentials(body: {
 /**
  * Fetches a ticket by PK or ID using multiple lookup strategies.
  * Handles different ticket ID formats: numeric id, display_id, etc.
- * Uses the resolution helper to generate lookup attempts in the correct order.
+ * 
+ * Uses the resolution strategies from _resolveTicketRef.ts to maintain
+ * consistent lookup behavior across the codebase.
  */
 export async function fetchTicketByPkOrId(
   supabase: any,
   ticketPk?: string,
   ticketId?: string
 ): Promise<{ data: any; error: any } | null> {
-  // Fast path: if ticketPk is provided, use it directly
+  // Fast-path: if ticketPk is provided, use it directly
   if (ticketPk) {
     return await supabase
       .from('tickets')
@@ -120,36 +122,33 @@ export async function fetchTicketByPkOrId(
 
   if (!ticketId) return null
 
-  // Generate lookup attempts using the pure helper
-  const attempts = generateTicketLookupAttempts(ticketId)
+  // Generate lookup strategies using the helper module
+  const strategies = resolveTicketRefStrategies(ticketId)
+  if (!strategies) return null
 
-  // Try each lookup attempt in order until one succeeds
-  for (const attempt of attempts) {
-    let query = supabase
+  // Try each strategy in order until we find a ticket
+  let ticketFetch: { data: any; error: any } | null = null
+  for (const strategy of strategies) {
+    ticketFetch = await supabase
       .from('tickets')
       .select('pk, repo_full_name, kanban_column_id, kanban_position')
+      .eq(strategy.type === 'id' ? 'id' : 'display_id', strategy.value)
+      .maybeSingle()
 
-    if (attempt.strategy.type === 'id') {
-      query = query.eq('id', attempt.strategy.value)
-    } else if (attempt.strategy.type === 'display_id') {
-      query = query.eq('display_id', attempt.strategy.value)
-    }
-
-    const ticketFetch = await query.maybeSingle()
-
-    // If we found a ticket (no error and data exists), return it
+    // If we found a ticket (no error and data exists), return it immediately
     if (ticketFetch && !ticketFetch.error && ticketFetch.data) {
       return ticketFetch
     }
 
-    // If there was an error (not just "not found"), return the error
+    // If there was an error (not just "not found"), return it immediately
     if (ticketFetch && ticketFetch.error) {
       return ticketFetch
     }
 
-    // Otherwise, continue to next attempt
+    // Otherwise, continue to next strategy (ticketFetch has no error but no data = not found)
   }
 
-  // If all attempts failed, return null (no ticket found)
-  return null
+  // If all strategies failed, return the last attempt (which will have no data)
+  // This maintains backward compatibility with the original behavior
+  return ticketFetch
 }

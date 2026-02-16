@@ -1,76 +1,82 @@
 /**
- * Pure helper for ticket ID resolution strategies.
+ * Ticket reference resolution helper.
  * 
- * Given a ticketId (not ticketPk), this function returns an ordered list of lookup attempts
- * that match the multi-strategy resolution behavior used by /api/tickets/move.
+ * Generates a list of lookup strategies for resolving a ticket reference
+ * (ticketId) to a ticket record. The strategies are ordered by preference:
+ * 1. Direct id lookup
+ * 2. display_id lookup
+ * 3. Extract numeric from display_id format and lookup by id
+ * 4. Strip leading zeros from numeric string and lookup by id
  * 
- * The strategies are:
- * 1. Try by id field as-is (e.g., "172")
- * 2. Try by display_id (e.g., "HAL-0172")
- * 3. If ticketId looks like display_id (e.g., "HAL-0172"), extract numeric part and try by id (removing leading zeros)
- * 4. If ticketId is numeric with leading zeros (e.g., "0172"), try without leading zeros
+ * This module provides a pure function that generates the resolution plan,
+ * which can then be executed by the caller using their Supabase client.
  */
 
-export type TicketLookupStrategy = 
-  | { type: 'id'; value: string }
-  | { type: 'display_id'; value: string }
-
-export interface TicketLookupAttempt {
-  strategy: TicketLookupStrategy
-  description: string
+export type TicketLookupStrategy = {
+  type: 'id' | 'display_id'
+  value: string
 }
 
 /**
- * Generates an ordered list of lookup attempts for a given ticketId.
- * Returns an empty array if ticketId is not provided.
+ * Generates lookup strategies for resolving a ticket reference.
  * 
- * @param ticketId - The ticket ID to resolve (numeric, zero-padded, or display ID like HAL-0172)
- * @returns Ordered list of lookup attempts to try
+ * @param ticketId - The ticket ID to resolve (e.g., "172", "0172", "HAL-0172")
+ * @returns Array of lookup strategies to try in order, or null if ticketId is empty
+ * 
+ * @example
+ * // Numeric ID
+ * resolveTicketRefStrategies("172")
+ * // Returns: [{ type: 'id', value: '172' }, { type: 'display_id', value: '172' }]
+ * 
+ * @example
+ * // Display ID format
+ * resolveTicketRefStrategies("HAL-0172")
+ * // Returns: [
+ * //   { type: 'id', value: 'HAL-0172' },
+ * //   { type: 'display_id', value: 'HAL-0172' },
+ * //   { type: 'id', value: '172' }
+ * // ]
+ * 
+ * @example
+ * // Numeric with leading zeros
+ * resolveTicketRefStrategies("0172")
+ * // Returns: [
+ * //   { type: 'id', value: '0172' },
+ * //   { type: 'display_id', value: '0172' },
+ * //   { type: 'id', value: '172' }
+ * // ]
  */
-export function generateTicketLookupAttempts(ticketId?: string): TicketLookupAttempt[] {
-  if (!ticketId) {
-    return []
+export function resolveTicketRefStrategies(ticketId: string | undefined | null): TicketLookupStrategy[] | null {
+  if (!ticketId || !ticketId.trim()) {
+    return null
   }
 
-  const attempts: TicketLookupAttempt[] = []
+  const trimmed = ticketId.trim()
+  const strategies: TicketLookupStrategy[] = []
 
-  // Strategy 1: Try by id field as-is (e.g., "172")
-  attempts.push({
-    strategy: { type: 'id', value: ticketId },
-    description: `Try by id field as-is: "${ticketId}"`,
-  })
+  // Strategy 1: Try by id field as-is (e.g., "172", "0172", "HAL-0172")
+  strategies.push({ type: 'id', value: trimmed })
 
   // Strategy 2: Try by display_id (e.g., "HAL-0172")
-  attempts.push({
-    strategy: { type: 'display_id', value: ticketId },
-    description: `Try by display_id: "${ticketId}"`,
-  })
+  strategies.push({ type: 'display_id', value: trimmed })
 
   // Strategy 3: If ticketId looks like display_id (e.g., "HAL-0172"), extract numeric part and try by id
-  if (/^[A-Z]+-/.test(ticketId)) {
-    const numericPart = ticketId.replace(/^[A-Z]+-/, '')
+  if (/^[A-Z]+-/.test(trimmed)) {
+    const numericPart = trimmed.replace(/^[A-Z]+-/, '')
     // Remove leading zeros to get the actual id value (e.g., "0172" -> "172")
-    // If all zeros are removed, use "0" instead of empty string
-    const idValue = numericPart.replace(/^0+/, '') || '0'
-    if (idValue !== ticketId) {
-      attempts.push({
-        strategy: { type: 'id', value: idValue },
-        description: `Extract numeric part from display_id "${ticketId}" and try by id: "${idValue}"`,
-      })
+    const idValue = numericPart.replace(/^0+/, '') || numericPart
+    if (idValue !== trimmed) {
+      strategies.push({ type: 'id', value: idValue })
     }
   }
 
   // Strategy 4: If ticketId is numeric with leading zeros (e.g., "0172"), try without leading zeros
-  if (/^\d+$/.test(ticketId) && ticketId.startsWith('0')) {
-    // Remove leading zeros. If all zeros are removed, use "0" instead of empty string
-    const withoutLeadingZeros = ticketId.replace(/^0+/, '') || '0'
-    if (withoutLeadingZeros !== ticketId) {
-      attempts.push({
-        strategy: { type: 'id', value: withoutLeadingZeros },
-        description: `Remove leading zeros from "${ticketId}" and try by id: "${withoutLeadingZeros}"`,
-      })
+  if (/^\d+$/.test(trimmed) && trimmed.startsWith('0')) {
+    const withoutLeadingZeros = trimmed.replace(/^0+/, '') || trimmed
+    if (withoutLeadingZeros !== trimmed) {
+      strategies.push({ type: 'id', value: withoutLeadingZeros })
     }
   }
 
-  return attempts
+  return strategies
 }
