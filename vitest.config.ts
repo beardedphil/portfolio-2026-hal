@@ -3,16 +3,56 @@ import react from '@vitejs/plugin-react'
 import { loadEnv } from 'vite'
 import { fileURLToPath } from 'url'
 import { dirname, resolve } from 'path'
+import type { Plugin } from 'vite'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
+
+// Plugin to force React and React DOM to resolve from root node_modules
+const reactDedupePlugin = (): Plugin => {
+  const rootReact = resolve(__dirname, 'node_modules/react')
+  const rootReactDom = resolve(__dirname, 'node_modules/react-dom')
+  
+  return {
+    name: 'react-dedupe',
+    enforce: 'pre',
+    resolveId(id, importer) {
+      // Only intercept if importing from kanban project
+      if (importer && importer.includes('projects/kanban')) {
+        if (id === 'react') {
+          return { id: rootReact, external: false }
+        }
+        if (id === 'react-dom') {
+          return { id: rootReactDom, external: false }
+        }
+      }
+      return null
+    },
+  }
+}
 
 export default defineConfig(({ mode }) => {
   // Load env vars from .env files (same as Vite does)
   const env = loadEnv(mode, process.cwd(), '')
   
   return {
-    plugins: [react()],
+    root: __dirname,
+    plugins: [reactDedupePlugin(), react()],
+    resolve: {
+      dedupe: ['react', 'react-dom'],
+      alias: {
+        'react': resolve(__dirname, 'node_modules/react'),
+        'react-dom': resolve(__dirname, 'node_modules/react-dom'),
+      },
+      // Prefer root node_modules over project-specific node_modules
+      preserveSymlinks: false,
+    },
+    // Exclude kanban project's node_modules from optimization to force root resolution
+    optimizeDeps: {
+      exclude: ['projects/kanban/node_modules/react', 'projects/kanban/node_modules/react-dom'],
+      include: ['react', 'react-dom'],
+      force: true,
+    },
     test: {
       globals: true,
       environment: 'jsdom',
