@@ -292,7 +292,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
       // When finished: move ticket to QA and upsert full artifact set (plan, changed-files, etc.) from PR when available
       // Note: 'completed' is the new status (replaces 'finished') (0690)
-      if (nextStatus === 'completed') {
+      // Check for both 'finished' and 'completed' for backward compatibility
+      if (nextStatus === 'completed' || nextStatus === 'finished') {
         try {
           const { data: inColumn } = await supabase
             .from('tickets')
