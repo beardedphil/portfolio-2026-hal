@@ -5,6 +5,7 @@ import {
   getNextInstanceNumber,
   formatTime,
   getMessageAuthorLabel,
+  getEmptyConversations,
 } from './conversation-helpers'
 import type { Agent, Conversation } from './conversationStorage'
 
@@ -334,6 +335,34 @@ describe('conversation-helpers', () => {
       expect(getMessageAuthorLabel('qa-agent')).toBe('HAL')
       expect(getMessageAuthorLabel('process-review-agent')).toBe('HAL')
       expect(getMessageAuthorLabel('system')).toBe('System')
+    })
+  })
+
+  describe('getEmptyConversations', () => {
+    it('should return an empty Map', () => {
+      const result = getEmptyConversations()
+      expect(result).toBeInstanceOf(Map)
+      expect(result.size).toBe(0)
+    })
+
+    it('should return a new Map instance each time', () => {
+      const result1 = getEmptyConversations()
+      const result2 = getEmptyConversations()
+      expect(result1).not.toBe(result2)
+    })
+
+    it('should return a Map that can be used to store conversations', () => {
+      const conversations = getEmptyConversations()
+      const conversation: Conversation = {
+        id: 'test-1',
+        agentRole: 'project-manager',
+        instanceNumber: 1,
+        messages: [],
+        createdAt: new Date(),
+      }
+      conversations.set('test-1', conversation)
+      expect(conversations.size).toBe(1)
+      expect(conversations.get('test-1')).toEqual(conversation)
     })
   })
 })

@@ -2,7 +2,8 @@ import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { getSupabaseClient } from './lib/supabase'
 import { saveConversationsToStorage, loadConversationsFromStorage, type Agent, type Message, type Conversation, type ImageAttachment } from './lib/conversationStorage'
 // Chat width/collapse state no longer needed - floating widget replaces sidebar (0698)
-import { getConversationId, parseConversationId, getNextInstanceNumber, formatTime, getMessageAuthorLabel } from './lib/conversation-helpers'
+import { getConversationId, parseConversationId, getNextInstanceNumber, formatTime, getMessageAuthorLabel, getEmptyConversations } from './lib/conversation-helpers'
+import { formatTicketId, extractTicketId } from './lib/ticket-helpers'
 import { CoverageBadge } from './components/CoverageBadge'
 import { SimplicityBadge } from './components/SimplicityBadge'
 import { CoverageReportModal } from './components/CoverageReportModal'
@@ -119,10 +120,7 @@ type ConnectedGithubRepo = {
 // are now imported from './lib/conversation-helpers'
 
 // saveConversationsToStorage and loadConversationsFromStorage are now imported from './lib/conversationStorage'
-
-function getEmptyConversations(): Map<string, Conversation> {
-  return new Map()
-}
+// getEmptyConversations is now imported from './lib/conversation-helpers'
 
 const CHAT_OPTIONS: { id: ChatTarget; label: string }[] = [
   { id: 'project-manager', label: 'Project Manager' },
@@ -999,13 +997,7 @@ function App() {
 
   // Get preview text for PM chat - removed, no longer used with floating widget (0698)
 
-  // Format ticket ID as HAL-XXXX (0098)
-  const formatTicketId = useCallback((ticketId: string | null): string => {
-    if (!ticketId) return 'No ticket'
-    // Ensure ticket ID is 4 digits, pad with zeros if needed
-    const padded = ticketId.padStart(4, '0')
-    return `HAL-${padded}`
-  }, [])
+  // formatTicketId is now imported from './lib/ticket-helpers'
 
   // Fetch working memory - removed, no longer used with floating widget (0698)
 
@@ -1253,18 +1245,7 @@ function App() {
     setAutoMoveDiagnostics((prev) => [...prev, { timestamp: new Date(), message, type }])
   }, [])
 
-  /** Extract ticket ID from message content (0061). */
-  const extractTicketId = useCallback((content: string): string | null => {
-    // Try "Implement ticket XXXX" or "QA ticket XXXX" patterns
-    const implMatch = content.match(/implement\s+ticket\s+(\d{4})/i)
-    if (implMatch) return implMatch[1]
-    const qaMatch = content.match(/qa\s+ticket\s+(\d{4})/i)
-    if (qaMatch) return qaMatch[1]
-    // Try to find any 4-digit ticket ID in the message
-    const anyMatch = content.match(/\b(\d{4})\b/)
-    if (anyMatch) return anyMatch[1]
-    return null
-  }, [])
+  // extractTicketId is now imported from './lib/ticket-helpers'
 
   /** Move ticket to next column via Supabase (0061). */
   const moveTicketToColumn = useCallback(
