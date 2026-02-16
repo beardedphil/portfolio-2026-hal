@@ -1,7 +1,11 @@
 import path from 'path'
+import { fileURLToPath } from 'url'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { config as loadEnv } from 'dotenv'
+
+// ESM-safe __dirname for --configLoader runner (and native)
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // Load .env so OPENAI_API_KEY / OPENAI_MODEL are available in server middleware
 loadEnv()
