@@ -2914,3 +2914,124 @@ body {
   font-size: 0.9em;
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace;
 }
+
+/* Floating PM Chat Widget (0698) */
+.pm-chat-widget-button {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--hal-primary);
+  color: white;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  transition: background-color 0.2s, transform 0.2s;
+}
+
+.pm-chat-widget-button:hover {
+  background: var(--hal-primary-hover);
+  transform: scale(1.05);
+}
+
+.pm-chat-widget-button:focus-visible {
+  outline: 2px solid var(--hal-primary);
+  outline-offset: 2px;
+}
+
+.pm-chat-widget {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  display: flex;
+  flex-direction: column;
+  background: var(--hal-surface);
+  border: 1px solid var(--hal-border);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  overflow: hidden;
+}
+
+.pm-chat-widget-small {
+  width: 380px;
+  height: 600px;
+  max-height: calc(100vh - 48px);
+}
+
+.pm-chat-widget-fullscreen {
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100vw;
+  height: 100vh;
+  max-height: 100vh;
+  border-radius: 0;
+  border: none;
+}
+
+.pm-chat-widget-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--hal-surface-alt);
+  border-bottom: 1px solid var(--hal-border);
+  flex-shrink: 0;
+}
+
+.pm-chat-widget-title {
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--hal-text);
+}
+
+.pm-chat-widget-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pm-chat-widget-fullscreen-btn,
+.pm-chat-widget-close-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--hal-border);
+  border-radius: 6px;
+  color: var(--hal-text);
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.pm-chat-widget-fullscreen-btn:hover,
+.pm-chat-widget-close-btn:hover {
+  background: var(--hal-surface);
+  border-color: var(--hal-border-muted);
+}
+
+.pm-chat-widget-close-btn {
+  color: var(--hal-text-muted);
+}
+
+.pm-chat-widget-close-btn:hover {
+  color: var(--hal-text);
+}
+
+.pm-chat-widget-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}

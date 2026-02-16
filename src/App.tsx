@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { getSupabaseClient } from './lib/supabase'
 import { saveConversationsToStorage, loadConversationsFromStorage, type Agent, type Message, type Conversation, type ImageAttachment } from './lib/conversationStorage'
-import { getChatWidth, setChatWidth, getChatCollapsed, setChatCollapsed } from './lib/persistedUiState'
+// Chat width/collapse state no longer needed - floating widget replaces sidebar (0698)
 import { getInitialTheme, THEME_STORAGE_KEY } from './lib/metricColor'
 import { getConversationId, parseConversationId, getNextInstanceNumber, formatTime, getMessageAuthorLabel } from './lib/conversation-helpers'
 import { QAMetricsCard } from './components/QAMetricsCard'
@@ -12,8 +12,9 @@ import 'portfolio-2026-kanban/style.css'
 import { AgentInstructionsViewer } from './AgentInstructionsViewer'
 
 const KanbanBoard = Kanban.default
-const _kanbanBuild = (Kanban as unknown as { KANBAN_BUILD?: string }).KANBAN_BUILD
-const KANBAN_BUILD: string = typeof _kanbanBuild === 'string' ? _kanbanBuild : 'unknown'
+// KANBAN_BUILD no longer used with floating widget (0698)
+// const _kanbanBuild = (Kanban as unknown as { KANBAN_BUILD?: string }).KANBAN_BUILD
+// const _KANBAN_BUILD: string = typeof _kanbanBuild === 'string' ? _kanbanBuild : 'unknown'
 
 /** Artifact row shape (matches Kanban package KanbanAgentArtifactRow). HAL owns DB so we type locally. */
 type ArtifactRow = {
@@ -56,40 +57,33 @@ type TicketCreationResult = {
   autoFixed?: boolean
 }
 
-type DiagnosticsInfo = {
-  kanbanRenderMode: string
-  selectedChatTarget: ChatTarget
-  pmImplementationSource: 'hal-agents' | 'inline'
-  lastAgentError: string | null
-  lastError: string | null
-  openaiLastStatus: string | null
-  openaiLastError: string | null
-  kanbanLoaded: boolean
-  kanbanUrl: string
-  /** Kanban library build id (e.g. git commit); confirms which bundle is loaded. */
-  kanbanBuild: string
-  connectedProject: string | null
-  lastPmOutboundRequest: object | null
-  lastPmToolCalls: ToolCallRecord[] | null
-  lastTicketCreationResult: TicketCreationResult | null
-  lastCreateTicketAvailable: boolean | null
-  persistenceError: string | null
-  /** Agent runner label from last PM response (e.g. "v2 (shared)"). */
-  agentRunner: string | null
-  /** Auto-move diagnostics entries (0061). */
-  autoMoveDiagnostics: Array<{ timestamp: Date; message: string; type: 'error' | 'info' }>
-  /** Current theme and source (0078). */
-  theme: Theme
-  themeSource: 'default' | 'saved'
-  /** Last send payload summary (0077). */
-  lastSendPayloadSummary: string | null
-  /** True when GitHub repo is connected; enables PM agent read_file/search_files via GitHub API. */
-  repoInspectionAvailable: boolean
-  /** Unit tests configuration status (0548). */
-  unitTestsConfigured: boolean
-  /** Message shown when conversation history was reset due to corruption (0549). */
-  conversationHistoryResetMessage: string | null
-}
+// DiagnosticsInfo type - no longer used with floating widget (0698)
+// type DiagnosticsInfo = {
+//   kanbanRenderMode: string
+//   selectedChatTarget: ChatTarget
+//   pmImplementationSource: 'hal-agents' | 'inline'
+//   lastAgentError: string | null
+//   lastError: string | null
+//   openaiLastStatus: string | null
+//   openaiLastError: string | null
+//   kanbanLoaded: boolean
+//   kanbanUrl: string
+//   kanbanBuild: string
+//   connectedProject: string | null
+//   lastPmOutboundRequest: object | null
+//   lastPmToolCalls: ToolCallRecord[] | null
+//   lastTicketCreationResult: TicketCreationResult | null
+//   lastCreateTicketAvailable: boolean | null
+//   persistenceError: string | null
+//   agentRunner: string | null
+//   autoMoveDiagnostics: Array<{ timestamp: Date; message: string; type: 'error' | 'info' }>
+//   theme: Theme
+//   themeSource: 'default' | 'saved'
+//   lastSendPayloadSummary: string | null
+//   repoInspectionAvailable: boolean
+//   unitTestsConfigured: boolean
+//   conversationHistoryResetMessage: string | null
+// }
 
 type GithubAuthMe = {
   authenticated: boolean
@@ -137,34 +131,34 @@ function App() {
   const [selectedChatTarget, setSelectedChatTarget] = useState<ChatTarget>('project-manager')
   // Selected conversation ID (0070) - null means showing conversation list
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
-  // Chat open state (0087) - when a chat is open, it replaces the Kanban iframe
-  const [openChatTarget, setOpenChatTarget] = useState<ChatTarget | string | null>(null) // string = conversation ID
-  // Collapsible group states (0087)
-  const [qaGroupExpanded, setQaGroupExpanded] = useState(false)
-  const [implGroupExpanded, setImplGroupExpanded] = useState(false)
-  const [processReviewGroupExpanded, setProcessReviewGroupExpanded] = useState(false)
+  // openChatTarget no longer needed - floating widget replaces sidebar (0698)
+  // const [openChatTarget, setOpenChatTarget] = useState<ChatTarget | string | null>(null)
+  // Collapsible group states no longer needed - floating widget replaces sidebar (0698)
   const [conversations, setConversations] = useState<Map<string, Conversation>>(getEmptyConversations)
   const [inputValue, setInputValue] = useState('')
   const [imageAttachment, setImageAttachment] = useState<ImageAttachment | null>(null)
   const [imageError, setImageError] = useState<string | null>(null)
   const [sendValidationError, setSendValidationError] = useState<string | null>(null)
   const [lastError, setLastError] = useState<string | null>(null)
-  const [lastAgentError, setLastAgentError] = useState<string | null>(null)
-  const [persistenceError, setPersistenceError] = useState<string | null>(null)
-  const [conversationHistoryResetMessage, setConversationHistoryResetMessage] = useState<string | null>(null)
-  const [openaiLastStatus, setOpenaiLastStatus] = useState<string | null>(null)
-  const [openaiLastError, setOpenaiLastError] = useState<string | null>(null)
-  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
+  // These are used in logic but not displayed in UI with floating widget (0698)
+  const [_lastAgentError, setLastAgentError] = useState<string | null>(null)
+  const [_persistenceError, setPersistenceError] = useState<string | null>(null)
+  const [_conversationHistoryResetMessage, setConversationHistoryResetMessage] = useState<string | null>(null)
+  const [_openaiLastStatus, setOpenaiLastStatus] = useState<string | null>(null)
+  const [_openaiLastError, setOpenaiLastError] = useState<string | null>(null)
+  // Diagnostics panel no longer visible - floating widget replaces sidebar (0698)
+  // const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const [connectedProject, setConnectedProject] = useState<string | null>(null)
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
-  const [lastPmOutboundRequest, setLastPmOutboundRequest] = useState<object | null>(null)
-  const [lastPmToolCalls, setLastPmToolCalls] = useState<ToolCallRecord[] | null>(null)
-  const [lastTicketCreationResult, setLastTicketCreationResult] = useState<TicketCreationResult | null>(null)
-  const [lastCreateTicketAvailable, setLastCreateTicketAvailable] = useState<boolean | null>(null)
-  const [agentRunner, _setAgentRunner] = useState<string | null>(null)
+  // These are used in logic but not displayed in UI with floating widget (0698)
+  const [_lastPmOutboundRequest, setLastPmOutboundRequest] = useState<object | null>(null)
+  const [_lastPmToolCalls, setLastPmToolCalls] = useState<ToolCallRecord[] | null>(null)
+  const [_lastTicketCreationResult, setLastTicketCreationResult] = useState<TicketCreationResult | null>(null)
+  const [_lastCreateTicketAvailable, setLastCreateTicketAvailable] = useState<boolean | null>(null)
+  const [_agentRunner, _setAgentRunner] = useState<string | null>(null)
   const [supabaseUrl, setSupabaseUrl] = useState<string | null>(null)
   const [supabaseAnonKey, setSupabaseAnonKey] = useState<string | null>(null)
-  const [lastSendPayloadSummary, setLastSendPayloadSummary] = useState<string | null>(null)
+  const [_lastSendPayloadSummary, setLastSendPayloadSummary] = useState<string | null>(null)
   const [githubAuth, setGithubAuth] = useState<GithubAuthMe | null>(null)
   const [githubRepos, setGithubRepos] = useState<GithubRepo[] | null>(null)
   const [githubRepoPickerOpen, setGithubRepoPickerOpen] = useState(false)
@@ -175,8 +169,8 @@ function App() {
   const [agentInstructionsOpen, setAgentInstructionsOpen] = useState(false)
   const [promptModalMessage, setPromptModalMessage] = useState<Message | null>(null)
   /** QA quality metrics (0667) */
-  /** Working memory for PM conversation (0173) */
-  const [pmWorkingMemory, setPmWorkingMemory] = useState<{
+  /** Working memory for PM conversation (0173) - no longer displayed with floating widget (0698) */
+  const [_pmWorkingMemory, _setPmWorkingMemory] = useState<{
     summary: string
     goals: string[]
     requirements: string[]
@@ -189,27 +183,11 @@ function App() {
     updated_at: string
     through_sequence: number
   } | null>(null)
-  const [pmWorkingMemoryOpen, setPmWorkingMemoryOpen] = useState(false)
-  const [pmWorkingMemoryLoading, setPmWorkingMemoryLoading] = useState(false)
-  const [pmWorkingMemoryError, setPmWorkingMemoryError] = useState<string | null>(null)
+  const [_pmWorkingMemoryOpen, _setPmWorkingMemoryOpen] = useState(false)
+  const [_pmWorkingMemoryLoading, _setPmWorkingMemoryLoading] = useState(false)
+  const [_pmWorkingMemoryError, _setPmWorkingMemoryError] = useState<string | null>(null)
   
-  // Alias workingMemory to pmWorkingMemory for UI compatibility (declared early so it can be used in useEffects)
-  const workingMemory = pmWorkingMemory ? {
-    summary: pmWorkingMemory.summary,
-    goals: pmWorkingMemory.goals,
-    requirements: pmWorkingMemory.requirements,
-    constraints: pmWorkingMemory.constraints,
-    decisions: pmWorkingMemory.decisions,
-    assumptions: pmWorkingMemory.assumptions,
-    openQuestions: pmWorkingMemory.open_questions,
-    glossary: pmWorkingMemory.glossary,
-    stakeholders: pmWorkingMemory.stakeholders,
-    lastUpdatedAt: pmWorkingMemory.updated_at,
-  } : null
-  const workingMemoryOpen = pmWorkingMemoryOpen
-  const workingMemoryLoading = pmWorkingMemoryLoading
-  const workingMemoryError = pmWorkingMemoryError
-  const setWorkingMemoryOpen = setPmWorkingMemoryOpen
+  // Working memory aliases removed - no longer used with floating widget (0698)
   
   const disconnectConfirmButtonRef = useRef<HTMLButtonElement>(null)
   const disconnectButtonRef = useRef<HTMLButtonElement>(null)
@@ -225,8 +203,9 @@ function App() {
   const lastRealtimeUpdateRef = useRef<number>(0)
   /** Track subscription status for realtime channels (0140). */
   const realtimeSubscriptionsRef = useRef<{ tickets: boolean; agentRuns: boolean }>({ tickets: false, agentRuns: false })
-  const [outboundRequestExpanded, setOutboundRequestExpanded] = useState(false)
-  const [toolCallsExpanded, setToolCallsExpanded] = useState(false)
+  // Diagnostics panels no longer visible - floating widget replaces sidebar (0698)
+  const [_outboundRequestExpanded, _setOutboundRequestExpanded] = useState(false)
+  const [_toolCallsExpanded, _setToolCallsExpanded] = useState(false)
   const messageIdRef = useRef(0)
   const pmMaxSequenceRef = useRef(0) // Keep for backward compatibility during migration
   // Track max sequence per agent instance (e.g., "project-manager-1", "implementation-agent-2")
@@ -240,7 +219,8 @@ function App() {
   
   // Load working memory when PM chat is selected and project is connected (0173) - moved after fetchPmWorkingMemory definition
   
-  const [unreadByTarget, setUnreadByTarget] = useState<Record<ChatTarget, number>>(() => ({
+  // Unread counts - setter still used in some places, but getter not needed with floating widget (0698)
+  const [_unreadByTarget, setUnreadByTarget] = useState<Record<ChatTarget, number>>(() => ({
     'project-manager': 0,
     'implementation-agent': 0,
     'qa-agent': 0,
@@ -332,23 +312,16 @@ function App() {
   const [processReviewModalTicketPk, setProcessReviewModalTicketPk] = useState<string | null>(null)
   const [processReviewModalTicketId, setProcessReviewModalTicketId] = useState<string | null>(null)
   const [processReviewModalReviewId, setProcessReviewModalReviewId] = useState<string | null>(null)
-  /** Auto-move diagnostics entries (0061). */
-  const [autoMoveDiagnostics, setAutoMoveDiagnostics] = useState<Array<{ timestamp: Date; message: string; type: 'error' | 'info' }>>([])
+  /** Auto-move diagnostics entries (0061) - no longer displayed with floating widget (0698). */
+  const [_autoMoveDiagnostics, setAutoMoveDiagnostics] = useState<Array<{ timestamp: Date; message: string; type: 'error' | 'info' }>>([])
   /** Agent type that initiated the current Cursor run (0067). Used to route completion summaries to the correct chat. */
   const [cursorRunAgentType, setCursorRunAgentType] = useState<Agent | null>(null)
   /** Raw completion summary for troubleshooting when agent type is missing (0067). */
-  const [orphanedCompletionSummary, setOrphanedCompletionSummary] = useState<string | null>(null)
-  /** Chat region width for resizable divider (0060). */
-  const [chatWidth, setChatWidthState] = useState<number>(getChatWidth)
-  /** Whether chat is collapsed (0160). */
-  const [chatCollapsed, setChatCollapsedState] = useState<boolean>(getChatCollapsed)
-  /** Whether the divider is currently being dragged (0060). */
-  const [isDragging, setIsDragging] = useState(false)
-  const dividerRef = useRef<HTMLDivElement>(null)
-  /** Animation frame ID for smooth resizing (0076). */
-  const rafIdRef = useRef<number | null>(null)
-  /** Current mouse position during drag (0076). */
-  const mouseXRef = useRef<number | null>(null)
+  // Orphaned completion summary - no longer displayed with floating widget (0698)
+  const [_orphanedCompletionSummary, setOrphanedCompletionSummary] = useState<string | null>(null)
+  /** Floating PM chat widget state (0698). */
+  const [pmChatWidgetOpen, setPmChatWidgetOpen] = useState<boolean>(false)
+  const [pmChatWidgetFullscreen, setPmChatWidgetFullscreen] = useState<boolean>(false)
 
   useEffect(() => {
     selectedChatTargetRef.current = selectedChatTarget
@@ -436,17 +409,7 @@ function App() {
     refreshGithubAuth().catch(() => {})
   }, [refreshGithubAuth])
 
-  // Redirect if Standup chat is accessed (0154: Standup removed)
-  useEffect(() => {
-    // Handle legacy 'standup' references (e.g., from old localStorage or direct state manipulation)
-    // openChatTarget can be a string (conversation ID) or ChatTarget, so check if it's the legacy 'standup' string
-    if (openChatTarget === 'standup') {
-      // Redirect to Project Manager (sensible default)
-      setOpenChatTarget('project-manager')
-      setSelectedChatTarget('project-manager')
-      setSelectedConversationId(null)
-    }
-  }, [openChatTarget])
+  // Standup chat removed (0154) - no longer needed with floating widget (0698)
 
   // Auto-load working memory when PM chat opens (0173) - moved after loadWorkingMemory definition
 
@@ -840,108 +803,9 @@ function App() {
   }, [connectedProject, loadConversationsForProject])
 
 
-  // Auto-expand QA, Implementation, and Process Review groups when conversations are restored after reconnect (0097, 0111)
-  useEffect(() => {
-    if (!connectedProject) return
-    // Check if there are any QA, Implementation, or Process Review conversations
-    const hasQaConversations = Array.from(conversations.values()).some(conv => conv.agentRole === 'qa-agent')
-    const hasImplConversations = Array.from(conversations.values()).some(conv => conv.agentRole === 'implementation-agent')
-    const hasProcessReviewConversations = Array.from(conversations.values()).some(conv => conv.agentRole === 'process-review-agent')
-    // Auto-expand groups if they have conversations (makes restored chats visible immediately)
-    if (hasQaConversations) {
-      setQaGroupExpanded(true)
-    }
-    if (hasImplConversations) {
-      setImplGroupExpanded(true)
-    }
-    if (hasProcessReviewConversations) {
-      setProcessReviewGroupExpanded(true)
-    }
-  }, [connectedProject, conversations])
+  // Auto-expand groups no longer needed - floating widget replaces sidebar (0698)
 
-  // Persist chat width to localStorage (0060)
-  useEffect(() => {
-    setChatWidth(chatWidth)
-  }, [chatWidth])
-
-  // Persist chat collapsed state to localStorage (0160)
-  useEffect(() => {
-    setChatCollapsed(chatCollapsed)
-  }, [chatCollapsed])
-
-  // Handle divider drag with smooth animation (0076)
-  const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    setIsDragging(true)
-    mouseXRef.current = e.clientX
-  }, [])
-
-  // Smooth resize using requestAnimationFrame (0076)
-  useEffect(() => {
-    if (!isDragging) {
-      if (rafIdRef.current !== null) {
-        cancelAnimationFrame(rafIdRef.current)
-        rafIdRef.current = null
-      }
-      return
-    }
-
-    const updateWidth = () => {
-      if (mouseXRef.current === null) return
-      
-      const mainElement = document.querySelector('.hal-main')
-      if (!mainElement) return
-      
-      const mainRect = mainElement.getBoundingClientRect()
-      // Calculate chat width: distance from mouse (divider center) to right edge
-      // Divider is 4px wide, so chat starts at mouseX + 2px (half divider width)
-      const newWidth = mainRect.right - mouseXRef.current - 2
-      // Clamp between min and max widths
-      const clampedWidth = Math.max(320, Math.min(800, newWidth))
-      setChatWidthState(clampedWidth)
-      
-      // Schedule next update
-      rafIdRef.current = requestAnimationFrame(updateWidth)
-    }
-
-    const handleMouseMove = (e: MouseEvent) => {
-      // Update mouse position immediately for smooth tracking
-      mouseXRef.current = e.clientX
-      // Start animation loop if not already running
-      if (rafIdRef.current === null) {
-        rafIdRef.current = requestAnimationFrame(updateWidth)
-      }
-    }
-
-    const handleMouseUp = () => {
-      setIsDragging(false)
-      mouseXRef.current = null
-      if (rafIdRef.current !== null) {
-        cancelAnimationFrame(rafIdRef.current)
-        rafIdRef.current = null
-      }
-    }
-
-    // Start animation loop immediately
-    rafIdRef.current = requestAnimationFrame(updateWidth)
-    
-    document.addEventListener('mousemove', handleMouseMove, { passive: true })
-    document.addEventListener('mouseup', handleMouseUp)
-    // Prevent text selection while dragging
-    document.body.style.userSelect = 'none'
-    document.body.style.cursor = 'col-resize'
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
-      document.body.style.userSelect = ''
-      document.body.style.cursor = ''
-      if (rafIdRef.current !== null) {
-        cancelAnimationFrame(rafIdRef.current)
-        rafIdRef.current = null
-      }
-    }
-  }, [isDragging])
+  // No longer needed - floating chat widget replaces sidebar (0698)
 
   // Persist Implementation Agent status to localStorage (0050)
   const IMPL_AGENT_STATUS_KEY = 'hal-impl-agent-status'
@@ -1120,49 +984,13 @@ function App() {
     return []
   })()
 
-  // Get conversations for a specific agent role (0070)
-  const getConversationsForAgent = useCallback((agentRole: Agent): Conversation[] => {
-    const result: Conversation[] = []
-    for (const conv of conversations.values()) {
-      if (conv.agentRole === agentRole) {
-        result.push(conv)
-      }
-    }
-    // Sort by instance number (ascending)
-    result.sort((a, b) => a.instanceNumber - b.instanceNumber)
-    return result
-  }, [conversations])
+  // Get conversations for a specific agent role - removed, no longer used with floating widget (0698)
 
-  // Get conversation label (e.g., "Implementation #1", "QA #2") (0070)
-  const getConversationLabel = useCallback((conv: Conversation): string => {
-    const roleLabels: Record<Agent, string> = {
-      'project-manager': 'Project Manager',
-      'implementation-agent': 'Implementation',
-      'qa-agent': 'QA',
-      'process-review-agent': 'Process Review',
-    }
-    return `${roleLabels[conv.agentRole]} #${conv.instanceNumber}`
-  }, [])
+  // Get conversation label - removed, no longer used with floating widget (0698)
 
-  // Get preview text from last message (first line, max 100 chars) (0070)
-  const getConversationPreview = useCallback((conv: Conversation): string => {
-    if (conv.messages.length === 0) return 'No messages yet'
-    const lastMsg = conv.messages[conv.messages.length - 1]
-    const firstLine = lastMsg.content.split('\n')[0]
-    return firstLine.length > 100 ? firstLine.substring(0, 100) + '...' : firstLine
-  }, [])
+  // Get preview text from last message - removed, no longer used with floating widget (0698)
 
-  // Get preview text for PM chat (0087)
-  const getChatTargetPreview = useCallback((target: ChatTarget): string => {
-    if (target === 'project-manager') {
-      const defaultConvId = getConversationId('project-manager', 1)
-      if (conversations.has(defaultConvId)) {
-        const conv = conversations.get(defaultConvId)!
-        return getConversationPreview(conv)
-      }
-    }
-    return 'No messages yet'
-  }, [conversations, getConversationPreview])
+  // Get preview text for PM chat - removed, no longer used with floating widget (0698)
 
   // Format ticket ID as HAL-XXXX (0098)
   const formatTicketId = useCallback((ticketId: string | null): string => {
@@ -1172,111 +1000,7 @@ function App() {
     return `HAL-${padded}`
   }, [])
 
-  // Fetch working memory for current PM conversation (0173) — use API only so we never hit Supabase from client (avoids 406)
-  const fetchWorkingMemory = useCallback(async () => {
-    if (!connectedProject || !supabaseUrl || !supabaseAnonKey) {
-      setPmWorkingMemory(null)
-      return
-    }
-    if (selectedChatTarget !== 'project-manager') {
-      setPmWorkingMemory(null)
-      return
-    }
-    const convId = selectedConversationId || getConversationId('project-manager', 1)
-    setPmWorkingMemoryLoading(true)
-    setPmWorkingMemoryError(null)
-    try {
-      const res = await fetch('/api/conversations/working-memory/get', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectId: connectedProject,
-          agent: convId,
-          supabaseUrl,
-          supabaseAnonKey,
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok || !data.success) {
-        setPmWorkingMemory(null)
-        if (data.error) setPmWorkingMemoryError(data.error)
-        return
-      }
-      const wm = data.workingMemory
-      if (wm) {
-        const arr = (x: unknown) => (Array.isArray(x) ? x : typeof x === 'string' ? (x ? [x] : []) : [])
-        setPmWorkingMemory({
-          summary: wm.summary || '',
-          goals: arr(wm.goals),
-          requirements: arr(wm.requirements),
-          constraints: arr(wm.constraints),
-          decisions: arr(wm.decisions),
-          assumptions: arr(wm.assumptions),
-          open_questions: arr(wm.openQuestions ?? wm.open_questions),
-          glossary: typeof wm.glossary === 'object' && wm.glossary !== null ? (wm.glossary as Record<string, string>) : {},
-          stakeholders: arr(wm.stakeholders),
-          updated_at: wm.lastUpdatedAt || wm.last_updated_at || new Date().toISOString(),
-          through_sequence: typeof wm.throughSequence === 'number' ? wm.throughSequence : 0,
-        })
-      } else {
-        setPmWorkingMemory(null)
-      }
-    } catch (err) {
-      console.error('[HAL] Failed to fetch working memory:', err)
-      setPmWorkingMemoryError(err instanceof Error ? err.message : String(err))
-      setPmWorkingMemory(null)
-    } finally {
-      setPmWorkingMemoryLoading(false)
-    }
-  }, [connectedProject, supabaseUrl, supabaseAnonKey, selectedChatTarget, selectedConversationId])
-
-  // Legacy refreshWorkingMemory function - defined after refreshPmWorkingMemory
-  const refreshWorkingMemory = useCallback(async () => {
-    // refreshPmWorkingMemory will be defined later, so we'll use it directly in the callback
-    if (!connectedProject || !supabaseUrl || !supabaseAnonKey) {
-      return
-    }
-    try {
-      setPmWorkingMemoryLoading(true)
-      const url = supabaseUrl.trim()
-      const key = supabaseAnonKey.trim()
-      const res = await fetch('/api/pm/working-memory', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectId: connectedProject,
-          supabaseUrl: url,
-          supabaseAnonKey: key,
-          force: true,
-        }),
-      })
-      const data = await res.json() as { success: boolean; workingMemory?: any; error?: string }
-      if (!data.success) {
-        throw new Error(data.error || 'Failed to refresh working memory')
-      }
-      if (data.workingMemory) {
-        setPmWorkingMemory({
-          summary: data.workingMemory.summary || '',
-          goals: Array.isArray(data.workingMemory.goals) ? data.workingMemory.goals : [],
-          requirements: Array.isArray(data.workingMemory.requirements) ? data.workingMemory.requirements : [],
-          constraints: Array.isArray(data.workingMemory.constraints) ? data.workingMemory.constraints : [],
-          decisions: Array.isArray(data.workingMemory.decisions) ? data.workingMemory.decisions : [],
-          assumptions: Array.isArray(data.workingMemory.assumptions) ? data.workingMemory.assumptions : [],
-          open_questions: Array.isArray(data.workingMemory.openQuestions) ? data.workingMemory.openQuestions : (Array.isArray(data.workingMemory.open_questions) ? data.workingMemory.open_questions : []),
-          glossary: data.workingMemory.glossary && typeof data.workingMemory.glossary === 'object' ? data.workingMemory.glossary as Record<string, string> : {},
-          stakeholders: Array.isArray(data.workingMemory.stakeholders) ? data.workingMemory.stakeholders : [],
-          updated_at: data.workingMemory.updated_at || new Date().toISOString(),
-          through_sequence: data.workingMemory.through_sequence || 0,
-        })
-      } else {
-        setPmWorkingMemory(null)
-      }
-    } catch (err) {
-      console.error('[PM] Failed to refresh working memory:', err)
-    } finally {
-      setPmWorkingMemoryLoading(false)
-    }
-  }, [connectedProject, supabaseUrl, supabaseAnonKey, selectedConversationId])
+  // Fetch working memory - removed, no longer used with floating widget (0698)
 
   // Load older messages for a conversation (pagination)
   const loadOlderMessages = useCallback(
@@ -1361,9 +1085,10 @@ function App() {
             return next
           })
         }
+        
+        setLoadingOlderMessages(null)
       } catch (err) {
-        console.error('[HAL] Error loading older messages:', err)
-      } finally {
+        console.error('[HAL] Failed to load older messages:', err)
         setLoadingOlderMessages(null)
       }
     },
@@ -1684,11 +1409,11 @@ function App() {
 
   // Ensure Process Review Agent conversation exists when chat is opened (0111)
   useEffect(() => {
-    if (selectedChatTarget === 'process-review-agent' || openChatTarget === 'process-review-agent') {
+    if (selectedChatTarget === 'process-review-agent') {
       // Initialize Process Review Agent conversation if it doesn't exist
       getDefaultConversationId('process-review-agent')
     }
-  }, [selectedChatTarget, openChatTarget, getDefaultConversationId])
+  }, [selectedChatTarget, getDefaultConversationId])
 
   // Add initial welcome/status message to Process Review conversations when they're created (0111)
   useEffect(() => {
@@ -2058,64 +1783,6 @@ function App() {
     },
     [supabaseUrl, supabaseAnonKey, fetchKanbanData]
   )
-
-  /** Clear/delete a conversation from Supabase and local state (0124) */
-  const clearConversation = useCallback(
-    async (conversationId: string) => {
-      if (!connectedProject) return
-
-      const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
-      const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
-
-      // Delete from Supabase if connected
-      if (url && key) {
-        try {
-          const supabase = getSupabaseClient(url, key)
-          const { error } = await supabase
-            .from('hal_conversation_messages')
-            .delete()
-            .eq('project_id', connectedProject)
-            .eq('agent', conversationId)
-          
-          if (error) {
-            console.error('[HAL] Failed to delete conversation from Supabase:', error)
-            setPersistenceError(`Failed to clear conversation: ${error.message}`)
-            return
-          }
-        } catch (err) {
-          const errMsg = err instanceof Error ? err.message : String(err)
-          console.error('[HAL] Error clearing conversation:', err)
-          setPersistenceError(`Failed to clear conversation: ${errMsg}`)
-          return
-        }
-      }
-
-      // Clear from local state
-      setConversations((prev) => {
-        const next = new Map(prev)
-        next.delete(conversationId)
-        return next
-      })
-
-      // Reset sequence tracking for this conversation
-      agentSequenceRefs.current.delete(conversationId)
-
-      // If this was the currently open conversation, close it or switch to default
-      const parsed = parseConversationId(conversationId)
-      if (parsed) {
-        if (openChatTarget === conversationId) {
-          setOpenChatTarget(null)
-        }
-        if (selectedConversationId === conversationId) {
-          setSelectedConversationId(null)
-        }
-      }
-
-      setPersistenceError(null)
-    },
-    [connectedProject, supabaseUrl, supabaseAnonKey, openChatTarget, selectedConversationId]
-  )
-
 
   /** Fetch artifacts for a ticket (same Supabase as tickets). Used by Kanban when opening ticket detail. */
   const fetchArtifactsForTicket = useCallback(
@@ -2702,38 +2369,35 @@ function App() {
     ]
   )
 
-  // Track most recent work button click event for diagnostics (0072)
-  const [lastWorkButtonClick, setLastWorkButtonClick] = useState<{ eventId: string; timestamp: Date; chatTarget: ChatTarget; message: string } | null>(null)
+  // Track most recent work button click event for diagnostics (0072) - no longer displayed with floating widget (0698)
+  const [_lastWorkButtonClick, setLastWorkButtonClick] = useState<{ eventId: string; timestamp: Date; chatTarget: ChatTarget; message: string } | null>(null)
 
-  /** Kanban work button: open chat and send message. When ticketPk + implementation-agent, move ticket to Doing first. */
+  /** Kanban work button: route to PM chat widget (0698). All work buttons now route to PM. */
   const handleKanbanOpenChatAndSend = useCallback(
     async (data: { chatTarget: ChatTarget; message: string; ticketPk?: string }) => {
-      if (!data.chatTarget || !data.message) return
+      if (!data.message) return
+      // Always route to PM chat (0698)
       const eventId = `work-btn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
-      setLastWorkButtonClick({ eventId, timestamp: new Date(), chatTarget: data.chatTarget, message: data.message })
-      setSelectedChatTarget(data.chatTarget)
-      let conversationId: string | undefined
-      if (data.chatTarget === 'implementation-agent' || data.chatTarget === 'qa-agent' || data.chatTarget === 'process-review-agent') {
-        conversationId = getOrCreateConversation(data.chatTarget)
-        setSelectedConversationId(conversationId)
-      } else {
-        conversationId = getDefaultConversationId('project-manager')
+      setLastWorkButtonClick({ eventId, timestamp: new Date(), chatTarget: 'project-manager', message: data.message })
+      setSelectedChatTarget('project-manager')
+      const conversationId = getDefaultConversationId('project-manager')
+      setSelectedConversationId(null) // Use default PM conversation
+      
+      // Open PM chat widget if closed
+      if (!pmChatWidgetOpen) {
+        setPmChatWidgetOpen(true)
       }
-      if (data.ticketPk && data.chatTarget === 'implementation-agent') {
+      
+      // Move ticket to Doing if needed (for implementation/QA buttons)
+      if (data.ticketPk && (data.chatTarget === 'implementation-agent' || data.chatTarget === 'qa-agent')) {
         const doingCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-doing').length
         await handleKanbanMoveTicket(data.ticketPk, 'col-doing', doingCount)
       }
-      // QA Top Ticket: move from QA column to Active Work (col-doing) when QA button clicked (0159)
-      if (data.ticketPk && data.chatTarget === 'qa-agent') {
-        const ticket = kanbanTickets.find((t) => t.pk === data.ticketPk)
-        if (ticket && ticket.kanban_column_id === 'col-qa') {
-          const doingCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-doing').length
-          await handleKanbanMoveTicket(data.ticketPk, 'col-doing', doingCount)
-        }
-      }
-      triggerAgentRun(data.message, data.chatTarget, undefined, conversationId)
+      
+      // Send message to PM
+      triggerAgentRun(data.message, 'project-manager', undefined, conversationId)
     },
-    [triggerAgentRun, getOrCreateConversation, getDefaultConversationId, kanbanTickets, handleKanbanMoveTicket]
+    [triggerAgentRun, getDefaultConversationId, kanbanTickets, handleKanbanMoveTicket, pmChatWidgetOpen]
   )
 
   /** Process Review button: trigger Process Review agent for top ticket in Process Review column. */
@@ -3126,7 +2790,7 @@ function App() {
     setAutoMoveDiagnostics([])
     setCursorRunAgentType(null)
     setOrphanedCompletionSummary(null)
-    setPmWorkingMemoryOpen(false)
+    _setPmWorkingMemoryOpen(false)
     // Do NOT remove localStorage items on disconnect (0097: preserve chats and agent status across disconnect/reconnect)
     // They will be restored when reconnecting to the same repo
   }, [])
@@ -3171,42 +2835,17 @@ function App() {
   }, [disconnectConfirmOpen, handleDisconnectCancel])
 
 
-  // Determine theme source (0078)
-  const themeSource: 'default' | 'saved' = (() => {
-    try {
-      const stored = localStorage.getItem(THEME_STORAGE_KEY)
-      return stored === 'light' || stored === 'dark' ? 'saved' : 'default'
-    } catch {
-      return 'default'
-    }
-  })()
+  // Determine theme source - no longer displayed with floating widget (0698)
+  // const _themeSource: 'default' | 'saved' = (() => {
+  //   try {
+  //     const stored = localStorage.getItem(THEME_STORAGE_KEY)
+  //     return stored === 'light' || stored === 'dark' ? 'saved' : 'default'
+  //   } catch {
+  //     return 'default'
+  //   }
+  // })()
 
-  const diagnostics: DiagnosticsInfo = {
-    kanbanRenderMode: 'library',
-    kanbanBuild: KANBAN_BUILD,
-    selectedChatTarget,
-    pmImplementationSource: selectedChatTarget === 'project-manager' ? 'hal-agents' : 'inline',
-    lastAgentError,
-    lastError,
-    openaiLastStatus,
-    openaiLastError,
-    kanbanLoaded: true,
-    kanbanUrl: 'library',
-    connectedProject,
-    lastPmOutboundRequest,
-    lastPmToolCalls,
-    lastTicketCreationResult,
-    lastCreateTicketAvailable,
-    persistenceError,
-    agentRunner,
-    autoMoveDiagnostics,
-    theme,
-    themeSource,
-    lastSendPayloadSummary,
-    repoInspectionAvailable: !!connectedGithubRepo?.fullName,
-    unitTestsConfigured: true,
-    conversationHistoryResetMessage,
-  }
+  // Diagnostics info - removed, no longer displayed with floating widget (0698)
 
   const kanbanBoardProps: KanbanBoardProps = {
     tickets: kanbanTickets,
@@ -3228,7 +2867,7 @@ function App() {
     onTicketCreated: fetchKanbanData,
   }
 
-  // Chat panel content (used in sidebar when openChatTarget is set — same structure/classes as right panel for correct styling)
+  // Chat panel content (used in floating PM chat widget - PM only)
   const chatPanelContent = (function renderChatPanelContent() {
     const displayMessages = activeMessages
     const displayTarget = selectedChatTarget
@@ -3268,39 +2907,6 @@ function App() {
                   </span>
                 </div>
                 {implAgentError && <div className="impl-agent-error">{implAgentError}</div>}
-              </div>
-            )}
-          </>
-        )}
-        {displayTarget === 'qa-agent' && (
-          <>
-            <div className="agent-stub-banner" role="status">
-              <p className="agent-stub-title">QA Agent — Cursor Cloud Agents</p>
-              <p className="agent-stub-hint">
-                {import.meta.env.VITE_CURSOR_API_KEY
-                  ? 'Say "QA ticket XXXX" to run QA for a ticket. The agent will run in the cloud and report results here.'
-                  : 'Cursor API is not configured.'}
-              </p>
-            </div>
-            {(qaAgentRunStatus !== 'idle' || qaAgentError) && (
-              <div className="impl-agent-status-panel" role="status" aria-live="polite">
-                <div className="impl-agent-status-header">
-                  <span className="impl-agent-status-label">Status:</span>
-                  <span className={`impl-agent-status-value impl-status-${qaAgentRunStatus}`}>
-                    {qaAgentRunStatus === 'preparing' ? 'Preparing' :
-                     qaAgentRunStatus === 'fetching_ticket' ? 'Fetching ticket' :
-                     qaAgentRunStatus === 'fetching_branch' ? 'Finding branch' :
-                     qaAgentRunStatus === 'launching' ? 'Launching QA' :
-                     qaAgentRunStatus === 'reviewing' ? 'Reviewing' :
-                     qaAgentRunStatus === 'polling' ? 'Reviewing' :
-                     qaAgentRunStatus === 'generating_report' ? 'Generating report' :
-                     qaAgentRunStatus === 'merging' ? 'Merging' :
-                     qaAgentRunStatus === 'moving_ticket' ? 'Moving ticket' :
-                     qaAgentRunStatus === 'completed' ? 'Completed' :
-                     qaAgentRunStatus === 'failed' ? 'Failed' : qaAgentRunStatus}
-                  </span>
-                </div>
-                {qaAgentError && <div className="impl-agent-error">{qaAgentError}</div>}
               </div>
             )}
           </>
@@ -3633,67 +3239,8 @@ function App() {
               {processReviewMessage}
             </div>
           )}
-          {/* Chat Window (0087) - overlays Kanban when a chat is open (0096: keep Kanban mounted) */}
-          <div className={`chat-window-container ${openChatTarget ? 'chat-window-visible' : 'chat-window-hidden'}`}>
-            {openChatTarget && (
-              <>
-                <div className="chat-window-header">
-                  <div className="chat-window-title">
-                    {typeof openChatTarget === 'string' && conversations.has(openChatTarget)
-                      ? getConversationLabel(conversations.get(openChatTarget)!)
-                      : openChatTarget === 'project-manager'
-                      ? 'Project Manager'
-                      : 'Chat'}
-                  </div>
-                  <div className="chat-window-actions">
-                    {/* Clear conversation button (0124) */}
-                    {(() => {
-                      const currentConvId = typeof openChatTarget === 'string' && conversations.has(openChatTarget)
-                        ? openChatTarget
-                        : openChatTarget === 'project-manager'
-                        ? getConversationId('project-manager', 1)
-                        : null
-                      const currentConv = currentConvId ? conversations.get(currentConvId) : null
-                      const hasMessages = currentConv && currentConv.messages.length > 0
-                      return hasMessages ? (
-                        <button
-                          type="button"
-                          className="chat-window-clear"
-                          onClick={async () => {
-                            if (currentConvId && window.confirm('Are you sure you want to clear this conversation? This will delete all messages and cannot be undone.')) {
-                              await clearConversation(currentConvId)
-                            }
-                          }}
-                          aria-label="Clear conversation"
-                          title="Clear conversation"
-                        >
-                          Clear conversation
-                        </button>
-                      ) : null
-                    })()}
-                    <button
-                      type="button"
-                      className={`chat-window-close ${openChatTarget === 'project-manager' ? 'chat-window-close-pm' : ''}`}
-                      onClick={() => {
-                        setOpenChatTarget(null)
-                      }}
-                      aria-label="Close chat"
-                    >
-                      ×
-                    </button>
-                  </div>
-                </div>
-                <div className="chat-window-content">
-                  {/* PM Working Memory panel removed — PM now uses Cursor agent (context handled by Cursor) */}
-                  {/* Render the chat UI here - same as the right panel chat */}
-                  {chatPanelContent}
-                  {/* duplicate chat panel IIFE removed - content is in chatPanelContent */}
-                </div>
-              </>
-            )}
-          </div>
           {/* Kanban board (HAL owns data; passes tickets/columns and callbacks). Cast props so fetchArtifactsForTicket is accepted when package types are older (e.g. Vercel cache). */}
-          <div className={`kanban-frame-container ${openChatTarget ? 'kanban-frame-hidden' : 'kanban-frame-visible'}`}>
+          <div className="kanban-frame-container">
             {/* Ticket move error message (0155) */}
             {kanbanMoveError && (
               <div
@@ -3744,1036 +3291,76 @@ function App() {
           </div>
         </section>
 
-        {/* Resizable divider (0060) - hidden when chat is collapsed (0160) */}
-        {!chatCollapsed && (
-          <div
-            ref={dividerRef}
-            className={`hal-divider ${isDragging ? 'hal-divider-dragging' : ''}`}
-            onMouseDown={handleDividerMouseDown}
-            role="separator"
-            aria-label="Resize chat and kanban panes"
-            aria-orientation="vertical"
-          >
-            {isDragging && (() => {
-              const mainElement = document.querySelector('.hal-main')
-              if (!mainElement) return null
-              const mainRect = mainElement.getBoundingClientRect()
-              const percentage = (chatWidth / mainRect.width) * 100
-              return (
-                <div className="hal-divider-width-display">
-                  {percentage.toFixed(1)}%
-                </div>
-              )
-            })()}
-          </div>
-        )}
-
-        {/* Right column: Chat UI (0160: hidden when collapsed) */}
-        {!chatCollapsed && (
-          <section className="hal-chat-region" aria-label="Chat" style={{ width: `${chatWidth}px` }}>
-            <div className="chat-header">
-              <h2>Chat</h2>
+        {/* Floating PM Chat Widget (0698) */}
+        {connectedProject && (
+          <>
+            {/* Floating chat button */}
+            {!pmChatWidgetOpen && (
               <button
                 type="button"
-                className="chat-collapse-btn"
-                onClick={() => setChatCollapsedState(true)}
-                aria-label="Collapse chat"
-                title="Collapse chat"
-              >
-                <span aria-hidden="true">◀</span>
-              </button>
-            </div>
-
-          {/* Chat Preview Stack (0087) */}
-          {connectedProject ? (
-            <div className="chat-preview-stack">
-              {/* Project Manager */}
-              <div
-                className={`chat-preview-pane ${openChatTarget === 'project-manager' ? 'chat-preview-active' : ''}`}
+                className="pm-chat-widget-button"
                 onClick={() => {
-                  setOpenChatTarget('project-manager')
+                  setPmChatWidgetOpen(true)
                   setSelectedChatTarget('project-manager')
                   setSelectedConversationId(null)
-                  setUnreadByTarget((prev) => ({ ...prev, 'project-manager': 0 }))
                 }}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault()
-                    setOpenChatTarget('project-manager')
-                    setSelectedChatTarget('project-manager')
-                    setSelectedConversationId(null)
-                    setUnreadByTarget((prev) => ({ ...prev, 'project-manager': 0 }))
-                  }
-                }}
+                aria-label="Open PM chat"
+                title="Open PM chat"
               >
-                <div className="chat-preview-header">
-                  <span className="chat-preview-name">Project Manager</span>
-                  {unreadByTarget['project-manager'] > 0 && (
-                    <span className="chat-preview-unread">{unreadByTarget['project-manager']}</span>
-                  )}
-                </div>
-                <div className="chat-preview-text">{getChatTargetPreview('project-manager')}</div>
-              </div>
-
-              {/* QA Group */}
-              <div className="chat-preview-group">
-                <div
-                  className="chat-preview-group-header"
-                  onClick={() => setQaGroupExpanded(!qaGroupExpanded)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      setQaGroupExpanded(!qaGroupExpanded)
-                    }
-                  }}
-                >
-                  <span className="chat-preview-group-icon">{qaGroupExpanded ? '▼' : '▶'}</span>
-                  <span className="chat-preview-name">QA Lead</span>
-                  {unreadByTarget['qa-agent'] > 0 && (
-                    <span className="chat-preview-unread">{unreadByTarget['qa-agent']}</span>
-                  )}
-                </div>
-                {qaGroupExpanded && (
-                  <div className="chat-preview-group-items">
-                    {getConversationsForAgent('qa-agent').length === 0 ? (
-                      <div className="chat-preview-empty">No QA agents running</div>
-                    ) : (
-                      getConversationsForAgent('qa-agent').map((conv) => (
-                        <div
-                          key={conv.id}
-                          className={`chat-preview-pane chat-preview-nested ${openChatTarget === conv.id ? 'chat-preview-active' : ''}`}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setOpenChatTarget(conv.id)
-                            setSelectedChatTarget('qa-agent')
-                            setSelectedConversationId(conv.id)
-                          }}
-                          role="button"
-                          tabIndex={0}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault()
-                              setOpenChatTarget(conv.id)
-                              setSelectedChatTarget('qa-agent')
-                              setSelectedConversationId(conv.id)
-                            }
-                          }}
-                        >
-                          <div className="chat-preview-header">
-                            <span className="chat-preview-name">{getConversationLabel(conv)}</span>
-                          </div>
-                          <div className="chat-preview-text">{getConversationPreview(conv)}</div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Implementation Group */}
-              <div className="chat-preview-group">
-                <div
-                  className="chat-preview-group-header"
-                  onClick={() => setImplGroupExpanded(!implGroupExpanded)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      setImplGroupExpanded(!implGroupExpanded)
-                    }
-                  }}
-                >
-                  <span className="chat-preview-group-icon">{implGroupExpanded ? '▼' : '▶'}</span>
-                  <span className="chat-preview-name">Implementation Lead</span>
-                  {unreadByTarget['implementation-agent'] > 0 && (
-                    <span className="chat-preview-unread">{unreadByTarget['implementation-agent']}</span>
-                  )}
-                </div>
-                {implGroupExpanded && (
-                  <div className="chat-preview-group-items">
-                    {getConversationsForAgent('implementation-agent').length === 0 ? (
-                      <div className="chat-preview-empty">No Implementation agents running</div>
-                    ) : (
-                      getConversationsForAgent('implementation-agent').map((conv) => (
-                        <div
-                          key={conv.id}
-                          className={`chat-preview-pane chat-preview-nested ${openChatTarget === conv.id ? 'chat-preview-active' : ''}`}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setOpenChatTarget(conv.id)
-                            setSelectedChatTarget('implementation-agent')
-                            setSelectedConversationId(conv.id)
-                          }}
-                          role="button"
-                          tabIndex={0}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault()
-                              setOpenChatTarget(conv.id)
-                              setSelectedChatTarget('implementation-agent')
-                              setSelectedConversationId(conv.id)
-                            }
-                          }}
-                        >
-                          <div className="chat-preview-header">
-                            <span className="chat-preview-name">{getConversationLabel(conv)}</span>
-                          </div>
-                          <div className="chat-preview-text">{getConversationPreview(conv)}</div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Process Review Group */}
-              <div className="chat-preview-group">
-                <div
-                  className="chat-preview-group-header"
-                  onClick={() => setProcessReviewGroupExpanded(!processReviewGroupExpanded)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      setProcessReviewGroupExpanded(!processReviewGroupExpanded)
-                    }
-                  }}
-                >
-                  <span className="chat-preview-group-icon">{processReviewGroupExpanded ? '▼' : '▶'}</span>
-                  <span className="chat-preview-name">Process Review</span>
-                  {unreadByTarget['process-review-agent'] > 0 && (
-                    <span className="chat-preview-unread">{unreadByTarget['process-review-agent']}</span>
-                  )}
-                </div>
-                {processReviewGroupExpanded && (
-                  <div className="chat-preview-group-items">
-                    {getConversationsForAgent('process-review-agent').length === 0 ? (
-                      <div className="chat-preview-empty">No Process Review agents running</div>
-                    ) : (
-                      getConversationsForAgent('process-review-agent').map((conv) => (
-                        <div
-                          key={conv.id}
-                          className={`chat-preview-pane chat-preview-nested ${openChatTarget === conv.id ? 'chat-preview-active' : ''}`}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setOpenChatTarget(conv.id)
-                            setSelectedChatTarget('process-review-agent')
-                            setSelectedConversationId(conv.id)
-                          }}
-                          role="button"
-                          tabIndex={0}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault()
-                              setOpenChatTarget(conv.id)
-                              setSelectedChatTarget('process-review-agent')
-                              setSelectedConversationId(conv.id)
-                            }
-                          }}
-                        >
-                          <div className="chat-preview-header">
-                            <span className="chat-preview-name">{getConversationLabel(conv)}</span>
-                          </div>
-                          <div className="chat-preview-text">{getConversationPreview(conv)}</div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : null}
-
-          {!connectedProject ? (
-            <div className="chat-placeholder">
-              <p className="chat-placeholder-text">Connect a project to enable chat</p>
-              <p className="chat-placeholder-hint">
-                Use the "Connect GitHub Repo" button above to connect a project and start chatting with agents.
-              </p>
-            </div>
-          ) : null}
-
-          {/* Configuration Status Panel (0042) - Hidden per ticket 0105, code kept intact */}
-          {false && (
-            <div className="config-status-panel" role="region" aria-label="Configuration Status">
-              <h3 className="config-status-title">Configuration</h3>
-              <div className="config-status-row">
-                <span className="config-status-label">Cursor API:</span>
-                {import.meta.env.VITE_CURSOR_API_KEY ? (
-                  <span className="config-status-value config-status-configured">Configured</span>
-                ) : (
-                  <span className="config-status-value config-status-not-configured">
-                    Not configured
-                    <span className="config-status-hint">Missing CURSOR_API_KEY and VITE_CURSOR_API_KEY in .env</span>
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Diagnostics panel - Hidden per ticket 0105, code kept intact */}
-          {false && (
-            <div className="diagnostics-section">
-            <button
-              type="button"
-              className="diagnostics-toggle"
-              onClick={() => setDiagnosticsOpen(!diagnosticsOpen)}
-              aria-expanded={diagnosticsOpen}
-            >
-              Diagnostics {diagnosticsOpen ? '▼' : '▶'}
-            </button>
-            
-            {/* Working Memory Panel (0173) */}
-            {selectedChatTarget === 'project-manager' && (
-              <button
-                type="button"
-                className="diagnostics-toggle"
-                onClick={() => {
-                  setWorkingMemoryOpen(!workingMemoryOpen)
-                  if (!workingMemoryOpen && !workingMemory && !workingMemoryLoading) {
-                    fetchWorkingMemory()
-                  }
-                }}
-                aria-expanded={workingMemoryOpen}
-              >
-                PM Working Memory {workingMemoryOpen ? '▼' : '▶'}
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                </svg>
               </button>
             )}
-            
-            {workingMemoryOpen && selectedChatTarget === 'project-manager' && (
-              <div className="diagnostics-panel" role="region" aria-label="PM Working Memory">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold' }}>PM Working Memory</h3>
-                  <button
-                    type="button"
-                    onClick={refreshWorkingMemory}
-                    disabled={workingMemoryLoading}
-                    style={{
-                      padding: '4px 12px',
-                      fontSize: '12px',
-                      cursor: workingMemoryLoading ? 'not-allowed' : 'pointer',
-                      opacity: workingMemoryLoading ? 0.6 : 1,
-                    }}
-                  >
-                    {workingMemoryLoading ? 'Refreshing...' : 'Refresh now'}
-                  </button>
-                </div>
-                
-                {workingMemoryError && (
-                  <div style={{ color: '#d32f2f', marginBottom: '12px', fontSize: '12px' }}>
-                    Error: {workingMemoryError}
-                    <br />
-                    <span style={{ fontSize: '11px', fontStyle: 'italic' }}>
-                      PM agent will continue using recent messages only.
-                    </span>
-                  </div>
-                )}
-                
-                {workingMemoryLoading && !workingMemory && (
-                  <div style={{ color: '#666', fontSize: '12px' }}>Loading working memory...</div>
-                )}
-                
-                {!workingMemoryLoading && !workingMemory && !workingMemoryError && (
-                  <div style={{ color: '#666', fontSize: '12px' }}>
-                    No working memory available yet. Start a conversation to build working memory.
-                    <br />
-                    <span style={{ fontSize: '11px', fontStyle: 'italic' }}>
-                      PM agent will use recent messages only until working memory is generated.
-                    </span>
-                  </div>
-                )}
-                
-                {workingMemory && (() => {
-                  const wm = workingMemory!
-                  return (
-                    <div style={{ fontSize: '12px' }}>
-                      <div style={{ marginBottom: '8px', color: '#666' }}>
-                        Last updated: {new Date(wm.lastUpdatedAt).toLocaleString()}
-                      </div>
-                      
-                      {wm.summary && (
-                        <div style={{ marginBottom: '16px' }}>
-                          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Summary</div>
-                          <div style={{ color: '#333', lineHeight: '1.5' }}>{wm.summary}</div>
-                        </div>
-                      )}
-                      
-                      {wm.goals.length > 0 && (
-                        <div style={{ marginBottom: '16px' }}>
-                          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Goals</div>
-                          <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
-                            {wm.goals.map((goal, idx) => (
-                              <li key={idx} style={{ marginBottom: '4px' }}>{goal}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      
-                      {wm.requirements.length > 0 && (
-                        <div style={{ marginBottom: '16px' }}>
-                          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Requirements</div>
-                          <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
-                            {wm.requirements.map((req, idx) => (
-                              <li key={idx} style={{ marginBottom: '4px' }}>{req}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      
-                      {wm.constraints.length > 0 && (
-                        <div style={{ marginBottom: '16px' }}>
-                          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Constraints</div>
-                          <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
-                            {wm.constraints.map((constraint, idx) => (
-                              <li key={idx} style={{ marginBottom: '4px' }}>{constraint}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      
-                      {wm.decisions.length > 0 && (
-                        <div style={{ marginBottom: '16px' }}>
-                          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Decisions</div>
-                          <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
-                            {wm.decisions.map((decision, idx) => (
-                              <li key={idx} style={{ marginBottom: '4px' }}>{decision}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      
-                      {wm.assumptions.length > 0 && (
-                        <div style={{ marginBottom: '16px' }}>
-                          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Assumptions</div>
-                          <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
-                            {wm.assumptions.map((assumption, idx) => (
-                              <li key={idx} style={{ marginBottom: '4px' }}>{assumption}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      
-                      {wm.openQuestions && wm.openQuestions.length > 0 && (
-                        <div style={{ marginBottom: '16px' }}>
-                          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Open Questions</div>
-                          <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
-                            {wm.openQuestions.map((question, idx) => (
-                              <li key={idx} style={{ marginBottom: '4px' }}>{question}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      
-                      {Object.keys(wm.glossary).length > 0 && (
-                        <div style={{ marginBottom: '16px' }}>
-                          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Glossary</div>
-                          <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
-                            {Object.entries(wm.glossary).map(([term, def]) => (
-                              <li key={term} style={{ marginBottom: '4px' }}>
-                                <strong>{term}:</strong> {def}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      
-                      {wm.stakeholders.length > 0 && (
-                        <div style={{ marginBottom: '16px' }}>
-                          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Stakeholders</div>
-                          <ul style={{ margin: 0, paddingLeft: '20px', color: '#333' }}>
-                            {wm.stakeholders.map((stakeholder, idx) => (
-                              <li key={idx} style={{ marginBottom: '4px' }}>{stakeholder}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })()}
-              </div>
-            )}
-            
-            {diagnosticsOpen && (
-              <div className="diagnostics-panel" role="region" aria-label="Diagnostics">
-                <div className="diag-row">
-                  <span className="diag-label">Chat width (px):</span>
-                  <span className="diag-value">{chatWidth}</span>
-                </div>
-                <div className="diag-row">
-                  <span className="diag-label">Chat width (%):</span>
-                  <span className="diag-value">
-                    {(() => {
-                      const mainElement = document.querySelector('.hal-main')
-                      if (!mainElement) return '—'
-                      const mainRect = mainElement!.getBoundingClientRect()
-                      const percentage = (chatWidth / mainRect.width) * 100
-                      return `${percentage.toFixed(1)}%`
-                    })()}
-                  </span>
-                </div>
-                <div className="diag-row">
-                  <span className="diag-label">Resizer dragging:</span>
-                  <span className="diag-value" data-status={isDragging ? 'ok' : undefined}>
-                    {String(isDragging)}
-                  </span>
-                </div>
-                <div className="diag-row">
-                  <span className="diag-label">Theme:</span>
-                  <span className="diag-value">
-                    {diagnostics.theme} ({diagnostics.themeSource})
-                  </span>
-                </div>
-                <div className="diag-row">
-                  <span className="diag-label">Kanban render mode:</span>
-                  <span className="diag-value">{diagnostics.kanbanRenderMode}</span>
-                </div>
-                <div className="diag-row">
-                  <span className="diag-label">Kanban URL:</span>
-                  <span className="diag-value">{diagnostics.kanbanUrl}</span>
-                </div>
-                <div className="diag-row">
-                  <span className="diag-label">Kanban loaded:</span>
-                  <span className="diag-value" data-status={diagnostics.kanbanLoaded ? 'ok' : 'error'}>
-                    {String(diagnostics.kanbanLoaded)}
-                  </span>
-                </div>
-                <div className="diag-row">
-                  <span className="diag-label">Kanban build:</span>
-                  <span className="diag-value" title="Library build id; inspect data-kanban-build on board root to confirm.">
-                    {diagnostics.kanbanBuild}
-                  </span>
-                </div>
-                <div className="diag-row">
-                  <span className="diag-label">Chat target:</span>
-                  <span className="diag-value">{diagnostics.selectedChatTarget}</span>
-                </div>
-                <div className="diag-row">
-                  <span className="diag-label">PM implementation source:</span>
-                  <span className="diag-value">{diagnostics.pmImplementationSource}</span>
-                </div>
-                {lastWorkButtonClick && (
-                  <div className="diag-row">
-                    <span className="diag-label">Last work button click:</span>
-                    <span className="diag-value">
-                      {lastWorkButtonClick!.eventId} ({lastWorkButtonClick!.timestamp.toLocaleTimeString()})
-                      <br />
-                      <span style={{ fontSize: '0.9em', color: '#666' }}>
-                        Target: {lastWorkButtonClick!.chatTarget}
-                      </span>
-                    </span>
-                  </div>
-                )}
-                {selectedChatTarget === 'project-manager' && (
-                  <div className="diag-row">
-                    <span className="diag-label">Agent runner:</span>
-                    <span className="diag-value">{diagnostics.agentRunner ?? '—'}</span>
-                  </div>
-                )}
-                <div className="diag-row">
-                  <span className="diag-label">Last agent error:</span>
-                  <span className="diag-value" data-status={diagnostics.lastAgentError ? 'error' : 'ok'}>
-                    {diagnostics.lastAgentError ?? 'none'}
-                  </span>
-                </div>
-                <div className="diag-row">
-                  <span className="diag-label">Last OpenAI HTTP status:</span>
-                  <span className="diag-value">
-                    {diagnostics.openaiLastStatus ?? 'no request yet'}
-                  </span>
-                </div>
-                <div className="diag-row">
-                  <span className="diag-label">Last OpenAI error:</span>
-                  <span className="diag-value" data-status={diagnostics.openaiLastError ? 'error' : 'ok'}>
-                    {diagnostics.openaiLastError ?? 'none'}
-                  </span>
-                </div>
-                <div className="diag-row">
-                  <span className="diag-label">Last error:</span>
-                  <span className="diag-value" data-status={diagnostics.lastError ? 'error' : 'ok'}>
-                    {diagnostics.lastError ?? 'none'}
-                  </span>
-                </div>
-                <div className="diag-row">
-                  <span className="diag-label">Last send payload summary:</span>
-                  <span className="diag-value">
-                    {diagnostics.lastSendPayloadSummary ?? 'no send yet'}
-                  </span>
-                </div>
-                <div className="diag-row">
-                  <span className="diag-label">Connected project:</span>
-                  <span className="diag-value">
-                    {diagnostics.connectedProject ?? 'none'}
-                  </span>
-                </div>
-                <div className="diag-row">
-                  <span className="diag-label">Repo inspection (GitHub):</span>
-                  <span className="diag-value" data-status={diagnostics.repoInspectionAvailable ? 'ok' : 'error'} title={diagnostics.repoInspectionAvailable ? 'PM agent can read/search repo via GitHub API' : 'Connect GitHub Repo for read_file/search_files'}>
-                    {diagnostics.repoInspectionAvailable ? 'available' : 'not available'}
-                  </span>
-                </div>
-                <div className="diag-row">
-                  <span className="diag-label">Persistence error:</span>
-                  <span className="diag-value" data-status={diagnostics.persistenceError ? 'error' : 'ok'}>
-                    {diagnostics.persistenceError ?? 'none'}
-                  </span>
-                </div>
-                {diagnostics.conversationHistoryResetMessage && (
-                  <div className="diag-row">
-                    <span className="diag-label">Conversation history:</span>
-                    <span className="diag-value" data-status="error" style={{ color: 'var(--hal-status-error, #c62828)', fontWeight: '500' }}>
-                      {diagnostics.conversationHistoryResetMessage}
-                    </span>
-                  </div>
-                )}
-                <div className="diag-row">
-                  <span className="diag-label">Unit tests:</span>
-                  <span className="diag-value" data-status={diagnostics.unitTestsConfigured ? 'ok' : 'error'}>
-                    {diagnostics.unitTestsConfigured ? 'configured (Vitest)' : 'not configured'}
-                  </span>
-                </div>
-                {diagnostics.unitTestsConfigured && (
-                  <div className="diag-row" style={{ fontSize: '0.9em', color: '#666', fontStyle: 'italic', marginTop: '-8px', marginBottom: '8px' }}>
-                    <span className="diag-label" style={{ visibility: 'hidden' }}>Unit tests:</span>
-                    <span className="diag-value">This project is set up for unit tests to keep refactors safe.</span>
-                  </div>
-                )}
 
-                {/* PM Diagnostics: Outbound Request */}
-                {selectedChatTarget === 'project-manager' && (
-                  <div className="diag-section">
+            {/* Floating PM chat window */}
+            {pmChatWidgetOpen && (
+              <div className={`pm-chat-widget ${pmChatWidgetFullscreen ? 'pm-chat-widget-fullscreen' : 'pm-chat-widget-small'}`}>
+                <div className="pm-chat-widget-header">
+                  <div className="pm-chat-widget-title">Project Manager</div>
+                  <div className="pm-chat-widget-actions">
                     <button
                       type="button"
-                      className="diag-section-toggle"
-                      onClick={() => setOutboundRequestExpanded(!outboundRequestExpanded)}
-                      aria-expanded={outboundRequestExpanded}
+                      className="pm-chat-widget-fullscreen-btn"
+                      onClick={() => setPmChatWidgetFullscreen(!pmChatWidgetFullscreen)}
+                      aria-label={pmChatWidgetFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+                      title={pmChatWidgetFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
                     >
-                      Outbound Request JSON {outboundRequestExpanded ? '▼' : '▶'}
-                    </button>
-                    {outboundRequestExpanded && (
-                      <div className="diag-section-content">
-                        {diagnostics.lastPmOutboundRequest ? (
-                          <pre className="diag-json">
-                            {JSON.stringify(diagnostics.lastPmOutboundRequest, null, 2)}
-                          </pre>
-                        ) : (
-                          <span className="diag-empty">No request yet</span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* PM Diagnostics: Tool Calls */}
-                {selectedChatTarget === 'project-manager' && (
-                  <div className="diag-section">
-                    <button
-                      type="button"
-                      className="diag-section-toggle"
-                      onClick={() => setToolCallsExpanded(!toolCallsExpanded)}
-                      aria-expanded={toolCallsExpanded}
-                    >
-                      Tool Calls {toolCallsExpanded ? '▼' : '▶'}
-                    </button>
-                    {toolCallsExpanded && (
-                      <div className="diag-section-content">
-                        {diagnostics.lastPmToolCalls && diagnostics.lastPmToolCalls!.length > 0 ? (
-                          <ul className="diag-tool-calls">
-                            {diagnostics.lastPmToolCalls!.map((call, idx) => (
-                              <li key={idx} className="diag-tool-call">
-                                <strong>{call.name}</strong>
-                                <div className="tool-call-detail">
-                                  <span className="tool-call-label">Input:</span>
-                                  <code>{JSON.stringify(call.input)}</code>
-                                </div>
-                                <div className="tool-call-detail">
-                                  <span className="tool-call-label">Output:</span>
-                                  <code className="tool-call-output">
-                                    {typeof call.output === 'string'
-                                      ? call.output.length > 200
-                                        ? call.output.slice(0, 200) + '...'
-                                        : call.output
-                                      : JSON.stringify(call.output).slice(0, 200)}
-                                  </code>
-                                </div>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <span className="diag-empty">No tool calls</span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* PM Working Memory (0173) */}
-                {selectedChatTarget === 'project-manager' && (
-                  <div className="diag-section">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <button
-                        type="button"
-                        className="diag-section-toggle"
-                        onClick={() => setPmWorkingMemoryOpen(!pmWorkingMemoryOpen)}
-                        aria-expanded={workingMemoryOpen}
-                      >
-                        PM Working Memory {workingMemoryOpen ? '▼' : '▶'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          if (!connectedProject || !supabaseUrl || !supabaseAnonKey) {
-                            // Project not connected - working memory unavailable
-                            return
-                          }
-                          setPmWorkingMemoryLoading(true)
-                          try {
-                            const baseUrl = (await fetch('/.hal/api-base-url').then(r => r.text())).trim() || window.location.origin
-                            // Trigger refresh (this will cause the PM agent to update working memory on next message)
-                            // For now, just reload the current working memory
-                            const res = await fetch(`${baseUrl}/api/pm/working-memory?projectId=${encodeURIComponent(connectedProject)}&agent=project-manager`)
-                            const data = await res.json()
-                            if (data.success) {
-                              if (data.workingMemory) {
-                                setPmWorkingMemory({
-                                  summary: data.workingMemory.summary || '',
-                                  goals: Array.isArray(data.workingMemory.goals) ? data.workingMemory.goals : [],
-                                  requirements: Array.isArray(data.workingMemory.requirements) ? data.workingMemory.requirements : [],
-                                  constraints: Array.isArray(data.workingMemory.constraints) ? data.workingMemory.constraints : [],
-                                  decisions: Array.isArray(data.workingMemory.decisions) ? data.workingMemory.decisions : [],
-                                  assumptions: Array.isArray(data.workingMemory.assumptions) ? data.workingMemory.assumptions : [],
-                                  open_questions: Array.isArray(data.workingMemory.openQuestions) ? data.workingMemory.openQuestions : (Array.isArray(data.workingMemory.open_questions) ? data.workingMemory.open_questions : []),
-                                  glossary: data.workingMemory.glossary && typeof data.workingMemory.glossary === 'object' ? data.workingMemory.glossary as Record<string, string> : {},
-                                  stakeholders: Array.isArray(data.workingMemory.stakeholders) ? data.workingMemory.stakeholders : [],
-                                  updated_at: data.workingMemory.updated_at || new Date().toISOString(),
-                                  through_sequence: data.workingMemory.through_sequence || 0,
-                                })
-                              } else {
-                                // No working memory yet - trigger update by sending a refresh request
-                                // The actual update will happen on the next PM agent response
-                                setPmWorkingMemoryError(null)
-                                // Show a message that refresh will happen on next message
-                                alert('Working memory will be refreshed automatically on the next PM agent response.')
-                              }
-                            } else {
-                              console.error('[PM] Failed to load working memory:', data.error)
-                            }
-                          } catch (err) {
-                            console.error('[PM] Failed to load working memory:', err)
-                          } finally {
-                            setPmWorkingMemoryLoading(false)
-                          }
-                        }}
-                        disabled={workingMemoryLoading}
-                        style={{ 
-                          fontSize: '0.85em', 
-                          padding: '2px 8px',
-                          marginLeft: '8px',
-                          cursor: workingMemoryLoading ? 'wait' : 'pointer'
-                        }}
-                        title="Refresh working memory now (reloads current state; full refresh happens on next PM response)"
-                      >
-                        {workingMemoryLoading ? 'Loading...' : 'Refresh'}
-                      </button>
-                    </div>
-                    {workingMemoryOpen && (
-                      <div className="diag-section-content">
-                        {workingMemoryError ? (
-                          <div style={{ color: '#d32f2f', fontSize: '0.9em', marginBottom: '8px' }}>
-                            Error: {workingMemoryError}
-                          </div>
-                        ) : null}
-                        {workingMemory ? (() => {
-                          const wm = workingMemory!
-                          return (
-                            <div style={{ fontSize: '0.9em' }}>
-                              <div style={{ marginBottom: '12px', color: '#666', fontSize: '0.85em' }}>
-                                Last updated: {new Date(wm.lastUpdatedAt).toLocaleString()}
-                              </div>
-                              {wm.summary && (
-                                <div style={{ marginBottom: '12px' }}>
-                                  <strong>Summary:</strong>
-                                  <div style={{ marginTop: '4px', whiteSpace: 'pre-wrap' }}>{wm.summary}</div>
-                                </div>
-                              )}
-                              {wm.goals && Array.isArray(wm.goals) && wm.goals.length > 0 && (
-                                <div style={{ marginBottom: '12px' }}>
-                                  <strong>Goals:</strong>
-                                  <ul style={{ marginTop: '4px', paddingLeft: '20px' }}>
-                                    {wm.goals.map((goal, idx) => (
-                                      <li key={idx}>{goal}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                              {wm.requirements && Array.isArray(wm.requirements) && wm.requirements.length > 0 && (
-                                <div style={{ marginBottom: '12px' }}>
-                                  <strong>Requirements:</strong>
-                                  <ul style={{ marginTop: '4px', paddingLeft: '20px' }}>
-                                    {wm.requirements.map((req, idx) => (
-                                      <li key={idx}>{req}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                              {wm.constraints && Array.isArray(wm.constraints) && wm.constraints.length > 0 && (
-                                <div style={{ marginBottom: '12px' }}>
-                                  <strong>Constraints:</strong>
-                                  <ul style={{ marginTop: '4px', paddingLeft: '20px' }}>
-                                    {wm.constraints.map((constraint, idx) => (
-                                      <li key={idx}>{constraint}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                              {wm.decisions && Array.isArray(wm.decisions) && wm.decisions.length > 0 && (
-                                <div style={{ marginBottom: '12px' }}>
-                                  <strong>Decisions:</strong>
-                                  <ul style={{ marginTop: '4px', paddingLeft: '20px' }}>
-                                    {wm.decisions.map((decision, idx) => (
-                                      <li key={idx}>{decision}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                              {wm.assumptions && Array.isArray(wm.assumptions) && wm.assumptions.length > 0 && (
-                                <div style={{ marginBottom: '12px' }}>
-                                  <strong>Assumptions:</strong>
-                                  <ul style={{ marginTop: '4px', paddingLeft: '20px' }}>
-                                    {wm.assumptions.map((assumption, idx) => (
-                                      <li key={idx}>{assumption}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                              {wm.openQuestions && Array.isArray(wm.openQuestions) && wm.openQuestions.length > 0 && (
-                                <div style={{ marginBottom: '12px' }}>
-                                  <strong>Open Questions:</strong>
-                                  <ul style={{ marginTop: '4px', paddingLeft: '20px' }}>
-                                    {wm.openQuestions.map((q, idx) => (
-                                      <li key={idx}>{q}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                              {wm.glossary && Object.keys(wm.glossary).length > 0 && (
-                                <div style={{ marginBottom: '12px' }}>
-                                  <strong>Glossary:</strong>
-                                  <dl style={{ marginTop: '4px', paddingLeft: '20px' }}>
-                                    {Object.entries(wm.glossary).map(([term, def]) => (
-                                      <React.Fragment key={term}>
-                                        <dt style={{ fontWeight: 'bold' }}>{term}:</dt>
-                                        <dd style={{ marginLeft: '20px', marginBottom: '4px' }}>{def}</dd>
-                                      </React.Fragment>
-                                    ))}
-                                  </dl>
-                                </div>
-                              )}
-                              {wm.stakeholders && Array.isArray(wm.stakeholders) && wm.stakeholders.length > 0 && (
-                                <div style={{ marginBottom: '12px' }}>
-                                  <strong>Stakeholders:</strong>
-                                  <ul style={{ marginTop: '4px', paddingLeft: '20px' }}>
-                                    {wm.stakeholders.map((s, idx) => (
-                                      <li key={idx}>{s}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                              {!wm.summary && (!wm.goals || wm.goals.length === 0) && (!wm.requirements || wm.requirements.length === 0) && 
-                                (!wm.constraints || wm.constraints.length === 0) && (!wm.decisions || wm.decisions.length === 0) && (!wm.assumptions || wm.assumptions.length === 0) && 
-                                (!wm.openQuestions || (Array.isArray(wm.openQuestions) && wm.openQuestions.length === 0)) && (!wm.glossary || Object.keys(wm.glossary || {}).length === 0) && (!wm.stakeholders || (Array.isArray(wm.stakeholders) && wm.stakeholders.length === 0)) && (
-                                  <div style={{ color: '#666', fontStyle: 'italic' }}>
-                                    Working memory is empty. It will be populated automatically as the conversation grows.
-                                  </div>
-                                )}
-                            </div>
-                          )
-                        })() : (
-                          <div style={{ color: '#666', fontStyle: 'italic' }}>
-                            {workingMemoryLoading ? 'Loading...' : 'No working memory yet. It will be created automatically as the conversation grows.'}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* PM Diagnostics: Create ticket availability (0011) */}
-                {selectedChatTarget === 'project-manager' && diagnostics.lastCreateTicketAvailable != null && (
-                  <div className="diag-section">
-                    <div className="diag-section-header">Create ticket (this request)</div>
-                    <div className="diag-section-content">
-                      {diagnostics.lastCreateTicketAvailable ? (
-                        <span className="diag-sync-ok">Available (Supabase creds were sent)</span>
+                      {pmChatWidgetFullscreen ? (
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"></path>
+                        </svg>
                       ) : (
-                        <span className="diag-sync-error">Not available — connect project folder with .env (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY)</span>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
+                        </svg>
                       )}
-                    </div>
+                    </button>
+                    <button
+                      type="button"
+                      className="pm-chat-widget-close-btn"
+                      onClick={() => {
+                        setPmChatWidgetOpen(false)
+                        setPmChatWidgetFullscreen(false)
+                      }}
+                      aria-label="Close chat"
+                      title="Close chat"
+                    >
+                      ×
+                    </button>
                   </div>
-                )}
-
-                {/* PM Diagnostics: Ticket creation (0011) */}
-                {selectedChatTarget === 'project-manager' && diagnostics.lastTicketCreationResult && (
-                  <div className="diag-section">
-                    <div className="diag-section-header">Ticket creation</div>
-                    <div className="diag-section-content">
-                      <div className="diag-ticket-creation">
-                        <div><strong>Ticket ID:</strong> {diagnostics.lastTicketCreationResult!.id}</div>
-                        <div><strong>File path:</strong> {diagnostics.lastTicketCreationResult!.filePath}</div>
-                        {diagnostics.lastTicketCreationResult!.retried && diagnostics.lastTicketCreationResult!.attempts != null && (
-                          <div><strong>Retry:</strong> Collision resolved after {diagnostics.lastTicketCreationResult!.attempts} attempt(s)</div>
-                        )}
-                        <div>
-                          <strong>Sync:</strong>{' '}
-                          {diagnostics.lastTicketCreationResult!.syncSuccess ? (
-                            <span className="diag-sync-ok">Success</span>
-                          ) : (
-                            <span className="diag-sync-error">
-                              Failed
-                              {diagnostics.lastTicketCreationResult!.syncError && (
-                                <> — {diagnostics.lastTicketCreationResult!.syncError}</>
-                              )}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* PM Diagnostics: Ticket readiness evaluation (0066) */}
-                {selectedChatTarget === 'project-manager' && diagnostics.lastPmToolCalls && (() => {
-                  const createTicketCall = diagnostics.lastPmToolCalls!.find(c => c.name === 'create_ticket')
-                  const updateTicketCall = diagnostics.lastPmToolCalls!.find(c => c.name === 'update_ticket_body')
-                  const readinessCall = createTicketCall || updateTicketCall
-                  if (!readinessCall) return null
-                  
-                  const output = readinessCall!.output as any
-                  const isSuccess = output?.success === true
-                  const isRejected = output?.success === false && output?.detectedPlaceholders
-                  const hasReadiness = isSuccess && (output?.ready !== undefined || output?.missingItems)
-                  
-                  if (!isRejected && !hasReadiness) return null
-                  
-                  return (
-                    <div className="diag-section">
-                      <div className="diag-section-header">Ticket readiness evaluation</div>
-                      <div className="diag-section-content">
-                        {isRejected ? (
-                          <div className="diag-ticket-readiness">
-                            <div>
-                              <strong>Status:</strong>{' '}
-                              <span className="diag-sync-error">REJECTED</span>
-                            </div>
-                            <div>
-                              <strong>Reason:</strong> Unresolved template placeholder tokens detected
-                            </div>
-                            {output.detectedPlaceholders && Array.isArray(output.detectedPlaceholders) && output.detectedPlaceholders.length > 0 && (
-                              <div>
-                                <strong>Detected placeholders:</strong>{' '}
-                                <code>{output.detectedPlaceholders.join(', ')}</code>
-                              </div>
-                            )}
-                            {output.error && (
-                              <div className="diag-readiness-error">
-                                <strong>Error message:</strong> {output.error}
-                              </div>
-                            )}
-                          </div>
-                        ) : isSuccess && hasReadiness ? (
-                          <div className="diag-ticket-readiness">
-                            <div>
-                              <strong>Status:</strong>{' '}
-                              {output.ready ? (
-                                <span className="diag-sync-ok">PASS</span>
-                              ) : (
-                                <span className="diag-sync-error">FAIL</span>
-                              )}
-                            </div>
-                            {output.missingItems && Array.isArray(output.missingItems) && output.missingItems.length > 0 && (
-                              <div>
-                                <strong>Missing items:</strong>
-                                <ul style={{ marginTop: '0.5em', marginBottom: '0.5em', paddingLeft: '1.5em' }}>
-                                  {output.missingItems.map((item: string, idx: number) => (
-                                    <li key={idx}>{item}</li>
-                                  ))}
-                                </ul>
-                              </div>
-                            )}
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  )
-                })()}
-
-                {/* Auto-move diagnostics (0061) */}
-                {(selectedChatTarget === 'implementation-agent' || selectedChatTarget === 'qa-agent' || selectedChatTarget === 'project-manager') && diagnostics.autoMoveDiagnostics.length > 0 && (
-                  <div className="diag-section">
-                    <div className="diag-section-header">Auto-move diagnostics</div>
-                    <div className="diag-section-content">
-                      <div className="diag-auto-move-list">
-                        {diagnostics.autoMoveDiagnostics.slice(-10).map((entry, idx) => (
-                          <div key={idx} className={`diag-auto-move-entry diag-auto-move-${entry.type}`}>
-                            <span className="diag-auto-move-time">[{formatTime(entry.timestamp)}]</span>
-                            <span className="diag-auto-move-message">{entry.message}</span>
-                          </div>
-                        ))}
-                        {diagnostics.autoMoveDiagnostics.length > 10 && (
-                          <div className="diag-auto-move-more">
-                            ({diagnostics.autoMoveDiagnostics.length - 10} older entries)
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Orphaned completion summary (0067) */}
-                {orphanedCompletionSummary && (
-                  <div className="diag-section">
-                    <div className="diag-section-header">Orphaned completion summary</div>
-                    <div className="diag-section-content">
-                      <div className="diag-auto-move-entry diag-auto-move-error">
-                        <span className="diag-auto-move-message">
-                          Completion summary received but agent type could not be determined. Raw summary retained for troubleshooting:
-                        </span>
-                      </div>
-                      <pre className="diag-json" style={{ marginTop: '8px', whiteSpace: 'pre-wrap' }}>
-                        {orphanedCompletionSummary}
-                      </pre>
-                    </div>
-                  </div>
-                )}
+                </div>
+                <div className="pm-chat-widget-content">
+                  {chatPanelContent}
+                </div>
               </div>
             )}
-            </div>
-          )}
-          </section>
-        )}
-
-        {/* Restore chat button when collapsed (0160) */}
-        {chatCollapsed && (
-          <button
-            type="button"
-            className="chat-restore-btn"
-            onClick={() => setChatCollapsedState(false)}
-            aria-label="Restore chat"
-            title="Restore chat"
-          >
-            <span aria-hidden="true">▶</span>
-            <span className="chat-restore-label">Chat</span>
-          </button>
+          </>
         )}
       </main>
 
-      <AgentInstructionsViewer 
-        isOpen={agentInstructionsOpen} 
+      <AgentInstructionsViewer
+        isOpen={agentInstructionsOpen}
         onClose={() => setAgentInstructionsOpen(false)}
         supabaseUrl={supabaseUrl}
         supabaseAnonKey={supabaseAnonKey}
@@ -4786,10 +3373,10 @@ function App() {
           <div className="conversation-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '90vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
             <div className="conversation-modal-header">
               <h3>Sent Prompt</h3>
-              <button 
-                type="button" 
-                className="conversation-modal-close" 
-                onClick={() => setPromptModalMessage(null)} 
+              <button
+                type="button"
+                className="conversation-modal-close"
+                onClick={() => setPromptModalMessage(null)}
                 aria-label="Close prompt modal"
               >
                 ×
@@ -4866,8 +3453,8 @@ function App() {
 
       {/* Process Review Recommendations Modal (0484) */}
       {processReviewRecommendations && processReviewRecommendations.length > 0 && (
-        <div 
-          className="conversation-modal-overlay" 
+        <div
+          className="conversation-modal-overlay"
           onClick={() => {
             // Only close if all recommendations are processed
             if (processReviewRecommendations.length === 0) {
@@ -4878,22 +3465,22 @@ function App() {
             }
           }}
         >
-          <div 
-            className="conversation-modal" 
-            onClick={(e) => e.stopPropagation()} 
+          <div
+            className="conversation-modal"
+            onClick={(e) => e.stopPropagation()}
             style={{ maxWidth: '800px', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}
           >
             <div className="conversation-modal-header">
               <h3>Process Review Recommendations</h3>
-              <button 
-                type="button" 
-                className="conversation-modal-close" 
+              <button
+                type="button"
+                className="conversation-modal-close"
                 onClick={() => {
                   setProcessReviewRecommendations(null)
                   setProcessReviewModalTicketPk(null)
                   setProcessReviewModalTicketId(null)
                   setProcessReviewModalReviewId(null)
-                }} 
+                }}
                 aria-label="Close recommendations modal"
               >
                 ×
