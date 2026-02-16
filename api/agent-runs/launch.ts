@@ -82,6 +82,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const halApiBaseUrl = getOrigin(req)
 
+    // Update stage to 'fetching_ticket' (0690) - ticket already fetched, but update stage for consistency
+    // Note: Run row not created yet, so we'll update after creation
+
     // Move QA ticket from QA column to Doing when QA agent starts (0088)
     if (agentType === 'qa' && currentColumnId === 'col-qa') {
       try {
@@ -224,7 +227,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             criteria || '(not specified)',
           ].join('\n')
 
-    // Create run row
+    // Create run row - start with 'preparing' stage (0690)
     const initialProgress = appendProgress([], `Launching ${agentType} run for ${displayId}`)
     const { data: runRow, error: runInsErr } = await supabase
       .from('hal_agent_runs')
@@ -235,6 +238,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         ticket_number: ticketNumber,
         display_id: displayId,
         status: 'launching',
+        current_stage: 'preparing',
         progress: initialProgress,
       })
       .select('run_id')
@@ -246,6 +250,47 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     const runId = runRow.run_id as string
+
+    // Update stage to 'fetching_ticket' (0690) - ticket was fetched before run creation
+    await supabase
+      .from('hal_agent_runs')
+      .update({
+        current_stage: 'fetching_ticket',
+        progress: appendProgress(initialProgress, 'Fetching ticket...'),
+      })
+      .eq('run_id', runId)
+
+    // For QA: update to 'fetching_branch' stage (0690)
+    // Extract branch name from ticket body for QA
+    if (agentType === 'qa') {
+      const branchMatch = bodyMd.match(/##\s*QA[^\n]*\n[\s\S]*?Branch[:\s]+([^\n]+)/i)
+      const branchName = branchMatch?.[1]?.trim()
+      if (branchName) {
+        await supabase
+          .from('hal_agent_runs')
+          .update({
+            current_stage: 'fetching_branch',
+            progress: appendProgress(initialProgress, `Finding branch: ${branchName}`),
+          })
+          .eq('run_id', runId)
+      } else {
+        await supabase
+          .from('hal_agent_runs')
+          .update({ current_stage: 'fetching_branch' })
+          .eq('run_id', runId)
+      }
+    }
+
+    // For implementation: update to 'resolving_repo' stage (0690)
+    if (agentType === 'implementation') {
+      await supabase
+        .from('hal_agent_runs')
+        .update({
+          current_stage: 'resolving_repo',
+          progress: appendProgress(initialProgress, 'Resolving repository...'),
+        })
+        .eq('run_id', runId)
+    }
 
     // If repo has no branches (new empty repo), create initial commit so Cursor API can run
     let ghToken: string | undefined
@@ -261,20 +306,31 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       if ('branches' in branchesResult && branchesResult.branches.length === 0) {
         const bootstrap = await ensureInitialCommit(ghToken, repoFullName, defaultBranch)
         if ('error' in bootstrap) {
-          await supabase
-            .from('hal_agent_runs')
-            .update({
-              status: 'failed',
-              error: `Repository has no branches and initial commit failed: ${bootstrap.error}. Ensure you have push access and try again.`,
-              progress: appendProgress(initialProgress, `Bootstrap failed: ${bootstrap.error}`),
-              finished_at: new Date().toISOString(),
-            })
-            .eq('run_id', runId)
+      await supabase
+        .from('hal_agent_runs')
+        .update({
+          status: 'failed',
+          current_stage: 'failed',
+          error: `Repository has no branches and initial commit failed: ${bootstrap.error}. Ensure you have push access and try again.`,
+          progress: appendProgress(initialProgress, `Bootstrap failed: ${bootstrap.error}`),
+          finished_at: new Date().toISOString(),
+        })
+        .eq('run_id', runId)
           json(res, 200, { runId, status: 'failed', error: bootstrap.error })
           return
         }
       }
     }
+
+    // Update stage to 'launching' (0690)
+    await supabase
+      .from('hal_agent_runs')
+      .update({
+        current_stage: 'launching',
+        status: 'launching',
+        progress: appendProgress(initialProgress, 'Launching agent...'),
+      })
+      .eq('run_id', runId)
 
     // Launch Cursor agent
     const branchName =
@@ -309,6 +365,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         .from('hal_agent_runs')
         .update({
           status: 'failed',
+          current_stage: 'failed',
           error: msg,
           progress: appendProgress(initialProgress, `Launch failed: ${msg}`),
           finished_at: new Date().toISOString(),
@@ -327,6 +384,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         .from('hal_agent_runs')
         .update({
           status: 'failed',
+          current_stage: 'failed',
           error: msg,
           progress: appendProgress(initialProgress, msg),
           finished_at: new Date().toISOString(),
@@ -344,6 +402,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         .from('hal_agent_runs')
         .update({
           status: 'failed',
+          current_stage: 'failed',
           error: msg,
           progress: appendProgress(initialProgress, msg),
           finished_at: new Date().toISOString(),
@@ -354,10 +413,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     const progressAfterLaunch = appendProgress(initialProgress, `Launched Cursor agent (${cursorStatus}).`)
+    // Update stage to 'polling' (or 'running' for implementation, 'reviewing' for QA) (0690)
+    const nextStage = agentType === 'implementation' ? 'running' : 'reviewing'
     await supabase
       .from('hal_agent_runs')
       .update({
         status: 'polling',
+        current_stage: nextStage,
         cursor_agent_id: cursorAgentId,
         cursor_status: cursorStatus,
         progress: progressAfterLaunch,

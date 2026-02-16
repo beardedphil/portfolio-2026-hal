@@ -291,6 +291,7 @@ function App() {
     | 'resolving_repo'
     | 'launching'
     | 'polling'
+    | 'running'
     | 'completed'
     | 'failed'
   >('idle')
@@ -305,6 +306,7 @@ function App() {
     | 'fetching_branch'
     | 'launching'
     | 'polling'
+    | 'reviewing'
     | 'generating_report'
     | 'merging'
     | 'moving_ticket'
@@ -779,7 +781,7 @@ function App() {
     // Restore agent status from localStorage (0097: preserve agent status across disconnect/reconnect)
     try {
       const savedImplStatus = localStorage.getItem('hal-impl-agent-status')
-      if (savedImplStatus && ['preparing', 'fetching_ticket', 'resolving_repo', 'launching', 'polling', 'completed', 'failed'].includes(savedImplStatus)) {
+      if (savedImplStatus && ['preparing', 'fetching_ticket', 'resolving_repo', 'launching', 'polling', 'running', 'completed', 'failed'].includes(savedImplStatus)) {
         setImplAgentRunStatus(savedImplStatus as typeof implAgentRunStatus)
       }
       const savedImplProgress = localStorage.getItem('hal-impl-agent-progress')
@@ -796,7 +798,7 @@ function App() {
         setImplAgentError(savedImplError)
       }
       const savedQaStatus = localStorage.getItem('hal-qa-agent-status')
-      if (savedQaStatus && ['preparing', 'fetching_ticket', 'fetching_branch', 'launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(savedQaStatus)) {
+      if (savedQaStatus && ['preparing', 'fetching_ticket', 'fetching_branch', 'launching', 'polling', 'reviewing', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(savedQaStatus)) {
         setQaAgentRunStatus(savedQaStatus as typeof qaAgentRunStatus)
       }
       const savedQaProgress = localStorage.getItem('hal-qa-agent-progress')
@@ -990,7 +992,7 @@ function App() {
   useEffect(() => {
     try {
       const savedStatus = localStorage.getItem(IMPL_AGENT_STATUS_KEY)
-      if (savedStatus && ['preparing', 'fetching_ticket', 'resolving_repo', 'launching', 'polling', 'completed', 'failed'].includes(savedStatus)) {
+      if (savedStatus && ['preparing', 'fetching_ticket', 'resolving_repo', 'launching', 'polling', 'running', 'completed', 'failed'].includes(savedStatus)) {
         setImplAgentRunStatus(savedStatus as typeof implAgentRunStatus)
       }
       const savedProgress = localStorage.getItem(IMPL_AGENT_PROGRESS_KEY)
@@ -1015,7 +1017,7 @@ function App() {
   useEffect(() => {
     try {
       const savedStatus = localStorage.getItem(QA_AGENT_STATUS_KEY)
-      if (savedStatus && ['preparing', 'fetching_ticket', 'fetching_branch', 'launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(savedStatus)) {
+      if (savedStatus && ['preparing', 'fetching_ticket', 'fetching_branch', 'launching', 'polling', 'reviewing', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(savedStatus)) {
         setQaAgentRunStatus(savedStatus as typeof qaAgentRunStatus)
       }
       const savedProgress = localStorage.getItem(QA_AGENT_PROGRESS_KEY)
@@ -2474,7 +2476,7 @@ function App() {
                 credentials: 'include',
               })
               const implStatusText = await r.text()
-              let data: { status?: string; cursor_status?: string; error?: string; summary?: string; pr_url?: string }
+              let data: { status?: string; current_stage?: string; cursor_status?: string; error?: string; summary?: string; pr_url?: string }
               try {
                 data = JSON.parse(implStatusText) as typeof data
               } catch {
@@ -2489,7 +2491,17 @@ function App() {
                 return false
               }
               const s = String(data.status ?? '')
+              const currentStage = String(data.current_stage ?? '')
               const cursorStatus = String(data.cursor_status ?? '')
+              
+              // Map current_stage to implAgentRunStatus (0690)
+              if (currentStage && ['preparing', 'fetching_ticket', 'resolving_repo', 'launching', 'running', 'completed', 'failed'].includes(currentStage)) {
+                setImplAgentRunStatus(currentStage as typeof implAgentRunStatus)
+              } else if (s === 'polling' && !currentStage) {
+                // Fallback: if no current_stage but status is polling, use 'running'
+                setImplAgentRunStatus('running')
+              }
+              
               if (s === 'failed') {
                 setImplAgentRunStatus('failed')
                 const msg = String(data.error ?? 'Unknown error')
@@ -2537,7 +2549,6 @@ function App() {
                 }
                 return false
               }
-              setImplAgentRunStatus('polling')
               if (cursorStatus) addProgress(`Agent is running (status: ${cursorStatus})...`)
               return true
             }
@@ -2654,7 +2665,7 @@ function App() {
                 credentials: 'include',
               })
               const text = await r.text()
-              let data: { status?: string; cursor_status?: string; error?: string; summary?: string }
+              let data: { status?: string; current_stage?: string; cursor_status?: string; error?: string; summary?: string }
               try {
                 data = JSON.parse(text) as typeof data
               } catch {
@@ -2669,7 +2680,17 @@ function App() {
                 return false
               }
               const s = String(data.status ?? '')
+              const currentStage = String(data.current_stage ?? '')
               const cursorStatus = String(data.cursor_status ?? '')
+              
+              // Map current_stage to qaAgentRunStatus (0690)
+              if (currentStage && ['preparing', 'fetching_ticket', 'fetching_branch', 'launching', 'reviewing', 'completed', 'failed'].includes(currentStage)) {
+                setQaAgentRunStatus(currentStage as typeof qaAgentRunStatus)
+              } else if (s === 'polling' && !currentStage) {
+                // Fallback: if no current_stage but status is polling, use 'reviewing'
+                setQaAgentRunStatus('reviewing')
+              }
+              
               if (s === 'failed') {
                 setQaAgentRunStatus('failed')
                 const msg = String(data.error ?? 'Unknown error')
@@ -2690,7 +2711,6 @@ function App() {
                 setAgentTypingTarget(null)
                 return false
               }
-              setQaAgentRunStatus('polling')
               if (cursorStatus) addProgress(`QA agent is running (status: ${cursorStatus})...`)
               return true
             }
@@ -3292,9 +3312,10 @@ function App() {
                      implAgentRunStatus === 'fetching_ticket' ? 'Fetching ticket' :
                      implAgentRunStatus === 'resolving_repo' ? 'Resolving repository' :
                      implAgentRunStatus === 'launching' ? 'Launching agent' :
-                     implAgentRunStatus === 'polling' ? 'Running agent' :
-                     implAgentRunStatus === 'completed' ? 'Done' :
-                     implAgentRunStatus === 'failed' ? 'Error' : implAgentRunStatus}
+                     implAgentRunStatus === 'running' ? 'Running' :
+                     implAgentRunStatus === 'polling' ? 'Running' :
+                     implAgentRunStatus === 'completed' ? 'Completed' :
+                     implAgentRunStatus === 'failed' ? 'Failed' : implAgentRunStatus}
                   </span>
                 </div>
                 {implAgentError && <div className="impl-agent-error">{implAgentError}</div>}
@@ -3319,14 +3340,15 @@ function App() {
                   <span className={`impl-agent-status-value impl-status-${qaAgentRunStatus}`}>
                     {qaAgentRunStatus === 'preparing' ? 'Preparing' :
                      qaAgentRunStatus === 'fetching_ticket' ? 'Fetching ticket' :
-                     qaAgentRunStatus === 'fetching_branch' ? 'Fetching branch' :
-                     qaAgentRunStatus === 'launching' ? 'Launching agent' :
-                     qaAgentRunStatus === 'polling' ? 'Running agent' :
+                     qaAgentRunStatus === 'fetching_branch' ? 'Finding branch' :
+                     qaAgentRunStatus === 'launching' ? 'Launching QA' :
+                     qaAgentRunStatus === 'reviewing' ? 'Reviewing' :
+                     qaAgentRunStatus === 'polling' ? 'Reviewing' :
                      qaAgentRunStatus === 'generating_report' ? 'Generating report' :
                      qaAgentRunStatus === 'merging' ? 'Merging' :
                      qaAgentRunStatus === 'moving_ticket' ? 'Moving ticket' :
-                     qaAgentRunStatus === 'completed' ? 'Done' :
-                     qaAgentRunStatus === 'failed' ? 'Error' : qaAgentRunStatus}
+                     qaAgentRunStatus === 'completed' ? 'Completed' :
+                     qaAgentRunStatus === 'failed' ? 'Failed' : qaAgentRunStatus}
                   </span>
                 </div>
                 {qaAgentError && <div className="impl-agent-error">{qaAgentError}</div>}

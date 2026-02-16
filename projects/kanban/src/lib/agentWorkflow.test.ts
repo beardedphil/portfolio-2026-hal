@@ -26,7 +26,7 @@ describe('getAgentWorkflowSteps', () => {
     expect(steps).toEqual([
       { id: 'preparing', label: 'Preparing' },
       { id: 'fetching_ticket', label: 'Fetching ticket' },
-      { id: 'resolving_repo', label: 'Resolving repo' },
+      { id: 'resolving_repo', label: 'Resolving repository' },
       { id: 'launching', label: 'Launching agent' },
       { id: 'polling', label: 'Running' },
       { id: 'completed', label: 'Completed' },
