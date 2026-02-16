@@ -548,7 +548,7 @@ h1 {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow-x: hidden;
+  overflow-x: visible;
   overflow-y: visible;
 }
 .add-column-btn {
