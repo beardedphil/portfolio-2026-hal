@@ -314,19 +314,25 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           } catch (e) {
             console.warn('[agent-runs] process-review conversation fetch/parse failed:', e instanceof Error ? e.message : e)
           }
-        } else {
-          // Could not parse suggestions from conversation. Try loading from existing process_reviews record.
-          // This handles the case where suggestions were stored in a previous poll but parsing failed this time.
+        }
+
+        // Always try loading from existing process_reviews record as a fallback.
+        // This handles multiple cases:
+        // 1. Suggestions were stored in a previous poll but parsing failed this time
+        // 2. Database write completed but suggestions weren't in the response yet
+        // 3. Multiple polls happening concurrently
+        if (!processReviewSuggestions || processReviewSuggestions.length === 0) {
           try {
             const { data: existingReview } = await supabase
               .from('process_reviews')
               .select('suggestions, status')
               .eq('ticket_pk', ticketPk)
+              .eq('status', 'success')
               .order('created_at', { ascending: false })
               .limit(1)
               .maybeSingle()
             
-            if (existingReview && existingReview.status === 'success' && existingReview.suggestions && Array.isArray(existingReview.suggestions) && existingReview.suggestions.length > 0) {
+            if (existingReview && existingReview.suggestions && Array.isArray(existingReview.suggestions) && existingReview.suggestions.length > 0) {
               // Parse suggestions from database (may be stored as strings or objects)
               const dbSuggestions = existingReview.suggestions
                 .map((s: string | { text: string; justification?: string }) => {

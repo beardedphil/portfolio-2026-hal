@@ -2580,11 +2580,12 @@ function App() {
         setProcessReviewAgentProgress((prev) => [...prev, progressEntry])
         addMessage(convId, 'process-review-agent', `[Progress] ${message}`)
       }
-      addProgress('Launching Process Review agent (Cursor)...')
+      addProgress('Running Process Review (OpenAI)...')
       setProcessReviewAgentRunStatus('running')
 
       try {
-        const launchRes = await fetch('/api/process-review/launch', {
+        // Call OpenAI-based Process Review endpoint (synchronous, no polling needed)
+        const runRes = await fetch('/api/process-review/run', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -2594,103 +2595,39 @@ function App() {
             supabaseAnonKey: supabaseAnonKey ?? (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? undefined,
           }),
         })
-        const launchData = (await launchRes.json()) as { success?: boolean; runId?: string; status?: string; error?: string }
-        if (!launchData.success || !launchData.runId || launchData.status === 'failed') {
+        
+        const runData = (await runRes.json()) as {
+          success?: boolean
+          suggestions?: Array<{ text: string; justification: string }>
+          reviewId?: string
+          error?: string
+        }
+
+        if (!runData.success) {
           setProcessReviewStatus('failed')
           setProcessReviewAgentRunStatus('failed')
-          const errorMsg = launchData.error || 'Launch failed'
+          const errorMsg = runData.error || 'Process Review failed'
           setProcessReviewAgentError(errorMsg)
           addMessage(convId, 'process-review-agent', `[Process Review] ❌ Failed: ${errorMsg}`)
+          
+          // Show error modal with retry option if it's a parsing/loading error
+          if (runData.error && (runData.error.includes('could not be loaded') || runData.error.includes('could not be parsed'))) {
+            setProcessReviewErrorModal({
+              message: errorMsg,
+              ticketPk: data.ticketPk,
+              ticketId: data.ticketId || null,
+            })
+          }
           return
         }
 
-        addProgress('Process Review agent running. Polling status...')
-        let reviewId: string | null = null
-        const runId = launchData.runId
-        // Use the agent runId as a stable Process Review ID for idempotency and tracking.
-        // This ensures tickets are only created when the user clicks "Implement" in the modal.
-        reviewId = runId
-        let lastStatus: string
-        let suggestions: Array<{ text: string; justification: string }> = []
-        for (;;) {
-          await new Promise((r) => setTimeout(r, 4000))
-          const r = await fetch(`/api/agent-runs/status?runId=${encodeURIComponent(runId)}`, { credentials: 'include' })
-          const pollData = (await r.json()) as { status?: string; error?: string; suggestions?: Array<{ text: string; justification: string }> }
-          lastStatus = String(pollData.status ?? '')
-          if (pollData.suggestions) suggestions = pollData.suggestions
-          if (lastStatus === 'failed') {
-            setProcessReviewStatus('failed')
-            setProcessReviewAgentRunStatus('failed')
-            const errorMsg = pollData.error || 'Unknown error'
-            setProcessReviewAgentError(errorMsg)
-            addMessage(convId, 'process-review-agent', `[Process Review] ❌ Failed: ${errorMsg}`)
-            return
-          }
-          if (lastStatus === 'finished' || lastStatus === 'completed') break
-        }
+        // Parse suggestions from response
+        const suggestions = runData.suggestions || []
+        const reviewId = runData.reviewId || null
+        const suggestionCount = suggestions.length
 
-        // If suggestions weren't in the poll response, try loading from process_reviews table
-        // Add a small delay to ensure database writes have completed, then retry a few times
-        if (suggestions.length === 0 && supabaseUrl && supabaseAnonKey) {
-          let dbSuggestionsFound = false
-          for (let retry = 0; retry < 3 && !dbSuggestionsFound; retry++) {
-            if (retry > 0) {
-              // Wait before retrying (500ms, 1000ms)
-              await new Promise((r) => setTimeout(r, 500 * retry))
-            }
-            try {
-              const supabase = getSupabaseClient(supabaseUrl, supabaseAnonKey)
-              const { data: reviewData, error: reviewError } = await supabase
-                .from('process_reviews')
-                .select('id, suggestions, status, error_message')
-                .eq('ticket_pk', data.ticketPk)
-                .order('created_at', { ascending: false })
-                .limit(1)
-                .maybeSingle()
-
-              if (!reviewError && reviewData) {
-                if (reviewData.status === 'success' && reviewData.suggestions && Array.isArray(reviewData.suggestions) && reviewData.suggestions.length > 0) {
-                  // Parse suggestions from database (may be stored as strings or objects)
-                  const dbSuggestions = reviewData.suggestions
-                    .map((s: string | { text: string; justification?: string }) => {
-                      if (typeof s === 'string') {
-                        return { text: s, justification: 'No justification provided.' }
-                      } else if (s && typeof s === 'object' && typeof s.text === 'string') {
-                        return {
-                          text: s.text,
-                          justification: s.justification || 'No justification provided.',
-                        }
-                      }
-                      return null
-                    })
-                    .filter((s): s is { text: string; justification: string } => s !== null)
-                  
-                  if (dbSuggestions.length > 0) {
-                    suggestions = dbSuggestions
-                    reviewId = reviewData.id
-                    addProgress('Loaded recommendations from database')
-                    dbSuggestionsFound = true
-                    break
-                  }
-                } else if (reviewData.status === 'failed' && reviewData.error_message) {
-                  // Review completed but failed - show error
-                  setProcessReviewStatus('failed')
-                  setProcessReviewAgentRunStatus('failed')
-                  const errorMsg = reviewData.error_message
-                  setProcessReviewAgentError(errorMsg)
-                  addMessage(convId, 'process-review-agent', `[Process Review] ❌ Failed: ${errorMsg}`)
-                  return
-                }
-              }
-            } catch (dbError) {
-              console.warn(`[Process Review] Failed to load suggestions from database (attempt ${retry + 1}):`, dbError)
-              // Continue to next retry or show error if all retries exhausted
-            }
-          }
-        }
-
-        const suggestionCount = suggestions?.length || 0
-        if (suggestionCount > 0 && suggestions) {
+        if (suggestionCount > 0) {
+          // Successfully got recommendations - show modal
           const recommendations = suggestions.map((s: { text: string; justification: string }, idx: number) => ({
             text: s.text,
             justification: s.justification,
@@ -2698,6 +2635,7 @@ function App() {
             error: undefined as string | undefined,
             isCreating: false,
           }))
+          
           setProcessReviewRecommendations(recommendations)
           setProcessReviewModalTicketPk(data.ticketPk)
           setProcessReviewModalTicketId(data.ticketId || null)
@@ -2711,15 +2649,12 @@ function App() {
           // Modal auto-opens when recommendations are set (no banner, ticket stays in Active Work)
           addProgress('Process Review completed - recommendations modal opened')
         } else {
-          // Check if there was a parsing/loading error
-          // suggestions is always an array (initialized as []), so check length
-          const hasError = Array.isArray(suggestions) && suggestions.length === 0 && (lastStatus === 'finished' || lastStatus === 'completed')
-          
-          if (hasError) {
-            // Show error state with retry option
+          // No recommendations found - check if it's an error or just no suggestions
+          // If there was an error message but suggestions array is empty, show error modal
+          if (runData.error) {
             setProcessReviewStatus('failed')
             setProcessReviewAgentRunStatus('failed')
-            const errorMsg = 'Process Review completed but recommendations could not be loaded or parsed. Please try running Process Review again.'
+            const errorMsg = runData.error || 'Process Review completed but recommendations could not be loaded or parsed. Please try running Process Review again.'
             setProcessReviewAgentError(errorMsg)
             addMessage(convId, 'process-review-agent', `[Process Review] ⚠️ ${errorMsg}`)
             addProgress('Process Review completed but recommendations unavailable - click "Run Process Review" to retry')
@@ -2730,6 +2665,7 @@ function App() {
               ticketId: data.ticketId || null,
             })
           } else {
+            // No error, just no recommendations
             setProcessReviewStatus('completed')
             setProcessReviewAgentRunStatus('completed')
             const successMsg = `Process Review completed for ticket ${ticketDisplayId}. No recommendations found.`
