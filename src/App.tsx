@@ -4,7 +4,7 @@ import { saveConversationsToStorage, loadConversationsFromStorage, type Agent, t
 // Chat width/collapse state no longer needed - floating widget replaces sidebar (0698)
 import { getInitialTheme, THEME_STORAGE_KEY } from './lib/metricColor'
 import { getConversationId, parseConversationId, getNextInstanceNumber, formatTime, getMessageAuthorLabel } from './lib/conversation-helpers'
-import { QAMetricsCard, CoverageBadge, SimplicityBadge } from './components/QAMetricsCard'
+import { CoverageBadge, SimplicityBadge } from './components/QAMetricsCard'
 import type { Theme } from './types/hal'
 import * as Kanban from 'portfolio-2026-kanban'
 import type { KanbanTicketRow, KanbanColumnRow, KanbanAgentRunRow, KanbanBoardProps } from 'portfolio-2026-kanban'
