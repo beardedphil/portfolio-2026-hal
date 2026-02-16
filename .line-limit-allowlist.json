@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "maxLines": 250,
+  "files": [
+    {
+      "file": "src/App.tsx",
+      "baseline": 4991
+    }
+  ]
+}
