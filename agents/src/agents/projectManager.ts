@@ -48,11 +48,6 @@ import {
 } from './projectManager/responseHandling.js'
 import {
   buildContextPack,
-  formatPmInputsSummary,
-  recentTurnsWithinCharBudget,
-  CONVERSATION_RECENT_MAX_CHARS,
-  PM_LOCAL_RULES,
-  USE_MINIMAL_BOOTSTRAP,
   type ConversationTurn,
   type PmAgentConfig,
 } from './projectManager/contextBuilding.js'
@@ -157,8 +152,8 @@ function isUniqueViolation(err: { code?: string; message?: string } | null): boo
   return msg.includes('duplicate key') || msg.includes('unique constraint')
 }
 // Constants for column IDs (used in tools)
-const COL_UNASSIGNED = 'col-unassigned'
-const COL_TODO = 'col-todo'
+export const COL_UNASSIGNED = 'col-unassigned'
+export const COL_TODO = 'col-todo'
 
 // buildContextPack is now imported from './projectManager/contextBuilding.js'
 
@@ -1110,8 +1105,6 @@ export async function runPmAgent(
         config.supabaseUrl!.trim(),
         config.supabaseAnonKey!.trim()
       )
-      const COL_UNASSIGNED = 'col-unassigned'
-      const COL_TODO = 'col-todo'
       return tool({
         description:
           'Move a ticket from Unassigned to To Do on the kanban board. Only call after evaluate_ticket_ready returns ready: true. Fails if the ticket is not in Unassigned.',
@@ -1538,7 +1531,6 @@ export async function runPmAgent(
         config.supabaseUrl!.trim(),
         config.supabaseAnonKey!.trim()
       )
-      const COL_TODO = 'col-todo'
       return tool({
         description:
           'Move a ticket to the To Do column of another repository. Works from any Kanban column (not only Unassigned). The ticket will be moved to the target repository and placed in its To Do column. Validates that both the ticket and target repository exist.',
