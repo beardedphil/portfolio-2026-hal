@@ -1512,7 +1512,7 @@ function App() {
           table: 'tickets',
           filter: `repo_full_name=eq.${connectedRepoFullName}`,
         },
-        (payload) => {
+        (_payload) => {
           // Skip refresh if user is dragging (0703)
           if (isDragging) return
           
