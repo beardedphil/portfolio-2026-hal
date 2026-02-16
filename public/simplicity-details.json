@@ -38,7 +38,7 @@
     },
     {
       "file": "src/App.tsx",
-      "maintainability": 13.93
+      "maintainability": 14.05
     },
     {
       "file": "api/agent-runs/launch.ts",
@@ -62,7 +62,7 @@
     },
     {
       "file": "src/hooks/useProcessReview.ts",
-      "maintainability": 28.18
+      "maintainability": 28.1
     },
     {
       "file": "api/process-review/create-tickets.ts",
@@ -84,26 +84,14 @@
   "mostRecentImprovements": [
     {
       "file": "src/App.tsx",
-      "before": 0,
-      "after": 13.93,
-      "delta": 13.93
+      "before": 13.93,
+      "after": 14.05,
+      "delta": 0.12
     },
     {
       "file": "api/artifacts/get.ts",
       "before": 32.38,
       "after": 32.38,
-      "delta": 0
-    },
-    {
-      "file": "api/pm/working-memory.ts",
-      "before": 35.13,
-      "after": 35.13,
-      "delta": 0
-    },
-    {
-      "file": "api/tickets/create-from-suggestion.ts",
-      "before": 33.81,
-      "after": 33.81,
       "delta": 0
     },
     {
@@ -125,7 +113,7 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-16T22:17:54.438Z",
+  "generatedAt": "2026-02-16T22:24:33.480Z",
   "filesAnalyzed": 276,
   "unroundedSimplicity": 40.5
 }
