@@ -314,7 +314,42 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           } catch (e) {
             console.warn('[agent-runs] process-review conversation fetch/parse failed:', e instanceof Error ? e.message : e)
           }
-        } // else: could not parse suggestions from either source; keep null so UI doesn't treat as empty recommendations.
+        } else {
+          // Could not parse suggestions from conversation. Try loading from existing process_reviews record.
+          // This handles the case where suggestions were stored in a previous poll but parsing failed this time.
+          try {
+            const { data: existingReview } = await supabase
+              .from('process_reviews')
+              .select('suggestions, status')
+              .eq('ticket_pk', ticketPk)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle()
+            
+            if (existingReview && existingReview.status === 'success' && existingReview.suggestions && Array.isArray(existingReview.suggestions) && existingReview.suggestions.length > 0) {
+              // Parse suggestions from database (may be stored as strings or objects)
+              const dbSuggestions = existingReview.suggestions
+                .map((s: string | { text: string; justification?: string }) => {
+                  if (typeof s === 'string') {
+                    return { text: s, justification: 'No justification provided.' }
+                  } else if (s && typeof s === 'object' && typeof s.text === 'string') {
+                    return {
+                      text: s.text,
+                      justification: s.justification || 'No justification provided.',
+                    }
+                  }
+                  return null
+                })
+                .filter((s): s is { text: string; justification: string } => s !== null)
+              
+              if (dbSuggestions.length > 0) {
+                processReviewSuggestions = dbSuggestions
+              }
+            }
+          } catch (e) {
+            console.warn('[agent-runs] process-review database fallback failed:', e instanceof Error ? e.message : e)
+          }
+        }
       }
     } else if (cursorStatus === 'FAILED' || cursorStatus === 'CANCELLED' || cursorStatus === 'ERROR') {
       nextStatus = 'failed'

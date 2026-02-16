@@ -361,7 +361,7 @@ function App() {
   /** Progress messages for Process Review Agent (0111). */
   const [processReviewAgentProgress, setProcessReviewAgentProgress] = useState<Array<{ timestamp: Date; message: string }>>([])
   /** Last error message for Process Review Agent (0111). */
-  const [_processReviewAgentError, setProcessReviewAgentError] = useState<string | null>(null)
+  const [processReviewAgentError, setProcessReviewAgentError] = useState<string | null>(null)
   /** Process Review recommendations modal state (0484). */
   const [processReviewRecommendations, setProcessReviewRecommendations] = useState<Array<{
     text: string
@@ -370,6 +370,12 @@ function App() {
     error?: string // Error state for failed ticket creation
     isCreating?: boolean // Loading state for Implement button
   }> | null>(null)
+  /** Process Review error modal state - shown when recommendations can't be loaded/parsed (0740). */
+  const [processReviewErrorModal, setProcessReviewErrorModal] = useState<{
+    message: string
+    ticketPk: string
+    ticketId: string | null
+  } | null>(null)
   const [processReviewModalTicketPk, setProcessReviewModalTicketPk] = useState<string | null>(null)
   const [processReviewModalTicketId, setProcessReviewModalTicketId] = useState<string | null>(null)
   const [processReviewModalReviewId, setProcessReviewModalReviewId] = useState<string | null>(null)
@@ -2620,7 +2626,57 @@ function App() {
             addMessage(convId, 'process-review-agent', `[Process Review] ❌ Failed: ${errorMsg}`)
             return
           }
-          if (lastStatus === 'finished') break
+          if (lastStatus === 'finished' || lastStatus === 'completed') break
+        }
+
+        // If suggestions weren't in the poll response, try loading from process_reviews table
+        if (suggestions.length === 0 && supabaseUrl && supabaseAnonKey) {
+          try {
+            const supabase = getSupabaseClient(supabaseUrl, supabaseAnonKey)
+            const { data: reviewData, error: reviewError } = await supabase
+              .from('process_reviews')
+              .select('id, suggestions, status, error_message')
+              .eq('ticket_pk', data.ticketPk)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle()
+
+            if (!reviewError && reviewData) {
+              if (reviewData.status === 'success' && reviewData.suggestions && Array.isArray(reviewData.suggestions)) {
+                // Parse suggestions from database (may be stored as strings or objects)
+                const dbSuggestions = reviewData.suggestions
+                  .map((s: string | { text: string; justification?: string }, idx: number) => {
+                    if (typeof s === 'string') {
+                      return { text: s, justification: 'No justification provided.' }
+                    } else if (s && typeof s === 'object' && typeof s.text === 'string') {
+                      return {
+                        text: s.text,
+                        justification: s.justification || 'No justification provided.',
+                      }
+                    }
+                    return null
+                  })
+                  .filter((s): s is { text: string; justification: string } => s !== null)
+                
+                if (dbSuggestions.length > 0) {
+                  suggestions = dbSuggestions
+                  reviewId = reviewData.id
+                  addProgress('Loaded recommendations from database')
+                }
+              } else if (reviewData.status === 'failed' && reviewData.error_message) {
+                // Review completed but failed - show error
+                setProcessReviewStatus('failed')
+                setProcessReviewAgentRunStatus('failed')
+                const errorMsg = reviewData.error_message
+                setProcessReviewAgentError(errorMsg)
+                addMessage(convId, 'process-review-agent', `[Process Review] ❌ Failed: ${errorMsg}`)
+                return
+              }
+            }
+          } catch (dbError) {
+            console.warn('[Process Review] Failed to load suggestions from database:', dbError)
+            // Continue - we'll show an error if no suggestions found
+          }
         }
 
         const suggestionCount = suggestions?.length || 0
@@ -2645,17 +2701,36 @@ function App() {
           // Modal auto-opens when recommendations are set (no banner, ticket stays in Active Work)
           addProgress('Process Review completed - recommendations modal opened')
         } else {
-          setProcessReviewStatus('completed')
-          setProcessReviewAgentRunStatus('completed')
-          const successMsg = `Process Review completed for ticket ${ticketDisplayId}. No recommendations found.`
-          addMessage(convId, 'process-review-agent', `[Process Review] ✅ ${successMsg}`)
+          // Check if there was a parsing/loading error
+          const hasError = suggestions === null || (Array.isArray(suggestions) && suggestions.length === 0 && lastStatus === 'finished')
+          
+          if (hasError) {
+            // Show error state with retry option
+            setProcessReviewStatus('failed')
+            setProcessReviewAgentRunStatus('failed')
+            const errorMsg = 'Process Review completed but recommendations could not be loaded or parsed. Please try running Process Review again.'
+            setProcessReviewAgentError(errorMsg)
+            addMessage(convId, 'process-review-agent', `[Process Review] ⚠️ ${errorMsg}`)
+            addProgress('Process Review completed but recommendations unavailable - click "Run Process Review" to retry')
+            // Show error modal with retry option
+            setProcessReviewErrorModal({
+              message: errorMsg,
+              ticketPk: data.ticketPk,
+              ticketId: data.ticketId || null,
+            })
+          } else {
+            setProcessReviewStatus('completed')
+            setProcessReviewAgentRunStatus('completed')
+            const successMsg = `Process Review completed for ticket ${ticketDisplayId}. No recommendations found.`
+            addMessage(convId, 'process-review-agent', `[Process Review] ✅ ${successMsg}`)
 
-          // Ticket stays in Active Work (no move to Done, no banner)
-          addProgress('Process Review completed - no recommendations found')
-          setTimeout(() => {
-            setProcessReviewStatus('idle')
-            setProcessReviewTicketPk(null)
-          }, 5000)
+            // Ticket stays in Active Work (no move to Done, no banner)
+            addProgress('Process Review completed - no recommendations found')
+            setTimeout(() => {
+              setProcessReviewStatus('idle')
+              setProcessReviewTicketPk(null)
+            }, 5000)
+          }
         }
       } catch (err) {
         setProcessReviewStatus('failed')
@@ -3671,6 +3746,85 @@ function App() {
                     </div>
                   </div>
                 ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Process Review Error Modal (0740) - shown when recommendations can't be loaded/parsed */}
+      {processReviewErrorModal && (
+        <div
+          className="conversation-modal-overlay"
+          onClick={() => {
+            setProcessReviewErrorModal(null)
+          }}
+        >
+          <div
+            className="conversation-modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: '600px', display: 'flex', flexDirection: 'column' }}
+          >
+            <div className="conversation-modal-header">
+              <h3>Process Review Error</h3>
+              <button
+                type="button"
+                className="conversation-modal-close btn-destructive"
+                onClick={() => {
+                  setProcessReviewErrorModal(null)
+                }}
+                aria-label="Close error modal"
+              >
+                ×
+              </button>
+            </div>
+            <div className="conversation-modal-content" style={{ padding: '24px' }}>
+              <div
+                style={{
+                  marginBottom: '20px',
+                  padding: '16px',
+                  background: 'var(--hal-status-error, #c62828)',
+                  color: 'white',
+                  borderRadius: '8px',
+                }}
+              >
+                <p style={{ margin: 0, fontWeight: '600' }}>⚠️ Process Review Error</p>
+                <p style={{ margin: '8px 0 0 0', fontSize: '14px', opacity: 0.9 }}>
+                  {processReviewErrorModal.message}
+                </p>
+              </div>
+              <p style={{ marginBottom: '20px', color: 'var(--hal-text-muted)' }}>
+                The Process Review completed, but the recommendations could not be loaded or parsed from the agent's response.
+              </p>
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  className="btn-destructive"
+                  onClick={() => {
+                    setProcessReviewErrorModal(null)
+                  }}
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  className="btn-standard"
+                  onClick={async () => {
+                    setProcessReviewErrorModal(null)
+                    // Trigger Process Review again by calling the handler
+                    if (processReviewErrorModal.ticketPk) {
+                      const ticket = kanbanTickets.find((t) => t.pk === processReviewErrorModal.ticketPk)
+                      if (ticket) {
+                        await handleKanbanProcessReview({
+                          ticketPk: processReviewErrorModal.ticketPk,
+                          ticketId: processReviewErrorModal.ticketId || undefined,
+                        })
+                      }
+                    }
+                  }}
+                >
+                  Retry Process Review
+                </button>
               </div>
             </div>
           </div>
