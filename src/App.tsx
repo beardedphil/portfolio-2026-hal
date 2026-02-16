@@ -361,7 +361,7 @@ function App() {
   /** Progress messages for Process Review Agent (0111). */
   const [processReviewAgentProgress, setProcessReviewAgentProgress] = useState<Array<{ timestamp: Date; message: string }>>([])
   /** Last error message for Process Review Agent (0111). */
-  const [processReviewAgentError, setProcessReviewAgentError] = useState<string | null>(null)
+  const [_processReviewAgentError, setProcessReviewAgentError] = useState<string | null>(null)
   /** Process Review recommendations modal state (0484). */
   const [processReviewRecommendations, setProcessReviewRecommendations] = useState<Array<{
     text: string
@@ -2645,7 +2645,7 @@ function App() {
               if (reviewData.status === 'success' && reviewData.suggestions && Array.isArray(reviewData.suggestions)) {
                 // Parse suggestions from database (may be stored as strings or objects)
                 const dbSuggestions = reviewData.suggestions
-                  .map((s: string | { text: string; justification?: string }, idx: number) => {
+                  .map((s: string | { text: string; justification?: string }) => {
                     if (typeof s === 'string') {
                       return { text: s, justification: 'No justification provided.' }
                     } else if (s && typeof s === 'object' && typeof s.text === 'string') {
