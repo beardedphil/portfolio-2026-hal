@@ -98,13 +98,11 @@ export function useProcessReview({
           throw new Error('Supabase credentials not available')
         }
 
-        const supabase = getSupabaseClient(supabaseUrl, supabaseAnonKey)
-
-        // Fetch ticket artifacts
-        addProgress('Launching Process Review agent (Cursor)...')
+        // Run Process Review using legacy OpenAI endpoint
+        addProgress('Running Process Review (OpenAI)...')
         setProcessReviewAgentRunStatus('running')
 
-        const launchRes = await fetch('/api/process-review/launch', {
+        const runRes = await fetch('/api/process-review/run', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -114,46 +112,31 @@ export function useProcessReview({
             supabaseAnonKey: supabaseAnonKey ?? (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? undefined,
           }),
         })
-        const launchData = (await launchRes.json()) as { success?: boolean; runId?: string; status?: string; error?: string }
-        if (!launchData.success || !launchData.runId || launchData.status === 'failed') {
+        const runData = (await runRes.json()) as {
+          success?: boolean
+          suggestions?: Array<{ text: string; justification: string }>
+          reviewId?: string
+          error?: string
+        }
+
+        if (!runData.success) {
           setProcessReviewStatus('failed')
           setProcessReviewAgentRunStatus('failed')
-          const errorMsg = launchData.error || 'Launch failed'
+          const errorMsg = runData.error || 'Process Review failed'
           setProcessReviewAgentError(errorMsg)
           addMessage(convId, 'process-review-agent', `[Process Review] ❌ Failed: ${errorMsg}`)
+          // Return to idle state after showing error
+          setTimeout(() => {
+            setProcessReviewStatus('idle')
+            setProcessReviewTicketPk(null)
+          }, 5000)
           return
         }
 
-        addProgress('Process Review agent running. Polling status...')
-        let reviewId: string | null = null
-        const runId = launchData.runId
-        // Use the agent runId as a stable Process Review ID for idempotency and tracking.
-        // This ensures tickets are only created when the user clicks "Implement" in the modal.
-        reviewId = runId
-        let lastStatus: string
-        let suggestions: Array<{ text: string; justification: string }> = []
-        for (;;) {
-          await new Promise((r) => setTimeout(r, 4000))
-          const r = await fetch(`/api/agent-runs/status?runId=${encodeURIComponent(runId)}`, { credentials: 'include' })
-          const pollData = (await r.json()) as {
-            status?: string
-            error?: string
-            suggestions?: Array<{ text: string; justification: string }>
-          }
-          lastStatus = String(pollData.status ?? '')
-          if (pollData.suggestions) suggestions = pollData.suggestions
-          if (lastStatus === 'failed') {
-            setProcessReviewStatus('failed')
-            setProcessReviewAgentRunStatus('failed')
-            const errorMsg = pollData.error || 'Unknown error'
-            setProcessReviewAgentError(errorMsg)
-            addMessage(convId, 'process-review-agent', `[Process Review] ❌ Failed: ${errorMsg}`)
-            return
-          }
-          if (lastStatus === 'finished') break
-        }
-
-        const suggestionCount = suggestions?.length || 0
+        // Use reviewId from response or generate one for idempotency
+        const reviewId = runData.reviewId || `review-${Date.now()}-${data.ticketPk}`
+        const suggestions = runData.suggestions || []
+        const suggestionCount = suggestions.length
         if (suggestionCount > 0 && suggestions) {
           const recommendations = suggestions.map((s: { text: string; justification: string }, idx: number) => ({
             text: s.text,
