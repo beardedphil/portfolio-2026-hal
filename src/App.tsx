@@ -340,12 +340,6 @@ function App() {
     }
   }, [selectedChatTarget])
 
-<<<<<<< HEAD
-  // Apply dark theme to document root on mount (0707: removed theme toggle, always dark)
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', 'dark')
-  }, [])
-
   // Apply dark theme to document root on mount (0707: removed light/dark toggle)
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', 'dark')
