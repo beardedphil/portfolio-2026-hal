@@ -86,8 +86,10 @@ describe('fetchWithRetry', () => {
     it('throws after exhausting max retries on 5xx errors', async () => {
       const fetchFn = vi.fn().mockResolvedValue(new Response(null, { status: 500 }))
       const promise = fetchWithRetry(fetchFn, 2, 1000)
+      // Attach rejection handler before advancing timers to avoid unhandled rejections
+      const rejectionPromise = expect(promise).rejects.toThrow('Fetch failed after')
       await vi.advanceTimersByTimeAsync(3000)
-      await expect(promise).rejects.toThrow('Fetch failed after')
+      await rejectionPromise
       expect(fetchFn).toHaveBeenCalledTimes(3)
     })
 
@@ -96,8 +98,10 @@ describe('fetchWithRetry', () => {
       Object.defineProperty(networkErrorResponse, 'status', { value: 0, writable: false })
       const fetchFn = vi.fn().mockResolvedValue(networkErrorResponse)
       const promise = fetchWithRetry(fetchFn, 1, 1000)
+      // Attach rejection handler before advancing timers to avoid unhandled rejections
+      const rejectionPromise = expect(promise).rejects.toThrow('Fetch failed after')
       await vi.advanceTimersByTimeAsync(1000)
-      await expect(promise).rejects.toThrow('Fetch failed after')
+      await rejectionPromise
       expect(fetchFn).toHaveBeenCalledTimes(2)
     })
 
@@ -105,19 +109,18 @@ describe('fetchWithRetry', () => {
       const error = new Error('Network failure')
       const fetchFn = vi.fn().mockRejectedValue(error)
       const promise = fetchWithRetry(fetchFn, 2, 1000)
+      // Attach catch handler before advancing timers to avoid unhandled rejections
+      const catchPromise = promise.catch((e) => e)
       await vi.advanceTimersByTimeAsync(3000)
-      try {
-        await promise
-        expect.fail('Should have thrown')
-      } catch (e) {
-        expect(e).toBe(error)
-      }
+      const caughtError = await catchPromise
+      expect(caughtError).toBe(error)
       expect(fetchFn).toHaveBeenCalledTimes(3)
     })
 
     it('throws generic error when lastError is null', async () => {
       const fetchFn = vi.fn().mockResolvedValue(new Response(null, { status: 500 }))
       const promise = fetchWithRetry(fetchFn, 0, 1000)
+      // Attach rejection handler immediately to avoid unhandled rejections
       await expect(promise).rejects.toThrow('Fetch failed after')
       expect(fetchFn).toHaveBeenCalledTimes(1)
     })
