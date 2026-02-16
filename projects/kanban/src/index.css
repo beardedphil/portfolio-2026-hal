@@ -92,6 +92,24 @@ body[data-embedded="true"] #root,
   height: auto !important;
   min-height: 0 !important;
 }
+/* Override HAL's .kanban-frame-container .columns-row rule to enable horizontal scrolling */
+.kanban-frame-container .columns-row {
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  overflow: auto !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  flex: 1 !important;
+  min-height: 0 !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+}
+/* Ensure column cards don't shrink when inside kanban-frame-container */
+.kanban-frame-container .columns-row .column-card {
+  flex-shrink: 0 !important;
+  width: 180px !important;
+  min-width: 180px !important;
+}
 
 h1 {
   font-size: 1.75rem;
