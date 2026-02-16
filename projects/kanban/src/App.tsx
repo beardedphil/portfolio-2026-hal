@@ -1312,12 +1312,26 @@ function App() {
       // CRITICAL FIX (0135): Update ref synchronously with final tickets
       // This ensures fetchActiveAgentRuns always has the latest tickets including optimistic updates
       supabaseTicketsRef.current = finalTickets
-      
+
+      // Hydrate agent type for tickets already in Doing so card badge shows agent instead of Unassigned (0135)
+      if (!halCtx && finalTickets.length > 0) {
+        const inDoing = finalTickets.filter((t) => t.kanban_column_id === 'col-doing')
+        if (inDoing.length > 0) {
+          setActiveWorkAgentTypes((prev) => {
+            let next = prev
+            for (const t of inDoing) {
+              if (!next[t.pk]) next = { ...next, [t.pk]: 'Implementation' }
+            }
+            return next
+          })
+        }
+      }
+
       return { success: true, freshTickets: finalTickets }
     } catch {
       return { success: false }
     }
-  }, [supabaseProjectUrl, supabaseAnonKey, pendingMoves, connectedRepoFullName, isDragging])
+  }, [supabaseProjectUrl, supabaseAnonKey, pendingMoves, connectedRepoFullName, isDragging, halCtx])
 
   /** Update one ticket's kanban fields in Supabase (0013). Returns { ok: true } or { ok: false, error: string }. */
   const updateSupabaseTicketKanban = useCallback(
@@ -2961,6 +2975,8 @@ ${notes || '(none provided)'}
         {supabaseBoardActive && <DroppableActiveWorkRow
           doingTickets={doingTickets}
           activeWorkAgentTypes={activeWorkAgentTypes}
+          implementationAgentTicketId={halCtx?.implementationAgentTicketId ?? undefined}
+          qaAgentTicketId={halCtx?.qaAgentTicketId ?? undefined}
           agentRunsByTicketPk={halCtx?.agentRunsByTicketPk || agentRunsByTicketPk}
           onOpenDetail={handleOpenTicketDetail}
           pendingMoves={pendingMoves}
@@ -2998,7 +3014,8 @@ ${notes || '(none provided)'}
             items={columnsForDisplay.map((c) => c.id)}
             strategy={horizontalListSortingStrategy}
           >
-            <div className="columns-row" ref={columnsRowRef}>
+            <div className="columns-row-scroll">
+              <div className="columns-row" ref={columnsRowRef}>
               {columnsForDisplay.map((col) => (
                 <SortableColumn
                   key={col.id}
@@ -3018,6 +3035,7 @@ ${notes || '(none provided)'}
                   activeWorkAgentTypes={activeWorkAgentTypes}
                 />
               ))}
+              </div>
             </div>
           </SortableContext>
         </section>
@@ -3039,12 +3057,16 @@ ${notes || '(none provided)'}
                 const ticketIdentifier = displayId ? `${displayId}: ${ticket.title}` : ticket.title
                 const effectiveRunsByPk = halCtx?.agentRunsByTicketPk || agentRunsByTicketPk
                 const run = effectiveRunsByPk[ticket.pk]
-                const agentLabel = agentTypeToLabel(run?.agent_type) ?? activeWorkAgentTypes[ticket.pk] ?? null
+                let overlayAgent: string = agentTypeToLabel(run?.agent_type) ?? activeWorkAgentTypes[ticket.pk] ?? 'Unassigned'
+                if (displayId && (halCtx?.implementationAgentTicketId || halCtx?.qaAgentTicketId)) {
+                  if (displayId === halCtx?.implementationAgentTicketId) overlayAgent = 'Implementation'
+                  else if (displayId === halCtx?.qaAgentTicketId) overlayAgent = 'QA'
+                }
                 return (
                   <div className="active-work-item" data-ticket-pk={ticket.pk}>
                     <div className="active-work-item-title">{ticketIdentifier}</div>
                     <div className="active-work-item-meta">
-                      <span className="active-work-item-agent">{agentLabel || 'Unassigned'}</span>
+                      <span className="active-work-item-agent">{overlayAgent}</span>
                     </div>
                   </div>
                 )

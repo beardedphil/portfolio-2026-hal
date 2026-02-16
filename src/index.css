@@ -93,9 +93,10 @@ body {
   background: var(--hal-bg);
 }
 
+/* 0706: overflow: hidden so kanban-frame-container is the vertical scroll container, not #root */
 #root {
   height: 100vh;
-  overflow: hidden;
+  overflow: hidden !important;
   position: relative;
 }
 
@@ -612,27 +613,26 @@ div.kanban-frame-container #root,
   height: auto !important; /* 0706: Ensure height is auto, not constrained */
 }
 
-/* 0706: Board scrolls horizontally only; parent handles vertical scroll */
-.kanban-frame-container .columns-row {
+/* 0706: columns-row-scroll = horizontal scroll only (overflow-y:hidden prevents spec conversion to auto) */
+.kanban-frame-container .columns-row-scroll {
   overflow-x: auto !important;
-  overflow-y: visible !important;
+  overflow-y: hidden !important;
   flex: 0 1 auto;
   min-height: 0;
-  align-items: flex-start;
   scrollbar-width: thin;
   scrollbar-color: var(--kanban-border, #3d3550) transparent;
 }
-.kanban-frame-container .columns-row::-webkit-scrollbar {
+.kanban-frame-container .columns-row-scroll::-webkit-scrollbar {
   height: 8px;
 }
-.kanban-frame-container .columns-row::-webkit-scrollbar-track {
+.kanban-frame-container .columns-row-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
-.kanban-frame-container .columns-row::-webkit-scrollbar-thumb {
+.kanban-frame-container .columns-row-scroll::-webkit-scrollbar-thumb {
   background-color: var(--kanban-border, #3d3550);
   border-radius: 4px;
 }
-.kanban-frame-container .columns-row::-webkit-scrollbar-thumb:hover {
+.kanban-frame-container .columns-row-scroll::-webkit-scrollbar-thumb:hover {
   background-color: var(--kanban-text-muted, #9d8fb8);
 }
 
@@ -671,6 +671,7 @@ div.kanban-frame-container #root,
 
 /* Specifically target elements that might have height constraints */
 .kanban-frame-container .columns-section,
+.kanban-frame-container .columns-row-scroll,
 .kanban-frame-container .columns-row,
 .kanban-frame-container .column-card,
 .kanban-frame-container .column-content,
@@ -687,10 +688,9 @@ div.kanban-frame-container #root,
   max-height: none !important;
 }
 
-/* 0706: columns-row scrolls horizontally only; parent handles vertical scroll */
+/* 0706: columns-row stays overflow visible; scroll is on columns-row-scroll wrapper */
 .kanban-frame-container .columns-row {
-  overflow-x: auto !important;
-  overflow-y: visible !important;
+  overflow: visible !important;
   max-height: none !important;
   height: auto !important;
   flex: 0 1 auto !important;
