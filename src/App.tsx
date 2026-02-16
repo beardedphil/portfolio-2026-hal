@@ -10,6 +10,10 @@ import * as Kanban from 'portfolio-2026-kanban'
 import type { KanbanTicketRow, KanbanColumnRow, KanbanAgentRunRow, KanbanBoardProps } from 'portfolio-2026-kanban'
 import 'portfolio-2026-kanban/style.css'
 import { AgentInstructionsViewer } from './AgentInstructionsViewer'
+import {
+  routeKanbanWorkButtonClick,
+  type KanbanWorkButtonPayload,
+} from './lib/kanbanWorkButtonRouting'
 
 const KanbanBoard = Kanban.default
 // KANBAN_BUILD no longer used with floating widget (0698)
@@ -982,6 +986,12 @@ function App() {
       return conversations.get(selectedConversationId)!.messages
     }
     return []
+  })()
+
+  // PM chat transcript is always PM-only (HAL-0700)
+  const pmMessages = (() => {
+    const defaultConvId = getConversationId('project-manager', 1)
+    return conversations.has(defaultConvId) ? conversations.get(defaultConvId)!.messages : []
   })()
 
   // Get conversations for a specific agent role - removed, no longer used with floating widget (0698)
@@ -2372,32 +2382,43 @@ function App() {
   // Track most recent work button click event for diagnostics (0072) - no longer displayed with floating widget (0698)
   const [_lastWorkButtonClick, setLastWorkButtonClick] = useState<{ eventId: string; timestamp: Date; chatTarget: ChatTarget; message: string } | null>(null)
 
-  /** Kanban work button: route to PM chat widget (0698). All work buttons now route to PM. */
+  /** Kanban work button: trigger correct Cursor agent run (HAL-0700). */
   const handleKanbanOpenChatAndSend = useCallback(
     async (data: { chatTarget: ChatTarget; message: string; ticketPk?: string }) => {
       if (!data.message) return
-      // Always route to PM chat (0698)
       const eventId = `work-btn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
-      setLastWorkButtonClick({ eventId, timestamp: new Date(), chatTarget: 'project-manager', message: data.message })
-      setSelectedChatTarget('project-manager')
-      const conversationId = getDefaultConversationId('project-manager')
-      setSelectedConversationId(null) // Use default PM conversation
-      
-      // Open PM chat widget if closed
-      if (!pmChatWidgetOpen) {
-        setPmChatWidgetOpen(true)
-      }
-      
-      // Move ticket to Doing if needed (for implementation/QA buttons)
-      if (data.ticketPk && (data.chatTarget === 'implementation-agent' || data.chatTarget === 'qa-agent')) {
-        const doingCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-doing').length
-        await handleKanbanMoveTicket(data.ticketPk, 'col-doing', doingCount)
-      }
-      
-      // Send message to PM
-      triggerAgentRun(data.message, 'project-manager', undefined, conversationId)
+      setLastWorkButtonClick({
+        eventId,
+        timestamp: new Date(),
+        chatTarget: data.chatTarget,
+        message: data.message,
+      })
+
+      // Route work button action; PM opens PM widget, non-PM never touches PM widget/history (HAL-0700)
+      await routeKanbanWorkButtonClick(data as KanbanWorkButtonPayload, {
+        pmChatWidgetOpen,
+        openPmChatWidget: () => setPmChatWidgetOpen(true),
+        setSelectedChatTarget: () => setSelectedChatTarget('project-manager'),
+        setSelectedConversationId,
+        getDefaultPmConversationId: () => getDefaultConversationId('project-manager'),
+        triggerAgentRun: (content, target, conversationId) =>
+          triggerAgentRun(content, target, undefined, conversationId),
+        moveTicketToDoingIfNeeded: async ({ ticketPk, chatTarget }) => {
+          if (chatTarget !== 'implementation-agent' && chatTarget !== 'qa-agent') return
+          const doingCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-doing').length
+          await handleKanbanMoveTicket(ticketPk, 'col-doing', doingCount)
+        },
+      })
     },
-    [triggerAgentRun, getDefaultConversationId, kanbanTickets, handleKanbanMoveTicket, pmChatWidgetOpen]
+    [
+      triggerAgentRun,
+      getDefaultConversationId,
+      kanbanTickets,
+      handleKanbanMoveTicket,
+      pmChatWidgetOpen,
+      setSelectedConversationId,
+      setSelectedChatTarget,
+    ]
   )
 
   /** Process Review button: trigger Process Review agent for top ticket in Process Review column. */
@@ -2407,8 +2428,7 @@ function App() {
       
       // Get or create Process Review conversation
       const convId = getOrCreateConversation('process-review-agent')
-      setSelectedChatTarget('process-review-agent')
-      setSelectedConversationId(convId)
+      // Keep Process Review flow internal; do not switch PM chat UI context (HAL-0700)
       
       // Move ticket to Active Work (col-doing) when Process Review starts (0167)
       const doingCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-doing').length
@@ -2685,81 +2705,84 @@ function App() {
     setImageError(null)
   }, [])
 
-  const handleSend = useCallback(() => {
-    const content = inputValue.trim()
-    
-    // Clear previous validation error
-    setSendValidationError(null)
-    
-    // Validate: must have either text or image
-    if (!content && !imageAttachment) {
-      setSendValidationError('Please enter a message or attach an image before sending.')
-      return
-    }
+  const handleSendForTarget = useCallback(
+    (target: ChatTarget, conversationIdOverride?: string | null) => {
+      const content = inputValue.trim()
 
-    // Don't send if there's an image error
-    if (imageError) {
-      setSendValidationError('Please fix the image error before sending.')
-      return
-    }
+      // Clear previous validation error
+      setSendValidationError(null)
 
-    // Get or create conversation ID for the selected chat target (0070)
-    let convId: string
-    if (selectedConversationId && conversations.has(selectedConversationId)) {
-      convId = selectedConversationId
-    } else {
-      convId = getDefaultConversationId(selectedChatTarget === 'project-manager' ? 'project-manager' : selectedChatTarget)
-    }
+      // Validate: must have either text or image
+      if (!content && !imageAttachment) {
+        setSendValidationError(
+          'Please enter a message or attach an image before sending.'
+        )
+        return
+      }
 
-    const attachments = imageAttachment ? [imageAttachment] : undefined
-    
-    // Track payload summary for diagnostics (0077)
-    const hasText = content.length > 0
-    const hasImages = attachments && attachments.length > 0
-    let payloadSummary: string
-    if (hasText && hasImages) {
-      payloadSummary = `Text + ${attachments.length} image${attachments.length > 1 ? 's' : ''}`
-    } else if (hasText) {
-      payloadSummary = 'Text only'
-    } else if (hasImages) {
-      payloadSummary = `${attachments.length} image${attachments.length > 1 ? 's' : ''} only`
-    } else {
-      payloadSummary = 'Empty (should not happen)'
-    }
-    setLastSendPayloadSummary(payloadSummary)
-    
-    // Don't add message here for PM agent - triggerAgentRun will handle it (0153: prevent duplicates)
-    // For non-PM agents, triggerAgentRun doesn't add user messages, so we add it here
-    // But actually, triggerAgentRun handles PM agent messages, so we should let it handle all messages
-    // to avoid duplicates. The deduplication in addMessage will catch any edge cases.
-    if (selectedChatTarget !== 'project-manager') {
-      addMessage(convId, 'user', content, undefined, attachments)
-    }
-    setInputValue('')
-    setImageAttachment(null)
-    setImageError(null)
-    setSendValidationError(null)
-    setLastAgentError(null)
+      // Don't send if there's an image error
+      if (imageError) {
+        setSendValidationError('Please fix the image error before sending.')
+        return
+      }
 
-    // Use the extracted triggerAgentRun function
-    triggerAgentRun(content, selectedChatTarget, attachments, convId)
-  }, [inputValue, selectedChatTarget, selectedConversationId, conversations, addMessage, supabaseUrl, supabaseAnonKey, connectedProject, triggerAgentRun, getDefaultConversationId])
+      // Get or create conversation ID for the provided chat target (0070)
+      let convId: string
+      if (conversationIdOverride && conversations.has(conversationIdOverride)) {
+        convId = conversationIdOverride
+      } else {
+        convId = getDefaultConversationId(
+          target === 'project-manager' ? 'project-manager' : target
+        )
+      }
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
-    }
-  }, [handleSend])
+      const attachments = imageAttachment ? [imageAttachment] : undefined
+
+      // Track payload summary for diagnostics (0077)
+      const hasText = content.length > 0
+      const hasImages = attachments && attachments.length > 0
+      let payloadSummary: string
+      if (hasText && hasImages) {
+        payloadSummary = `Text + ${attachments.length} image${attachments.length > 1 ? 's' : ''}`
+      } else if (hasText) {
+        payloadSummary = 'Text only'
+      } else if (hasImages) {
+        payloadSummary = `${attachments.length} image${attachments.length > 1 ? 's' : ''} only`
+      } else {
+        payloadSummary = 'Empty (should not happen)'
+      }
+      setLastSendPayloadSummary(payloadSummary)
+
+      // Don't add message here for PM agent - triggerAgentRun will handle it (0153: prevent duplicates)
+      // For non-PM agents, triggerAgentRun doesn't add user messages, so we add it here
+      if (target !== 'project-manager') {
+        addMessage(convId, 'user', content, undefined, attachments)
+      }
+      setInputValue('')
+      setImageAttachment(null)
+      setImageError(null)
+      setSendValidationError(null)
+      setLastAgentError(null)
+
+      // Use the extracted triggerAgentRun function
+      triggerAgentRun(content, target, attachments, convId)
+    },
+    [
+      inputValue,
+      imageAttachment,
+      imageError,
+      conversations,
+      addMessage,
+      triggerAgentRun,
+      getDefaultConversationId,
+    ]
+  )
 
   /** Send "Continue" to PM for multi-batch bulk operations (e.g. move all tickets). */
   const handleContinueBatch = useCallback(() => {
-    const convId =
-      selectedConversationId && conversations.has(selectedConversationId)
-        ? selectedConversationId
-        : getDefaultConversationId('project-manager')
+    const convId = getDefaultConversationId('project-manager')
     triggerAgentRun('Continue', 'project-manager', undefined, convId)
-  }, [selectedConversationId, conversations, getDefaultConversationId, triggerAgentRun])
+  }, [getDefaultConversationId, triggerAgentRun])
 
   const handleThemeToggle = useCallback(() => {
     setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))
@@ -2867,10 +2890,15 @@ function App() {
     onTicketCreated: fetchKanbanData,
   }
 
-  // Chat panel content (used in floating PM chat widget - PM only)
-  const chatPanelContent = (function renderChatPanelContent() {
-    const displayMessages = activeMessages
-    const displayTarget = selectedChatTarget
+  // Chat panel content (PM widget only) (HAL-0700)
+  function renderChatPanelContent(args: {
+    displayMessages: Message[]
+    displayTarget: ChatTarget
+    onKeyDown: (e: React.KeyboardEvent) => void
+    onSend: () => void
+  }) {
+    const displayMessages = args.displayMessages
+    const displayTarget = args.displayTarget
     const lastMsg = displayMessages[displayMessages.length - 1]
     const showContinueButton =
       displayTarget === 'project-manager' &&
@@ -2996,7 +3024,7 @@ function App() {
               className="message-input"
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={handleKeyDown}
+              onKeyDown={args.onKeyDown}
               placeholder="Type a message... (Enter to send)"
               rows={2}
               aria-label="Message input"
@@ -3016,14 +3044,26 @@ function App() {
                 Continue
               </button>
             )}
-            <button type="button" className="send-btn" onClick={handleSend} disabled={!!imageError}>
+            <button type="button" className="send-btn" onClick={args.onSend} disabled={!!imageError}>
               Send
             </button>
           </div>
         </div>
       </div>
     )
-  })()
+  }
+
+  const pmChatPanelContent = renderChatPanelContent({
+    displayMessages: pmMessages,
+    displayTarget: 'project-manager',
+    onKeyDown: (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault()
+        handleSendForTarget('project-manager', null)
+      }
+    },
+    onSend: () => handleSendForTarget('project-manager', null),
+  })
 
   return (
     <div className="hal-app">
@@ -3351,12 +3391,13 @@ function App() {
                   </div>
                 </div>
                 <div className="pm-chat-widget-content">
-                  {chatPanelContent}
+                  {pmChatPanelContent}
                 </div>
               </div>
             )}
           </>
         )}
+
       </main>
 
       <AgentInstructionsViewer
