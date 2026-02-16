@@ -1,0 +1,59 @@
+name: Update Metrics
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  update-metrics:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run test coverage
+        run: |
+          mkdir -p coverage
+          npm run test:coverage
+        continue-on-error: true
+
+      - name: Update metrics from coverage
+        run: node scripts/update-metrics-from-coverage.js
+        continue-on-error: true
+
+      - name: Update simplicity metric
+        run: npm run report:simplicity
+
+      - name: Check for changes
+        id: check-changes
+        run: |
+          if git diff --quiet public/metrics.json; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit and push changes
+        if: steps.check-changes.outputs.changed == 'true'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add public/metrics.json
+          git commit -m "chore: auto-update metrics (coverage and simplicity)"
+          git push origin main

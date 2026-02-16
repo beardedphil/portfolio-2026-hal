@@ -106,20 +106,6 @@ describe('ImageViewerModal', () => {
     
     // The component's onClick handler checks: e.target === e.currentTarget
     // To test this, we need to create an event where target === currentTarget
-    // We'll use a workaround: create a synthetic event and manually set both target and currentTarget
-    const syntheticEvent = {
-      target: backdrop,
-      currentTarget: backdrop,
-      type: 'click',
-      bubbles: true,
-      cancelable: true,
-      preventDefault: vi.fn(),
-      stopPropagation: vi.fn(),
-      nativeEvent: new MouseEvent('click', { bubbles: true }),
-    } as unknown as React.MouseEvent<HTMLDivElement>
-    
-    // Manually trigger the onClick handler by accessing it through React's event system
-    // Since we can't easily access React's synthetic event handlers, we'll use a different approach:
     // Create a click event and ensure it bubbles, then check if onClose was called
     // when clicking on the backdrop (not on children)
     const clickEvent = new MouseEvent('click', { 
@@ -187,8 +173,8 @@ describe('ImageViewerModal', () => {
 
     // The h2 title should show "Image" when imageAlt is empty
     expect(screen.getByText('Image')).toBeInTheDocument()
-    // The img alt attribute will be empty string, so we check it exists with empty alt
-    const img = screen.getByRole('img', { hidden: true })
-    expect(img).toHaveAttribute('alt', '')
+    // The img should have a non-empty default alt text to maintain img role (not presentation)
+    const img = screen.getByRole('img')
+    expect(img).toHaveAttribute('alt', 'Image')
   })
 })

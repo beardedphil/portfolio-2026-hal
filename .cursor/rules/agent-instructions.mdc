@@ -7,30 +7,44 @@ alwaysApply: true
 
 Instructions are loaded from `.cursor/rules` and `docs/`. See `docs/process/hal-tool-call-contract.mdc` for HAL API endpoints.
 
-## Pre-Merge TypeScript Verification
+## Pre-Commit Build Verification
 
-**MANDATORY:** Before merging any branch to `main`, implementation agents **MUST** verify TypeScript compilation succeeds:
+**MANDATORY:** Before committing ANY code changes, ALL agents **MUST** verify the build succeeds:
 
-1. **Install dependencies:**
+1. **Install dependencies (if not already done):**
    ```bash
    npm install
    ```
 
-2. **Run TypeScript compiler:**
+2. **Verify TypeScript compilation:**
+   ```bash
+   npx tsc -b --noEmit
+   ```
+   
+   This must pass with zero errors. If it fails, fix all TypeScript errors before committing.
+
+3. **Verify full build (if making changes that affect build):**
    ```bash
    npm run build:hal
    ```
    
-   Or if you need to check specific projects:
+   **Note:** `npm run build:hal` may fail due to vite 6.x scanning node_modules during config loading (pre-existing issue). If this happens, verify TypeScript compilation succeeds instead:
    ```bash
-   tsc -b  # Check all TypeScript projects
+   npx tsc -b --noEmit
+   ```
+   
+   If TypeScript compilation fails, you **MUST** fix the errors before committing. Do not commit code that breaks TypeScript compilation.
+
+4. **For specific projects:**
+   ```bash
    cd projects/kanban && npx tsc --noEmit  # Check kanban project specifically
    ```
 
-3. **Fix any TypeScript errors before merging:**
-   - All TypeScript errors must be resolved
-   - Build must complete successfully
-   - Do not merge if `tsc` or `npm run build:hal` fails
+**CRITICAL RULES:**
+- **NEVER commit code without running `npx tsc -b --noEmit` first**
+- **NEVER commit code that causes `npm run build:hal` to fail**
+- **If build fails, fix it before committing - do not leave broken builds for others to discover**
+- This applies to ALL agents (implementation, QA, PM) when making code changes
 
 **This check prevents build failures in CI/CD and ensures code quality.**
 

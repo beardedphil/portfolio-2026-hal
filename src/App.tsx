@@ -2,6 +2,9 @@ import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { getSupabaseClient } from './lib/supabase'
 import { saveConversationsToStorage, loadConversationsFromStorage, type Agent, type Message, type Conversation, type ImageAttachment } from './lib/conversationStorage'
 import { getChatWidth, setChatWidth, getChatCollapsed, setChatCollapsed } from './lib/persistedUiState'
+import { getInitialTheme, THEME_STORAGE_KEY } from './lib/metricColor'
+import { QAMetricsCard } from './components/QAMetricsCard'
+import type { Theme } from './types/hal'
 import * as Kanban from 'portfolio-2026-kanban'
 import type { KanbanTicketRow, KanbanColumnRow, KanbanAgentRunRow, KanbanBoardProps } from 'portfolio-2026-kanban'
 import 'portfolio-2026-kanban/style.css'
@@ -162,37 +165,6 @@ function getMessageAuthorLabel(agent: Message['agent']): string {
   return 'System'
 }
 
-/** Calculate color gradient from red (0%) to green (100%) for QA metrics (0667) */
-function getMetricColor(percentage: number | null): string {
-  if (percentage === null) {
-    return '#888888' // Gray for N/A
-  }
-  // Red (0%) to Green (100%) gradient
-  // Red: rgb(220, 53, 69) or #dc3545
-  // Green: rgb(40, 167, 69) or #28a745
-  const red = 220
-  const green = 40
-  const blueRed = 53
-  const blueGreen = 167
-  const greenRed = 69
-  const greenGreen = 69
-  const r = Math.round(red + (green - red) * (percentage / 100))
-  const g = Math.round(blueRed + (blueGreen - blueRed) * (percentage / 100))
-  const b = Math.round(greenRed + (greenGreen - greenRed) * (percentage / 100))
-  return `rgb(${r}, ${g}, ${b})`
-}
-
-type Theme = 'light' | 'dark'
-
-const THEME_STORAGE_KEY = 'hal-theme'
-
-function getInitialTheme(): Theme {
-  const stored = localStorage.getItem(THEME_STORAGE_KEY)
-  if (stored === 'light' || stored === 'dark') {
-    return stored
-  }
-  return 'light' // default
-}
 
 function App() {
   const [selectedChatTarget, setSelectedChatTarget] = useState<ChatTarget>('project-manager')
@@ -233,15 +205,9 @@ function App() {
   const [connectedGithubRepo, setConnectedGithubRepo] = useState<ConnectedGithubRepo | null>(null)
   const [githubConnectError, setGithubConnectError] = useState<string | null>(null)
   const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false)
-  const [cancelAllAgentsLoading, setCancelAllAgentsLoading] = useState(false)
-  const [cancelAllAgentsMessage, setCancelAllAgentsMessage] = useState<string | null>(null)
   const [agentInstructionsOpen, setAgentInstructionsOpen] = useState(false)
   const [promptModalMessage, setPromptModalMessage] = useState<Message | null>(null)
   /** QA quality metrics (0667) */
-  const [qaMetrics, setQaMetrics] = useState<{
-    coverage: number | null // 0-100 or null for N/A
-    simplicity: number | null // 0-100 or null for N/A
-  } | null>(null)
   /** Working memory for PM conversation (0173) */
   const [pmWorkingMemory, setPmWorkingMemory] = useState<{
     summary: string
@@ -322,6 +288,7 @@ function App() {
     | 'resolving_repo'
     | 'launching'
     | 'polling'
+    | 'running'
     | 'completed'
     | 'failed'
   >('idle')
@@ -336,6 +303,7 @@ function App() {
     | 'fetching_branch'
     | 'launching'
     | 'polling'
+    | 'reviewing'
     | 'generating_report'
     | 'merging'
     | 'moving_ticket'
@@ -810,7 +778,7 @@ function App() {
     // Restore agent status from localStorage (0097: preserve agent status across disconnect/reconnect)
     try {
       const savedImplStatus = localStorage.getItem('hal-impl-agent-status')
-      if (savedImplStatus && ['preparing', 'fetching_ticket', 'resolving_repo', 'launching', 'polling', 'completed', 'failed'].includes(savedImplStatus)) {
+      if (savedImplStatus && ['preparing', 'fetching_ticket', 'resolving_repo', 'launching', 'polling', 'running', 'completed', 'failed'].includes(savedImplStatus)) {
         setImplAgentRunStatus(savedImplStatus as typeof implAgentRunStatus)
       }
       const savedImplProgress = localStorage.getItem('hal-impl-agent-progress')
@@ -827,7 +795,7 @@ function App() {
         setImplAgentError(savedImplError)
       }
       const savedQaStatus = localStorage.getItem('hal-qa-agent-status')
-      if (savedQaStatus && ['preparing', 'fetching_ticket', 'fetching_branch', 'launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(savedQaStatus)) {
+      if (savedQaStatus && ['preparing', 'fetching_ticket', 'fetching_branch', 'launching', 'polling', 'reviewing', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(savedQaStatus)) {
         setQaAgentRunStatus(savedQaStatus as typeof qaAgentRunStatus)
       }
       const savedQaProgress = localStorage.getItem('hal-qa-agent-progress')
@@ -1021,7 +989,7 @@ function App() {
   useEffect(() => {
     try {
       const savedStatus = localStorage.getItem(IMPL_AGENT_STATUS_KEY)
-      if (savedStatus && ['preparing', 'fetching_ticket', 'resolving_repo', 'launching', 'polling', 'completed', 'failed'].includes(savedStatus)) {
+      if (savedStatus && ['preparing', 'fetching_ticket', 'resolving_repo', 'launching', 'polling', 'running', 'completed', 'failed'].includes(savedStatus)) {
         setImplAgentRunStatus(savedStatus as typeof implAgentRunStatus)
       }
       const savedProgress = localStorage.getItem(IMPL_AGENT_PROGRESS_KEY)
@@ -1046,7 +1014,7 @@ function App() {
   useEffect(() => {
     try {
       const savedStatus = localStorage.getItem(QA_AGENT_STATUS_KEY)
-      if (savedStatus && ['preparing', 'fetching_ticket', 'fetching_branch', 'launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(savedStatus)) {
+      if (savedStatus && ['preparing', 'fetching_ticket', 'fetching_branch', 'launching', 'polling', 'reviewing', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(savedStatus)) {
         setQaAgentRunStatus(savedStatus as typeof qaAgentRunStatus)
       }
       const savedProgress = localStorage.getItem(QA_AGENT_PROGRESS_KEY)
@@ -2181,21 +2149,6 @@ function App() {
     [connectedProject, supabaseUrl, supabaseAnonKey, openChatTarget, selectedConversationId]
   )
 
-  // Load Coverage and Simplicity from repo metrics file (updated by test:coverage and report:simplicity)
-  useEffect(() => {
-    fetch('/metrics.json')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data && typeof data === 'object') {
-          const coverage = data.coverage != null ? Math.min(100, Math.max(0, Number(data.coverage))) : null
-          const simplicity = data.simplicity != null ? Math.min(100, Math.max(0, Number(data.simplicity))) : null
-          setQaMetrics({ coverage: coverage ?? null, simplicity: simplicity ?? null })
-        } else {
-          setQaMetrics(null)
-        }
-      })
-      .catch(() => setQaMetrics(null))
-  }, [])
 
   /** Fetch artifacts for a ticket (same Supabase as tickets). Used by Kanban when opening ticket detail. */
   const fetchArtifactsForTicket = useCallback(
@@ -2505,7 +2458,7 @@ function App() {
                 credentials: 'include',
               })
               const implStatusText = await r.text()
-              let data: { status?: string; cursor_status?: string; error?: string; summary?: string; pr_url?: string }
+              let data: { status?: string; current_stage?: string; cursor_status?: string; error?: string; summary?: string; pr_url?: string }
               try {
                 data = JSON.parse(implStatusText) as typeof data
               } catch {
@@ -2520,7 +2473,17 @@ function App() {
                 return false
               }
               const s = String(data.status ?? '')
+              const currentStage = String(data.current_stage ?? '')
               const cursorStatus = String(data.cursor_status ?? '')
+              
+              // Map current_stage to implAgentRunStatus (0690)
+              if (currentStage && ['preparing', 'fetching_ticket', 'resolving_repo', 'launching', 'running', 'completed', 'failed'].includes(currentStage)) {
+                setImplAgentRunStatus(currentStage as typeof implAgentRunStatus)
+              } else if (s === 'polling' && !currentStage) {
+                // Fallback: if no current_stage but status is polling, use 'running'
+                setImplAgentRunStatus('running')
+              }
+              
               if (s === 'failed') {
                 setImplAgentRunStatus('failed')
                 const msg = String(data.error ?? 'Unknown error')
@@ -2568,7 +2531,6 @@ function App() {
                 }
                 return false
               }
-              setImplAgentRunStatus('polling')
               if (cursorStatus) addProgress(`Agent is running (status: ${cursorStatus})...`)
               return true
             }
@@ -2685,7 +2647,7 @@ function App() {
                 credentials: 'include',
               })
               const text = await r.text()
-              let data: { status?: string; cursor_status?: string; error?: string; summary?: string }
+              let data: { status?: string; current_stage?: string; cursor_status?: string; error?: string; summary?: string }
               try {
                 data = JSON.parse(text) as typeof data
               } catch {
@@ -2700,7 +2662,17 @@ function App() {
                 return false
               }
               const s = String(data.status ?? '')
+              const currentStage = String(data.current_stage ?? '')
               const cursorStatus = String(data.cursor_status ?? '')
+              
+              // Map current_stage to qaAgentRunStatus (0690)
+              if (currentStage && ['preparing', 'fetching_ticket', 'fetching_branch', 'launching', 'reviewing', 'completed', 'failed'].includes(currentStage)) {
+                setQaAgentRunStatus(currentStage as typeof qaAgentRunStatus)
+              } else if (s === 'polling' && !currentStage) {
+                // Fallback: if no current_stage but status is polling, use 'reviewing'
+                setQaAgentRunStatus('reviewing')
+              }
+              
               if (s === 'failed') {
                 setQaAgentRunStatus('failed')
                 const msg = String(data.error ?? 'Unknown error')
@@ -2721,7 +2693,6 @@ function App() {
                 setAgentTypingTarget(null)
                 return false
               }
-              setQaAgentRunStatus('polling')
               if (cursorStatus) addProgress(`QA agent is running (status: ${cursorStatus})...`)
               return true
             }
@@ -3211,27 +3182,6 @@ function App() {
     }, 0)
   }, [])
 
-  /** Cancel all active Cursor cloud agents (implementation, QA, PM, Process Review). Uses HAL endpoint so HAL env is used. */
-  const handleCancelAllAgents = useCallback(async () => {
-    setCancelAllAgentsMessage(null)
-    setCancelAllAgentsLoading(true)
-    try {
-      const res = await fetch('/api/agent-runs/cancel?cancelAll=true', { method: 'GET', credentials: 'include' })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        setCancelAllAgentsMessage(data.error ?? `Failed (${res.status})`)
-        return
-      }
-      const msg = data.message ?? `Cancelled ${data.cancelled ?? 0} agent run(s).`
-      setCancelAllAgentsMessage(msg)
-      setTimeout(() => setCancelAllAgentsMessage(null), 8000)
-    } catch (err) {
-      setCancelAllAgentsMessage(err instanceof Error ? err.message : 'Request failed')
-    } finally {
-      setCancelAllAgentsLoading(false)
-    }
-  }, [])
-
   // Handle Esc key and focus management for disconnect confirmation modal (0142)
   useEffect(() => {
     if (!disconnectConfirmOpen) return
@@ -3344,9 +3294,10 @@ function App() {
                      implAgentRunStatus === 'fetching_ticket' ? 'Fetching ticket' :
                      implAgentRunStatus === 'resolving_repo' ? 'Resolving repository' :
                      implAgentRunStatus === 'launching' ? 'Launching agent' :
-                     implAgentRunStatus === 'polling' ? 'Running agent' :
-                     implAgentRunStatus === 'completed' ? 'Done' :
-                     implAgentRunStatus === 'failed' ? 'Error' : implAgentRunStatus}
+                     implAgentRunStatus === 'running' ? 'Running' :
+                     implAgentRunStatus === 'polling' ? 'Running' :
+                     implAgentRunStatus === 'completed' ? 'Completed' :
+                     implAgentRunStatus === 'failed' ? 'Failed' : implAgentRunStatus}
                   </span>
                 </div>
                 {implAgentError && <div className="impl-agent-error">{implAgentError}</div>}
@@ -3371,14 +3322,15 @@ function App() {
                   <span className={`impl-agent-status-value impl-status-${qaAgentRunStatus}`}>
                     {qaAgentRunStatus === 'preparing' ? 'Preparing' :
                      qaAgentRunStatus === 'fetching_ticket' ? 'Fetching ticket' :
-                     qaAgentRunStatus === 'fetching_branch' ? 'Fetching branch' :
-                     qaAgentRunStatus === 'launching' ? 'Launching agent' :
-                     qaAgentRunStatus === 'polling' ? 'Running agent' :
+                     qaAgentRunStatus === 'fetching_branch' ? 'Finding branch' :
+                     qaAgentRunStatus === 'launching' ? 'Launching QA' :
+                     qaAgentRunStatus === 'reviewing' ? 'Reviewing' :
+                     qaAgentRunStatus === 'polling' ? 'Reviewing' :
                      qaAgentRunStatus === 'generating_report' ? 'Generating report' :
                      qaAgentRunStatus === 'merging' ? 'Merging' :
                      qaAgentRunStatus === 'moving_ticket' ? 'Moving ticket' :
-                     qaAgentRunStatus === 'completed' ? 'Done' :
-                     qaAgentRunStatus === 'failed' ? 'Error' : qaAgentRunStatus}
+                     qaAgentRunStatus === 'completed' ? 'Completed' :
+                     qaAgentRunStatus === 'failed' ? 'Failed' : qaAgentRunStatus}
                   </span>
                 </div>
                 {qaAgentError && <div className="impl-agent-error">{qaAgentError}</div>}
@@ -3530,31 +3482,7 @@ function App() {
                     </button>
                   </div>
                   {/* QA quality metrics (0667) */}
-                  <div className="qa-metrics">
-                    <div
-                      className="qa-metric-box"
-                      style={{ backgroundColor: getMetricColor(qaMetrics?.coverage ?? null) }}
-                      title={qaMetrics?.coverage !== null && qaMetrics !== null ? `Coverage: ${qaMetrics.coverage.toFixed(0)}%` : 'Coverage: N/A'}
-                    >
-                      <span className="qa-metric-label">Coverage</span>
-                      <span className="qa-metric-value">
-                        {qaMetrics?.coverage !== null && qaMetrics !== null ? `${qaMetrics.coverage.toFixed(0)}%` : 'N/A'}
-                      </span>
-                    </div>
-                    <div
-                      className="qa-metric-box"
-                      style={{ backgroundColor: getMetricColor(qaMetrics?.simplicity ?? null) }}
-                      title={qaMetrics?.simplicity !== null && qaMetrics !== null ? `Simplicity: ${qaMetrics.simplicity.toFixed(0)}%` : 'Simplicity: N/A'}
-                    >
-                      <span className="qa-metric-label">Simplicity</span>
-                      <span className="qa-metric-value">
-                        {qaMetrics?.simplicity !== null && qaMetrics !== null ? `${qaMetrics.simplicity.toFixed(0)}%` : 'N/A'}
-                      </span>
-                    </div>
-                    {qaMetrics === null && (
-                      <span className="qa-metrics-hint">Run test:coverage and report:simplicity to update</span>
-                    )}
-                  </div>
+                  <QAMetricsCard />
                 </>
               )}
             </div>
@@ -3573,21 +3501,6 @@ function App() {
             <button type="button" className="github-logout" onClick={handleGithubDisconnect} title="Sign out of GitHub">
               Sign out
             </button>
-          )}
-          <button
-            type="button"
-            className="cancel-all-agents-btn"
-            onClick={handleCancelAllAgents}
-            disabled={cancelAllAgentsLoading}
-            aria-label="Cancel all Cursor agents (implementation, QA, PM, Process Review)"
-            title="Stop all running Cursor cloud agents"
-          >
-            {cancelAllAgentsLoading ? 'Cancelling…' : 'Cancel all agents'}
-          </button>
-          {cancelAllAgentsMessage && (
-            <span className="cancel-all-agents-message" role="status">
-              {cancelAllAgentsMessage}
-            </span>
           )}
           <button
             type="button"

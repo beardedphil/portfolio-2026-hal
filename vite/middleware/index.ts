@@ -20,7 +20,6 @@ export function getAllMiddlewarePlugins(): Plugin[] {
     createSimpleMiddlewarePlugin('artifacts-cleanup-duplicates-endpoint', '/api/artifacts/cleanup-duplicates'),
     createSimpleMiddlewarePlugin('agent-runs-launch-endpoint', '/api/agent-runs/launch', { method: 'POST', allowOptions: false }),
     createSimpleMiddlewarePlugin('agent-runs-status-endpoint', '/api/agent-runs/status', { method: 'GET', allowOptions: false }),
-    createSimpleMiddlewarePlugin('agent-runs-cancel-endpoint', '/api/agent-runs/cancel', { method: 'POST', allowOptions: false }),
     createSimpleMiddlewarePlugin('agent-runs-sync-artifacts-endpoint', '/api/agent-runs/sync-artifacts', { method: 'POST', allowOptions: false }),
     createSimpleMiddlewarePlugin('conversations-working-memory-get-endpoint', '/api/conversations/working-memory/get'),
     createSimpleMiddlewarePlugin('conversations-working-memory-update-endpoint', '/api/conversations/working-memory/update'),

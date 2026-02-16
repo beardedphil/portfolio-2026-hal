@@ -37,6 +37,13 @@ import {
 } from './lib/ticketBody'
 import { normalizeTicketRow } from './lib/normalizeTicketRow'
 import { canonicalizeColumnRows, type SupabaseKanbanColumnRow } from './lib/canonicalizeColumns'
+import { fetchWithRetry } from './lib/fetchWithRetry'
+import { stableColumnId } from './lib/stableColumnId'
+import {
+  getAgentWorkflowSteps,
+  mapStatusToStepId,
+  getStepStatus,
+} from './lib/agentWorkflow'
 import { TicketDetailModal } from './components/TicketDetailModal'
 import { QAInfoSection } from './components/QAInfoSection'
 import { AutoDismissMessage } from './components/AutoDismissMessage'
@@ -92,7 +99,9 @@ type SupabaseAgentRunRow = {
   ticket_pk: string | null
   ticket_number: number | null
   display_id: string | null
-  status: 'created' | 'launching' | 'polling' | 'finished' | 'failed'
+  // Status can be legacy values or new workflow step IDs (0690)
+  status: 'preparing' | 'fetching_ticket' | 'resolving_repo' | 'fetching_branch' | 'launching' | 'polling' | 'generating_report' | 'merging' | 'moving_ticket' | 'completed' | 'failed' | 'created' | 'finished'
+  current_stage: string | null
   created_at: string
   updated_at: string
 }
@@ -200,52 +209,10 @@ function formatTime(): string {
   return d.toLocaleTimeString('en-US', { hour12: false }) + '.' + String(d.getMilliseconds()).padStart(3, '0')
 }
 
-/**
- * Retry a fetch request with exponential backoff.
- * @param fetchFn Function that returns a Promise resolving to a Response
- * @param maxRetries Maximum number of retries (default: 3)
- * @param initialDelayMs Initial delay in milliseconds (default: 1000)
- * @returns Promise resolving to the Response
- */
-async function fetchWithRetry(
-  fetchFn: () => Promise<Response>,
-  maxRetries: number = 3,
-  initialDelayMs: number = 1000
-): Promise<Response> {
-  let lastError: Error | null = null
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      const response = await fetchFn()
-      // Retry on 5xx errors and network errors (but not 4xx client errors)
-      if (response.status >= 500 || response.status === 0) {
-        if (attempt < maxRetries) {
-          const delay = initialDelayMs * Math.pow(2, attempt)
-          await new Promise(resolve => setTimeout(resolve, delay))
-          continue
-        }
-      }
-      return response
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error))
-      if (attempt < maxRetries) {
-        const delay = initialDelayMs * Math.pow(2, attempt)
-        await new Promise(resolve => setTimeout(resolve, delay))
-        continue
-      }
-      throw lastError
-    }
-  }
-  throw lastError || new Error('Fetch failed after retries')
-}
-
 /** Auto-dismiss component for success messages (0047) */
 // AutoDismissMessage extracted to components/AutoDismissMessage.tsx
-
-function stableColumnId(): string {
-  return typeof crypto !== 'undefined' && crypto.randomUUID
-    ? crypto.randomUUID()
-    : `col-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
-}
+// fetchWithRetry extracted to lib/fetchWithRetry.ts
+// stableColumnId extracted to lib/stableColumnId.ts
 
 function normalizeTitle(title: string): string {
   return title.trim().toLowerCase()
@@ -840,82 +807,6 @@ function _DraggableSupabaseTicketItem({
   )
 }
 
-/** Get workflow steps for an agent type (0203) */
-function getAgentWorkflowSteps(agentType: 'implementation' | 'qa' | null): Array<{ id: string; label: string }> {
-  if (agentType === 'qa') {
-    return [
-      { id: 'preparing', label: 'Preparing' },
-      { id: 'fetching_ticket', label: 'Fetching ticket' },
-      { id: 'fetching_branch', label: 'Finding branch' },
-      { id: 'launching', label: 'Launching QA' },
-      { id: 'polling', label: 'Reviewing' },
-      { id: 'generating_report', label: 'Generating report' },
-      { id: 'merging', label: 'Merging' },
-      { id: 'moving_ticket', label: 'Moving ticket' },
-      { id: 'completed', label: 'Completed' },
-    ]
-  } else if (agentType === 'implementation') {
-    return [
-      { id: 'preparing', label: 'Preparing' },
-      { id: 'fetching_ticket', label: 'Fetching ticket' },
-      { id: 'resolving_repo', label: 'Resolving repo' },
-      { id: 'launching', label: 'Launching agent' },
-      { id: 'polling', label: 'Running' },
-      { id: 'completed', label: 'Completed' },
-    ]
-  }
-  return []
-}
-
-/** Map database status to workflow step ID (0203) */
-function mapStatusToStepId(status: string, agentType: 'implementation' | 'qa' | null): string {
-  // Map database statuses to workflow steps
-  // Database has: 'created' | 'launching' | 'polling' | 'finished' | 'failed'
-  if (status === 'failed') return 'failed'
-  if (status === 'finished') return 'completed'
-  
-  if (agentType === 'qa') {
-    // For QA, map database status to workflow step
-    // Note: 'polling' in database could mean Reviewing, Generating report, Merging, or Moving ticket
-    // We'll show it as 'polling' (Reviewing) since that's the first polling step
-    if (status === 'created') return 'fetching_ticket'
-    if (status === 'launching') return 'launching'
-    if (status === 'polling') return 'polling'
-    return 'preparing'
-  } else if (agentType === 'implementation') {
-    if (status === 'created') return 'fetching_ticket'
-    if (status === 'launching') return 'launching'
-    if (status === 'polling') return 'polling'
-    return 'preparing'
-  }
-  return 'preparing'
-}
-
-/** Determine step status: 'done' | 'active' | 'pending' (0203) */
-function getStepStatus(
-  stepId: string,
-  currentStepId: string,
-  workflowSteps: Array<{ id: string; label: string }>
-): 'done' | 'active' | 'pending' {
-  // Handle failed status - all steps before completed are done, completed step shows as active (will be styled as failed in tooltip)
-  if (currentStepId === 'failed') {
-    const completedIndex = workflowSteps.findIndex(s => s.id === 'completed')
-    const stepIndex = workflowSteps.findIndex(s => s.id === stepId)
-    if (stepIndex === -1) return 'pending'
-    if (stepIndex < completedIndex) return 'done'
-    if (stepId === 'completed') return 'active' // Show completed step as active when failed (will be styled red in tooltip)
-    return 'pending'
-  }
-  
-  const currentIndex = workflowSteps.findIndex(s => s.id === currentStepId)
-  const stepIndex = workflowSteps.findIndex(s => s.id === stepId)
-  
-  if (currentIndex === -1 || stepIndex === -1) return 'pending'
-  if (stepIndex < currentIndex) return 'done'
-  if (stepIndex === currentIndex) return 'active'
-  return 'pending'
-}
-
 /** Multi-dot status indicator component with tooltip (0203) */
 function StatusIndicator({
   agentRun,
@@ -936,8 +827,8 @@ function StatusIndicator({
   // Get workflow steps for this agent type
   const workflowSteps = getAgentWorkflowSteps(agentType)
   
-  // Map current status to step ID
-  const currentStepId = agentRun ? mapStatusToStepId(agentRun.status, agentType) : null
+  // Map current_stage to step ID (0690: use current_stage instead of status for detailed progression)
+  const currentStepId = agentRun ? mapStatusToStepId(agentRun.current_stage || agentRun.status, agentType) : null
   
   const showTooltip = isHovered || isFocused
 
@@ -971,14 +862,16 @@ function StatusIndicator({
         const viewportWidth = window.innerWidth
         const viewportHeight = window.innerHeight
         
-        // Find the closest scrollable container (active-work-item, active-work-items, or document)
-        let container = indicator.closest('.active-work-item') || indicator.closest('.active-work-items')
+        // 0676: Use active-work-items container (not active-work-item) to allow tooltip to extend over neighboring cards
+        // Find the parent container that holds all Active Work cards
+        let container = indicator.closest('.active-work-items')
         let containerRect: DOMRect | null = null
         if (container) {
           containerRect = container.getBoundingClientRect()
         }
         
         // Use container boundaries if available, otherwise use viewport
+        // This allows tooltip to extend over neighboring cards within the active-work-items container
         const maxRight = containerRect ? containerRect.right : viewportWidth
         const maxBottom = containerRect ? containerRect.bottom : viewportHeight
         const minLeft = containerRect ? containerRect.left : 0
@@ -1059,7 +952,7 @@ function StatusIndicator({
   if (!agentRun || workflowSteps.length === 0) {
     return (
       <div
-        className="active-work-status-indicator-wrapper"
+        className={`active-work-status-indicator-wrapper ${showTooltip ? 'active-work-status-tooltip-visible' : ''}`}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
       >
@@ -1097,7 +990,7 @@ function StatusIndicator({
 
   return (
     <div
-      className="active-work-status-indicator-wrapper"
+      className={`active-work-status-indicator-wrapper ${showTooltip ? 'active-work-status-tooltip-visible' : ''}`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
@@ -1276,6 +1169,9 @@ function App() {
   const [detailModalError, setDetailModalError] = useState<string | null>(null)
   const [detailModalLoading, setDetailModalLoading] = useState(false)
   const [detailModalRetryTrigger, setDetailModalRetryTrigger] = useState(0)
+  // Track the last ticket ID and retry trigger we fetched artifacts for to prevent unnecessary refetches
+  const lastFetchedTicketIdRef = useRef<string | null>(null)
+  const lastFetchedRetryTriggerRef = useRef<number>(0)
   
   // Agent artifacts (0082)
   const [detailModalArtifacts, setDetailModalArtifacts] = useState<SupabaseAgentArtifactRow[]>([])
@@ -1677,13 +1573,16 @@ function App() {
         return
       }
       const ticketPks = doingTickets.map((t) => t.pk)
-      // Fetch active agent runs (status not 'finished' or 'failed') for these tickets
+      // Fetch active agent runs (status not 'finished' or 'failed') for these tickets (0690: include current_stage)
       const { data, error } = await client
         .from('hal_agent_runs')
-        .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, status, created_at, updated_at')
+        .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, status, current_stage, created_at, updated_at')
         .eq('repo_full_name', connectedRepoFullName)
         .in('ticket_pk', ticketPks)
-        .in('status', ['created', 'launching', 'polling'])
+        // Filter for active runs: any status that's not 'completed' or 'failed' (0690)
+        // Includes: 'preparing', 'fetching_ticket', 'resolving_repo', 'fetching_branch', 'launching', 'polling', 'generating_report', 'merging', 'moving_ticket'
+        // Also includes old status values for backward compatibility: 'created', 'finished' (though 'finished' should be 'completed' now)
+        .in('status', ['preparing', 'fetching_ticket', 'resolving_repo', 'fetching_branch', 'launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'created', 'finished'])
         .order('created_at', { ascending: false })
       if (error) {
         console.warn('Failed to fetch agent runs:', error)
@@ -1726,9 +1625,21 @@ function App() {
       setDetailModalAttachments([])
       setDetailModalAttachmentsLoading(false)
       setDetailModalFailureCounts(null)
+      lastFetchedTicketIdRef.current = null
+      lastFetchedRetryTriggerRef.current = 0
       return
     }
     const { ticketId } = detailModal
+    
+    // Only fetch artifacts if ticket ID changed or retry was triggered
+    // This prevents refetching when supabaseTickets updates during polling
+    const ticketIdChanged = lastFetchedTicketIdRef.current !== ticketId
+    const retryTriggerChanged = lastFetchedRetryTriggerRef.current !== detailModalRetryTrigger
+    const shouldFetchArtifacts = ticketIdChanged || retryTriggerChanged
+    if (shouldFetchArtifacts) {
+      lastFetchedTicketIdRef.current = ticketId
+      lastFetchedRetryTriggerRef.current = detailModalRetryTrigger
+    }
     // Library mode: body from HAL-passed data; artifacts via HAL callback (HAL owns DB)
     if (halCtx) {
       const row = sourceTickets.find((t) => t.pk === ticketId)
@@ -1739,9 +1650,12 @@ function App() {
       }
       setDetailModalLoading(false)
       setDetailModalError(null)
-      setDetailModalArtifactsLoading(true)
-      setDetailModalArtifactsStatus('Loading…')
-      const tryApiFallback = (): Promise<SupabaseAgentArtifactRow[]> => {
+      
+      // Only fetch artifacts if ticket ID changed or retry was triggered
+      if (shouldFetchArtifacts) {
+        setDetailModalArtifactsLoading(true)
+        setDetailModalArtifactsStatus('Loading…')
+        const tryApiFallback = (): Promise<SupabaseAgentArtifactRow[]> => {
         const url = halCtx.supabaseUrl?.trim()
         const key = halCtx.supabaseAnonKey?.trim()
         const body: { ticketPk: string; supabaseUrl?: string; supabaseAnonKey?: string } = { ticketPk: ticketId }
@@ -1767,71 +1681,77 @@ function App() {
             }
             return Array.isArray(j.artifacts) ? j.artifacts : []
           })
-      }
-      if (halCtx.fetchArtifactsForTicket) {
-        halCtx
-          .fetchArtifactsForTicket(ticketId)
-          .then((data) => {
-            const list = data ?? []
-            if (list.length > 0) {
-              setDetailModalArtifacts(list)
-              setDetailModalArtifactsStatus(`Loaded ${list.length} (callback)`)
-              return
-            }
-            return tryApiFallback().then((apiList) => {
-              setDetailModalArtifacts(apiList)
-              setDetailModalArtifactsStatus(apiList.length > 0 ? `Loaded ${apiList.length} (API fallback)` : 'No artifacts (callback empty, API empty)')
+        }
+        if (halCtx.fetchArtifactsForTicket) {
+          halCtx
+            .fetchArtifactsForTicket(ticketId)
+            .then((data) => {
+              const list = data ?? []
+              if (list.length > 0) {
+                setDetailModalArtifacts(list)
+                setDetailModalArtifactsStatus(`Loaded ${list.length} (callback)`)
+                return
+              }
+              return tryApiFallback().then((apiList) => {
+                setDetailModalArtifacts(apiList)
+                setDetailModalArtifactsStatus(apiList.length > 0 ? `Loaded ${apiList.length} (API fallback)` : 'No artifacts (callback empty, API empty)')
+              })
             })
-          })
-          .catch((e) => {
-            const msg = e instanceof Error ? e.message : String(e)
-            console.warn('Failed to fetch artifacts (library mode):', e)
-            setDetailModalArtifactsStatus(`Error: ${msg}`)
-            return tryApiFallback().then((apiList) => {
-              setDetailModalArtifacts(apiList)
-              if (apiList.length > 0) setDetailModalArtifactsStatus(`Loaded ${apiList.length} (API fallback after error)`)
+            .catch((e) => {
+              const msg = e instanceof Error ? e.message : String(e)
+              console.warn('Failed to fetch artifacts (library mode):', e)
+              setDetailModalArtifactsStatus(`Error: ${msg}`)
+              return tryApiFallback().then((apiList) => {
+                setDetailModalArtifacts(apiList)
+                if (apiList.length > 0) setDetailModalArtifactsStatus(`Loaded ${apiList.length} (API fallback after error)`)
+              })
             })
-          })
-          .finally(() => setDetailModalArtifactsLoading(false))
+            .finally(() => setDetailModalArtifactsLoading(false))
+        } else {
+          tryApiFallback()
+            .then((apiList) => {
+              setDetailModalArtifacts(apiList)
+              setDetailModalArtifactsStatus(apiList.length > 0 ? `Loaded ${apiList.length} (API)` : 'No artifacts')
+            })
+            .catch(() => {
+              setDetailModalArtifacts([])
+              setDetailModalArtifactsStatus('Error: API request failed')
+            })
+            .finally(() => setDetailModalArtifactsLoading(false))
+        }
       } else {
-        tryApiFallback()
-          .then((apiList) => {
-            setDetailModalArtifacts(apiList)
-            setDetailModalArtifactsStatus(apiList.length > 0 ? `Loaded ${apiList.length} (API)` : 'No artifacts')
-          })
-          .catch(() => {
-            setDetailModalArtifacts([])
-            setDetailModalArtifactsStatus('Error: API request failed')
-          })
-          .finally(() => setDetailModalArtifactsLoading(false))
+        // Ticket ID hasn't changed - don't refetch artifacts, but still update body if it changed
+        // (body updates are handled above)
       }
       
-      // Fetch failure counts in library mode (0195)
-      const url = halCtx.supabaseUrl?.trim()
-      const key = halCtx.supabaseAnonKey?.trim()
-      if (url && key) {
-        fetch('/api/tickets/check-failure-escalation', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ticketPk: ticketId,
-            supabaseUrl: url,
-            supabaseAnonKey: key,
-          }),
-        })
-          .then((r) => r.json())
-          .then((result: { success?: boolean; qa_fail_count?: number; hitl_fail_count?: number }) => {
-            if (result.success) {
-              setDetailModalFailureCounts({
-                qa: result.qa_fail_count ?? 0,
-                hitl: result.hitl_fail_count ?? 0,
-              })
-            }
+      // Fetch failure counts in library mode (0195) - only on ticket change, not on every sourceTickets update
+      if (shouldFetchArtifacts) {
+        const url = halCtx.supabaseUrl?.trim()
+        const key = halCtx.supabaseAnonKey?.trim()
+        if (url && key) {
+          fetch('/api/tickets/check-failure-escalation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ticketPk: ticketId,
+              supabaseUrl: url,
+              supabaseAnonKey: key,
+            }),
           })
-          .catch(() => {
-            // Silently fail - failure counts are optional
-            setDetailModalFailureCounts(null)
-          })
+            .then((r) => r.json())
+            .then((result: { success?: boolean; qa_fail_count?: number; hitl_fail_count?: number }) => {
+              if (result.success) {
+                setDetailModalFailureCounts({
+                  qa: result.qa_fail_count ?? 0,
+                  hitl: result.hitl_fail_count ?? 0,
+                })
+              }
+            })
+            .catch(() => {
+              // Silently fail - failure counts are optional
+              setDetailModalFailureCounts(null)
+            })
+        }
       }
       return
     }
@@ -1864,55 +1784,62 @@ function App() {
         }
         setDetailModalBody(normalized)
         
-        // Fetch artifacts (0082)
-        setDetailModalArtifactsLoading(true)
-        setDetailModalArtifactsStatus('Loading…')
-        fetchTicketArtifacts(ticketId).then((artifacts) => {
-          setDetailModalArtifacts(artifacts)
-          setDetailModalArtifactsStatus(artifacts.length > 0 ? `Loaded ${artifacts.length}` : 'No artifacts')
-          setDetailModalArtifactsLoading(false)
-        }).catch((e) => {
-          setDetailModalArtifacts([])
-          setDetailModalArtifactsStatus(`Error: ${e instanceof Error ? e.message : String(e)}`)
-          setDetailModalArtifactsLoading(false)
-        })
-        
-        // Fetch attachments (0092)
-        setDetailModalAttachmentsLoading(true)
-        fetchTicketAttachments(row.id).then((attachments) => {
-          setDetailModalAttachments(attachments)
-          setDetailModalAttachmentsLoading(false)
-        }).catch(() => {
-          setDetailModalAttachments([])
-          setDetailModalAttachmentsLoading(false)
-        })
-        
-        // Fetch failure counts (0195)
-        const url = supabaseProjectUrl.trim()
-        const key = supabaseAnonKey.trim()
-        if (url && key) {
-          fetch('/api/tickets/check-failure-escalation', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              ticketPk: ticketId,
-              supabaseUrl: url,
-              supabaseAnonKey: key,
-            }),
+        // Only fetch artifacts if ticket ID changed or retry was triggered
+        if (shouldFetchArtifacts) {
+          // Fetch artifacts (0082)
+          setDetailModalArtifactsLoading(true)
+          setDetailModalArtifactsStatus('Loading…')
+          fetchTicketArtifacts(ticketId).then((artifacts) => {
+            setDetailModalArtifacts(artifacts)
+            setDetailModalArtifactsStatus(artifacts.length > 0 ? `Loaded ${artifacts.length}` : 'No artifacts')
+            setDetailModalArtifactsLoading(false)
+          }).catch((e) => {
+            setDetailModalArtifacts([])
+            setDetailModalArtifactsStatus(`Error: ${e instanceof Error ? e.message : String(e)}`)
+            setDetailModalArtifactsLoading(false)
           })
-            .then((r) => r.json())
-            .then((result: { success?: boolean; qa_fail_count?: number; hitl_fail_count?: number }) => {
-              if (result.success) {
-                setDetailModalFailureCounts({
-                  qa: result.qa_fail_count ?? 0,
-                  hitl: result.hitl_fail_count ?? 0,
-                })
-              }
+        }
+        
+        // Fetch attachments (0092) - only on ticket change, not on every supabaseTickets update
+        if (shouldFetchArtifacts) {
+          setDetailModalAttachmentsLoading(true)
+          fetchTicketAttachments(row.id).then((attachments) => {
+            setDetailModalAttachments(attachments)
+            setDetailModalAttachmentsLoading(false)
+          }).catch(() => {
+            setDetailModalAttachments([])
+            setDetailModalAttachmentsLoading(false)
+          })
+        }
+        
+        // Fetch failure counts (0195) - only on ticket change, not on every supabaseTickets update
+        if (shouldFetchArtifacts) {
+          const url = supabaseProjectUrl.trim()
+          const key = supabaseAnonKey.trim()
+          if (url && key) {
+            fetch('/api/tickets/check-failure-escalation', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                ticketPk: ticketId,
+                supabaseUrl: url,
+                supabaseAnonKey: key,
+              }),
             })
-            .catch(() => {
-              // Silently fail - failure counts are optional
-              setDetailModalFailureCounts(null)
-            })
+              .then((r) => r.json())
+              .then((result: { success?: boolean; qa_fail_count?: number; hitl_fail_count?: number }) => {
+                if (result.success) {
+                  setDetailModalFailureCounts({
+                    qa: result.qa_fail_count ?? 0,
+                    hitl: result.hitl_fail_count ?? 0,
+                  })
+                }
+              })
+              .catch(() => {
+                // Silently fail - failure counts are optional
+                setDetailModalFailureCounts(null)
+              })
+          }
         }
       } else {
         setDetailModalBody('')
@@ -1937,6 +1864,8 @@ function App() {
       setDetailModalAttachmentsLoading(false)
     }
   }, [detailModal, halCtx, sourceTickets, supabaseBoardActive, supabaseTickets, supabaseProjectUrl, supabaseAnonKey, detailModalRetryTrigger, addLog, fetchTicketArtifacts, fetchTicketAttachments])
+  // Note: supabaseTickets and sourceTickets are in dependencies to read ticket data,
+  // but artifacts are only fetched when ticketId changes (tracked via lastFetchedTicketIdRef)
 
   /** Re-run artifact fetch for the currently open ticket (library or Supabase mode). */
   const refreshDetailModalArtifacts = useCallback(() => {

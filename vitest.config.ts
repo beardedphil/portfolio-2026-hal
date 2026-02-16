@@ -23,6 +23,7 @@ export default defineConfig(({ mode }) => {
         '**/node_modules/**',
         '**/dist/**',
         '**/api/artifacts/insert-*.test.ts', // Integration tests requiring Supabase
+        '**/.test-backup/**', // Backup test files that should not be run
       ],
       // Pass env vars to test environment (for tests that need them)
       env: {

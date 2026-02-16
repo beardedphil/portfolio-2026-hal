@@ -276,6 +276,10 @@ h1 {
   gap: 0.5rem;
   position: relative;
 }
+/* 0676: Elevate card z-index when it contains a visible tooltip to ensure tooltip renders above neighboring cards */
+.active-work-item:has(.active-work-status-indicator-wrapper.active-work-status-tooltip-visible) {
+  z-index: 10002;
+}
 .active-work-item:hover {
   background: var(--kanban-surface);
   border-color: var(--kanban-primary);
@@ -335,6 +339,11 @@ h1 {
   position: relative;
   display: inline-block;
 }
+/* 0676: When tooltip is visible, elevate wrapper z-index to ensure tooltip renders above neighboring Active Work cards */
+.active-work-status-indicator-wrapper.active-work-status-tooltip-visible {
+  z-index: 10001;
+  position: relative;
+}
 .active-work-status-indicator {
   display: flex;
   align-items: center;
@@ -378,9 +387,10 @@ h1 {
 }
 
 /* Status tooltip (0203) - mirrors agent-chat status style */
+/* 0676: High z-index ensures tooltip renders above neighboring Active Work cards */
 .active-work-status-tooltip {
   position: absolute;
-  z-index: 1000;
+  z-index: 10000;
   left: 0;
   top: 100%;
   margin-top: 4px;

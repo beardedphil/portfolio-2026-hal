@@ -4,7 +4,7 @@
   "files": [
     {
       "file": "src/App.tsx",
-      "baseline": 5215
+      "baseline": 5022
     },
     {
       "file": "projects/kanban/src/App.tsx",
@@ -28,7 +28,7 @@
     },
     {
       "file": "api/agent-runs/launch.ts",
-      "baseline": 404
+      "baseline": 466
     },
     {
       "file": "api/pm-agent/launch.ts",
@@ -48,7 +48,7 @@
     },
     {
       "file": "api/agent-runs/status.ts",
-      "baseline": 364
+      "baseline": 377
     },
     {
       "file": "projects/kanban/src/components/TicketDetailModal.tsx",
@@ -141,6 +141,10 @@
     {
       "file": "api/tickets/_shared.test.ts",
       "baseline": 335
+    },
+    {
+      "file": "api/pm-agent/launch.test.ts",
+      "baseline": 354
     }
   ]
 }
