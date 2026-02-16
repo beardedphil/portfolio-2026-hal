@@ -19,6 +19,7 @@ import { PromptModal } from './components/PromptModal'
 import { ProcessReviewRecommendationsModal } from './components/ProcessReviewRecommendationsModal'
 import { HalHeader } from './components/HalHeader'
 import { KanbanErrorBanner } from './components/KanbanErrorBanner'
+import { PmChatWidgetButton } from './components/PmChatWidgetButton'
 import {
   routeKanbanWorkButtonClick,
   type KanbanWorkButtonPayload,
@@ -31,6 +32,8 @@ import { useKanban } from './hooks/useKanban'
 import { useConversations } from './hooks/useConversations'
 import { useAgentRuns } from './hooks/useAgentRuns'
 import { useMessageManagement } from './hooks/useMessageManagement'
+import { useConversationPersistence } from './hooks/useConversationPersistence'
+import { useTicketOperations } from './hooks/useTicketOperations'
 import { extractTicketId, formatTicketId } from './lib/ticketOperations'
 
 const KanbanBoard = Kanban.default
@@ -786,152 +789,23 @@ function App() {
     return () => transcript.removeEventListener('scroll', handleScroll)
   }, [selectedConversationId, selectedChatTarget, conversations, loadOlderMessages, loadingOlderMessages])
 
-  // Persist conversations to Supabase (0124: save ALL conversations to Supabase when connected, fallback to localStorage)
-  // 0097: ALWAYS save to localStorage as backup, even when Supabase is available, to ensure conversations persist across disconnect/reconnect
-  useEffect(() => {
-    if (!connectedProject) return
-    const useSupabase = supabaseUrl != null && supabaseAnonKey != null
-    
-    // ALWAYS save to localStorage first (synchronously) as backup (0097: ensure conversations persist even if Supabase fails or is slow)
-    const localStorageResult = saveConversationsToStorage(connectedProject, conversations)
-    if (!localStorageResult.success && localStorageResult.error) {
-      setPersistenceError(localStorageResult.error)
-    }
-    
-    // Also save to Supabase if available (async, for cross-device persistence)
-    if (useSupabase) {
-      // Save ALL conversations to Supabase (0124)
-      ;(async () => {
-        try {
-          const supabase = getSupabaseClient(supabaseUrl!, supabaseAnonKey!)
-          
-          // For each conversation, save new messages that aren't yet in Supabase
-          for (const [convId, conv] of conversations.entries()) {
-            const currentMaxSeq = agentSequenceRefs.current.get(convId) ?? 0
-            
-            // Find messages that need to be saved (sequence > currentMaxSeq)
-            // Filter out system messages - they are ephemeral and use fractional IDs that can't be stored as integers
-            const messagesToSave = conv.messages.filter(msg => msg.id > currentMaxSeq && msg.agent !== 'system')
-            
-            if (messagesToSave.length > 0) {
-              // Insert new messages into Supabase
-              const inserts = messagesToSave.map(msg => ({
-                project_id: connectedProject,
-                agent: convId, // Use conversation ID as agent field (e.g., "project-manager-1", "implementation-agent-2")
-                role: msg.agent === 'user' ? 'user' : (msg.agent === 'system' ? 'system' : 'assistant'),
-                content: msg.content,
-                sequence: msg.id,
-                created_at: msg.timestamp.toISOString(),
-                images: msg.imageAttachments ? msg.imageAttachments.map(img => ({
-                  dataUrl: img.dataUrl,
-                  filename: img.filename,
-                  mimeType: img.file?.type || 'image/png',
-                })) : null,
-              }))
-              
-              const { error } = await supabase.from('hal_conversation_messages').insert(inserts)
-              
-              if (error) {
-                console.error(`[HAL] Failed to save messages for conversation ${convId}:`, error)
-                // Don't overwrite localStorage error if it exists, but show Supabase error
-                setPersistenceError((prev) => prev || `DB: ${error.message}`)
-              } else {
-                // Update max sequence for this conversation
-                const newMaxSeq = Math.max(...messagesToSave.map(m => m.id), currentMaxSeq)
-                agentSequenceRefs.current.set(convId, newMaxSeq)
-                
-                // Backward compatibility: update pmMaxSequenceRef for PM conversations
-                if (conv.agentRole === 'project-manager' && conv.instanceNumber === 1) {
-                  pmMaxSequenceRef.current = newMaxSeq
-                }
-                
-                // Clear error only if localStorage save succeeded
-                if (localStorageResult.success) {
-                  setPersistenceError(null)
-                }
-              }
-            }
-          }
-        } catch (err) {
-          const errMsg = err instanceof Error ? err.message : String(err)
-          console.error('[HAL] Error persisting conversations to Supabase:', err)
-          // Don't overwrite localStorage error if it exists, but show Supabase error
-          setPersistenceError((prev) => prev || `DB: ${errMsg}`)
-        }
-      })()
-    } else {
-      // No Supabase: localStorage save already done above, just clear error if successful
-      if (localStorageResult.success) {
-        setPersistenceError(null)
-      }
-    }
-  }, [conversations, connectedProject, supabaseUrl, supabaseAnonKey])
+  // Conversation persistence via custom hook
+  useConversationPersistence({
+    conversations,
+    connectedProject,
+    supabaseUrl,
+    supabaseAnonKey,
+    agentSequenceRefs,
+    pmMaxSequenceRef,
+    setPersistenceError,
+  })
 
-  /** Add auto-move diagnostic entry (0061). */
-  const addAutoMoveDiagnostic = useCallback((message: string, type: 'error' | 'info' = 'error') => {
-    setAutoMoveDiagnostics((prev) => [...prev, { timestamp: new Date(), message, type }])
-  }, [])
-
-  // extractTicketId is now imported from ./lib/ticketOperations
-
-  /** Move ticket to next column via Supabase (0061). */
-  const moveTicketToColumn = useCallback(
-    async (ticketId: string, targetColumnId: string, agentType: 'implementation' | 'qa'): Promise<{ success: boolean; error?: string }> => {
-      if (!supabaseUrl || !supabaseAnonKey) {
-        const error = `Cannot move ticket ${ticketId}: Supabase credentials not available. Connect project folder to enable auto-move.`
-        addAutoMoveDiagnostic(error, 'error')
-        return { success: false, error }
-      }
-
-      try {
-        const supabase = getSupabaseClient(supabaseUrl, supabaseAnonKey)
-
-        // Get max position in target column
-        const { data: inColumn, error: fetchErr } = await supabase
-          .from('tickets')
-          .select('kanban_position')
-          .eq('kanban_column_id', targetColumnId)
-          .order('kanban_position', { ascending: false })
-          .limit(1)
-
-        if (fetchErr) {
-          const error = `Failed to fetch tickets in target column ${targetColumnId} for ticket ${ticketId}: ${fetchErr.message}`
-          addAutoMoveDiagnostic(error, 'error')
-          return { success: false, error }
-        }
-
-        const nextPosition = inColumn?.length ? ((inColumn[0]?.kanban_position ?? -1) + 1) : 0
-        const movedAt = new Date().toISOString()
-
-        // Update ticket column
-        const { error: updateErr } = await supabase
-          .from('tickets')
-          .update({
-            kanban_column_id: targetColumnId,
-            kanban_position: nextPosition,
-            kanban_moved_at: movedAt,
-          })
-          .eq('id', ticketId)
-
-        if (updateErr) {
-          const error = `Failed to move ticket ${ticketId} to ${targetColumnId}: ${updateErr.message}`
-          addAutoMoveDiagnostic(error, 'error')
-          return { success: false, error }
-        }
-
-        // Note: sync-tickets is handled by the backend when tickets are moved via the agent endpoints
-        // This frontend move is a fallback/automatic move, so we rely on the Kanban board's polling to reflect the change
-        const info = `${agentType === 'implementation' ? 'Implementation' : 'QA'} Agent: Moved ticket ${ticketId} to ${targetColumnId}`
-        addAutoMoveDiagnostic(info, 'info')
-        return { success: true }
-      } catch (err) {
-        const error = `Failed to move ticket ${ticketId} to ${targetColumnId}: ${err instanceof Error ? err.message : String(err)}`
-        addAutoMoveDiagnostic(error, 'error')
-        return { success: false, error }
-      }
-    },
-    [supabaseUrl, supabaseAnonKey, addAutoMoveDiagnostic]
-  )
+  // Ticket operations via custom hook
+  const { moveTicketToColumn, addAutoMoveDiagnostic } = useTicketOperations({
+    supabaseUrl,
+    supabaseAnonKey,
+    setAutoMoveDiagnostics,
+  })
 
   // getOrCreateConversation and getDefaultConversationId are now provided by useConversations hook
 
@@ -1580,21 +1454,13 @@ function App() {
         {connectedProject && (
           <>
             {!pmChatWidgetOpen && (
-              <button
-                type="button"
-                className="pm-chat-widget-button btn-standard"
+              <PmChatWidgetButton
                 onClick={() => {
                   setPmChatWidgetOpen(true)
                   setSelectedChatTarget('project-manager')
                   setSelectedConversationId(null)
                 }}
-                aria-label="Open PM chat"
-                title="Open PM chat"
-              >
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-                </svg>
-              </button>
+              />
             )}
             {pmChatWidgetOpen && (
               <PmChatWidget
