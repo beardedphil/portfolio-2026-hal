@@ -167,7 +167,7 @@ function addConversationSection(
   config: PmAgentConfig
 ): boolean {
   if (hasNonEmptyString(config.conversationContextPack)) {
-    sections.push('## Conversation so far\n\n' + config.conversationContextPack.trim())
+    sections.push('## Conversation so far\n\n' + (config.conversationContextPack ?? '').trim())
     return true
   }
 
@@ -279,7 +279,7 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
 
   // Working Memory (0173: PM working memory) - include before conversation context
   if (hasNonEmptyString(config.workingMemoryText)) {
-    sections.push(config.workingMemoryText.trim())
+    sections.push((config.workingMemoryText ?? '').trim())
   }
 
   // Conversation so far: pre-built context pack (e.g. summary + recent from DB) or bounded history
