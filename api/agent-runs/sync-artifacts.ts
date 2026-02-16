@@ -6,23 +6,10 @@ import {
   upsertArtifact,
   buildWorklogBodyFromProgress,
   type ProgressEntry,
+  readJsonBody,
+  json,
+  validateMethod,
 } from './_shared.js'
-
-async function readJsonBody(req: IncomingMessage): Promise<unknown> {
-  const chunks: Uint8Array[] = []
-  for await (const chunk of req) {
-    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk)
-  }
-  const raw = Buffer.concat(chunks).toString('utf8').trim()
-  if (!raw) return {}
-  return JSON.parse(raw) as unknown
-}
-
-function json(res: ServerResponse, statusCode: number, body: unknown) {
-  res.statusCode = statusCode
-  res.setHeader('Content-Type', 'application/json')
-  res.end(JSON.stringify(body))
-}
 
 /**
  * POST /api/agent-runs/sync-artifacts
@@ -32,9 +19,7 @@ function json(res: ServerResponse, statusCode: number, body: unknown) {
  * Use when the poll path didn't write (e.g. run already finished before deploy).
  */
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
-  if (req.method !== 'POST') {
-    res.statusCode = 405
-    res.end('Method Not Allowed')
+  if (!validateMethod(req, res, 'POST')) {
     return
   }
 

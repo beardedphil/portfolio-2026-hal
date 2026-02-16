@@ -9,6 +9,57 @@ import { hasSubstantiveContent } from '../artifacts/_validation.js'
 
 export type AgentType = 'implementation' | 'qa'
 
+/**
+ * Reads and parses JSON body from an HTTP request.
+ * Returns empty object if body is empty.
+ */
+export async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+  const chunks: Uint8Array[] = []
+  for await (const chunk of req) {
+    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk)
+  }
+  const raw = Buffer.concat(chunks).toString('utf8').trim()
+  if (!raw) return {}
+  return JSON.parse(raw) as unknown
+}
+
+/**
+ * Sends a JSON response with the specified status code.
+ */
+export function json(res: ServerResponse, statusCode: number, body: unknown): void {
+  res.statusCode = statusCode
+  res.setHeader('Content-Type', 'application/json')
+  res.end(JSON.stringify(body))
+}
+
+/**
+ * Validates HTTP method and sends 405 Method Not Allowed if invalid.
+ * Returns true if method is valid, false if 405 was sent.
+ */
+export function validateMethod(
+  req: IncomingMessage,
+  res: ServerResponse,
+  allowedMethod: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH'
+): boolean {
+  if (req.method !== allowedMethod) {
+    res.statusCode = 405
+    res.end('Method Not Allowed')
+    return false
+  }
+  return true
+}
+
+/** Get query parameter from request URL. Returns null if not found or URL is invalid. */
+export function getQueryParam(req: IncomingMessage, name: string): string | null {
+  try {
+    const url = new URL(req.url ?? '', 'http://localhost')
+    const v = url.searchParams.get(name)
+    return v ? v : null
+  } catch {
+    return null
+  }
+}
+
 export function getServerSupabase() {
   const url = process.env.SUPABASE_URL?.trim() || process.env.VITE_SUPABASE_URL?.trim()
   const key =

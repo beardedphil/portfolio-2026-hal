@@ -11,24 +11,15 @@ import {
   appendProgress,
   upsertArtifact,
   buildWorklogBodyFromProgress,
+  getQueryParam,
   json,
+  validateMethod,
   type ProgressEntry,
 } from './_shared.js'
 
 type AgentType = 'implementation' | 'qa' | 'project-manager' | 'process-review'
 
 const MAX_RUN_SUMMARY_CHARS = 20_000
-
-function getQueryParam(req: IncomingMessage, name: string): string | null {
-  try {
-    const url = new URL(req.url ?? '', 'http://localhost')
-    const v = url.searchParams.get(name)
-    return v ? v : null
-  } catch {
-    return null
-  }
-}
-
 function capText(input: string, maxChars: number): string {
   if (input.length <= maxChars) return input
   return `${input.slice(0, maxChars)}\n\n[truncated]`
@@ -53,9 +44,7 @@ function getLastAssistantMessage(conversationText: string): string | null {
 }
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
-  if (req.method !== 'GET') {
-    res.statusCode = 405
-    res.end('Method Not Allowed')
+  if (!validateMethod(req, res, 'GET')) {
     return
   }
 
@@ -280,8 +269,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
       // When finished: move ticket to QA and upsert full artifact set (plan, changed-files, etc.) from PR when available
       // Note: 'completed' is the new status (replaces 'finished') (0690)
-      // Check for both 'finished' and 'completed' for backward compatibility
-      if (nextStatus === 'completed' || nextStatus === 'finished') {
+      if (nextStatus === 'completed') {
         try {
           const { data: inColumn } = await supabase
             .from('tickets')
