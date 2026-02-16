@@ -40,6 +40,10 @@ import { AutoDismissMessage } from './components/AutoDismissMessage'
 import { SortableColumn } from './components/SortableColumn'
 import { ArtifactReportViewer } from './components/ArtifactReportViewer'
 import { DroppableActiveWorkRow } from './components/DroppableActiveWorkRow'
+import { AppHeader } from './components/AppHeader'
+import { AddColumnForm } from './components/AddColumnForm'
+import { DebugPanel } from './components/DebugPanel'
+import { NewHalProjectWizard } from './components/NewHalProjectWizard'
 import type { Card, Column } from './lib/columnTypes'
 import type { LogEntry, SupabaseTicketRow, SupabaseAgentArtifactRow, SupabaseAgentRunRow, TicketAttachment } from './App.types'
 import { SUPABASE_CONFIG_KEY, CONNECTED_REPO_KEY, SUPABASE_POLL_INTERVAL_MS, REFETCH_AFTER_MOVE_MS, EMPTY_KANBAN_COLUMNS, DEFAULT_KANBAN_COLUMNS_SEED, _SUPABASE_KANBAN_COLUMNS_SETUP_SQL, DEFAULT_COLUMNS, INITIAL_CARDS, _SUPABASE_SETUP_SQL, _SUPABASE_TICKET_ATTACHMENTS_SETUP_SQL } from './App.constants'
@@ -2388,59 +2392,24 @@ function App() {
 
   return (
     <>
-      {/* Hide title and header when embedded in HAL */}
-      {!isEmbedded && (
-        <>
-          <h1>Portfolio 2026</h1>
-          <p className="subtitle">Project Zero: Kanban</p>
-
-          <header className="app-header-bar" aria-label="Project connection">
-            {!projectFolderHandle ? (
-              <button
-                type="button"
-                className="connect-project-btn"
-                onClick={handleConnectProjectFolder}
-              >
-                Connect Project Folder
-              </button>
-            ) : (
-              <div className="project-info">
-                <span className="project-name">{projectName}</span>
-                <button
-                  type="button"
-                  className="disconnect-btn"
-                  onClick={() => {
-                    setProjectFolderHandle(null)
-                    setProjectName(null)
-                    setSupabaseConnectionStatus('disconnected')
-                    setSupabaseTickets([])
-                    setSupabaseColumnsRows([])
-                  }}
-                >
-                  Disconnect
-                </button>
-              </div>
-            )}
-            <button
-              type="button"
-              className="new-hal-project-btn"
-              onClick={() => {
-                setNewHalWizardOpen(true)
-                setNewHalReport(null)
-              }}
-            >
-              New HAL project
-            </button>
-            <p className="connection-status" data-status={supabaseConnectionStatus} aria-live="polite">
-              {supabaseConnectionStatus === 'connecting'
-                ? 'Connecting…'
-                : supabaseConnectionStatus === 'connected'
-                  ? 'Connected'
-                  : 'Disconnected'}
-            </p>
-          </header>
-        </>
-      )}
+      <AppHeader
+        isEmbedded={isEmbedded}
+        projectFolderHandle={projectFolderHandle}
+        projectName={projectName}
+        supabaseConnectionStatus={supabaseConnectionStatus}
+        onConnectProjectFolder={handleConnectProjectFolder}
+        onDisconnect={() => {
+          setProjectFolderHandle(null)
+          setProjectName(null)
+          setSupabaseConnectionStatus('disconnected')
+          setSupabaseTickets([])
+          setSupabaseColumnsRows([])
+        }}
+        onOpenNewHalWizard={() => {
+          setNewHalWizardOpen(true)
+          setNewHalReport(null)
+        }}
+      />
 
       {connectError && (
         <div className="config-missing-error" role="alert">
@@ -2845,34 +2814,16 @@ ${notes || '(none provided)'}
                 Add column
               </button>
               {showAddColumnForm && (
-                <div className="add-column-form" role="form" aria-label="Add column form">
-                  <input
-                    type="text"
-                    value={newColumnTitle}
-                    onChange={(e) => {
-                      setNewColumnTitle(e.target.value)
-                      setAddColumnError(null)
-                    }}
-                    placeholder="Column name"
-                    autoFocus
-                    aria-label="Column name"
-                    aria-invalid={!!addColumnError}
-                    aria-describedby={addColumnError ? 'add-column-error' : undefined}
-                  />
-                  {addColumnError && (
-                    <p id="add-column-error" className="add-column-error" role="alert">
-                      {addColumnError}
-                    </p>
-                  )}
-                  <div className="form-actions">
-                    <button type="button" onClick={handleCreateColumn}>
-                      Create
-                    </button>
-                    <button type="button" onClick={handleCancelAddColumn}>
-                      Cancel
-                    </button>
-                  </div>
-                </div>
+                <AddColumnForm
+                  newColumnTitle={newColumnTitle}
+                  addColumnError={addColumnError}
+                  onTitleChange={(title) => {
+                    setNewColumnTitle(title)
+                    setAddColumnError(null)
+                  }}
+                  onCreate={handleCreateColumn}
+                  onCancel={handleCancelAddColumn}
+                />
               )}
             </>
           )}
@@ -2940,94 +2891,29 @@ ${notes || '(none provided)'}
       )}
 
       {debugOpen && (
-        <div className="debug-panel" role="region" aria-label="Debug panel">
-          <section>
-            <h3>Build info</h3>
-            <div className="build-info">
-              Mode: {import.meta.env.MODE ?? 'unknown'}
-            </div>
-          </section>
-          <section>
-            <h3>Kanban state</h3>
-            <div className="build-info">
-              <p className="kanban-summary">Column count: {columnsForDisplay.length}</p>
-              <p className="kanban-column-order">
-                Column order: {columnOrderDisplay}
-              </p>
-              <p className="kanban-cards-per-column">
-                Cards per column: {kanbanCardsDisplay}
-              </p>
-            </div>
-          </section>
-          <section>
-            <h3>Ticket Store (Supabase-only)</h3>
-            <div className="build-info">
-              <p className="debug-mode-indicator" role="status">
-                Mode: <strong>Supabase-only</strong> (file system mode removed in 0065)
-              </p>
-              {supabaseConfigMissing && (
-                <p className="debug-env-missing" role="alert">
-                  <strong>Error:</strong> Missing env: {[!envUrl && 'VITE_SUPABASE_URL', !envKey && 'VITE_SUPABASE_ANON_KEY'].filter(Boolean).join(', ') || 'none'}
-                </p>
-              )}
-              <p>Connected: {String(supabaseConnectionStatus === 'connected')}</p>
-              <p>Project URL present: {String(!!supabaseProjectUrl.trim())}</p>
-              <p>Polling: {supabaseBoardActive ? `${SUPABASE_POLL_INTERVAL_MS / 1000}s` : 'off'}</p>
-              <p>Last tickets refresh: {supabaseLastRefresh ? supabaseLastRefresh.toLocaleTimeString() : 'never'}</p>
-              <p>Last poll error: {supabaseLastError ?? 'none'}</p>
-              {/* Ticket persistence status (0047) */}
-              {lastMovePersisted ? (
-                <p className={lastMovePersisted.success ? 'debug-success' : 'debug-error'}>
-                  Last move {lastMovePersisted.success ? 'persisted' : 'failed'}: ticket {lastMovePersisted.ticketId} at {lastMovePersisted.timestamp.toLocaleTimeString()}
-                  {lastMovePersisted.error && ` - ${lastMovePersisted.error}`}
-                </p>
-              ) : (
-                <p>Last move persisted/failed: none</p>
-              )}
-              {pendingMoves.size > 0 && (
-                <p className="debug-warning">
-                  Pending moves: {Array.from(pendingMoves).join(', ')}
-                </p>
-              )}
-              {supabaseBoardActive && (
-                <>
-                  <p>Columns source: Supabase</p>
-                  <p>Column count: {supabaseColumnsRows.length}</p>
-                  <p>Last columns refresh: {supabaseColumnsLastRefresh ? supabaseColumnsLastRefresh.toISOString() : 'never'}</p>
-                  <p>Last columns error: {supabaseColumnsLastError ?? 'none'}</p>
-                  {supabaseUnknownColumnTicketIds.length > 0 && (
-                    <p className="debug-unknown-columns" role="status">
-                      Tickets with unknown column (moved to first): {supabaseUnknownColumnTicketIds.join(', ')}
-                    </p>
-                  )}
-                </>
-              )}
-              <p className="kanban-column-ticket-ids">Per-column ticket IDs: {kanbanColumnTicketIdsDisplay}</p>
-            </div>
-          </section>
-          {/* File system mode removed (0065): selectedTicketPath debug section removed */}
-          <section>
-            <h3>Action Log</h3>
-            <p className="action-log-summary">Total actions: {actionLog.length}</p>
-            <ul>
-              {actionLog.length === 0 ? (
-                <li>No actions yet.</li>
-              ) : (
-                actionLog.map((e) => (
-                  <li key={e.id}>
-                    [{e.at}] {e.message}
-                  </li>
-                ))
-              )}
-            </ul>
-          </section>
-          <section>
-            <h3>Errors</h3>
-            <div className={`error-section ${runtimeError ? '' : 'empty'}`}>
-              {runtimeError ?? 'No errors.'}
-            </div>
-          </section>
-        </div>
+        <DebugPanel
+          columnsForDisplay={columnsForDisplay}
+          columnOrderDisplay={columnOrderDisplay}
+          kanbanCardsDisplay={kanbanCardsDisplay}
+          kanbanColumnTicketIdsDisplay={kanbanColumnTicketIdsDisplay}
+          supabaseConfigMissing={supabaseConfigMissing}
+          envUrl={envUrl}
+          envKey={envKey}
+          supabaseConnectionStatus={supabaseConnectionStatus}
+          supabaseProjectUrl={supabaseProjectUrl}
+          supabaseBoardActive={supabaseBoardActive}
+          supabaseLastRefresh={supabaseLastRefresh}
+          supabaseLastError={supabaseLastError}
+          lastMovePersisted={lastMovePersisted}
+          pendingMoves={pendingMoves}
+          supabaseBoardActiveForColumns={supabaseBoardActive}
+          supabaseColumnsRows={supabaseColumnsRows}
+          supabaseColumnsLastRefresh={supabaseColumnsLastRefresh}
+          supabaseColumnsLastError={supabaseColumnsLastError}
+          supabaseUnknownColumnTicketIds={supabaseUnknownColumnTicketIds}
+          actionLog={actionLog}
+          runtimeError={runtimeError}
+        />
       )}
     </>
   )
