@@ -34,7 +34,7 @@ export function getAgentWorkflowSteps(agentType: AgentType): Array<WorkflowStep>
     return [
       { id: 'preparing', label: 'Preparing' },
       { id: 'fetching_ticket', label: 'Fetching ticket' },
-      { id: 'resolving_repo', label: 'Resolving repo' },
+      { id: 'resolving_repo', label: 'Resolving repository' },
       { id: 'launching', label: 'Launching agent' },
       { id: 'polling', label: 'Running' },
       { id: 'completed', label: 'Completed' },
@@ -44,20 +44,34 @@ export function getAgentWorkflowSteps(agentType: AgentType): Array<WorkflowStep>
 }
 
 /**
- * Map database status to workflow step ID
+ * Map database status or current_stage to workflow step ID (0690)
  * 
- * Database has: 'created' | 'launching' | 'polling' | 'finished' | 'failed'
+ * Database status has: 'created' | 'launching' | 'polling' | 'finished' | 'failed'
+ * current_stage has: 'preparing' | 'fetching_ticket' | 'resolving_repo' | 'fetching_branch' | 'launching' | 'running' | 'reviewing' | 'completed' | 'failed'
  */
-export function mapStatusToStepId(status: string, agentType: AgentType): string {
-  // Map database statuses to workflow steps
-  // Database has: 'created' | 'launching' | 'polling' | 'finished' | 'failed'
+export function mapStatusToStepId(status: string | null, agentType: AgentType): string {
+  if (!status) return 'preparing'
+  
+  // Handle current_stage values directly (0690)
+  const validStages = [
+    'preparing', 'fetching_ticket', 'resolving_repo', 'fetching_branch',
+    'launching', 'running', 'reviewing', 'polling',
+    'generating_report', 'merging', 'moving_ticket',
+    'completed', 'failed'
+  ]
+  if (validStages.includes(status)) {
+    // Map 'running' to 'polling' for implementation (both mean the agent is running)
+    if (status === 'running' && agentType === 'implementation') return 'polling'
+    // Map 'reviewing' to 'polling' for QA (both mean the agent is reviewing)
+    if (status === 'reviewing' && agentType === 'qa') return 'polling'
+    return status
+  }
+  
+  // Fallback: Map legacy database statuses to workflow steps
   if (status === 'failed') return 'failed'
   if (status === 'finished') return 'completed'
   
   if (agentType === 'qa') {
-    // For QA, map database status to workflow step
-    // Note: 'polling' in database could mean Reviewing, Generating report, Merging, or Moving ticket
-    // We'll show it as 'polling' (Reviewing) since that's the first polling step
     if (status === 'created') return 'fetching_ticket'
     if (status === 'launching') return 'launching'
     if (status === 'polling') return 'polling'

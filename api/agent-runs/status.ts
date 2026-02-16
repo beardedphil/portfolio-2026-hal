@@ -81,7 +81,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const supabase = getServerSupabase()
     const { data: run, error: runErr } = await supabase
       .from('hal_agent_runs')
-      .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, cursor_agent_id, cursor_status, pr_url, summary, error, status, progress')
+      .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, cursor_agent_id, cursor_status, pr_url, summary, error, status, current_stage, progress')
       .eq('run_id', runId)
       .maybeSingle()
 
@@ -128,7 +128,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       const nextProgress = appendProgress((run as any).progress, `Poll failed: ${msg}`)
       await supabase
         .from('hal_agent_runs')
-        .update({ status: 'failed', error: msg, progress: nextProgress, finished_at: new Date().toISOString() })
+        .update({ status: 'failed', current_stage: 'failed', error: msg, progress: nextProgress, finished_at: new Date().toISOString() })
         .eq('run_id', runId)
       json(res, 200, { ...(run as any), status: 'failed', error: msg, progress: nextProgress })
       return
@@ -142,7 +142,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       const nextProgress = appendProgress((run as any).progress, msg)
       await supabase
         .from('hal_agent_runs')
-        .update({ status: 'failed', error: msg, progress: nextProgress, finished_at: new Date().toISOString() })
+        .update({ status: 'failed', current_stage: 'failed', error: msg, progress: nextProgress, finished_at: new Date().toISOString() })
         .eq('run_id', runId)
       json(res, 200, { ...(run as any), status: 'failed', error: msg, progress: nextProgress })
       return
@@ -152,7 +152,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const repoFullName = (run as any).repo_full_name as string
     const ticketPk = (run as any).ticket_pk as string | null
     const displayId = ((run as any).display_id as string) ?? ''
+    const agentType = (run as any).agent_type as AgentType
     let nextStatus = 'polling'
+    let nextStage: string | null = null
     let summary: string | null = null
     let prUrl: string | null = (run as any).pr_url ?? null
     let errMsg: string | null = null
@@ -162,6 +164,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     if (cursorStatus === 'FINISHED') {
       nextStatus = 'finished'
+      nextStage = 'completed'
       summary = statusData.summary ?? null
       prUrl = statusData.target?.prUrl ?? statusData.target?.pr_url ?? prUrl
       const repo = (run as any).repo_full_name as string
@@ -239,8 +242,16 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       }
     } else if (cursorStatus === 'FAILED' || cursorStatus === 'CANCELLED' || cursorStatus === 'ERROR') {
       nextStatus = 'failed'
+      nextStage = 'failed'
       errMsg = statusData.summary ?? `Agent ended with status ${cursorStatus}.`
       finishedAt = new Date().toISOString()
+    } else {
+      // While polling, keep current stage (running for implementation, reviewing for QA)
+      // Don't update stage if it's already set to a valid polling stage
+      const currentStage = (run as any).current_stage as string | null
+      if (!currentStage || (currentStage !== 'running' && currentStage !== 'reviewing')) {
+        nextStage = agentType === 'implementation' ? 'running' : 'reviewing'
+      }
     }
 
     const progress = appendProgress((run as any).progress, `Status: ${cursorStatus}`) as ProgressEntry[]
@@ -335,6 +346,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       .update({
         cursor_status: cursorStatus,
         status: nextStatus,
+        ...(nextStage != null ? { current_stage: nextStage } : {}),
         ...(summary != null ? { summary } : {}),
         ...(prUrl != null ? { pr_url: prUrl } : {}),
         ...(errMsg != null ? { error: errMsg } : {}),
@@ -342,7 +354,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         ...(finishedAt ? { finished_at: finishedAt } : {}),
       })
       .eq('run_id', runId)
-      .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, cursor_agent_id, cursor_status, pr_url, summary, error, status, progress, created_at, updated_at, finished_at')
+      .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, cursor_agent_id, cursor_status, pr_url, summary, error, status, current_stage, progress, created_at, updated_at, finished_at')
       .maybeSingle()
 
     if (updErr) {

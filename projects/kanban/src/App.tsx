@@ -100,6 +100,7 @@ type SupabaseAgentRunRow = {
   ticket_number: number | null
   display_id: string | null
   status: 'created' | 'launching' | 'polling' | 'finished' | 'failed'
+  current_stage: string | null
   created_at: string
   updated_at: string
 }
@@ -825,8 +826,8 @@ function StatusIndicator({
   // Get workflow steps for this agent type
   const workflowSteps = getAgentWorkflowSteps(agentType)
   
-  // Map current status to step ID
-  const currentStepId = agentRun ? mapStatusToStepId(agentRun.status, agentType) : null
+  // Map current_stage to step ID (0690: use current_stage instead of status for detailed progression)
+  const currentStepId = agentRun ? mapStatusToStepId(agentRun.current_stage || agentRun.status, agentType) : null
   
   const showTooltip = isHovered || isFocused
 
@@ -1571,10 +1572,10 @@ function App() {
         return
       }
       const ticketPks = doingTickets.map((t) => t.pk)
-      // Fetch active agent runs (status not 'finished' or 'failed') for these tickets
+      // Fetch active agent runs (status not 'finished' or 'failed') for these tickets (0690: include current_stage)
       const { data, error } = await client
         .from('hal_agent_runs')
-        .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, status, created_at, updated_at')
+        .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, status, current_stage, created_at, updated_at')
         .eq('repo_full_name', connectedRepoFullName)
         .in('ticket_pk', ticketPks)
         .in('status', ['created', 'launching', 'polling'])
