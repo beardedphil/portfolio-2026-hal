@@ -3,6 +3,7 @@ import { getSupabaseClient } from './lib/supabase'
 import { saveConversationsToStorage, loadConversationsFromStorage, type Agent, type Message, type Conversation, type ImageAttachment } from './lib/conversationStorage'
 import { getChatWidth, setChatWidth, getChatCollapsed, setChatCollapsed } from './lib/persistedUiState'
 import { getInitialTheme, THEME_STORAGE_KEY } from './lib/metricColor'
+import { getConversationId, parseConversationId, getNextInstanceNumber, formatTime, getMessageAuthorLabel } from './lib/conversation-helpers'
 import { QAMetricsCard } from './components/QAMetricsCard'
 import type { Theme } from './types/hal'
 import * as Kanban from 'portfolio-2026-kanban'
@@ -114,31 +115,8 @@ type ConnectedGithubRepo = {
 // PM_AGENT_ID kept for reference but conversation IDs are used now (0124)
 // const PM_AGENT_ID = 'project-manager'
 
-// Generate conversation ID for an agent role and instance number (0070)
-function getConversationId(agentRole: Agent, instanceNumber: number): string {
-  return `${agentRole}-${instanceNumber}`
-}
-
-// Parse conversation ID to get agent role and instance number (0070)
-function parseConversationId(conversationId: string): { agentRole: Agent; instanceNumber: number } | null {
-  const match = conversationId.match(/^(project-manager|implementation-agent|qa-agent|process-review-agent)-(\d+)$/)
-  if (!match) return null
-  return {
-    agentRole: match[1] as Agent,
-    instanceNumber: parseInt(match[2], 10),
-  }
-}
-
-// Get next instance number for an agent role (0070)
-function getNextInstanceNumber(conversations: Map<string, Conversation>, agentRole: Agent): number {
-  let maxNumber = 0
-  for (const conv of conversations.values()) {
-    if (conv.agentRole === agentRole && conv.instanceNumber > maxNumber) {
-      maxNumber = conv.instanceNumber
-    }
-  }
-  return maxNumber + 1
-}
+// Helper functions (getConversationId, parseConversationId, getNextInstanceNumber, formatTime, getMessageAuthorLabel)
+// are now imported from './lib/conversation-helpers'
 
 // saveConversationsToStorage and loadConversationsFromStorage are now imported from './lib/conversationStorage'
 
@@ -154,17 +132,6 @@ const CHAT_OPTIONS: { id: ChatTarget; label: string }[] = [
 ]
 // DEBUG: QA option should be visible
 console.log('CHAT_OPTIONS:', CHAT_OPTIONS.map(o => o.label))
-
-function formatTime(date: Date): string {
-  return date.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
-}
-
-function getMessageAuthorLabel(agent: Message['agent']): string {
-  if (agent === 'user') return 'You'
-  if (agent === 'project-manager' || agent === 'implementation-agent' || agent === 'qa-agent' || agent === 'process-review-agent') return 'HAL'
-  return 'System'
-}
-
 
 function App() {
   const [selectedChatTarget, setSelectedChatTarget] = useState<ChatTarget>('project-manager')
