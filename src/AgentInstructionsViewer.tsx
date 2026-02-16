@@ -100,7 +100,7 @@ export function AgentInstructionsViewer({
           <h3>Agent Instructions</h3>
           <button
             type="button"
-            className="conversation-modal-close"
+            className="conversation-modal-close btn-destructive"
             onClick={onClose}
             aria-label="Close instructions viewer"
           >

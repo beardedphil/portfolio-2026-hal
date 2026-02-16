@@ -2936,7 +2936,7 @@ ${notes || '(none provided)'}
             <>
               <button
                 type="button"
-                className="add-column-btn"
+                className="add-column-btn btn-standard"
                 onClick={() => {
                   setAddColumnError(null)
                   setShowAddColumnForm(true)

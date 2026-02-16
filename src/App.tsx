@@ -3129,7 +3129,7 @@ function App() {
             <div className="image-attachment-preview">
               <img src={imageAttachment.dataUrl} alt={imageAttachment.filename} className="attachment-thumbnail" />
               <span className="attachment-filename">{imageAttachment.filename}</span>
-              <button type="button" className="remove-attachment-btn" onClick={handleRemoveImage} aria-label="Remove attachment">×</button>
+              <button type="button" className="remove-attachment-btn btn-destructive" onClick={handleRemoveImage} aria-label="Remove attachment">×</button>
             </div>
           )}
           {(imageError || sendValidationError) && (
@@ -3146,7 +3146,7 @@ function App() {
               rows={2}
               aria-label="Message input"
             />
-            <label className="attach-image-btn" title="Attach image">
+            <label className="attach-image-btn btn-standard" title="Attach image">
               <input
                 type="file"
                 accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
@@ -3157,11 +3157,11 @@ function App() {
               📎
             </label>
             {showContinueButton && (
-              <button type="button" className="continue-batch-btn send-btn" onClick={handleContinueBatch} title="Continue moving the next batch of tickets">
+              <button type="button" className="continue-batch-btn send-btn btn-standard" onClick={handleContinueBatch} title="Continue moving the next batch of tickets">
                 Continue
               </button>
             )}
-            <button type="button" className="send-btn" onClick={args.onSend} disabled={!!imageError}>
+            <button type="button" className="send-btn btn-standard" onClick={args.onSend} disabled={!!imageError}>
               Send
             </button>
           </div>
@@ -3191,7 +3191,7 @@ function App() {
         </div>
         <div className="hal-header-center">
           {!connectedProject ? (
-            <button type="button" className="connect-project-btn" onClick={handleGithubConnect}>
+            <button type="button" className="connect-project-btn btn-standard" onClick={handleGithubConnect}>
               Connect GitHub Repo
             </button>
           ) : (
@@ -3209,7 +3209,7 @@ function App() {
                       </span>
                       <button
                         type="button"
-                        className="disconnect-btn"
+                        className={`disconnect-btn ${githubAuth?.authenticated ? 'btn-destructive' : 'btn-standard'}`}
                         onClick={githubAuth?.authenticated ? handleGithubDisconnect : handleGithubConnect}
                         title={githubAuth?.authenticated ? 'Sign out of GitHub' : 'Sign in with GitHub'}
                       >
@@ -3224,7 +3224,7 @@ function App() {
                       <button
                         ref={disconnectButtonRef}
                         type="button"
-                        className="disconnect-btn"
+                        className="disconnect-btn btn-destructive"
                         onClick={handleDisconnectClick}
                       >
                         Disconnect
@@ -3241,7 +3241,7 @@ function App() {
         <div className="hal-header-actions">
           <button
             type="button"
-            className="agent-instructions-btn"
+            className="agent-instructions-btn btn-standard"
             onClick={() => setAgentInstructionsOpen(true)}
             aria-label="View agent instructions"
             title="View agent instructions"
@@ -3262,7 +3262,7 @@ function App() {
           <div className="conversation-modal" onClick={(e) => e.stopPropagation()}>
             <div className="conversation-modal-header">
               <h3>Select GitHub repository</h3>
-              <button type="button" className="conversation-modal-close" onClick={() => setGithubRepoPickerOpen(false)} aria-label="Close repo picker">
+              <button type="button" className="conversation-modal-close btn-destructive" onClick={() => setGithubRepoPickerOpen(false)} aria-label="Close repo picker">
                 ×
               </button>
             </div>
@@ -3319,7 +3319,7 @@ function App() {
           <div className="conversation-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-labelledby="disconnect-confirm-title" aria-modal="true">
             <div className="conversation-modal-header">
               <h3 id="disconnect-confirm-title">Disconnect this repository?</h3>
-              <button type="button" className="conversation-modal-close" onClick={handleDisconnectCancel} aria-label="Close confirmation">
+              <button type="button" className="conversation-modal-close btn-destructive" onClick={handleDisconnectCancel} aria-label="Close confirmation">
                 ×
               </button>
             </div>
@@ -3331,33 +3331,16 @@ function App() {
                 <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
                   <button
                     type="button"
+                    className="btn-standard"
                     onClick={handleDisconnectCancel}
-                    style={{
-                      padding: '0.5rem 1rem',
-                      borderRadius: '6px',
-                      border: '1px solid var(--hal-border)',
-                      background: 'var(--hal-surface)',
-                      color: 'var(--hal-text)',
-                      cursor: 'pointer',
-                      fontSize: '0.9rem',
-                    }}
                   >
                     Cancel
                   </button>
                   <button
                     ref={disconnectConfirmButtonRef}
                     type="button"
+                    className="btn-destructive"
                     onClick={handleDisconnectConfirm}
-                    style={{
-                      padding: '0.5rem 1rem',
-                      borderRadius: '6px',
-                      border: '1px solid var(--hal-border)',
-                      background: 'var(--hal-danger, #dc3545)',
-                      color: 'white',
-                      cursor: 'pointer',
-                      fontSize: '0.9rem',
-                      fontWeight: 500,
-                    }}
                   >
                     Yes, disconnect
                   </button>
@@ -3440,7 +3423,7 @@ function App() {
             {!pmChatWidgetOpen && (
               <button
                 type="button"
-                className="pm-chat-widget-button"
+                className="pm-chat-widget-button btn-standard"
                 onClick={() => {
                   setPmChatWidgetOpen(true)
                   setSelectedChatTarget('project-manager')
@@ -3463,7 +3446,7 @@ function App() {
                   <div className="pm-chat-widget-actions">
                     <button
                       type="button"
-                      className="pm-chat-widget-fullscreen-btn"
+                      className="pm-chat-widget-fullscreen-btn btn-standard"
                       onClick={() => setPmChatWidgetFullscreen(!pmChatWidgetFullscreen)}
                       aria-label={pmChatWidgetFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
                       title={pmChatWidgetFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
@@ -3480,7 +3463,7 @@ function App() {
                     </button>
                     <button
                       type="button"
-                      className="pm-chat-widget-close-btn"
+                      className="pm-chat-widget-close-btn btn-destructive"
                       onClick={() => {
                         setPmChatWidgetOpen(false)
                         setPmChatWidgetFullscreen(false)
@@ -3518,7 +3501,7 @@ function App() {
               <h3>Sent Prompt</h3>
               <button
                 type="button"
-                className="conversation-modal-close"
+                className="conversation-modal-close btn-destructive"
                 onClick={() => setPromptModalMessage(null)}
                 aria-label="Close prompt modal"
               >
@@ -3617,7 +3600,7 @@ function App() {
               <h3>Process Review Recommendations</h3>
               <button
                 type="button"
-                className="conversation-modal-close"
+                className="conversation-modal-close btn-destructive"
                 onClick={() => {
                   setProcessReviewRecommendations(null)
                   setProcessReviewModalTicketPk(null)
@@ -3671,35 +3654,17 @@ function App() {
                     <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                       <button
                         type="button"
+                        className="btn-destructive"
                         onClick={() => handleProcessReviewIgnore(recommendation.id)}
                         disabled={recommendation.isCreating}
-                        style={{
-                          padding: '8px 16px',
-                          background: 'var(--hal-surface)',
-                          color: 'var(--hal-text)',
-                          border: '1px solid var(--hal-border)',
-                          borderRadius: '4px',
-                          cursor: recommendation.isCreating ? 'not-allowed' : 'pointer',
-                          fontSize: '14px',
-                          opacity: recommendation.isCreating ? 0.6 : 1,
-                        }}
                       >
                         Ignore
                       </button>
                       <button
                         type="button"
+                        className="btn-standard"
                         onClick={() => handleProcessReviewImplement(recommendation.id)}
                         disabled={recommendation.isCreating}
-                        style={{
-                          padding: '8px 16px',
-                          background: recommendation.isCreating ? 'var(--hal-text-muted)' : 'var(--hal-primary)',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '4px',
-                          cursor: recommendation.isCreating ? 'not-allowed' : 'pointer',
-                          fontSize: '14px',
-                          opacity: recommendation.isCreating ? 0.7 : 1,
-                        }}
                       >
                         {recommendation.isCreating ? 'Creating...' : 'Implement'}
                       </button>
