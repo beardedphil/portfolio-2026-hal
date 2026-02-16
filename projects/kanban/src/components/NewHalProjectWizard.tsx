@@ -122,10 +122,10 @@ export function NewHalProjectWizard({
         </div>
 
         <div className="modal-actions">
-          <button type="button" className="primary" onClick={onGenerateReport}>
+          <button type="button" className="primary btn-standard" onClick={onGenerateReport}>
             Generate bootstrap report
           </button>
-          <button type="button" onClick={onReset}>
+          <button type="button" className="btn-destructive" onClick={onReset}>
             Reset
           </button>
         </div>

@@ -230,16 +230,9 @@ h1 {
   border: 1px solid var(--kanban-border-muted);
 }
 .new-hal-project-btn {
+  /* Uses base .btn-standard class (0739) */
   padding: 0.35rem 0.7rem;
   font-size: 0.9rem;
-  cursor: pointer;
-  background: #333;
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-}
-.new-hal-project-btn:hover {
-  background: #555;
 }
 .config-missing-error {
   padding: 0.75rem 1rem;
@@ -1225,37 +1218,15 @@ h1 {
   margin-bottom: 1rem;
 }
 .process-review-button {
+  /* Uses base .btn-standard class (0739) */
   padding: 0.75rem 1.5rem;
   font-size: 1rem;
-  font-weight: 500;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-.process-review-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-.process-review-button:not(:disabled):hover {
-  transform: translateY(-1px);
-}
-.process-review-button:not(:disabled):active {
-  transform: translateY(0);
 }
 .process-review-button-run {
-  background: #7b1fa2;
-  color: white;
-}
-.process-review-button-run:not(:disabled):hover {
-  background: #6a1b9a;
+  /* Uses base .btn-standard class (0739) */
 }
 .process-review-button-create {
-  background: #4caf50;
-  color: white;
-}
-.process-review-button-create:not(:disabled):hover {
-  background: #45a049;
+  /* Uses base .btn-standard class (0739) */
 }
 .process-review-suggestions {
   margin-top: 1.5rem;
@@ -1491,41 +1462,15 @@ h1 {
   margin-top: 1rem;
 }
 .artifact-nav-button {
+  /* Uses base .btn-standard class (0739) */
   padding: 0.5rem 1rem;
   font-size: 0.9rem;
-  font-weight: 500;
-  color: var(--kanban-text);
-  background: var(--kanban-surface-alt);
-  border: 1px solid var(--kanban-border);
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background-color 0.2s, border-color 0.2s;
-}
-.artifact-nav-button:hover:not(:disabled) {
-  background: var(--kanban-surface);
-  border-color: var(--kanban-primary);
-}
-.artifact-nav-button:focus {
-  outline: 2px solid var(--kanban-primary);
-  outline-offset: 2px;
-}
-.artifact-nav-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 .artifact-nav-counter {
   font-size: 0.9rem;
   color: var(--kanban-text-secondary);
   flex: 1;
   text-align: center;
-}
-[data-theme="dark"] .artifact-nav-button {
-  background: var(--kanban-surface-alt);
-  border-color: var(--kanban-border);
-}
-[data-theme="dark"] .artifact-nav-button:hover:not(:disabled) {
-  background: var(--kanban-surface);
-  border-color: var(--kanban-primary);
 }
 
 /* Attachments section (0092) */
@@ -1603,24 +1548,9 @@ h1 {
   flex-shrink: 0;
 }
 .attachments-action-button {
+  /* Uses base .btn-standard class (0739) */
   padding: 0.375rem 0.75rem;
   font-size: 0.875rem;
-  background: var(--kanban-primary);
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-.attachments-action-button:hover {
-  background: var(--kanban-primary-hover);
-}
-.attachments-action-button:focus {
-  outline: none;
-}
-.attachments-action-button:focus-visible {
-  outline: 2px solid var(--kanban-primary);
-  outline-offset: 2px;
 }
 
 /* Dark theme adjustments for attachments */
@@ -1628,92 +1558,23 @@ h1 {
   background: var(--kanban-surface-alt);
   border-color: var(--kanban-border);
 }
-[data-theme="dark"] .attachments-action-button {
-  background: var(--kanban-primary);
-}
-[data-theme="dark"] .attachments-action-button:hover {
-  background: var(--kanban-primary-hover);
-}
 
 .column-work-button {
+  /* Uses base .btn-standard class (0739) */
   align-self: flex-start;
   padding: 0.4rem 0.8rem;
   font-size: 0.9rem;
-  cursor: pointer;
-  border: 1px solid #8b6cef; /* Unified purple-400 (hue 258°) */
-  border-radius: 6px;
-  background: #f5f3fa; /* Unified purple-25 (hue 258°) */
-  color: #6b4ce6; /* Unified purple-600 (hue 258°) */
-  font-weight: 500;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
-}
-.column-work-button:hover:not(:disabled) {
-  background: #ede8f7; /* Unified purple-50 (hue 258°) */
-  border-color: #7c5ee8; /* Unified purple-500 (hue 258°) */
-}
-.column-work-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-  background: #f5f5f5;
-  color: #999;
-  border-color: #ddd;
-}
-.column-work-button:focus-visible {
-  outline: 2px solid #6b4ce6;
-  outline-offset: 2px;
 }
 .column-remove {
+  /* Uses base .btn-destructive class (0739) */
   align-self: flex-start;
   padding: 0.4rem 0.8rem;
   font-size: 0.9rem;
-  cursor: pointer;
-  border: 1px solid #ccc;
-  border-radius: 6px;
-  background: #f5f5f5;
-  color: #c00;
-  font-weight: 500;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
-}
-.column-remove:hover {
-  background: #ffe0e0;
-  border-color: #999;
-}
-.column-remove:focus-visible {
-  outline: 2px solid #c00;
-  outline-offset: 2px;
 }
 
-/* Dark theme adjustments for column header buttons */
-[data-theme="dark"] .column-work-button {
-  background: rgba(107, 76, 230, 0.15); /* purple-600 with transparency */
-  border-color: rgba(139, 108, 239, 0.4); /* purple-400 with transparency */
-  color: #b8a9f0; /* lighter purple for dark theme */
-}
-[data-theme="dark"] .column-work-button:hover:not(:disabled) {
-  background: rgba(107, 76, 230, 0.25);
-  border-color: rgba(139, 108, 239, 0.6);
-}
-[data-theme="dark"] .column-work-button:disabled {
-  background: var(--kanban-surface-alt);
-  color: var(--kanban-text-muted);
-  border-color: var(--kanban-border);
-}
-[data-theme="dark"] .column-work-button:focus-visible {
-  outline-color: #b8a9f0;
-}
+/* Dark theme for .column-work-button is handled by base .btn-standard class */
 
-[data-theme="dark"] .column-remove {
-  background: rgba(244, 67, 54, 0.15); /* error color with transparency */
-  border-color: rgba(244, 67, 54, 0.4);
-  color: #f88;
-}
-[data-theme="dark"] .column-remove:hover {
-  background: rgba(244, 67, 54, 0.25);
-  border-color: rgba(244, 67, 54, 0.6);
-}
-[data-theme="dark"] .column-remove:focus-visible {
-  outline-color: #f88;
-}
+/* Dark theme for .column-remove is handled by base .btn-destructive class */
 
 /* Base button classes - canonical styles for all buttons (0739) */
 /* Standard button style (matches column-work-button) */
@@ -1968,22 +1829,11 @@ h1 {
   margin-bottom: 1rem;
 }
 .modal-actions button {
+  /* Uses base .btn-standard or .btn-destructive classes (0739) */
   padding: 0.4rem 0.8rem;
-  cursor: pointer;
-  border: 1px solid #ccc;
-  border-radius: 6px;
-  background: #f5f5f5;
-}
-.modal-actions button:hover {
-  background: #e8e8e8;
 }
 .modal-actions .primary {
-  background: #333;
-  color: #fff;
-  border: none;
-}
-.modal-actions .primary:hover {
-  background: #555;
+  /* Uses base .btn-standard class (0739) */
 }
 .report-pre {
   margin: 0.25rem 0 0 0;

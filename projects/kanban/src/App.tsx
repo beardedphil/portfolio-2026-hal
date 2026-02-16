@@ -2654,11 +2654,12 @@ function App() {
             </div>
 
             <div className="modal-actions">
-              <button type="button" className="primary" onClick={generateNewHalReport}>
+              <button type="button" className="primary btn-standard" onClick={generateNewHalReport}>
                 Generate bootstrap report
               </button>
               <button
                 type="button"
+                className="btn-destructive"
                 onClick={() => {
                   setNewHalProjectName('')
                   setNewHalRepoUrl('')

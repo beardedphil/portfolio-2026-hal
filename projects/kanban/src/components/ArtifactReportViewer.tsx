@@ -297,7 +297,7 @@ export function ArtifactReportViewer({
           <div className="artifact-navigation">
             <button
               type="button"
-              className="artifact-nav-button artifact-nav-previous"
+              className="artifact-nav-button artifact-nav-previous btn-standard"
               onClick={handlePrevious}
               disabled={!canGoPrevious}
               aria-label="Previous artifact"
@@ -309,7 +309,7 @@ export function ArtifactReportViewer({
             </span>
             <button
               type="button"
-              className="artifact-nav-button artifact-nav-next"
+              className="artifact-nav-button artifact-nav-next btn-standard"
               onClick={handleNext}
               disabled={!canGoNext}
               aria-label="Next artifact"
