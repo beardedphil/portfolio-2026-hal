@@ -550,6 +550,8 @@ h1 {
   flex-direction: column;
   overflow-x: hidden;
   overflow-y: visible;
+  width: 100%;
+  max-width: 100%;
 }
 .add-column-btn {
   margin-bottom: 0.75rem;
@@ -623,6 +625,7 @@ h1 {
   min-width: 0;
   width: 100%;
   max-width: 100%;
+  box-sizing: border-box;
   scroll-behavior: smooth;
   scrollbar-width: thin;
   scrollbar-color: var(--kanban-border) transparent;
@@ -644,6 +647,8 @@ h1 {
 .column-card {
   min-width: 180px;
   max-width: 300px;
+  width: 180px;
+  flex-shrink: 0;
   padding: 0.6rem 0.75rem;
   background: var(--kanban-surface);
   border: 1px solid var(--kanban-border);
