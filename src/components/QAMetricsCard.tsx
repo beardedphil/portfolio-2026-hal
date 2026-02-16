@@ -55,12 +55,10 @@ export function useQAMetrics() {
  */
 function QAMetricBadge({ 
   label, 
-  value, 
-  metric 
+  value
 }: { 
   label: string
   value: number | null
-  metric: 'coverage' | 'simplicity'
 }) {
   return (
     <div
@@ -82,7 +80,7 @@ function QAMetricBadge({
  */
 export function CoverageBadge() {
   const qaMetrics = useQAMetrics()
-  return <QAMetricBadge label="Coverage" value={qaMetrics?.coverage ?? null} metric="coverage" />
+  return <QAMetricBadge label="Coverage" value={qaMetrics?.coverage ?? null} />
 }
 
 /**
@@ -91,7 +89,7 @@ export function CoverageBadge() {
  */
 export function SimplicityBadge() {
   const qaMetrics = useQAMetrics()
-  return <QAMetricBadge label="Simplicity" value={qaMetrics?.simplicity ?? null} metric="simplicity" />
+  return <QAMetricBadge label="Simplicity" value={qaMetrics?.simplicity ?? null} />
 }
 
 /**
@@ -106,8 +104,8 @@ export function QAMetricsCard() {
 
   return (
     <div className="qa-metrics">
-      <QAMetricBadge label="Coverage" value={qaMetrics?.coverage ?? null} metric="coverage" />
-      <QAMetricBadge label="Simplicity" value={qaMetrics?.simplicity ?? null} metric="simplicity" />
+      <QAMetricBadge label="Coverage" value={qaMetrics?.coverage ?? null} />
+      <QAMetricBadge label="Simplicity" value={qaMetrics?.simplicity ?? null} />
       {qaMetrics === null && (
         <span className="qa-metrics-hint">Run test:coverage and report:simplicity to update</span>
       )}

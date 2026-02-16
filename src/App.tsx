@@ -1112,7 +1112,6 @@ function App() {
     }
   }, [activeMessages, agentTypingTarget, selectedConversationId, implAgentRunStatus, qaAgentRunStatus, processReviewAgentRunStatus, implAgentProgress, qaAgentProgress, processReviewAgentProgress, loadingOlderMessages])
 
-<<<<<<< HEAD
   // Auto-scroll PM chat transcript to bottom when widget opens (HAL-0701)
   useEffect(() => {
     if (pmChatWidgetOpen && messagesEndRef.current) {
@@ -2977,11 +2976,15 @@ function App() {
           </>
         )}
         {/* Messages list — use chat-transcript so sidebar gets same styles as right panel */}
-        <div className="chat-transcript" ref={(el) => {
-          // Attach both refs to the same element (HAL-0701)
-          messagesEndRef.current = el
-          transcriptRef.current = el
-        }}>
+        <div 
+          className="chat-transcript" 
+          ref={(el) => {
+            // Attach both refs to the same element (HAL-0701)
+            // Use type assertion since we know these are mutable refs
+            ;(messagesEndRef as React.MutableRefObject<HTMLDivElement | null>).current = el
+            ;(transcriptRef as React.MutableRefObject<HTMLDivElement | null>).current = el
+          }}
+        >
           {displayMessages.length === 0 && agentTypingTarget !== displayTarget ? (
             <p className="transcript-empty">
               {displayTarget === 'project-manager'
