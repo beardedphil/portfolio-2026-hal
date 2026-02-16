@@ -110,6 +110,7 @@ body[data-embedded="true"] #root,
   flex-shrink: 0 !important;
   width: 280px !important;
   min-width: 280px !important;
+<<<<<<< HEAD
 }
 /* Add 8px horizontal padding to Active work section when embedded (0705) */
 .kanban-frame-container .active-work-row {

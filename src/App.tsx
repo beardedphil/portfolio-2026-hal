@@ -2,7 +2,6 @@ import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { getSupabaseClient } from './lib/supabase'
 import { saveConversationsToStorage, loadConversationsFromStorage, type Agent, type Message, type Conversation, type ImageAttachment } from './lib/conversationStorage'
 // Chat width/collapse state no longer needed - floating widget replaces sidebar (0698)
-import { getInitialTheme, THEME_STORAGE_KEY } from './lib/metricColor'
 import { getConversationId, parseConversationId, getNextInstanceNumber, formatTime, getMessageAuthorLabel } from './lib/conversation-helpers'
 import { CoverageBadge, SimplicityBadge } from './components/QAMetricsCard'
 import { CoverageReportModal } from './components/CoverageReportModal'
@@ -155,7 +154,8 @@ function App() {
   // Diagnostics panel no longer visible - floating widget replaces sidebar (0698)
   // const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const [connectedProject, setConnectedProject] = useState<string | null>(null)
-  const [theme, setTheme] = useState<Theme>(getInitialTheme)
+  // Theme is always 'dark' (HAL-0707: removed light/dark toggle)
+  const theme: Theme = 'dark'
   // These are used in logic but not displayed in UI with floating widget (0698)
   const [_lastPmOutboundRequest, setLastPmOutboundRequest] = useState<object | null>(null)
   const [_lastPmToolCalls, setLastPmToolCalls] = useState<ToolCallRecord[] | null>(null)
@@ -340,19 +340,10 @@ function App() {
     }
   }, [selectedChatTarget])
 
-  // Apply theme to document root on mount and when theme changes (0078)
+  // Apply dark theme to document root on mount (HAL-0707: removed light/dark toggle)
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme)
-  }, [theme])
-
-  // Persist theme to localStorage (0078)
-  useEffect(() => {
-    try {
-      localStorage.setItem(THEME_STORAGE_KEY, theme)
-    } catch {
-      // ignore localStorage errors
-    }
-  }, [theme])
+    document.documentElement.setAttribute('data-theme', 'dark')
+  }, [])
 
   // Restore connected GitHub repo from localStorage on load (0119: fix repo display after refresh)
   // The repo state is restored for UI display; Kanban will receive the connection message when the iframe loads
@@ -2825,9 +2816,6 @@ function App() {
     triggerAgentRun('Continue', 'project-manager', undefined, convId)
   }, [getDefaultConversationId, triggerAgentRun])
 
-  const handleThemeToggle = useCallback(() => {
-    setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))
-  }, [])
 
 
   const handleDisconnect = useCallback(() => {
@@ -3171,15 +3159,6 @@ function App() {
           )}
         </div>
         <div className="hal-header-actions">
-          <button
-            type="button"
-            className="theme-toggle"
-            onClick={handleThemeToggle}
-            aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} theme`}
-            title={`Switch to ${theme === 'light' ? 'dark' : 'light'} theme`}
-          >
-            {theme === 'light' ? '🌙' : '☀️'} {theme === 'light' ? 'Dark' : 'Light'}
-          </button>
           <button
             type="button"
             className="agent-instructions-btn"
