@@ -43,7 +43,7 @@ export function pmCheckUnassignedPlugin(): Plugin {
 
           let pmModule: { checkUnassignedTickets?: (url: string, key: string) => Promise<unknown> } | null = null
           try {
-            pmModule = (await import(pathToFileURL(distPath).href)) as typeof pmModule
+            pmModule = (await import(/* @vite-ignore */ pathToFileURL(distPath).href)) as typeof pmModule
           } catch {
             // Build may be missing; try building hal-agents once then re-import
             try {
@@ -53,7 +53,7 @@ export function pmCheckUnassignedPlugin(): Plugin {
                 child.stderr?.on('data', (d) => { stderr += String(d) })
                 child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(stderr || `build exited ${code}`))))
               })
-              pmModule = (await import(pathToFileURL(distPath).href)) as typeof pmModule
+              pmModule = (await import(/* @vite-ignore */ pathToFileURL(distPath).href)) as typeof pmModule
             } catch {
               pmModule = null
             }
@@ -73,7 +73,7 @@ export function pmCheckUnassignedPlugin(): Plugin {
                 child.stderr?.on('data', (d) => { stderr += String(d) })
                 child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(stderr || `build exited ${code}`))))
               })
-              pmModule = (await import(pathToFileURL(distPath).href)) as typeof pmModule
+              pmModule = (await import(/* @vite-ignore */ pathToFileURL(distPath).href)) as typeof pmModule
               checkUnassignedTickets =
                 pmModule && typeof pmModule.checkUnassignedTickets === 'function'
                   ? pmModule.checkUnassignedTickets
