@@ -8,28 +8,15 @@ import {
   humanReadableCursorError,
   appendProgress,
   upsertArtifact,
+  readJsonBody,
+  json,
+  validateMethod,
 } from './_shared.js'
 
 export type AgentType = 'implementation' | 'qa'
 
-async function readJsonBody(req: IncomingMessage): Promise<unknown> {
-  const chunks: Uint8Array[] = []
-  for await (const chunk of req) chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk)
-  const raw = Buffer.concat(chunks).toString('utf8').trim()
-  if (!raw) return {}
-  return JSON.parse(raw) as unknown
-}
-
-function json(res: ServerResponse, statusCode: number, body: unknown) {
-  res.statusCode = statusCode
-  res.setHeader('Content-Type', 'application/json')
-  res.end(JSON.stringify(body))
-}
-
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
-  if (req.method !== 'POST') {
-    res.statusCode = 405
-    res.end('Method Not Allowed')
+  if (!validateMethod(req, res, 'POST')) {
     return
   }
 
@@ -228,8 +215,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           ].join('\n')
 
     // Create run row - start with 'preparing' stage (0690)
-    // Maintain a single progress array so we never overwrite earlier entries (worklog history correctness).
-    let progress = appendProgress([], `Launching ${agentType} run for ${displayId}`)
+    const initialProgress = appendProgress([], `Launching ${agentType} run for ${displayId}`)
     const { data: runRow, error: runInsErr } = await supabase
       .from('hal_agent_runs')
       .insert({
@@ -240,7 +226,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         display_id: displayId,
         status: 'launching',
         current_stage: 'preparing',
-        progress,
+        progress: initialProgress,
       })
       .select('run_id')
       .maybeSingle()
@@ -253,12 +239,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const runId = runRow.run_id as string
 
     // Update stage to 'fetching_ticket' (0690) - ticket was fetched before run creation
-    progress = appendProgress(progress, 'Fetching ticket...')
     await supabase
       .from('hal_agent_runs')
       .update({
         current_stage: 'fetching_ticket',
-        progress,
+        progress: appendProgress(initialProgress, 'Fetching ticket...'),
       })
       .eq('run_id', runId)
 
@@ -268,12 +253,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       const branchMatch = bodyMd.match(/##\s*QA[^\n]*\n[\s\S]*?Branch[:\s]+([^\n]+)/i)
       const branchName = branchMatch?.[1]?.trim()
       if (branchName) {
-        progress = appendProgress(progress, `Finding branch: ${branchName}`)
         await supabase
           .from('hal_agent_runs')
           .update({
             current_stage: 'fetching_branch',
-            progress,
+            progress: appendProgress(initialProgress, `Finding branch: ${branchName}`),
           })
           .eq('run_id', runId)
       } else {
@@ -286,12 +270,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     // For implementation: update to 'resolving_repo' stage (0690)
     if (agentType === 'implementation') {
-      progress = appendProgress(progress, 'Resolving repository...')
       await supabase
         .from('hal_agent_runs')
         .update({
           current_stage: 'resolving_repo',
-          progress,
+          progress: appendProgress(initialProgress, 'Resolving repository...'),
         })
         .eq('run_id', runId)
     }
@@ -310,14 +293,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       if ('branches' in branchesResult && branchesResult.branches.length === 0) {
         const bootstrap = await ensureInitialCommit(ghToken, repoFullName, defaultBranch)
         if ('error' in bootstrap) {
-          progress = appendProgress(progress, `Bootstrap failed: ${bootstrap.error}`)
       await supabase
         .from('hal_agent_runs')
         .update({
           status: 'failed',
           current_stage: 'failed',
           error: `Repository has no branches and initial commit failed: ${bootstrap.error}. Ensure you have push access and try again.`,
-          progress,
+          progress: appendProgress(initialProgress, `Bootstrap failed: ${bootstrap.error}`),
           finished_at: new Date().toISOString(),
         })
         .eq('run_id', runId)
@@ -328,13 +310,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     // Update stage to 'launching' (0690)
-    progress = appendProgress(progress, 'Launching agent...')
     await supabase
       .from('hal_agent_runs')
       .update({
         current_stage: 'launching',
         status: 'launching',
-        progress,
+        progress: appendProgress(initialProgress, 'Launching agent...'),
       })
       .eq('run_id', runId)
 
@@ -367,14 +348,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       const msg = branchNotFound
         ? `The repository has no "${defaultBranch}" branch yet. If the repo is new and empty, create an initial commit and push (e.g. add a README) so the default branch exists, then try again.`
         : humanReadableCursorError(launchRes.status, launchText)
-      progress = appendProgress(progress, `Launch failed: ${msg}`)
       await supabase
         .from('hal_agent_runs')
         .update({
           status: 'failed',
           current_stage: 'failed',
           error: msg,
-          progress,
+          progress: appendProgress(initialProgress, `Launch failed: ${msg}`),
           finished_at: new Date().toISOString(),
         })
         .eq('run_id', runId)
@@ -387,14 +367,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       launchData = JSON.parse(launchText) as typeof launchData
     } catch {
       const msg = 'Invalid response from Cursor API when launching agent.'
-      progress = appendProgress(progress, msg)
       await supabase
         .from('hal_agent_runs')
         .update({
           status: 'failed',
           current_stage: 'failed',
           error: msg,
-          progress,
+          progress: appendProgress(initialProgress, msg),
           finished_at: new Date().toISOString(),
         })
         .eq('run_id', runId)
@@ -406,14 +385,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const cursorStatus = launchData.status ?? 'CREATING'
     if (!cursorAgentId) {
       const msg = 'Cursor API did not return an agent ID.'
-      progress = appendProgress(progress, msg)
       await supabase
         .from('hal_agent_runs')
         .update({
           status: 'failed',
           current_stage: 'failed',
           error: msg,
-          progress,
+          progress: appendProgress(initialProgress, msg),
           finished_at: new Date().toISOString(),
         })
         .eq('run_id', runId)
@@ -421,7 +399,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
-    progress = appendProgress(progress, `Launched Cursor agent (${cursorStatus}).`)
+    const progressAfterLaunch = appendProgress(initialProgress, `Launched Cursor agent (${cursorStatus}).`)
     // Update stage to 'polling' (or 'running' for implementation, 'reviewing' for QA) (0690)
     const nextStage = agentType === 'implementation' ? 'running' : 'reviewing'
     await supabase
@@ -431,7 +409,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         current_stage: nextStage,
         cursor_agent_id: cursorAgentId,
         cursor_status: cursorStatus,
-        progress,
+        progress: progressAfterLaunch,
       })
       .eq('run_id', runId)
 
@@ -443,7 +421,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           `# Worklog: ${displayId}`,
           '',
           '## Progress',
-          ...(Array.isArray(progress) ? progress : []).map(
+          ...(Array.isArray(progressAfterLaunch) ? progressAfterLaunch : []).map(
             (p: { at: string; message: string }) => `- **${p.at}** — ${p.message}`
           ),
           '',

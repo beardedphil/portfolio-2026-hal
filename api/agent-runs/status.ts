@@ -4,43 +4,22 @@ import {
   fetchPullRequestFiles,
   generateImplementationArtifacts,
 } from '../_lib/github/githubApi.js'
-import { getServerSupabase, appendProgress, upsertArtifact, buildWorklogBodyFromProgress, type ProgressEntry } from './_shared.js'
+import {
+  getServerSupabase,
+  getCursorApiKey,
+  humanReadableCursorError,
+  appendProgress,
+  upsertArtifact,
+  buildWorklogBodyFromProgress,
+  getQueryParam,
+  json,
+  validateMethod,
+  type ProgressEntry,
+} from './_shared.js'
 
 type AgentType = 'implementation' | 'qa' | 'project-manager' | 'process-review'
 
 const MAX_RUN_SUMMARY_CHARS = 20_000
-
-function getCursorApiKey(): string {
-  const key = (process.env.CURSOR_API_KEY || process.env.VITE_CURSOR_API_KEY || '').trim()
-  if (!key) throw new Error('Cursor API is not configured (CURSOR_API_KEY).')
-  return key
-}
-
-function humanReadableCursorError(status: number, detail?: string): string {
-  if (status === 401) return 'Cursor API authentication failed. Check that CURSOR_API_KEY is valid.'
-  if (status === 403) return 'Cursor API access denied. Your plan may not include Cloud Agents API.'
-  if (status === 429) return 'Cursor API rate limit exceeded. Please try again in a moment.'
-  if (status >= 500) return `Cursor API server error (${status}). Please try again later.`
-  const suffix = detail ? ` — ${String(detail).slice(0, 140)}` : ''
-  return `Cursor API request failed (${status})${suffix}`
-}
-
-function json(res: ServerResponse, statusCode: number, body: unknown) {
-  res.statusCode = statusCode
-  res.setHeader('Content-Type', 'application/json')
-  res.end(JSON.stringify(body))
-}
-
-function getQueryParam(req: IncomingMessage, name: string): string | null {
-  try {
-    const url = new URL(req.url ?? '', 'http://localhost')
-    const v = url.searchParams.get(name)
-    return v ? v : null
-  } catch {
-    return null
-  }
-}
-
 function capText(input: string, maxChars: number): string {
   if (input.length <= maxChars) return input
   return `${input.slice(0, maxChars)}\n\n[truncated]`
@@ -65,9 +44,7 @@ function getLastAssistantMessage(conversationText: string): string | null {
 }
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
-  if (req.method !== 'GET') {
-    res.statusCode = 405
-    res.end('Method Not Allowed')
+  if (!validateMethod(req, res, 'GET')) {
     return
   }
 
@@ -292,8 +269,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
       // When finished: move ticket to QA and upsert full artifact set (plan, changed-files, etc.) from PR when available
       // Note: 'completed' is the new status (replaces 'finished') (0690)
-      // Check for both 'finished' and 'completed' for backward compatibility
-      if (nextStatus === 'completed' || nextStatus === 'finished') {
+      if (nextStatus === 'completed') {
         try {
           const { data: inColumn } = await supabase
             .from('tickets')
