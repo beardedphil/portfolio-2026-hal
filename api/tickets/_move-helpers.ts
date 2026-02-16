@@ -1,7 +1,11 @@
 import { createClient } from '@supabase/supabase-js'
 
+// Type alias for Supabase client to avoid type inference issues in build environments
+// Using 'any' to work around TypeScript type inference issues with SupabaseClient generics
+type SupabaseClientType = any
+
 export async function resolveColumnId(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseClientType,
   columnId: string | undefined,
   columnName: string | undefined
 ): Promise<{ id: string } | null> {
@@ -24,11 +28,11 @@ export async function resolveColumnId(
     )
   })
 
-  return matchedColumn ? { id: matchedColumn.id } : null
+  return matchedColumn ? { id: (matchedColumn as any).id } : null
 }
 
 export async function calculateTargetPosition(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseClientType,
   columnId: string,
   repoFullName: string,
   currentTicketPk: string,
@@ -62,8 +66,8 @@ export async function calculateTargetPosition(
     for (const t of ticketsList) {
       await supabase
         .from('tickets')
-        .update({ kanban_position: ((t.kanban_position ?? -1) + 1) })
-        .eq('pk', t.pk)
+        .update({ kanban_position: ((t.kanban_position ?? -1) + 1) } as any)
+        .eq('pk', (t as any).pk)
     }
     return { position: 0, needsShift: false }
   }
@@ -77,8 +81,8 @@ export async function calculateTargetPosition(
     for (const t of ticketsList.slice(targetIndex)) {
       await supabase
         .from('tickets')
-        .update({ kanban_position: ((t.kanban_position ?? -1) + 1) })
-        .eq('pk', t.pk)
+        .update({ kanban_position: ((t.kanban_position ?? -1) + 1) } as any)
+        .eq('pk', (t as any).pk)
     }
     return { position: targetIndex, needsShift: false }
   }
