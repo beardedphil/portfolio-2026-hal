@@ -97,15 +97,14 @@ div.kanban-frame-container #root {
   max-height: none !important;
   padding: 0 !important; /* 0706: Remove padding so scrollbar starts at top */
 }
-/* Override HAL's .kanban-frame-container .columns-row rule to enable horizontal scrolling */
-/* 0706: Use flex: 0 1 auto instead of flex: 1 to allow unified scrolling - don't grow to fill space */
+/* 0706: No nested scroll - parent (kanban-frame-container) is the single scroll container */
 .kanban-frame-container .columns-row {
-  overflow-x: auto !important;
-  overflow-y: hidden !important;
-  overflow: auto !important;
-  width: 100% !important;
-  max-width: 100% !important;
-  flex: 0 1 auto !important; /* 0706: Use natural height instead of flex: 1 to allow unified scrolling */
+  overflow: visible !important;
+  overflow-x: visible !important;
+  overflow-y: visible !important;
+  width: auto !important;
+  max-width: none !important;
+  flex: 0 1 auto !important;
   min-height: 0 !important;
   min-width: 0 !important;
   box-sizing: border-box !important;
@@ -115,6 +114,12 @@ div.kanban-frame-container #root {
   flex-shrink: 0 !important;
   width: 280px !important;
   min-width: 280px !important;
+}
+/* 0706: active-work-items must not scroll - parent is the single scroll container */
+.kanban-frame-container .active-work-items {
+  overflow: visible !important;
+  overflow-x: visible !important;
+  overflow-y: visible !important;
 }
 
 h1 {

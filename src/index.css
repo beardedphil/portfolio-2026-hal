@@ -488,18 +488,19 @@ body {
   color: #155724;
 }
 
+/* 0706: Single scroll container - both Active Work and board scroll together, no nested scroll */
 .kanban-frame-container {
   flex: 1;
   position: relative;
   min-height: 0;
   min-width: 0;
-  max-height: 100%; /* 0499: Constrain height to create scroll context */
+  max-height: 100%;
   padding: 16px;
   box-sizing: border-box;
-  overflow-x: hidden;
-  overflow-y: auto; /* 0499: This is the scroll container - all nested elements should not scroll */
+  overflow: auto; /* Single scroll container for vertical + horizontal - no nested scroll in children */
   display: flex;
   flex-direction: column;
+  align-items: flex-start; /* Content sizes naturally so horizontal scroll works when board is wide */
 }
 
 /* Kanban visibility states (0096: keep mounted, hide/show with CSS) */
@@ -566,15 +567,21 @@ div.kanban-frame-container #root,
 /* They should both be children of the scrollable container and move together */
 /* 0499: Active Work section starts at top of scroll container, scrollbar appears at kanban-frame-container level */
 /* 0706: Restore unified vertical scrolling - Active Work must scroll with the board, not be pinned */
+/* 0706: Active work must NOT scroll - parent handles all scrolling */
 .kanban-frame-container .active-work-row {
-  flex: 0 0 auto !important; /* Don't grow or shrink, use natural height */
+  flex: 0 0 auto !important;
   overflow: visible !important;
   overflow-y: visible !important;
   overflow-x: visible !important;
-  position: relative !important; /* 0499: Ensure proper positioning for header/controls */
-  padding-left: 8px !important; /* 0705: 8px horizontal padding from pane edges */
-  padding-right: 8px !important; /* 0705: 8px horizontal padding from pane edges */
-  max-height: none !important; /* 0706: Ensure no height constraint that could cause pinning */
+  position: relative !important;
+  padding-left: 8px !important;
+  padding-right: 8px !important;
+  max-height: none !important;
+}
+.kanban-frame-container .active-work-items {
+  overflow: visible !important;
+  overflow-x: visible !important;
+  overflow-y: visible !important;
 }
 
 /* 0706: Restore unified vertical scrolling - columns-section must not create nested scroll container */
@@ -590,14 +597,14 @@ div.kanban-frame-container #root,
   height: auto !important; /* 0706: Ensure height is auto, not constrained */
 }
 
-/* Ensure Kanban columns container can scroll horizontally (preserved) */
-/* 0165: Unified scrolling - columns row grows to natural height, doesn't constrain columns */
+/* 0706: No nested scroll - columns-row uses natural width, parent scrolls horizontally */
 .kanban-frame-container .columns-row {
-  overflow-x: auto;
-  overflow-y: visible;
-  flex: 0 1 auto; /* Don't grow, allow shrink, auto basis - allows natural height */
+  overflow: visible !important;
+  overflow-x: visible !important;
+  overflow-y: visible !important;
+  flex: 0 1 auto;
   min-height: 0;
-  align-items: flex-start; /* Align columns to top */
+  align-items: flex-start;
 }
 
 /* Ensure Kanban column content doesn't have height constraint - allows natural height */
@@ -651,16 +658,15 @@ div.kanban-frame-container #root,
   max-height: none !important;
 }
 
-/* Ensure columns-row doesn't create vertical scroll context (0499) */
+/* 0706: columns-row must NOT scroll - parent (kanban-frame-container) handles all scrolling */
 .kanban-frame-container .columns-row {
-  /* Keep horizontal scrolling for columns */
-  overflow-x: auto !important; /* 0499: Only horizontal scrolling */
-  overflow-y: visible !important; /* 0499: No vertical scrolling - kanban-frame-container handles it */
-  overflow: visible !important; /* 0499: Ensure no scroll context */
+  overflow: visible !important;
+  overflow-x: visible !important;
+  overflow-y: visible !important;
   max-height: none !important;
   height: auto !important;
-  flex: 0 1 auto !important; /* 0499: Override Kanban's flex: 1 - don't grow, allow natural height */
-  min-height: 0 !important; /* 0499: Allow shrinking */
+  flex: 0 1 auto !important;
+  min-height: 0 !important;
 }
 
 /* Ensure columns-section doesn't create scroll context (0499) */
