@@ -1113,6 +1113,42 @@ function App() {
     }
   }, [activeMessages, agentTypingTarget, selectedConversationId, implAgentRunStatus, qaAgentRunStatus, processReviewAgentRunStatus, implAgentProgress, qaAgentProgress, processReviewAgentProgress, loadingOlderMessages])
 
+  // Auto-scroll PM chat transcript to bottom when widget opens (HAL-0701)
+  useEffect(() => {
+    if (pmChatWidgetOpen && messagesEndRef.current) {
+      // Use requestAnimationFrame to ensure DOM is fully rendered
+      requestAnimationFrame(() => {
+        if (messagesEndRef.current) {
+          messagesEndRef.current.scrollTop = messagesEndRef.current.scrollHeight
+        }
+      })
+    }
+  }, [pmChatWidgetOpen])
+
+  // Auto-scroll PM chat transcript to bottom when PM messages change (HAL-0701)
+  useEffect(() => {
+    if (pmChatWidgetOpen && messagesEndRef.current && !loadingOlderMessages) {
+      // Use requestAnimationFrame to ensure DOM is fully rendered after message updates
+      requestAnimationFrame(() => {
+        if (messagesEndRef.current) {
+          messagesEndRef.current.scrollTop = messagesEndRef.current.scrollHeight
+        }
+      })
+    }
+  }, [pmMessages, pmChatWidgetOpen, agentTypingTarget, loadingOlderMessages])
+
+  // Auto-scroll PM chat transcript to bottom when switching back to PM chat (HAL-0701)
+  useEffect(() => {
+    if (pmChatWidgetOpen && selectedChatTarget === 'project-manager' && messagesEndRef.current) {
+      // Use requestAnimationFrame to ensure DOM is fully rendered
+      requestAnimationFrame(() => {
+        if (messagesEndRef.current) {
+          messagesEndRef.current.scrollTop = messagesEndRef.current.scrollHeight
+        }
+      })
+    }
+  }, [pmChatWidgetOpen, selectedChatTarget])
+
   // Detect scroll to top and load older messages
   useEffect(() => {
     const transcript = transcriptRef.current
