@@ -147,8 +147,9 @@ export function StatusIndicator({
     }
   }, [showTooltip])
 
-  // If no agent run or no workflow steps, show unassigned state
+  // If no agent run or no workflow steps, show placeholder: series of dots with first green (0203)
   if (!agentRun || workflowSteps.length === 0) {
+    const placeholderSteps = getAgentWorkflowSteps('implementation')
     return (
       <div
         className={`active-work-status-indicator-wrapper ${showTooltip ? 'active-work-status-tooltip-visible' : ''}`}
@@ -164,7 +165,13 @@ export function StatusIndicator({
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
         >
-          <span className="status-dot status-dot-pending" />
+          {placeholderSteps.map((step, index) => (
+            <span
+              key={step.id}
+              className={`status-dot ${index === 0 ? 'status-dot-done' : 'status-dot-pending'}`}
+              aria-label={index === 0 ? 'Started' : step.label}
+            />
+          ))}
         </div>
         {showTooltip && (
           <div
