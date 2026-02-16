@@ -230,16 +230,32 @@ h1 {
   border: 1px solid var(--kanban-border-muted);
 }
 .new-hal-project-btn {
-  padding: 0.35rem 0.7rem;
+  /* Uses base .btn-standard class (0739) */
+  align-self: flex-start;
+  padding: 0.4rem 0.8rem;
   font-size: 0.9rem;
   cursor: pointer;
-  background: #333;
-  color: #fff;
-  border: none;
+  border: 1px solid #8b6cef; /* Unified purple-400 (hue 258°) */
   border-radius: 6px;
+  background: #f5f3fa; /* Unified purple-25 (hue 258°) */
+  color: #6b4ce6; /* Unified purple-600 (hue 258°) */
+  font-weight: 500;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
-.new-hal-project-btn:hover {
-  background: #555;
+.new-hal-project-btn:hover:not(:disabled) {
+  background: #ede8f7; /* Unified purple-50 (hue 258°) */
+  border-color: #7c5ee8; /* Unified purple-500 (hue 258°) */
+}
+.new-hal-project-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  background: #f5f5f5;
+  color: #999;
+  border-color: #ddd;
+}
+.new-hal-project-btn:focus-visible {
+  outline: 2px solid #6b4ce6;
+  outline-offset: 2px;
 }
 .config-missing-error {
   padding: 0.75rem 1rem;
@@ -1109,25 +1125,50 @@ h1 {
   margin-top: 1rem;
 }
 .human-validation-button {
+  /* Uses base .btn-standard or .btn-destructive class (0739) */
   flex: 1;
-  padding: 0.75rem 1.5rem;
-  font-size: 1rem;
+  align-self: flex-start;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.9rem;
   font-weight: 500;
   border-radius: 6px;
   cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.1s;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
-.human-validation-button:not(:disabled):hover {
-  transform: translateY(-1px);
+.human-validation-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  background: #f5f5f5;
+  color: #999;
+  border-color: #ddd;
 }
-.human-validation-button:not(:disabled):active {
-  transform: translateY(0);
+.human-validation-button:focus-visible {
+  outline: 2px solid #6b4ce6;
+  outline-offset: 2px;
 }
 .human-validation-button-pass {
   /* Uses base .btn-standard class (0739) */
+  border: 1px solid #8b6cef; /* Unified purple-400 (hue 258°) */
+  background: #f5f3fa; /* Unified purple-25 (hue 258°) */
+  color: #6b4ce6; /* Unified purple-600 (hue 258°) */
+}
+.human-validation-button-pass:hover:not(:disabled) {
+  background: #ede8f7; /* Unified purple-50 (hue 258°) */
+  border-color: #7c5ee8; /* Unified purple-500 (hue 258°) */
 }
 .human-validation-button-fail {
   /* Uses base .btn-destructive class (0739) */
+  border: 1px solid #ccc;
+  background: #f5f5f5;
+  color: #c00;
+}
+.human-validation-button-fail:hover:not(:disabled) {
+  background: #ffe0e0;
+  border-color: #999;
+}
+.human-validation-button-fail:focus-visible {
+  outline: 2px solid #c00;
+  outline-offset: 2px;
 }
 
 /* QA sections removed from UI; hide any that remain in ticket body HTML */
@@ -1225,37 +1266,52 @@ h1 {
   margin-bottom: 1rem;
 }
 .process-review-button {
-  padding: 0.75rem 1.5rem;
-  font-size: 1rem;
+  /* Uses base .btn-standard class (0739) */
+  align-self: flex-start;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.9rem;
   font-weight: 500;
-  border: none;
+  border: 1px solid #8b6cef; /* Unified purple-400 (hue 258°) */
   border-radius: 6px;
+  background: #f5f3fa; /* Unified purple-25 (hue 258°) */
+  color: #6b4ce6; /* Unified purple-600 (hue 258°) */
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 .process-review-button:disabled {
-  opacity: 0.6;
   cursor: not-allowed;
+  opacity: 0.5;
+  background: #f5f5f5;
+  color: #999;
+  border-color: #ddd;
 }
 .process-review-button:not(:disabled):hover {
-  transform: translateY(-1px);
+  background: #ede8f7; /* Unified purple-50 (hue 258°) */
+  border-color: #7c5ee8; /* Unified purple-500 (hue 258°) */
 }
-.process-review-button:not(:disabled):active {
-  transform: translateY(0);
+.process-review-button:focus-visible {
+  outline: 2px solid #6b4ce6;
+  outline-offset: 2px;
 }
 .process-review-button-run {
-  background: #7b1fa2;
-  color: white;
+  /* Uses base .btn-standard class (0739) */
+  background: #f5f3fa; /* Unified purple-25 (hue 258°) */
+  color: #6b4ce6; /* Unified purple-600 (hue 258°) */
+  border: 1px solid #8b6cef; /* Unified purple-400 (hue 258°) */
 }
 .process-review-button-run:not(:disabled):hover {
-  background: #6a1b9a;
+  background: #ede8f7; /* Unified purple-50 (hue 258°) */
+  border-color: #7c5ee8; /* Unified purple-500 (hue 258°) */
 }
 .process-review-button-create {
-  background: #4caf50;
-  color: white;
+  /* Uses base .btn-standard class (0739) */
+  background: #f5f3fa; /* Unified purple-25 (hue 258°) */
+  color: #6b4ce6; /* Unified purple-600 (hue 258°) */
+  border: 1px solid #8b6cef; /* Unified purple-400 (hue 258°) */
 }
 .process-review-button-create:not(:disabled):hover {
-  background: #45a049;
+  background: #ede8f7; /* Unified purple-50 (hue 258°) */
+  border-color: #7c5ee8; /* Unified purple-500 (hue 258°) */
 }
 .process-review-suggestions {
   margin-top: 1.5rem;
@@ -1603,23 +1659,31 @@ h1 {
   flex-shrink: 0;
 }
 .attachments-action-button {
-  padding: 0.375rem 0.75rem;
-  font-size: 0.875rem;
-  background: var(--kanban-primary);
-  color: white;
-  border: none;
-  border-radius: 4px;
+  /* Uses base .btn-standard class (0739) */
+  align-self: flex-start;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.9rem;
+  background: #f5f3fa; /* Unified purple-25 (hue 258°) */
+  color: #6b4ce6; /* Unified purple-600 (hue 258°) */
+  border: 1px solid #8b6cef; /* Unified purple-400 (hue 258°) */
+  border-radius: 6px;
+  font-weight: 500;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
-.attachments-action-button:hover {
-  background: var(--kanban-primary-hover);
+.attachments-action-button:hover:not(:disabled) {
+  background: #ede8f7; /* Unified purple-50 (hue 258°) */
+  border-color: #7c5ee8; /* Unified purple-500 (hue 258°) */
 }
-.attachments-action-button:focus {
-  outline: none;
+.attachments-action-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  background: #f5f5f5;
+  color: #999;
+  border-color: #ddd;
 }
 .attachments-action-button:focus-visible {
-  outline: 2px solid var(--kanban-primary);
+  outline: 2px solid #6b4ce6;
   outline-offset: 2px;
 }
 
@@ -1629,10 +1693,21 @@ h1 {
   border-color: var(--kanban-border);
 }
 [data-theme="dark"] .attachments-action-button {
-  background: var(--kanban-primary);
+  background: rgba(107, 76, 230, 0.15); /* purple-600 with transparency */
+  border-color: rgba(139, 108, 239, 0.4); /* purple-400 with transparency */
+  color: #b8a9f0; /* lighter purple for dark theme */
 }
-[data-theme="dark"] .attachments-action-button:hover {
-  background: var(--kanban-primary-hover);
+[data-theme="dark"] .attachments-action-button:hover:not(:disabled) {
+  background: rgba(107, 76, 230, 0.25);
+  border-color: rgba(139, 108, 239, 0.6);
+}
+[data-theme="dark"] .attachments-action-button:disabled {
+  background: var(--kanban-surface-alt);
+  color: var(--kanban-text-muted);
+  border-color: var(--kanban-border);
+}
+[data-theme="dark"] .attachments-action-button:focus-visible {
+  outline-color: #b8a9f0;
 }
 
 .column-work-button {
@@ -1811,19 +1886,173 @@ h1 {
   outline-color: #f88;
 }
 
-.debug-toggle {
-  margin-bottom: 1rem;
-  padding: 0.5rem 1rem;
-  font-size: 0.9rem;
-  cursor: pointer;
-  background: #333;
-  color: #fff;
-  border: none;
-  border-radius: 6px;
+/* Dark theme adjustments for modal-close (uses btn-destructive) */
+[data-theme="dark"] .modal-close {
+  background: rgba(244, 67, 54, 0.15); /* error color with transparency */
+  border-color: rgba(244, 67, 54, 0.4);
+  color: #f88;
+}
+[data-theme="dark"] .modal-close:hover:not(:disabled) {
+  background: rgba(244, 67, 54, 0.25);
+  border-color: rgba(244, 67, 54, 0.6);
+}
+[data-theme="dark"] .modal-close:disabled {
+  background: var(--kanban-surface-alt);
+  color: var(--kanban-text-muted);
+  border-color: var(--kanban-border);
+}
+[data-theme="dark"] .modal-close:focus-visible {
+  outline-color: #f88;
 }
 
-.debug-toggle:hover {
-  background: #555;
+/* Dark theme adjustments for modal-actions buttons (uses btn-standard) */
+[data-theme="dark"] .modal-actions button,
+[data-theme="dark"] .modal-actions .primary {
+  background: rgba(107, 76, 230, 0.15); /* purple-600 with transparency */
+  border-color: rgba(139, 108, 239, 0.4); /* purple-400 with transparency */
+  color: #b8a9f0; /* lighter purple for dark theme */
+}
+[data-theme="dark"] .modal-actions button:hover:not(:disabled),
+[data-theme="dark"] .modal-actions .primary:hover:not(:disabled) {
+  background: rgba(107, 76, 230, 0.25);
+  border-color: rgba(139, 108, 239, 0.6);
+}
+[data-theme="dark"] .modal-actions button:disabled,
+[data-theme="dark"] .modal-actions .primary:disabled {
+  background: var(--kanban-surface-alt);
+  color: var(--kanban-text-muted);
+  border-color: var(--kanban-border);
+}
+[data-theme="dark"] .modal-actions button:focus-visible,
+[data-theme="dark"] .modal-actions .primary:focus-visible {
+  outline-color: #b8a9f0;
+}
+
+/* Dark theme adjustments for new-hal-project-btn (uses btn-standard) */
+[data-theme="dark"] .new-hal-project-btn {
+  background: rgba(107, 76, 230, 0.15); /* purple-600 with transparency */
+  border-color: rgba(139, 108, 239, 0.4); /* purple-400 with transparency */
+  color: #b8a9f0; /* lighter purple for dark theme */
+}
+[data-theme="dark"] .new-hal-project-btn:hover:not(:disabled) {
+  background: rgba(107, 76, 230, 0.25);
+  border-color: rgba(139, 108, 239, 0.6);
+}
+[data-theme="dark"] .new-hal-project-btn:disabled {
+  background: var(--kanban-surface-alt);
+  color: var(--kanban-text-muted);
+  border-color: var(--kanban-border);
+}
+[data-theme="dark"] .new-hal-project-btn:focus-visible {
+  outline-color: #b8a9f0;
+}
+
+/* Dark theme adjustments for debug-toggle (uses btn-standard) */
+[data-theme="dark"] .debug-toggle {
+  background: rgba(107, 76, 230, 0.15); /* purple-600 with transparency */
+  border-color: rgba(139, 108, 239, 0.4); /* purple-400 with transparency */
+  color: #b8a9f0; /* lighter purple for dark theme */
+}
+[data-theme="dark"] .debug-toggle:hover:not(:disabled) {
+  background: rgba(107, 76, 230, 0.25);
+  border-color: rgba(139, 108, 239, 0.6);
+}
+[data-theme="dark"] .debug-toggle:disabled {
+  background: var(--kanban-surface-alt);
+  color: var(--kanban-text-muted);
+  border-color: var(--kanban-border);
+}
+[data-theme="dark"] .debug-toggle:focus-visible {
+  outline-color: #b8a9f0;
+}
+
+/* Dark theme adjustments for process-review-button (uses btn-standard) */
+[data-theme="dark"] .process-review-button,
+[data-theme="dark"] .process-review-button-run,
+[data-theme="dark"] .process-review-button-create {
+  background: rgba(107, 76, 230, 0.15); /* purple-600 with transparency */
+  border-color: rgba(139, 108, 239, 0.4); /* purple-400 with transparency */
+  color: #b8a9f0; /* lighter purple for dark theme */
+}
+[data-theme="dark"] .process-review-button:hover:not(:disabled),
+[data-theme="dark"] .process-review-button-run:hover:not(:disabled),
+[data-theme="dark"] .process-review-button-create:hover:not(:disabled) {
+  background: rgba(107, 76, 230, 0.25);
+  border-color: rgba(139, 108, 239, 0.6);
+}
+[data-theme="dark"] .process-review-button:disabled,
+[data-theme="dark"] .process-review-button-run:disabled,
+[data-theme="dark"] .process-review-button-create:disabled {
+  background: var(--kanban-surface-alt);
+  color: var(--kanban-text-muted);
+  border-color: var(--kanban-border);
+}
+[data-theme="dark"] .process-review-button:focus-visible,
+[data-theme="dark"] .process-review-button-run:focus-visible,
+[data-theme="dark"] .process-review-button-create:focus-visible {
+  outline-color: #b8a9f0;
+}
+
+/* Dark theme adjustments for human-validation-button (uses btn-standard or btn-destructive) */
+[data-theme="dark"] .human-validation-button-pass {
+  background: rgba(107, 76, 230, 0.15); /* purple-600 with transparency */
+  border-color: rgba(139, 108, 239, 0.4); /* purple-400 with transparency */
+  color: #b8a9f0; /* lighter purple for dark theme */
+}
+[data-theme="dark"] .human-validation-button-pass:hover:not(:disabled) {
+  background: rgba(107, 76, 230, 0.25);
+  border-color: rgba(139, 108, 239, 0.6);
+}
+[data-theme="dark"] .human-validation-button-fail {
+  background: rgba(244, 67, 54, 0.15); /* error color with transparency */
+  border-color: rgba(244, 67, 54, 0.4);
+  color: #f88;
+}
+[data-theme="dark"] .human-validation-button-fail:hover:not(:disabled) {
+  background: rgba(244, 67, 54, 0.25);
+  border-color: rgba(244, 67, 54, 0.6);
+}
+[data-theme="dark"] .human-validation-button:disabled {
+  background: var(--kanban-surface-alt);
+  color: var(--kanban-text-muted);
+  border-color: var(--kanban-border);
+}
+[data-theme="dark"] .human-validation-button-pass:focus-visible {
+  outline-color: #b8a9f0;
+}
+[data-theme="dark"] .human-validation-button-fail:focus-visible {
+  outline-color: #f88;
+}
+
+.debug-toggle {
+  /* Uses base .btn-standard class (0739) */
+  margin-bottom: 1rem;
+  align-self: flex-start;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  border: 1px solid #8b6cef; /* Unified purple-400 (hue 258°) */
+  border-radius: 6px;
+  background: #f5f3fa; /* Unified purple-25 (hue 258°) */
+  color: #6b4ce6; /* Unified purple-600 (hue 258°) */
+  font-weight: 500;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.debug-toggle:hover:not(:disabled) {
+  background: #ede8f7; /* Unified purple-50 (hue 258°) */
+  border-color: #7c5ee8; /* Unified purple-500 (hue 258°) */
+}
+.debug-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  background: #f5f5f5;
+  color: #999;
+  border-color: #ddd;
+}
+.debug-toggle:focus-visible {
+  outline: 2px solid #6b4ce6;
+  outline-offset: 2px;
 }
 
 .debug-panel {
@@ -1915,14 +2144,32 @@ h1 {
   margin: 0;
 }
 .modal-close {
-  padding: 0.35rem 0.7rem;
+  /* Uses base .btn-destructive class (0739) - close is destructive */
+  align-self: flex-start;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.9rem;
   cursor: pointer;
   border: 1px solid #ccc;
   border-radius: 6px;
   background: #f5f5f5;
+  color: #c00;
+  font-weight: 500;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
-.modal-close:hover {
-  background: #e8e8e8;
+.modal-close:hover:not(:disabled) {
+  background: #ffe0e0;
+  border-color: #999;
+}
+.modal-close:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  background: #f5f5f5;
+  color: #999;
+  border-color: #ddd;
+}
+.modal-close:focus-visible {
+  outline: 2px solid #c00;
+  outline-offset: 2px;
 }
 .modal-subtitle {
   margin: 0 0 1rem 0;
@@ -1968,22 +2215,42 @@ h1 {
   margin-bottom: 1rem;
 }
 .modal-actions button {
+  /* Uses base .btn-standard class (0739) */
+  align-self: flex-start;
   padding: 0.4rem 0.8rem;
+  font-size: 0.9rem;
   cursor: pointer;
-  border: 1px solid #ccc;
+  border: 1px solid #8b6cef; /* Unified purple-400 (hue 258°) */
   border-radius: 6px;
-  background: #f5f5f5;
+  background: #f5f3fa; /* Unified purple-25 (hue 258°) */
+  color: #6b4ce6; /* Unified purple-600 (hue 258°) */
+  font-weight: 500;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
-.modal-actions button:hover {
-  background: #e8e8e8;
+.modal-actions button:hover:not(:disabled) {
+  background: #ede8f7; /* Unified purple-50 (hue 258°) */
+  border-color: #7c5ee8; /* Unified purple-500 (hue 258°) */
+}
+.modal-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  background: #f5f5f5;
+  color: #999;
+  border-color: #ddd;
+}
+.modal-actions button:focus-visible {
+  outline: 2px solid #6b4ce6;
+  outline-offset: 2px;
 }
 .modal-actions .primary {
-  background: #333;
-  color: #fff;
-  border: none;
+  /* Uses base .btn-standard class (0739) - primary actions use standard style */
+  background: #f5f3fa; /* Unified purple-25 (hue 258°) */
+  color: #6b4ce6; /* Unified purple-600 (hue 258°) */
+  border: 1px solid #8b6cef; /* Unified purple-400 (hue 258°) */
 }
-.modal-actions .primary:hover {
-  background: #555;
+.modal-actions .primary:hover:not(:disabled) {
+  background: #ede8f7; /* Unified purple-50 (hue 258°) */
+  border-color: #7c5ee8; /* Unified purple-500 (hue 258°) */
 }
 .report-pre {
   margin: 0.25rem 0 0 0;

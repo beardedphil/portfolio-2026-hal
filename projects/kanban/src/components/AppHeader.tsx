@@ -73,7 +73,7 @@ export function AppHeader({
         )}
         <button
           type="button"
-          className="new-hal-project-btn"
+          className="new-hal-project-btn btn-standard"
           onClick={onOpenNewHalWizard}
         >
           New HAL project

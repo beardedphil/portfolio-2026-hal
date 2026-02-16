@@ -2587,7 +2587,7 @@ function App() {
           <div className="modal">
             <div className="modal-header">
               <h2 className="modal-title">New HAL project (wizard v0)</h2>
-              <button type="button" className="modal-close" onClick={() => setNewHalWizardOpen(false)}>
+              <button type="button" className="modal-close btn-destructive" onClick={() => setNewHalWizardOpen(false)}>
                 Close
               </button>
             </div>
@@ -2654,11 +2654,12 @@ function App() {
             </div>
 
             <div className="modal-actions">
-              <button type="button" className="primary" onClick={generateNewHalReport}>
+              <button type="button" className="primary btn-standard" onClick={generateNewHalReport}>
                 Generate bootstrap report
               </button>
               <button
                 type="button"
+                className="btn-standard"
                 onClick={() => {
                   setNewHalProjectName('')
                   setNewHalRepoUrl('')
@@ -2682,6 +2683,7 @@ function App() {
               <div className="wizard-actions">
                 <button
                   type="button"
+                  className="btn-standard"
                   onClick={async () => {
                     try {
                       const dir = await pickWizardFolder('read')
@@ -2696,6 +2698,7 @@ function App() {
                 </button>
                 <button
                   type="button"
+                  className="btn-standard"
                   onClick={async () => {
                     try {
                       const dir = await pickWizardFolder('readwrite')
@@ -2708,7 +2711,7 @@ function App() {
                 >
                   Select destination folder
                 </button>
-                <button type="button" className="primary" onClick={runWizardBootstrap}>
+                <button type="button" className="primary btn-standard" onClick={runWizardBootstrap}>
                   Copy scaffold
                 </button>
               </div>
@@ -3020,7 +3023,7 @@ ${notes || '(none provided)'}
       </DndContext>
 
       {!isEmbedded && (
-        <button type="button" className="debug-toggle" onClick={toggleDebug} aria-pressed={debugOpen}>
+        <button type="button" className="debug-toggle btn-standard" onClick={toggleDebug} aria-pressed={debugOpen}>
           Debug {debugOpen ? 'ON' : 'OFF'}
         </button>
       )}

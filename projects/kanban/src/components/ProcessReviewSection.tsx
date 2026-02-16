@@ -229,7 +229,7 @@ export function ProcessReviewSection({
           <div className="process-review-create-actions">
             <button
               type="button"
-              className="process-review-button process-review-button-create"
+              className="process-review-button process-review-button-create btn-standard"
               onClick={handleCreateTicket}
               disabled={isCreatingTicket || suggestions.filter((s) => s.selected).length === 0}
             >
