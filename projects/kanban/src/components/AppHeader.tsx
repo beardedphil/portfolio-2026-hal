@@ -54,7 +54,7 @@ export function AppHeader({
         {!projectFolderHandle ? (
           <button
             type="button"
-            className="connect-project-btn"
+            className="connect-project-btn btn-standard"
             onClick={onConnectProjectFolder}
           >
             Connect Project Folder
@@ -64,7 +64,7 @@ export function AppHeader({
             <span className="project-name">{projectName}</span>
             <button
               type="button"
-              className="disconnect-btn"
+              className="disconnect-btn btn-destructive"
               onClick={onDisconnect}
             >
               Disconnect

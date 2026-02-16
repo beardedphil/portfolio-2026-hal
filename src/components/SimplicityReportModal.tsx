@@ -58,7 +58,7 @@ export function SimplicityReportModal({ isOpen, onClose }: SimplicityReportModal
           <h3>Simplicity Report</h3>
           <button
             type="button"
-            className="conversation-modal-close"
+            className="conversation-modal-close btn-destructive"
             onClick={onClose}
             aria-label="Close simplicity report"
           >

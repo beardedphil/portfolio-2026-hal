@@ -70,6 +70,102 @@
   --hal-status-error: #f44336;
 }
 
+/* Base button classes - canonical styles for all buttons (0739) */
+/* Standard button style (matches column-work-button) */
+.btn-standard {
+  align-self: flex-start;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  border: 1px solid #8b6cef; /* Unified purple-400 (hue 258°) */
+  border-radius: 6px;
+  background: #f5f3fa; /* Unified purple-25 (hue 258°) */
+  color: #6b4ce6; /* Unified purple-600 (hue 258°) */
+  font-weight: 500;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.btn-standard:hover:not(:disabled) {
+  background: #ede8f7; /* Unified purple-50 (hue 258°) */
+  border-color: #7c5ee8; /* Unified purple-500 (hue 258°) */
+}
+.btn-standard:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  background: #f5f5f5;
+  color: #999;
+  border-color: #ddd;
+}
+.btn-standard:focus-visible {
+  outline: 2px solid #6b4ce6;
+  outline-offset: 2px;
+}
+
+/* Destructive button style (matches column-remove) */
+.btn-destructive {
+  align-self: flex-start;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: #f5f5f5;
+  color: #c00;
+  font-weight: 500;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.btn-destructive:hover:not(:disabled) {
+  background: #ffe0e0;
+  border-color: #999;
+}
+.btn-destructive:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  background: #f5f5f5;
+  color: #999;
+  border-color: #ddd;
+}
+.btn-destructive:focus-visible {
+  outline: 2px solid #c00;
+  outline-offset: 2px;
+}
+
+/* Dark theme adjustments for base button classes */
+[data-theme="dark"] .btn-standard {
+  background: rgba(107, 76, 230, 0.15); /* purple-600 with transparency */
+  border-color: rgba(139, 108, 239, 0.4); /* purple-400 with transparency */
+  color: #b8a9f0; /* lighter purple for dark theme */
+}
+[data-theme="dark"] .btn-standard:hover:not(:disabled) {
+  background: rgba(107, 76, 230, 0.25);
+  border-color: rgba(139, 108, 239, 0.6);
+}
+[data-theme="dark"] .btn-standard:disabled {
+  background: var(--hal-surface-alt);
+  color: var(--hal-text-muted);
+  border-color: var(--hal-border);
+}
+[data-theme="dark"] .btn-standard:focus-visible {
+  outline-color: #b8a9f0;
+}
+
+[data-theme="dark"] .btn-destructive {
+  background: rgba(244, 67, 54, 0.15); /* error color with transparency */
+  border-color: rgba(244, 67, 54, 0.4);
+  color: #f88;
+}
+[data-theme="dark"] .btn-destructive:hover:not(:disabled) {
+  background: rgba(244, 67, 54, 0.25);
+  border-color: rgba(244, 67, 54, 0.6);
+}
+[data-theme="dark"] .btn-destructive:disabled {
+  background: var(--hal-surface-alt);
+  color: var(--hal-text-muted);
+  border-color: var(--hal-border);
+}
+[data-theme="dark"] .btn-destructive:focus-visible {
+  outline-color: #f88;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -174,23 +270,20 @@ body {
 }
 
 .agent-instructions-btn {
+  /* Uses base .btn-standard class (0739) */
   padding: 0.4rem 0.8rem;
   font-size: 0.9rem;
-  cursor: pointer;
-  background: rgba(255, 255, 255, 0.15);
-  color: var(--hal-header-text);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 6px;
-  font-weight: 500;
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
+  /* Override for header: use white text on dark background */
+  background: rgba(255, 255, 255, 0.15) !important;
+  color: var(--hal-header-text) !important;
+  border-color: rgba(255, 255, 255, 0.3) !important;
 }
-
-.agent-instructions-btn:hover {
-  background: rgba(255, 255, 255, 0.25);
-  border-color: rgba(255, 255, 255, 0.4);
+.agent-instructions-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.25) !important;
+  border-color: rgba(255, 255, 255, 0.4) !important;
 }
 
 .hal-main {
@@ -246,20 +339,18 @@ body {
 }
 
 .connect-project-btn {
+  /* Uses base .btn-standard class (0739) */
   padding: 0.4rem 0.9rem;
   font-size: 0.9rem;
-  cursor: pointer;
-  background: rgba(255, 255, 255, 0.2);
-  color: var(--hal-header-text);
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  /* Override for header: use white text on dark background */
+  background: rgba(255, 255, 255, 0.2) !important;
+  color: var(--hal-header-text) !important;
+  border-color: rgba(255, 255, 255, 0.3) !important;
   border-radius: 6px;
-  font-weight: 500;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
-
-.connect-project-btn:hover {
-  background: rgba(255, 255, 255, 0.3);
-  border-color: rgba(255, 255, 255, 0.4);
+.connect-project-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.3) !important;
+  border-color: rgba(255, 255, 255, 0.4) !important;
 }
 
 .project-info {
@@ -314,48 +405,46 @@ body {
 }
 
 .disconnect-btn {
+  /* Uses base .btn-destructive class (0739) */
   padding: 0.25rem 0.5rem;
   font-size: 0.8rem;
-  cursor: pointer;
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--hal-header-text);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  /* Override for header: use white text on dark background */
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: var(--hal-header-text) !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
   border-radius: 4px;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
 .github-connect {
+  /* Uses base .btn-standard class (0739) */
   padding: 0.25rem 0.5rem;
   font-size: 0.8rem;
-  cursor: pointer;
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--hal-header-text);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
   white-space: nowrap;
+  /* Override for header: use white text on dark background */
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: var(--hal-header-text) !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
+  border-radius: 4px;
 }
-
-.github-connect:hover {
-  background: rgba(255, 255, 255, 0.2);
-  border-color: rgba(255, 255, 255, 0.3);
+.github-connect:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.2) !important;
+  border-color: rgba(255, 255, 255, 0.3) !important;
 }
 
 .github-logout {
+  /* Uses base .btn-destructive class (0739) - sign out is destructive */
   padding: 0.25rem 0.5rem;
   font-size: 0.8rem;
-  cursor: pointer;
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--hal-header-text);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
   white-space: nowrap;
+  /* Override for header: use white text on dark background */
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: var(--hal-header-text) !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
+  border-radius: 4px;
 }
-
-.github-logout:hover {
-  background: rgba(255, 255, 255, 0.2);
-  border-color: rgba(255, 255, 255, 0.3);
+.github-logout:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.2) !important;
+  border-color: rgba(255, 255, 255, 0.3) !important;
 }
 
 /* QA quality metrics (0667) */
@@ -423,9 +512,9 @@ body {
 }
 }
 
-.disconnect-btn:hover {
-  background: rgba(255, 255, 255, 0.2);
-  border-color: rgba(255, 255, 255, 0.3);
+.disconnect-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.2) !important;
+  border-color: rgba(255, 255, 255, 0.3) !important;
 }
 
 /* Process Review status (0118) */
@@ -1934,52 +2023,33 @@ div.kanban-frame-container #root,
 }
 
 .attach-image-btn {
+  /* Uses base .btn-standard class (0739) */
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0.45rem 0.6rem;
   font-size: 1.1rem;
-  cursor: pointer;
-  border: 1px solid var(--hal-border-muted);
   border-radius: 6px;
-  background: var(--hal-surface);
-  color: var(--hal-text);
   transition: background-color 0.15s ease, border-color 0.15s ease;
 }
-
-.attach-image-btn:hover {
+.attach-image-btn:hover:not(:disabled) {
   background: var(--hal-surface-alt);
   border-color: var(--hal-border);
 }
 
 .send-btn {
+  /* Uses base .btn-standard class (0739) */
   padding: 0.45rem 0.9rem;
   font-size: 0.85rem;
-  cursor: pointer;
-  border: none;
   border-radius: 6px;
-  background: var(--hal-primary);
-  color: #fff;
-}
-
-.send-btn:hover:not(:disabled) {
-  background: var(--hal-primary-hover);
-}
-
-.send-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .continue-batch-btn {
+  /* Uses base .btn-standard class (0739) */
   margin-left: 0.25rem;
-  background: var(--hal-surface-alt);
-  color: var(--hal-text);
-  border: 1px solid var(--hal-border);
-}
-
-.continue-batch-btn:hover {
-  background: var(--hal-border-muted);
+  padding: 0.45rem 0.9rem;
+  font-size: 0.85rem;
+  border-radius: 6px;
 }
 
 .image-attachment-preview {
@@ -2011,19 +2081,17 @@ div.kanban-frame-container #root,
 }
 
 .remove-attachment-btn {
+  /* Uses base .btn-destructive class (0739) */
   padding: 0.25rem 0.5rem;
   font-size: 1.2rem;
   line-height: 1;
-  cursor: pointer;
-  border: none;
   border-radius: 4px;
-  background: transparent;
-  color: var(--hal-text-muted);
-  transition: background-color 0.15s ease, color 0.15s ease;
+  /* Override: transparent background for icon button */
+  background: transparent !important;
+  border: none !important;
 }
-
-.remove-attachment-btn:hover {
-  background: var(--hal-border-muted);
+.remove-attachment-btn:hover:not(:disabled) {
+  background: var(--hal-border-muted) !important;
   color: var(--hal-text);
 }
 
@@ -2554,8 +2622,9 @@ div.kanban-frame-container #root,
 }
 
 .conversation-modal-close {
-  background: none;
-  border: none;
+  /* Uses base .btn-destructive class (0739) - close is destructive */
+  background: none !important;
+  border: none !important;
   font-size: 1.5rem;
   line-height: 1;
   color: var(--hal-text-muted);
@@ -2564,9 +2633,8 @@ div.kanban-frame-container #root,
   border-radius: 4px;
   transition: background-color 0.2s, color 0.2s;
 }
-
-.conversation-modal-close:hover {
-  background: var(--hal-surface);
+.conversation-modal-close:hover:not(:disabled) {
+  background: var(--hal-surface) !important;
   color: var(--hal-text);
 }
 
@@ -2947,46 +3015,23 @@ div.kanban-frame-container #root,
 .instruction-edit-btn,
 .instruction-save-btn,
 .instruction-cancel-btn {
+  /* Uses base .btn-standard or .btn-destructive classes (0739) */
   padding: 0.5rem 1rem;
   font-size: 0.9rem;
   font-weight: 500;
-  border: 1px solid var(--hal-border);
   border-radius: 6px;
-  cursor: pointer;
-  transition: background-color 0.2s, border-color 0.2s;
-  background: var(--hal-surface);
-  color: var(--hal-text);
 }
 
-.instruction-edit-btn:hover {
-  background: var(--hal-surface-alt);
-  border-color: var(--hal-primary);
+.instruction-edit-btn {
+  /* Uses base .btn-standard class */
 }
 
 .instruction-save-btn {
-  background: var(--hal-primary);
-  color: white;
-  border-color: var(--hal-primary);
+  /* Uses base .btn-standard class */
 }
 
-.instruction-save-btn:hover:not(:disabled) {
-  background: var(--hal-primary-hover);
-  border-color: var(--hal-primary-hover);
-}
-
-.instruction-save-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.instruction-cancel-btn:hover:not(:disabled) {
-  background: var(--hal-surface-alt);
-  border-color: var(--hal-text-muted);
-}
-
-.instruction-cancel-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+.instruction-cancel-btn {
+  /* Uses base .btn-destructive class */
 }
 
 .instruction-edit-actions {
@@ -3069,15 +3114,17 @@ div.kanban-frame-container #root,
 
 /* Floating PM Chat Widget (0698) */
 .pm-chat-widget-button {
+  /* Uses base .btn-standard class (0739) */
   position: fixed;
   bottom: 24px;
   right: 24px;
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  background: var(--hal-primary);
-  color: white;
-  border: none;
+  /* Override: circular button with solid background */
+  background: var(--hal-primary) !important;
+  color: white !important;
+  border: none !important;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -3086,12 +3133,10 @@ div.kanban-frame-container #root,
   z-index: 1000;
   transition: background-color 0.2s, transform 0.2s;
 }
-
-.pm-chat-widget-button:hover {
-  background: var(--hal-primary-hover);
+.pm-chat-widget-button:hover:not(:disabled) {
+  background: var(--hal-primary-hover) !important;
   transform: scale(1.05);
 }
-
 .pm-chat-widget-button:focus-visible {
   outline: 2px solid var(--hal-primary);
   outline-offset: 2px;
@@ -3151,32 +3196,37 @@ div.kanban-frame-container #root,
   gap: 8px;
 }
 
-.pm-chat-widget-fullscreen-btn,
-.pm-chat-widget-close-btn {
+.pm-chat-widget-fullscreen-btn {
+  /* Uses base .btn-standard class (0739) */
   width: 32px;
   height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: transparent;
-  border: 1px solid var(--hal-border);
   border-radius: 6px;
-  color: var(--hal-text);
   cursor: pointer;
   transition: background-color 0.15s, border-color 0.15s;
 }
-
-.pm-chat-widget-fullscreen-btn:hover,
-.pm-chat-widget-close-btn:hover {
+.pm-chat-widget-fullscreen-btn:hover:not(:disabled) {
   background: var(--hal-surface);
   border-color: var(--hal-border-muted);
 }
 
 .pm-chat-widget-close-btn {
+  /* Uses base .btn-destructive class (0739) */
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s;
   color: var(--hal-text-muted);
 }
-
-.pm-chat-widget-close-btn:hover {
+.pm-chat-widget-close-btn:hover:not(:disabled) {
+  background: var(--hal-surface);
+  border-color: var(--hal-border-muted);
   color: var(--hal-text);
 }
 

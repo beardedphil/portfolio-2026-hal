@@ -157,17 +157,9 @@ h1 {
   flex-wrap: wrap;
 }
 .connect-project-btn {
+  /* Uses base .btn-standard class (0739) */
   padding: 0.45rem 0.9rem;
   font-size: 0.95rem;
-  cursor: pointer;
-  background: var(--kanban-primary);
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-  font-weight: 500;
-}
-.connect-project-btn:hover {
-  background: var(--kanban-primary-hover);
 }
 .embedded-status {
   font-size: 0.9rem;
@@ -194,17 +186,9 @@ h1 {
   color: var(--kanban-primary);
 }
 .disconnect-btn {
+  /* Uses base .btn-destructive class (0739) */
   padding: 0.3rem 0.6rem;
   font-size: 0.85rem;
-  cursor: pointer;
-  background: var(--kanban-surface);
-  color: var(--kanban-text-subtle);
-  border: 1px solid var(--kanban-border);
-  border-radius: 4px;
-}
-.disconnect-btn:hover {
-  background: var(--kanban-surface-alt);
-  color: var(--kanban-text);
 }
 .connection-status {
   font-size: 0.9rem;
@@ -635,24 +619,11 @@ h1 {
 }
 .add-column-btn {
   margin-bottom: 0.75rem;
-  padding: 0.4rem 0.8rem;
-  font-size: 0.9rem;
-  cursor: pointer;
-  background: var(--kanban-primary);
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-}
-.add-column-btn:hover {
-  background: var(--kanban-primary-hover);
+  /* Uses base .btn-standard class (0739) */
 }
 .add-column-btn:focus {
   outline: none;
   -webkit-tap-highlight-color: transparent;
-}
-.add-column-btn:focus-visible {
-  outline: 2px solid rgba(255, 255, 255, 0.8);
-  outline-offset: 2px;
 }
 .add-column-form {
   margin-bottom: 1rem;
@@ -682,16 +653,9 @@ h1 {
   gap: 0.5rem;
 }
 .add-column-form .form-actions button {
+  /* Uses base .btn-standard or .btn-destructive classes (0739) */
   padding: 0.35rem 0.7rem;
   font-size: 0.85rem;
-  cursor: pointer;
-  border: 1px solid var(--kanban-border);
-  border-radius: 4px;
-  background: var(--kanban-surface-alt);
-  color: var(--kanban-text);
-}
-.add-column-form .form-actions button:hover {
-  background: var(--kanban-surface);
 }
 .columns-row {
   display: flex;
@@ -825,16 +789,9 @@ h1 {
 }
 .ticket-card-delete {
   flex-shrink: 0;
+  /* Uses base .btn-destructive class (0739) */
   padding: 0.2rem 0.4rem;
   font-size: 0.75rem;
-  cursor: pointer;
-  border: 1px solid var(--kanban-border);
-  border-radius: 3px;
-  background: var(--kanban-surface);
-  color: var(--kanban-error);
-}
-.ticket-card-delete:hover {
-  background: var(--kanban-surface-alt);
 }
 
 /* 0033: drag handle only for DnD; rest of card opens detail modal */
@@ -1156,14 +1113,9 @@ h1 {
   padding: 0.75rem 1.5rem;
   font-size: 1rem;
   font-weight: 500;
-  border: none;
   border-radius: 6px;
   cursor: pointer;
-  transition: background-color 0.2s, transform 0.1s;
-}
-.human-validation-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.1s;
 }
 .human-validation-button:not(:disabled):hover {
   transform: translateY(-1px);
@@ -1172,20 +1124,10 @@ h1 {
   transform: translateY(0);
 }
 .human-validation-button-pass {
-  background: var(--kanban-success);
-  color: white;
-}
-.human-validation-button-pass:not(:disabled):hover {
-  background: var(--kanban-success);
-  filter: brightness(0.9);
+  /* Uses base .btn-standard class (0739) */
 }
 .human-validation-button-fail {
-  background: var(--kanban-error);
-  color: white;
-}
-.human-validation-button-fail:not(:disabled):hover {
-  background: var(--kanban-error);
-  filter: brightness(0.9);
+  /* Uses base .btn-destructive class (0739) */
 }
 
 /* QA sections removed from UI; hide any that remain in ticket body HTML */
@@ -1770,6 +1712,102 @@ h1 {
   border-color: rgba(244, 67, 54, 0.6);
 }
 [data-theme="dark"] .column-remove:focus-visible {
+  outline-color: #f88;
+}
+
+/* Base button classes - canonical styles for all buttons (0739) */
+/* Standard button style (matches column-work-button) */
+.btn-standard {
+  align-self: flex-start;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  border: 1px solid #8b6cef; /* Unified purple-400 (hue 258°) */
+  border-radius: 6px;
+  background: #f5f3fa; /* Unified purple-25 (hue 258°) */
+  color: #6b4ce6; /* Unified purple-600 (hue 258°) */
+  font-weight: 500;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.btn-standard:hover:not(:disabled) {
+  background: #ede8f7; /* Unified purple-50 (hue 258°) */
+  border-color: #7c5ee8; /* Unified purple-500 (hue 258°) */
+}
+.btn-standard:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  background: #f5f5f5;
+  color: #999;
+  border-color: #ddd;
+}
+.btn-standard:focus-visible {
+  outline: 2px solid #6b4ce6;
+  outline-offset: 2px;
+}
+
+/* Destructive button style (matches column-remove) */
+.btn-destructive {
+  align-self: flex-start;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: #f5f5f5;
+  color: #c00;
+  font-weight: 500;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.btn-destructive:hover:not(:disabled) {
+  background: #ffe0e0;
+  border-color: #999;
+}
+.btn-destructive:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  background: #f5f5f5;
+  color: #999;
+  border-color: #ddd;
+}
+.btn-destructive:focus-visible {
+  outline: 2px solid #c00;
+  outline-offset: 2px;
+}
+
+/* Dark theme adjustments for base button classes */
+[data-theme="dark"] .btn-standard {
+  background: rgba(107, 76, 230, 0.15); /* purple-600 with transparency */
+  border-color: rgba(139, 108, 239, 0.4); /* purple-400 with transparency */
+  color: #b8a9f0; /* lighter purple for dark theme */
+}
+[data-theme="dark"] .btn-standard:hover:not(:disabled) {
+  background: rgba(107, 76, 230, 0.25);
+  border-color: rgba(139, 108, 239, 0.6);
+}
+[data-theme="dark"] .btn-standard:disabled {
+  background: var(--kanban-surface-alt);
+  color: var(--kanban-text-muted);
+  border-color: var(--kanban-border);
+}
+[data-theme="dark"] .btn-standard:focus-visible {
+  outline-color: #b8a9f0;
+}
+
+[data-theme="dark"] .btn-destructive {
+  background: rgba(244, 67, 54, 0.15); /* error color with transparency */
+  border-color: rgba(244, 67, 54, 0.4);
+  color: #f88;
+}
+[data-theme="dark"] .btn-destructive:hover:not(:disabled) {
+  background: rgba(244, 67, 54, 0.25);
+  border-color: rgba(244, 67, 54, 0.6);
+}
+[data-theme="dark"] .btn-destructive:disabled {
+  background: var(--kanban-surface-alt);
+  color: var(--kanban-text-muted);
+  border-color: var(--kanban-border);
+}
+[data-theme="dark"] .btn-destructive:focus-visible {
   outline-color: #f88;
 }
 

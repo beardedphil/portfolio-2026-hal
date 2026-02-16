@@ -111,7 +111,7 @@ export function CoverageReportModal({ isOpen, onClose }: CoverageReportModalProp
           <h3>Test Coverage Report</h3>
           <button
             type="button"
-            className="conversation-modal-close"
+            className="conversation-modal-close btn-destructive"
             onClick={onClose}
             aria-label="Close test coverage report"
           >

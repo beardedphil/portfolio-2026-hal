@@ -50,7 +50,7 @@ export function HumanValidationSection({
       <div className="human-validation-actions">
         <button
           type="button"
-          className="human-validation-button human-validation-button-pass"
+          className="human-validation-button human-validation-button-pass btn-standard"
           onClick={onPass}
           disabled={isProcessing}
         >
@@ -58,7 +58,7 @@ export function HumanValidationSection({
         </button>
         <button
           type="button"
-          className="human-validation-button human-validation-button-fail"
+          className="human-validation-button human-validation-button-fail btn-destructive"
           onClick={onFail}
           disabled={isProcessing}
         >
