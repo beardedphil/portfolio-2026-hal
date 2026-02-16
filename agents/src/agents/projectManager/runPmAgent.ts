@@ -1,102 +1,45 @@
 /**
- * Project Manager agent — context pack, read-only tools, OpenAI Responses API.
- * Module: portfolio-2026-hal-agents (no server required).
- * 
- * This file re-exports all PM agent functionality from modular sub-files.
+ * Main PM agent runner.
  */
 
 import { createOpenAI } from '@ai-sdk/openai'
 import { generateText, tool } from 'ai'
 import { z } from 'zod'
-import path from 'path'
+import crypto from 'node:crypto'
 import fs from 'fs/promises'
+import path from 'path'
 import { exec } from 'child_process'
 import { promisify } from 'util'
-import crypto from 'node:crypto'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import { redact } from '../utils/redact.js'
+import { redact } from '../../utils/redact.js'
 import {
   normalizeBodyForReady,
   sectionContent,
   normalizeTitleLineInBody,
-} from '../lib/ticketBodyNormalization.js'
+} from '../../lib/ticketBodyNormalization.js'
 import {
   slugFromTitle,
   repoHintPrefix,
   parseTicketNumber,
   evaluateTicketReady,
   PLACEHOLDER_RE,
-  type ReadyCheckResult,
-} from '../lib/projectManagerHelpers.js'
+} from '../../lib/projectManagerHelpers.js'
 import {
   listDirectory,
   readFile,
   searchFiles,
   type ToolContext,
-} from './tools.js'
-import {
-  checkUnassignedTickets,
-  isUnknownColumnError,
-  type CheckUnassignedResult,
-} from './projectManager/ticketOperations.js'
-import {
-  respond,
-  type RespondContext,
-  type RespondInput,
-  type RespondMeta,
-  type RespondOutput,
-} from './projectManager/responseHandling.js'
-import {
-  buildContextPack,
-  formatPmInputsSummary,
-  recentTurnsWithinCharBudget,
-  CONVERSATION_RECENT_MAX_CHARS,
-  PM_LOCAL_RULES,
-  USE_MINIMAL_BOOTSTRAP,
-  type ConversationTurn,
-  type PmAgentConfig,
-} from './projectManager/contextBuilding.js'
-import {
-  summarizeForContext,
-  generateWorkingMemory,
-  type WorkingMemory,
-} from './projectManager/summarization.js'
+} from '../tools.js'
+import { buildContextPack } from './contextPack.js'
+import type { PmAgentConfig, PmAgentResult, ToolCallRecord } from './types.js'
 
 const execAsync = promisify(exec)
+const COL_TODO = 'col-todo'
 
-// Re-export for backward compatibility
-export type { ReadyCheckResult }
-export { evaluateTicketReady }
-
-// Re-export from modules
-export type { CheckUnassignedResult }
-export { checkUnassignedTickets }
-export type { RespondContext, RespondInput, RespondMeta, RespondOutput }
-export { respond }
-export type { ConversationTurn, PmAgentConfig }
-export type { WorkingMemory }
-export { summarizeForContext, generateWorkingMemory }
-
-// --- runPmAgent (0003) ---
-
-export interface ToolCallRecord {
-  name: string
-  input: unknown
-  output: unknown
-}
-
-export interface PmAgentResult {
-  reply: string
-  toolCalls: ToolCallRecord[]
-  outboundRequest: object
-  /** OpenAI Responses API response id for continuity (previous_response_id on next turn). */
-  responseId?: string
-  error?: string
-  errorPhase?: 'context-pack' | 'openai' | 'tool'
-  /** Debug: which repo was used for each tool call (0119) */
-  _repoUsage?: Array<{ tool: string; usedGitHub: boolean; path?: string }>
-  /** Full prompt text sent to the LLM (system instructions + context pack + user message) */
-  promptText?: string
+function isUnknownColumnError(err: unknown): boolean {
+  const e = err as { code?: string; message?: string }
+  const msg = (e?.message ?? '').toLowerCase()
+  return e?.code === '42703' || (msg.includes('column') && msg.includes('does not exist'))
 }
 
 const PM_SYSTEM_INSTRUCTIONS = `You are the Project Manager agent for HAL. Your job is to help users understand the codebase, review tickets, and provide project guidance.
@@ -156,12 +99,6 @@ function isUniqueViolation(err: { code?: string; message?: string } | null): boo
   const msg = (err.message ?? '').toLowerCase()
   return msg.includes('duplicate key') || msg.includes('unique constraint')
 }
-// Constants for column IDs (used in tools)
-const COL_UNASSIGNED = 'col-unassigned'
-const COL_TODO = 'col-todo'
-
-// buildContextPack is now imported from './projectManager/contextBuilding.js'
-
 export async function runPmAgent(
   message: string,
   config: PmAgentConfig
@@ -2553,3 +2490,10 @@ export async function runPmAgent(
   }
 }
 
+/**
+ * Summarize older conversation turns using the external LLM (OpenAI).
+ * HAL is encouraged to use this whenever building a bounded context pack from long
+ * history: the LLM produces a short summary so the main PM turn receives summary + recent
+ * messages instead of unbounded transcript.
+ * Used when full history is in DB and we send summary + last N to the PM model.
+ */
