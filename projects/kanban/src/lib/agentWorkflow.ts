@@ -24,7 +24,7 @@ export function getAgentWorkflowSteps(agentType: AgentType): Array<WorkflowStep>
       { id: 'fetching_ticket', label: 'Fetching ticket' },
       { id: 'fetching_branch', label: 'Finding branch' },
       { id: 'launching', label: 'Launching QA' },
-      { id: 'polling', label: 'Reviewing' },
+      { id: 'reviewing', label: 'Reviewing' },
       { id: 'generating_report', label: 'Generating report' },
       { id: 'merging', label: 'Merging' },
       { id: 'moving_ticket', label: 'Moving ticket' },
@@ -36,7 +36,7 @@ export function getAgentWorkflowSteps(agentType: AgentType): Array<WorkflowStep>
       { id: 'fetching_ticket', label: 'Fetching ticket' },
       { id: 'resolving_repo', label: 'Resolving repository' },
       { id: 'launching', label: 'Launching agent' },
-      { id: 'polling', label: 'Running' },
+      { id: 'running', label: 'Running' },
       { id: 'completed', label: 'Completed' },
     ]
   }
@@ -67,10 +67,10 @@ export function mapStatusToStepId(status: string | null, agentType: AgentType): 
     'completed', 'failed'
   ]
   if (validStages.includes(status)) {
-    // Map 'running' to 'polling' for implementation (both mean the agent is running)
-    if (status === 'running' && agentType === 'implementation') return 'polling'
-    // Map 'reviewing' to 'polling' for QA (both mean the agent is reviewing)
-    if (status === 'reviewing' && agentType === 'qa') return 'polling'
+    // Map 'polling' to appropriate stage based on agent type (backward compatibility)
+    if (status === 'polling') {
+      return agentType === 'implementation' ? 'running' : 'reviewing'
+    }
     return status
   }
   
@@ -89,12 +89,12 @@ export function mapStatusToStepId(status: string | null, agentType: AgentType): 
   if (agentType === 'qa') {
     if (status === 'created') return 'fetching_ticket'
     if (status === 'launching') return 'launching'
-    if (status === 'polling') return 'polling'
+    if (status === 'polling') return 'reviewing'
     return 'preparing'
   } else if (agentType === 'implementation') {
     if (status === 'created') return 'fetching_ticket'
     if (status === 'launching') return 'launching'
-    if (status === 'polling') return 'polling'
+    if (status === 'polling') return 'running'
     return 'preparing'
   }
   return 'preparing'
