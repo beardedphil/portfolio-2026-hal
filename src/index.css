@@ -1665,6 +1665,7 @@ body {
 .impl-agent-status-value.impl-status-fetching_ticket,
 .impl-agent-status-value.impl-status-resolving_repo,
 .impl-agent-status-value.impl-status-launching,
+.impl-agent-status-value.impl-status-running,
 .impl-agent-status-value.impl-status-polling {
   color: var(--hal-primary);
   border-color: var(--hal-primary);

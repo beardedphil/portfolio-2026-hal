@@ -13,7 +13,7 @@ describe('getAgentWorkflowSteps', () => {
       { id: 'fetching_ticket', label: 'Fetching ticket' },
       { id: 'fetching_branch', label: 'Finding branch' },
       { id: 'launching', label: 'Launching QA' },
-      { id: 'polling', label: 'Reviewing' },
+      { id: 'reviewing', label: 'Reviewing' },
       { id: 'generating_report', label: 'Generating report' },
       { id: 'merging', label: 'Merging' },
       { id: 'moving_ticket', label: 'Moving ticket' },
@@ -28,7 +28,7 @@ describe('getAgentWorkflowSteps', () => {
       { id: 'fetching_ticket', label: 'Fetching ticket' },
       { id: 'resolving_repo', label: 'Resolving repository' },
       { id: 'launching', label: 'Launching agent' },
-      { id: 'polling', label: 'Running' },
+      { id: 'running', label: 'Running' },
       { id: 'completed', label: 'Completed' },
     ])
   })
@@ -49,8 +49,12 @@ describe('mapStatusToStepId', () => {
       expect(mapStatusToStepId('launching', 'qa')).toBe('launching')
     })
 
-    it('maps "polling" status to "polling"', () => {
-      expect(mapStatusToStepId('polling', 'qa')).toBe('polling')
+    it('maps "polling" status to "reviewing" (backward compatibility)', () => {
+      expect(mapStatusToStepId('polling', 'qa')).toBe('reviewing')
+    })
+
+    it('maps "reviewing" status to "reviewing"', () => {
+      expect(mapStatusToStepId('reviewing', 'qa')).toBe('reviewing')
     })
 
     it('maps "finished" status to "completed"', () => {
@@ -75,8 +79,12 @@ describe('mapStatusToStepId', () => {
       expect(mapStatusToStepId('launching', 'implementation')).toBe('launching')
     })
 
-    it('maps "polling" status to "polling"', () => {
-      expect(mapStatusToStepId('polling', 'implementation')).toBe('polling')
+    it('maps "polling" status to "running" (backward compatibility)', () => {
+      expect(mapStatusToStepId('polling', 'implementation')).toBe('running')
+    })
+
+    it('maps "running" status to "running"', () => {
+      expect(mapStatusToStepId('running', 'implementation')).toBe('running')
     })
 
     it('maps "finished" status to "completed"', () => {
@@ -109,18 +117,18 @@ describe('getStepStatus', () => {
 
   describe('for normal workflow progression', () => {
     it('returns "pending" for steps after current step', () => {
-      expect(getStepStatus('polling', 'launching', qaSteps)).toBe('pending')
-      expect(getStepStatus('completed', 'polling', implSteps)).toBe('pending')
+      expect(getStepStatus('reviewing', 'launching', qaSteps)).toBe('pending')
+      expect(getStepStatus('completed', 'running', implSteps)).toBe('pending')
     })
 
     it('returns "active" for current step', () => {
       expect(getStepStatus('launching', 'launching', qaSteps)).toBe('active')
-      expect(getStepStatus('polling', 'polling', implSteps)).toBe('active')
+      expect(getStepStatus('running', 'running', implSteps)).toBe('active')
     })
 
     it('returns "done" for steps before current step', () => {
       expect(getStepStatus('preparing', 'launching', qaSteps)).toBe('done')
-      expect(getStepStatus('fetching_ticket', 'polling', implSteps)).toBe('done')
+      expect(getStepStatus('fetching_ticket', 'running', implSteps)).toBe('done')
     })
   })
 
@@ -130,7 +138,7 @@ describe('getStepStatus', () => {
       expect(getStepStatus('fetching_ticket', 'failed', qaSteps)).toBe('done')
       expect(getStepStatus('fetching_branch', 'failed', qaSteps)).toBe('done')
       expect(getStepStatus('launching', 'failed', qaSteps)).toBe('done')
-      expect(getStepStatus('polling', 'failed', qaSteps)).toBe('done')
+      expect(getStepStatus('reviewing', 'failed', qaSteps)).toBe('done')
       expect(getStepStatus('generating_report', 'failed', qaSteps)).toBe('done')
       expect(getStepStatus('merging', 'failed', qaSteps)).toBe('done')
       expect(getStepStatus('moving_ticket', 'failed', qaSteps)).toBe('done')
@@ -179,7 +187,7 @@ describe('getStepStatus', () => {
       expect(getStepStatus('fetching_ticket', 'fetching_ticket', implSteps)).toBe('active')
       expect(getStepStatus('resolving_repo', 'resolving_repo', implSteps)).toBe('active')
       expect(getStepStatus('launching', 'launching', implSteps)).toBe('active')
-      expect(getStepStatus('polling', 'polling', implSteps)).toBe('active')
+      expect(getStepStatus('running', 'running', implSteps)).toBe('active')
       expect(getStepStatus('completed', 'completed', implSteps)).toBe('active')
     })
   })
@@ -190,7 +198,7 @@ describe('getStepStatus', () => {
       expect(getStepStatus('fetching_ticket', 'fetching_ticket', qaSteps)).toBe('active')
       expect(getStepStatus('fetching_branch', 'fetching_branch', qaSteps)).toBe('active')
       expect(getStepStatus('launching', 'launching', qaSteps)).toBe('active')
-      expect(getStepStatus('polling', 'polling', qaSteps)).toBe('active')
+      expect(getStepStatus('reviewing', 'reviewing', qaSteps)).toBe('active')
       expect(getStepStatus('generating_report', 'generating_report', qaSteps)).toBe('active')
       expect(getStepStatus('merging', 'merging', qaSteps)).toBe('active')
       expect(getStepStatus('moving_ticket', 'moving_ticket', qaSteps)).toBe('active')
