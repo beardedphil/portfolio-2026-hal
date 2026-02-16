@@ -515,7 +515,7 @@ body {
   overflow-x: hidden !important;
   display: flex;
   flex-direction: column;
-  flex: 1 1 auto !important; /* 0499: Allow root to grow naturally as flex child */
+  flex: 0 1 auto !important; /* 0706: Don't grow to fill space - use natural height to allow unified scrolling */
 }
 
 /* Ensure Kanban app container doesn't create its own scroll context */
