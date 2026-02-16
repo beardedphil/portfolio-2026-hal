@@ -4,32 +4,20 @@ import {
   fetchPullRequestFiles,
   generateImplementationArtifacts,
 } from '../_lib/github/githubApi.js'
-import { getServerSupabase, appendProgress, upsertArtifact, buildWorklogBodyFromProgress, type ProgressEntry } from './_shared.js'
+import {
+  getServerSupabase,
+  getCursorApiKey,
+  humanReadableCursorError,
+  appendProgress,
+  upsertArtifact,
+  buildWorklogBodyFromProgress,
+  json,
+  type ProgressEntry,
+} from './_shared.js'
 
 type AgentType = 'implementation' | 'qa' | 'project-manager' | 'process-review'
 
 const MAX_RUN_SUMMARY_CHARS = 20_000
-
-function getCursorApiKey(): string {
-  const key = (process.env.CURSOR_API_KEY || process.env.VITE_CURSOR_API_KEY || '').trim()
-  if (!key) throw new Error('Cursor API is not configured (CURSOR_API_KEY).')
-  return key
-}
-
-function humanReadableCursorError(status: number, detail?: string): string {
-  if (status === 401) return 'Cursor API authentication failed. Check that CURSOR_API_KEY is valid.'
-  if (status === 403) return 'Cursor API access denied. Your plan may not include Cloud Agents API.'
-  if (status === 429) return 'Cursor API rate limit exceeded. Please try again in a moment.'
-  if (status >= 500) return `Cursor API server error (${status}). Please try again later.`
-  const suffix = detail ? ` — ${String(detail).slice(0, 140)}` : ''
-  return `Cursor API request failed (${status})${suffix}`
-}
-
-function json(res: ServerResponse, statusCode: number, body: unknown) {
-  res.statusCode = statusCode
-  res.setHeader('Content-Type', 'application/json')
-  res.end(JSON.stringify(body))
-}
 
 function getQueryParam(req: IncomingMessage, name: string): string | null {
   try {

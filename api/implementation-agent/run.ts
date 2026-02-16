@@ -1,23 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'http'
-
-function humanReadableCursorError(status: number, detail?: string): string {
-  if (status === 401) return 'Cursor API authentication failed. Check that CURSOR_API_KEY is valid.'
-  if (status === 403) return 'Cursor API access denied. Your plan may not include Cloud Agents API.'
-  if (status === 429) return 'Cursor API rate limit exceeded. Please try again in a moment.'
-  if (status >= 500) return `Cursor API server error (${status}). Please try again later.`
-  const suffix = detail ? ` — ${String(detail).slice(0, 100)}` : ''
-  return `Cursor API request failed (${status})${suffix}`
-}
-
-async function readJsonBody(req: IncomingMessage): Promise<unknown> {
-  const chunks: Uint8Array[] = []
-  for await (const chunk of req) {
-    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk)
-  }
-  const raw = Buffer.concat(chunks).toString('utf8').trim()
-  if (!raw) return {}
-  return JSON.parse(raw) as unknown
-}
+import { humanReadableCursorError, readJsonBody } from '../agent-runs/_shared.js'
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
