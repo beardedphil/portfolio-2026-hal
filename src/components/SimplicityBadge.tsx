@@ -8,12 +8,21 @@ import { getMetricColor } from '../lib/metricColor'
 export function SimplicityBadge() {
   const qaMetrics = useQAMetrics()
   const simplicity = qaMetrics?.simplicity ?? null
+  const unroundedSimplicity = qaMetrics?.unroundedSimplicity ?? null
+
+  const getTooltip = () => {
+    if (simplicity === null) return 'Simplicity: N/A'
+    if (unroundedSimplicity !== null && unroundedSimplicity !== simplicity) {
+      return `Simplicity: ${simplicity}% (rounded from ${unroundedSimplicity.toFixed(1)}%)`
+    }
+    return `Simplicity: ${simplicity}%`
+  }
 
   return (
     <div
       className="qa-metric-box"
       style={{ backgroundColor: getMetricColor(simplicity) }}
-      title={simplicity !== null ? `Simplicity: ${simplicity.toFixed(0)}%` : 'Simplicity: N/A'}
+      title={getTooltip()}
     >
       <span className="qa-metric-label">Simplicity</span>
       <span className="qa-metric-value">

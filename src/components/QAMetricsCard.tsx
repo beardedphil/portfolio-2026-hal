@@ -4,6 +4,7 @@ import { getMetricColor } from '../lib/metricColor'
 export interface QAMetrics {
   coverage: number | null // 0-100 or null for N/A
   simplicity: number | null // 0-100 or null for N/A
+  unroundedSimplicity?: number | null // Unrounded simplicity value (0-100) with 1 decimal place
 }
 
 function parseMetrics(data: unknown): QAMetrics | null {
@@ -11,7 +12,8 @@ function parseMetrics(data: unknown): QAMetrics | null {
   const o = data as Record<string, unknown>
   const coverage = o.coverage != null ? Math.min(100, Math.max(0, Number(o.coverage))) : null
   const simplicity = o.simplicity != null ? Math.min(100, Math.max(0, Number(o.simplicity))) : null
-  return { coverage: coverage ?? null, simplicity: simplicity ?? null }
+  const unroundedSimplicity = o.unroundedSimplicity != null ? Math.min(100, Math.max(0, Number(o.unroundedSimplicity))) : null
+  return { coverage: coverage ?? null, simplicity: simplicity ?? null, unroundedSimplicity: unroundedSimplicity ?? null }
 }
 
 function fetchMetrics(cacheBust = false): Promise<QAMetrics | null> {
@@ -94,7 +96,29 @@ export function CoverageBadge() {
  */
 export function SimplicityBadge() {
   const qaMetrics = useQAMetrics()
-  return <QAMetricBadge label="Simplicity" value={qaMetrics?.simplicity ?? null} />
+  const simplicity = qaMetrics?.simplicity ?? null
+  const unroundedSimplicity = qaMetrics?.unroundedSimplicity ?? null
+
+  const getTooltip = () => {
+    if (simplicity === null) return 'Simplicity: N/A'
+    if (unroundedSimplicity !== null && unroundedSimplicity !== simplicity) {
+      return `Simplicity: ${simplicity}% (rounded from ${unroundedSimplicity.toFixed(1)}%)`
+    }
+    return `Simplicity: ${simplicity}%`
+  }
+
+  return (
+    <div
+      className="qa-metric-box"
+      style={{ backgroundColor: getMetricColor(simplicity) }}
+      title={getTooltip()}
+    >
+      <span className="qa-metric-label">Simplicity</span>
+      <span className="qa-metric-value">
+        {simplicity !== null ? `${simplicity.toFixed(0)}%` : 'N/A'}
+      </span>
+    </div>
+  )
 }
 
 /**
@@ -131,7 +155,15 @@ export function QAMetricsCard({ onCoverageClick, onSimplicityClick }: QAMetricsC
       <div
         className={`qa-metric-box ${onSimplicityClick ? 'qa-metric-box-clickable' : ''}`}
         style={{ backgroundColor: getMetricColor(qaMetrics?.simplicity ?? null) }}
-        title={qaMetrics?.simplicity !== null && qaMetrics !== null ? `Simplicity: ${qaMetrics.simplicity.toFixed(0)}%` : 'Simplicity: N/A'}
+        title={(() => {
+          const simplicity = qaMetrics?.simplicity ?? null
+          const unrounded = qaMetrics?.unroundedSimplicity ?? null
+          if (simplicity === null) return 'Simplicity: N/A'
+          if (unrounded !== null && unrounded !== simplicity) {
+            return `Simplicity: ${simplicity}% (rounded from ${unrounded.toFixed(1)}%)`
+          }
+          return `Simplicity: ${simplicity}%`
+        })()}
         onClick={onSimplicityClick}
         role={onSimplicityClick ? 'button' : undefined}
         tabIndex={onSimplicityClick ? 0 : undefined}

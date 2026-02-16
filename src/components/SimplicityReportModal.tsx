@@ -12,6 +12,8 @@ interface SimplicityDetails {
     delta: number
   }>
   generatedAt: string
+  filesAnalyzed?: number
+  unroundedSimplicity?: number
 }
 
 interface SimplicityReportModalProps {
@@ -72,6 +74,35 @@ export function SimplicityReportModal({ isOpen, onClose }: SimplicityReportModal
           )}
           {!loading && !error && details && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+              <section>
+                <h4 style={{ margin: '0 0 1rem 0', fontSize: '1.1rem', fontWeight: 600 }}>Report Information</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem', padding: '1rem', background: 'var(--hal-surface-alt)', borderRadius: '6px', border: '1px solid var(--hal-border)' }}>
+                  {details.generatedAt && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontWeight: 600, color: 'var(--hal-text-muted)' }}>Generated at:</span>
+                      <span style={{ fontFamily: 'monospace', fontSize: '0.9rem' }}>{new Date(details.generatedAt).toLocaleString()}</span>
+                    </div>
+                  )}
+                  {details.filesAnalyzed !== undefined && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontWeight: 600, color: 'var(--hal-text-muted)' }}>Files analyzed:</span>
+                      <span style={{ fontFamily: 'monospace', fontSize: '0.9rem' }}>{details.filesAnalyzed.toLocaleString()}</span>
+                    </div>
+                  )}
+                  {details.unroundedSimplicity !== undefined && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontWeight: 600, color: 'var(--hal-text-muted)' }}>Unrounded simplicity:</span>
+                      <span style={{ fontFamily: 'monospace', fontSize: '0.9rem' }}>{details.unroundedSimplicity.toFixed(1)}%</span>
+                    </div>
+                  )}
+                  {details.unroundedSimplicity !== undefined && (
+                    <div style={{ marginTop: '0.5rem', padding: '0.5rem', background: 'rgba(0, 0, 0, 0.05)', borderRadius: '4px', fontSize: '0.85rem', color: 'var(--hal-text-muted)' }}>
+                      <strong>Note:</strong> The displayed simplicity value ({Math.round(details.unroundedSimplicity)}%) is rounded from {details.unroundedSimplicity.toFixed(1)}%
+                    </div>
+                  )}
+                </div>
+              </section>
+
               <section>
                 <h4 style={{ margin: '0 0 1rem 0', fontSize: '1.1rem', fontWeight: 600 }}>Top Offenders</h4>
                 <p style={{ margin: '0 0 1rem 0', color: 'var(--hal-text-muted)', fontSize: '0.9rem' }}>
@@ -137,12 +168,6 @@ export function SimplicityReportModal({ isOpen, onClose }: SimplicityReportModal
                   </div>
                 )}
               </section>
-
-              {details.generatedAt && (
-                <div style={{ fontSize: '0.85rem', color: 'var(--hal-text-muted)', textAlign: 'right' }}>
-                  Generated: {new Date(details.generatedAt).toLocaleString()}
-                </div>
-              )}
             </div>
           )}
         </div>

@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 export interface QAMetrics {
   coverage: number | null // 0-100 or null for N/A
   simplicity: number | null // 0-100 or null for N/A
+  unroundedSimplicity?: number | null // Unrounded simplicity value (0-100) with 1 decimal place
 }
 
 function parseMetrics(data: unknown): QAMetrics | null {
@@ -10,7 +11,8 @@ function parseMetrics(data: unknown): QAMetrics | null {
   const o = data as Record<string, unknown>
   const coverage = o.coverage != null ? Math.min(100, Math.max(0, Number(o.coverage))) : null
   const simplicity = o.simplicity != null ? Math.min(100, Math.max(0, Number(o.simplicity))) : null
-  return { coverage: coverage ?? null, simplicity: simplicity ?? null }
+  const unroundedSimplicity = o.unroundedSimplicity != null ? Math.min(100, Math.max(0, Number(o.unroundedSimplicity))) : null
+  return { coverage: coverage ?? null, simplicity: simplicity ?? null, unroundedSimplicity: unroundedSimplicity ?? null }
 }
 
 function fetchMetrics(cacheBust = false): Promise<QAMetrics | null> {
