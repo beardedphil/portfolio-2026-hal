@@ -1526,6 +1526,9 @@ function App() {
             } else {
               fetchActiveAgentRuns()
             }
+          }).catch((err) => {
+            // Non-blocking error: log but don't disrupt UI (0703)
+            console.warn('[Kanban] Realtime subscription refetch error:', err)
           })
         }
       )
@@ -1565,6 +1568,9 @@ function App() {
           } else {
             fetchActiveAgentRuns()
           }
+        }).catch((err) => {
+          // Non-blocking error: log but don't disrupt UI (0703)
+          console.warn('[Kanban] BroadcastChannel refetch error:', err)
         })
       }
     }
