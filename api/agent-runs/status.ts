@@ -33,14 +33,122 @@ function isPlaceholderSummary(summary: string | null | undefined): boolean {
 
 function getLastAssistantMessage(conversationText: string): string | null {
   try {
-    const conv = JSON.parse(conversationText) as { messages?: Array<{ role?: string; content?: string }> }
-    const messages = conv.messages ?? []
-    const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant' && m.content && String(m.content).trim())
-    const content = (lastAssistant?.content ?? '').trim()
+    const conv = JSON.parse(conversationText) as any
+    const messages: any[] =
+      (Array.isArray(conv?.messages) && conv.messages) ||
+      (Array.isArray(conv?.conversation?.messages) && conv.conversation.messages) ||
+      []
+
+    const toText = (content: unknown): string => {
+      if (typeof content === 'string') return content
+      if (Array.isArray(content)) {
+        return content
+          .map((p) => {
+            if (typeof p === 'string') return p
+            if (p && typeof p === 'object') {
+              const anyP = p as any
+              return (
+                (typeof anyP.text === 'string' ? anyP.text : '') ||
+                (typeof anyP.content === 'string' ? anyP.content : '') ||
+                (typeof anyP.value === 'string' ? anyP.value : '')
+              )
+            }
+            return ''
+          })
+          .filter(Boolean)
+          .join('')
+      }
+      if (content && typeof content === 'object') {
+        const anyC = content as any
+        if (typeof anyC.text === 'string') return anyC.text
+        if (typeof anyC.content === 'string') return anyC.content
+        if (typeof anyC.value === 'string') return anyC.value
+      }
+      return ''
+    }
+
+    const lastAssistant = [...messages]
+      .reverse()
+      .find((m) => m?.role === 'assistant' && String(toText(m?.content ?? '')).trim())
+    const content = toText(lastAssistant?.content ?? '').trim()
     return content ? content : null
   } catch {
     return null
   }
+}
+
+function parseProcessReviewSuggestionsFromText(
+  input: string
+): Array<{ text: string; justification: string }> | null {
+  const text = String(input ?? '').trim()
+  if (!text) return null
+
+  const tryParse = (candidate: string): Array<{ text: string; justification: string }> | null => {
+    const s = candidate.trim()
+    if (!s) return null
+    try {
+      const parsed = JSON.parse(s) as unknown
+      if (!Array.isArray(parsed)) return null
+      const suggestions = (parsed as any[])
+        .filter((item) => item && typeof item === 'object')
+        .filter((item) => typeof (item as any).text === 'string' && typeof (item as any).justification === 'string')
+        .map((item) => ({
+          text: String((item as any).text).trim(),
+          justification: String((item as any).justification).trim(),
+        }))
+        .filter((s) => s.text.length > 0 && s.justification.length > 0)
+      return suggestions
+    } catch {
+      return null
+    }
+  }
+
+  // 1) If the whole message is already a JSON array, parse directly.
+  const direct = tryParse(text)
+  if (direct) return direct
+
+  // 2) If wrapped in markdown code blocks, prefer the first fenced block body.
+  // Supports ```json ... ``` and ``` ... ```
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
+  if (fenced?.[1]) {
+    const fromFence = tryParse(fenced[1])
+    if (fromFence) return fromFence
+  }
+
+  // 3) Fallback: extract the first JSON-ish array substring via a simple bracket match.
+  const start = text.indexOf('[')
+  if (start === -1) return null
+  let depth = 0
+  let inString = false
+  let escape = false
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i]
+    if (inString) {
+      if (escape) {
+        escape = false
+        continue
+      }
+      if (ch === '\\') {
+        escape = true
+        continue
+      }
+      if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') {
+      inString = true
+      continue
+    }
+    if (ch === '[') depth++
+    if (ch === ']') depth--
+    if (depth === 0) {
+      const slice = text.slice(start, i + 1)
+      const fromSlice = tryParse(slice)
+      if (fromSlice) return fromSlice
+      break
+    }
+  }
+  return null
 }
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
@@ -184,38 +292,29 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
       // Process-review: fetch conversation, parse JSON suggestions, store in process_reviews
       if (agentType === 'process-review' && ticketPk) {
-        if (conversationText) {
+        // Prefer parsing suggestions from the Cursor summary (often contains the final assistant message).
+        // If summary is missing/placeholder or not parseable, fall back to the conversation payload.
+        const fromSummary = parseProcessReviewSuggestionsFromText(summary ?? '')
+        const fromConversation = conversationText
+          ? parseProcessReviewSuggestionsFromText(getLastAssistantMessage(conversationText) ?? '')
+          : null
+        const suggestions = fromSummary ?? fromConversation ?? []
+
+        if (suggestions.length > 0 || fromSummary != null || fromConversation != null) {
           try {
-            const lastAssistantContent = getLastAssistantMessage(conversationText) ?? ''
-            const jsonMatch = lastAssistantContent.match(/\[[\s\S]*\]/)
-            const jsonStr = jsonMatch ? jsonMatch[0] : ''
-            let suggestions: Array<{ text: string; justification: string }> = []
-            if (jsonStr) {
-              try {
-                const parsed = JSON.parse(jsonStr) as unknown[]
-                if (Array.isArray(parsed)) {
-                  suggestions = parsed
-                    .filter((item): item is { text?: string; justification?: string } => item != null && typeof item === 'object')
-                    .filter((item) => typeof item.text === 'string' && typeof item.justification === 'string')
-                    .map((item) => ({ text: String(item.text).trim(), justification: String(item.justification).trim() }))
-                }
-              } catch {
-                // ignore parse error
-              }
-            }
             processReviewSuggestions = suggestions
             const repoFullNameForReview = (run as any).repo_full_name as string
             await supabase.from('process_reviews').insert({
               ticket_pk: ticketPk,
               repo_full_name: repoFullNameForReview,
-              suggestions,
+              suggestions: suggestions,
               status: 'success',
               error_message: null,
             })
           } catch (e) {
             console.warn('[agent-runs] process-review conversation fetch/parse failed:', e instanceof Error ? e.message : e)
           }
-        }
+        } // else: could not parse suggestions from either source; keep null so UI doesn't treat as empty recommendations.
       }
     } else if (cursorStatus === 'FAILED' || cursorStatus === 'CANCELLED' || cursorStatus === 'ERROR') {
       nextStatus = 'failed'
