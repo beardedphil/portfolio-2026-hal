@@ -542,6 +542,18 @@ body {
   height: auto !important;
 }
 
+/* 0706: Ensure DndContext and its wrapper don't create scroll containers or height constraints */
+/* DndContext from @dnd-kit/core renders a wrapper div that should not constrain height */
+.kanban-frame-container #root > div:first-child {
+  max-height: none !important;
+  height: auto !important;
+  overflow: visible !important;
+  overflow-y: visible !important;
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 0 1 auto !important;
+}
+
 /* Ensure Active Work and columns section don't constrain height or create scroll context */
 /* They should both be children of the scrollable container and move together */
 /* 0499: Active Work section starts at top of scroll container, scrollbar appears at kanban-frame-container level */
