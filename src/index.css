@@ -539,6 +539,7 @@ body {
 
 /* Ensure Kanban app container doesn't create its own scroll context */
 /* 0499: Ensure no scroll context is created at this level */
+/* 0706: Restore unified vertical scrolling - ensure no nested scroll containers */
 .kanban-frame-container [data-kanban-build] {
   height: auto !important;
   min-height: 0 !important;
@@ -550,24 +551,39 @@ body {
   flex-direction: column;
 }
 
+/* 0706: Ensure DndContext wrapper doesn't create scroll container */
+.kanban-frame-container [data-rbd-droppable-id],
+.kanban-frame-container [role="application"] {
+  overflow: visible !important;
+  overflow-y: visible !important;
+  overflow-x: visible !important;
+  max-height: none !important;
+  height: auto !important;
+}
+
 /* Ensure Active Work and columns section don't constrain height or create scroll context */
 /* They should both be children of the scrollable container and move together */
 /* 0499: Active Work section starts at top of scroll container, scrollbar appears at kanban-frame-container level */
+/* 0706: Restore unified vertical scrolling - Active Work must scroll with the board, not be pinned */
 .kanban-frame-container .active-work-row {
   flex: 0 0 auto !important; /* Don't grow or shrink, use natural height */
   overflow: visible !important;
   overflow-y: visible !important;
   overflow-x: visible !important;
   position: relative !important; /* 0499: Ensure proper positioning for header/controls */
+  max-height: none !important; /* 0706: Ensure no height constraint that could cause pinning */
 }
 
+/* 0706: Restore unified vertical scrolling - columns-section must not create nested scroll container */
 .kanban-frame-container .columns-section {
   flex: 0 1 auto !important; /* Don't grow to fill space, allow natural height */
-  min-height: 0;
+  min-height: 0 !important; /* 0706: Ensure no height constraint that could create scroll container */
   margin-bottom: 1.5rem;
   overflow: visible !important;
   overflow-y: visible !important;
   overflow-x: visible !important;
+  max-height: none !important; /* 0706: Ensure no max-height constraint */
+  height: auto !important; /* 0706: Ensure height is auto, not constrained */
 }
 
 /* Ensure Kanban columns container can scroll horizontally (preserved) */
@@ -644,10 +660,12 @@ body {
 }
 
 /* Ensure columns-section doesn't create scroll context (0499) */
+/* 0706: Restore unified vertical scrolling - columns-section must not create nested scroll container */
 .kanban-frame-container .columns-section {
   max-height: none !important;
   height: auto !important;
   flex: 0 1 auto !important; /* 0499: Override Kanban's flex: 1 - don't grow, use natural height */
+  min-height: 0 !important; /* 0706: Ensure no height constraint that could create scroll container */
 }
 
 .kanban-loading-overlay {
