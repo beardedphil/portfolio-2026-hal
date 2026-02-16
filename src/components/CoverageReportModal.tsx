@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 interface CoverageDetails {
   topOffenders: Array<{
@@ -14,43 +14,92 @@ interface CoverageDetails {
   generatedAt: string
 }
 
+function hasRealData(data: CoverageDetails): boolean {
+  return Boolean(data.generatedAt || data.topOffenders?.length)
+}
+
 interface CoverageReportModalProps {
   isOpen: boolean
   onClose: () => void
 }
 
+const POLL_INTERVAL_MS = 2500
+const POLL_TIMEOUT_MS = 3 * 60 * 1000
+
 export function CoverageReportModal({ isOpen, onClose }: CoverageReportModalProps) {
   const [details, setDetails] = useState<CoverageDetails | null>(null)
   const [loading, setLoading] = useState(true)
+  const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const pollUntilRef = useRef<number>(0)
+  const cancelledRef = useRef(false)
 
   useEffect(() => {
     if (!isOpen) return
-
+    cancelledRef.current = false
     setLoading(true)
     setError(null)
-    fetch('/coverage-details.json')
-      .then((res) => {
-        if (!res.ok) throw new Error(`Failed to load: ${res.statusText}`)
+    setGenerating(false)
+    setDetails(null)
+
+    async function load() {
+      try {
+        const res = await fetch('/coverage-details.json')
+        if (!res.ok) throw new Error(res.statusText)
         const ct = res.headers.get('content-type') ?? ''
-        if (!ct.includes('application/json')) {
-          throw new Error('Server returned non-JSON. Run npm run test:coverage to generate coverage data.')
+        if (!ct.includes('application/json')) throw new Error('Non-JSON response')
+        const data: CoverageDetails = await res.json()
+        if (hasRealData(data)) {
+          setDetails(data)
+          setLoading(false)
+          return
         }
-        return res.json()
-      })
-      .then((data: CoverageDetails) => {
-        setDetails(data)
+        // No data: start coverage run and poll until data exists
+        setGenerating(true)
         setLoading(false)
-      })
-      .catch((err) => {
-        const msg = err.message || 'Failed to load coverage details'
-        const friendly =
-          msg.includes('JSON') || msg.includes('DOCTYPE')
-            ? 'Could not load coverage data. Run npm run test:coverage to generate.'
-            : msg
-        setError(friendly)
+        await fetch('/api/run-coverage', { method: 'POST' })
+        if (cancelledRef.current) return
+        pollUntilRef.current = Date.now() + POLL_TIMEOUT_MS
+        poll()
+      } catch {
+        if (cancelledRef.current) return
+        setGenerating(true)
         setLoading(false)
-      })
+        await fetch('/api/run-coverage', { method: 'POST' }).catch(() => {})
+        if (cancelledRef.current) return
+        pollUntilRef.current = Date.now() + POLL_TIMEOUT_MS
+        poll()
+      }
+    }
+
+    function poll() {
+      if (cancelledRef.current) return
+      if (Date.now() > pollUntilRef.current) {
+        setGenerating(false)
+        setError('Generation timed out. Try running npm run test:coverage in the terminal.')
+        return
+      }
+      fetch('/coverage-details.json')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data: CoverageDetails | null) => {
+          if (cancelledRef.current) return
+          if (data && hasRealData(data)) {
+            setDetails(data)
+            setGenerating(false)
+            setError(null)
+            return
+          }
+          setTimeout(poll, POLL_INTERVAL_MS)
+        })
+        .catch(() => {
+          if (!cancelledRef.current) setTimeout(poll, POLL_INTERVAL_MS)
+        })
+    }
+
+    load()
+    return () => {
+      cancelledRef.current = true
+    }
   }, [isOpen])
 
   if (!isOpen) return null
@@ -71,18 +120,18 @@ export function CoverageReportModal({ isOpen, onClose }: CoverageReportModalProp
         </div>
         <div className="conversation-modal-content" style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
           {loading && <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--hal-text-muted)' }}>Loading test coverage details...</div>}
-          {error && (
+          {generating && !details && (
+            <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--hal-text-muted)' }}>
+              Running tests and generating coverage… This may take a minute or two.
+            </div>
+          )}
+          {error && !generating && (
             <div style={{ padding: '1rem', background: 'rgba(198, 40, 40, 0.1)', border: '1px solid var(--hal-status-error)', borderRadius: '6px', color: 'var(--hal-status-error)' }}>
               {error}
             </div>
           )}
           {!loading && !error && details && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-              {(!details.generatedAt && details.topOffenders.length === 0) && (
-                <p style={{ color: 'var(--hal-text-muted)', margin: 0 }}>
-                  No coverage data yet. Run <code style={{ fontSize: '0.9em' }}>npm run test:coverage</code> to generate.
-                </p>
-              )}
               <section>
                 <h4 style={{ margin: '0 0 1rem 0', fontSize: '1.1rem', fontWeight: 600 }}>Top Offenders</h4>
                 <p style={{ margin: '0 0 1rem 0', color: 'var(--hal-text-muted)', fontSize: '0.9rem' }}>

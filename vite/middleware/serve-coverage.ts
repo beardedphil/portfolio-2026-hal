@@ -2,6 +2,7 @@ import type { Plugin } from 'vite'
 import path from 'path'
 import fs from 'fs'
 import { fileURLToPath } from 'url'
+import { spawn } from 'child_process'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '../..')
@@ -16,11 +17,40 @@ const FALLBACK_COVERAGE_DETAILS = {
   generatedAt: '',
 }
 
+let coverageRunInProgress = false
+
 /** Serve coverage JSON and /coverage-details.json so the Test Coverage Report gets JSON, not SPA HTML. */
 export function serveCoveragePlugin(): Plugin {
   return {
     name: 'serve-coverage',
     configureServer(server) {
+      // POST /api/run-coverage — run npm run test:coverage in background (one at a time)
+      server.middlewares.use((req, res, next) => {
+        const url = req.url ?? ''
+        const pathname = url.split('?')[0]
+        if (pathname === '/api/run-coverage' && req.method === 'POST') {
+          res.setHeader('Content-Type', 'application/json')
+          if (coverageRunInProgress) {
+            res.statusCode = 200
+            res.end(JSON.stringify({ started: false, message: 'Coverage run already in progress' }))
+            return
+          }
+          coverageRunInProgress = true
+          const child = spawn('npm', ['run', 'test:coverage'], {
+            cwd: ROOT,
+            shell: true,
+            stdio: 'ignore',
+          })
+          child.on('close', () => {
+            coverageRunInProgress = false
+          })
+          res.statusCode = 200
+          res.end(JSON.stringify({ started: true }))
+          return
+        }
+        next()
+      })
+
       server.middlewares.use((req, res, next) => {
         const url = req.url ?? ''
         const pathname = url.split('?')[0]
