@@ -43,7 +43,6 @@ import { DroppableActiveWorkRow } from './components/DroppableActiveWorkRow'
 import { AppHeader } from './components/AppHeader'
 import { AddColumnForm } from './components/AddColumnForm'
 import { DebugPanel } from './components/DebugPanel'
-import { NewHalProjectWizard } from './components/NewHalProjectWizard'
 import type { Card, Column } from './lib/columnTypes'
 import type { LogEntry, SupabaseTicketRow, SupabaseAgentArtifactRow, SupabaseAgentRunRow, TicketAttachment } from './App.types'
 import { SUPABASE_CONFIG_KEY, CONNECTED_REPO_KEY, SUPABASE_POLL_INTERVAL_MS, SUPABASE_SAFETY_POLL_INTERVAL_MS, REFETCH_AFTER_MOVE_MS, KANBAN_BROADCAST_CHANNEL, EMPTY_KANBAN_COLUMNS, DEFAULT_KANBAN_COLUMNS_SEED, _SUPABASE_KANBAN_COLUMNS_SETUP_SQL, DEFAULT_COLUMNS, INITIAL_CARDS, _SUPABASE_SETUP_SQL, _SUPABASE_TICKET_ATTACHMENTS_SETUP_SQL } from './App.constants'
@@ -1513,7 +1512,7 @@ function App() {
           table: 'tickets',
           filter: `repo_full_name=eq.${connectedRepoFullName}`,
         },
-        (payload) => {
+        (_payload) => {
           // Skip refresh if user is dragging (0703)
           if (isDragging) return
           
