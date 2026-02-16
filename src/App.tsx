@@ -12,8 +12,9 @@ import 'portfolio-2026-kanban/style.css'
 import { AgentInstructionsViewer } from './AgentInstructionsViewer'
 
 const KanbanBoard = Kanban.default
-const _kanbanBuild = (Kanban as unknown as { KANBAN_BUILD?: string }).KANBAN_BUILD
-const KANBAN_BUILD: string = typeof _kanbanBuild === 'string' ? _kanbanBuild : 'unknown'
+// KANBAN_BUILD no longer used with floating widget (0698)
+// const _kanbanBuild = (Kanban as unknown as { KANBAN_BUILD?: string }).KANBAN_BUILD
+// const _KANBAN_BUILD: string = typeof _kanbanBuild === 'string' ? _kanbanBuild : 'unknown'
 
 /** Artifact row shape (matches Kanban package KanbanAgentArtifactRow). HAL owns DB so we type locally. */
 type ArtifactRow = {
@@ -56,40 +57,33 @@ type TicketCreationResult = {
   autoFixed?: boolean
 }
 
-type DiagnosticsInfo = {
-  kanbanRenderMode: string
-  selectedChatTarget: ChatTarget
-  pmImplementationSource: 'hal-agents' | 'inline'
-  lastAgentError: string | null
-  lastError: string | null
-  openaiLastStatus: string | null
-  openaiLastError: string | null
-  kanbanLoaded: boolean
-  kanbanUrl: string
-  /** Kanban library build id (e.g. git commit); confirms which bundle is loaded. */
-  kanbanBuild: string
-  connectedProject: string | null
-  lastPmOutboundRequest: object | null
-  lastPmToolCalls: ToolCallRecord[] | null
-  lastTicketCreationResult: TicketCreationResult | null
-  lastCreateTicketAvailable: boolean | null
-  persistenceError: string | null
-  /** Agent runner label from last PM response (e.g. "v2 (shared)"). */
-  agentRunner: string | null
-  /** Auto-move diagnostics entries (0061). */
-  autoMoveDiagnostics: Array<{ timestamp: Date; message: string; type: 'error' | 'info' }>
-  /** Current theme and source (0078). */
-  theme: Theme
-  themeSource: 'default' | 'saved'
-  /** Last send payload summary (0077). */
-  lastSendPayloadSummary: string | null
-  /** True when GitHub repo is connected; enables PM agent read_file/search_files via GitHub API. */
-  repoInspectionAvailable: boolean
-  /** Unit tests configuration status (0548). */
-  unitTestsConfigured: boolean
-  /** Message shown when conversation history was reset due to corruption (0549). */
-  conversationHistoryResetMessage: string | null
-}
+// DiagnosticsInfo type - no longer used with floating widget (0698)
+// type DiagnosticsInfo = {
+//   kanbanRenderMode: string
+//   selectedChatTarget: ChatTarget
+//   pmImplementationSource: 'hal-agents' | 'inline'
+//   lastAgentError: string | null
+//   lastError: string | null
+//   openaiLastStatus: string | null
+//   openaiLastError: string | null
+//   kanbanLoaded: boolean
+//   kanbanUrl: string
+//   kanbanBuild: string
+//   connectedProject: string | null
+//   lastPmOutboundRequest: object | null
+//   lastPmToolCalls: ToolCallRecord[] | null
+//   lastTicketCreationResult: TicketCreationResult | null
+//   lastCreateTicketAvailable: boolean | null
+//   persistenceError: string | null
+//   agentRunner: string | null
+//   autoMoveDiagnostics: Array<{ timestamp: Date; message: string; type: 'error' | 'info' }>
+//   theme: Theme
+//   themeSource: 'default' | 'saved'
+//   lastSendPayloadSummary: string | null
+//   repoInspectionAvailable: boolean
+//   unitTestsConfigured: boolean
+//   conversationHistoryResetMessage: string | null
+// }
 
 type GithubAuthMe = {
   authenticated: boolean
@@ -146,23 +140,25 @@ function App() {
   const [imageError, setImageError] = useState<string | null>(null)
   const [sendValidationError, setSendValidationError] = useState<string | null>(null)
   const [lastError, setLastError] = useState<string | null>(null)
-  const [lastAgentError, setLastAgentError] = useState<string | null>(null)
-  const [persistenceError, setPersistenceError] = useState<string | null>(null)
-  const [conversationHistoryResetMessage, setConversationHistoryResetMessage] = useState<string | null>(null)
-  const [openaiLastStatus, setOpenaiLastStatus] = useState<string | null>(null)
-  const [openaiLastError, setOpenaiLastError] = useState<string | null>(null)
+  // These are used in logic but not displayed in UI with floating widget (0698)
+  const [_lastAgentError, setLastAgentError] = useState<string | null>(null)
+  const [_persistenceError, setPersistenceError] = useState<string | null>(null)
+  const [_conversationHistoryResetMessage, setConversationHistoryResetMessage] = useState<string | null>(null)
+  const [_openaiLastStatus, setOpenaiLastStatus] = useState<string | null>(null)
+  const [_openaiLastError, setOpenaiLastError] = useState<string | null>(null)
   // Diagnostics panel no longer visible - floating widget replaces sidebar (0698)
   // const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const [connectedProject, setConnectedProject] = useState<string | null>(null)
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
-  const [lastPmOutboundRequest, setLastPmOutboundRequest] = useState<object | null>(null)
-  const [lastPmToolCalls, setLastPmToolCalls] = useState<ToolCallRecord[] | null>(null)
-  const [lastTicketCreationResult, setLastTicketCreationResult] = useState<TicketCreationResult | null>(null)
-  const [lastCreateTicketAvailable, setLastCreateTicketAvailable] = useState<boolean | null>(null)
-  const [agentRunner, _setAgentRunner] = useState<string | null>(null)
+  // These are used in logic but not displayed in UI with floating widget (0698)
+  const [_lastPmOutboundRequest, setLastPmOutboundRequest] = useState<object | null>(null)
+  const [_lastPmToolCalls, setLastPmToolCalls] = useState<ToolCallRecord[] | null>(null)
+  const [_lastTicketCreationResult, setLastTicketCreationResult] = useState<TicketCreationResult | null>(null)
+  const [_lastCreateTicketAvailable, setLastCreateTicketAvailable] = useState<boolean | null>(null)
+  const [_agentRunner, _setAgentRunner] = useState<string | null>(null)
   const [supabaseUrl, setSupabaseUrl] = useState<string | null>(null)
   const [supabaseAnonKey, setSupabaseAnonKey] = useState<string | null>(null)
-  const [lastSendPayloadSummary, setLastSendPayloadSummary] = useState<string | null>(null)
+  const [_lastSendPayloadSummary, setLastSendPayloadSummary] = useState<string | null>(null)
   const [githubAuth, setGithubAuth] = useState<GithubAuthMe | null>(null)
   const [githubRepos, setGithubRepos] = useState<GithubRepo[] | null>(null)
   const [githubRepoPickerOpen, setGithubRepoPickerOpen] = useState(false)
@@ -316,8 +312,8 @@ function App() {
   const [processReviewModalTicketPk, setProcessReviewModalTicketPk] = useState<string | null>(null)
   const [processReviewModalTicketId, setProcessReviewModalTicketId] = useState<string | null>(null)
   const [processReviewModalReviewId, setProcessReviewModalReviewId] = useState<string | null>(null)
-  /** Auto-move diagnostics entries (0061). */
-  const [autoMoveDiagnostics, setAutoMoveDiagnostics] = useState<Array<{ timestamp: Date; message: string; type: 'error' | 'info' }>>([])
+  /** Auto-move diagnostics entries (0061) - no longer displayed with floating widget (0698). */
+  const [_autoMoveDiagnostics, setAutoMoveDiagnostics] = useState<Array<{ timestamp: Date; message: string; type: 'error' | 'info' }>>([])
   /** Agent type that initiated the current Cursor run (0067). Used to route completion summaries to the correct chat. */
   const [cursorRunAgentType, setCursorRunAgentType] = useState<Agent | null>(null)
   /** Raw completion summary for troubleshooting when agent type is missing (0067). */
@@ -2839,15 +2835,15 @@ function App() {
   }, [disconnectConfirmOpen, handleDisconnectCancel])
 
 
-  // Determine theme source (0078)
-  const themeSource: 'default' | 'saved' = (() => {
-    try {
-      const stored = localStorage.getItem(THEME_STORAGE_KEY)
-      return stored === 'light' || stored === 'dark' ? 'saved' : 'default'
-    } catch {
-      return 'default'
-    }
-  })()
+  // Determine theme source - no longer displayed with floating widget (0698)
+  // const _themeSource: 'default' | 'saved' = (() => {
+  //   try {
+  //     const stored = localStorage.getItem(THEME_STORAGE_KEY)
+  //     return stored === 'light' || stored === 'dark' ? 'saved' : 'default'
+  //   } catch {
+  //     return 'default'
+  //   }
+  // })()
 
   // Diagnostics info - removed, no longer displayed with floating widget (0698)
 
