@@ -99,15 +99,16 @@ div.kanban-frame-container #root {
 }
 /* Override HAL's .kanban-frame-container .columns-row rule to enable horizontal scrolling */
 /* 0706: Use flex: 0 1 auto instead of flex: 1 to allow unified scrolling - don't grow to fill space */
+/* 0706: CRITICAL - Remove overflow: auto shorthand to prevent creating scroll container. Use specific overflow-x/overflow-y instead. */
 .kanban-frame-container .columns-row {
   overflow-x: auto !important;
-  overflow-y: hidden !important;
-  overflow: auto !important;
+  overflow-y: visible !important; /* 0706: CRITICAL - Must be visible, not hidden or auto, to prevent scroll container */
   width: 100% !important;
   max-width: 100% !important;
   flex: 0 1 auto !important; /* 0706: Use natural height instead of flex: 1 to allow unified scrolling */
   min-height: 0 !important;
   min-width: 0 !important;
+  height: auto !important; /* 0706: CRITICAL - Must be auto, not 100%, to prevent scroll container */
   box-sizing: border-box !important;
 }
 /* Ensure column cards don't shrink when inside kanban-frame-container */
@@ -671,12 +672,13 @@ h1 {
   flex-wrap: nowrap;
   gap: 0.75rem;
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: visible; /* 0706: Changed from hidden to visible to prevent creating scroll container */
   flex: 0 1 auto; /* 0706: Use natural height instead of flex: 1 to allow unified scrolling */
   min-height: 0;
   min-width: 0;
   width: 100%;
   max-width: 100%;
+  height: auto; /* 0706: Explicitly set to auto to prevent height: 100% from creating scroll container */
   box-sizing: border-box;
   scroll-behavior: smooth;
   scrollbar-width: thin;
@@ -708,7 +710,7 @@ h1 {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  height: 100%;
+  height: auto; /* 0706: Changed from 100% to auto to prevent forcing parent to be scroll container */
   min-height: 0;
 }
 .column-header {
