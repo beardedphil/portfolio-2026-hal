@@ -2954,7 +2954,7 @@ ${notes || '(none provided)'}
             items={columnsForDisplay.map((c) => c.id)}
             strategy={horizontalListSortingStrategy}
           >
-            <div className="columns-row">
+            <div className={`columns-row ${isDragging ? 'columns-row-dragging' : ''}`}>
               {columnsForDisplay.map((col) => (
                 <SortableColumn
                   key={col.id}

@@ -354,6 +354,8 @@ h1 {
   font-size: 0.95rem;
   color: var(--kanban-text);
   line-height: 1.3;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 .active-work-item-meta {
   display: flex;
@@ -694,6 +696,11 @@ h1 {
   scrollbar-width: thin;
   scrollbar-color: var(--kanban-border) transparent;
 }
+/* 0732: Prevent horizontal scrolling during drag-and-drop */
+.columns-row-dragging {
+  overflow-x: hidden;
+  scroll-behavior: auto;
+}
 /* Webkit scrollbar styling for .columns-row */
 .columns-row::-webkit-scrollbar {
   height: 8px;
@@ -799,6 +806,8 @@ h1 {
 .ticket-card-title {
   flex: 1;
   min-width: 0;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 .ticket-card-delete {
   flex-shrink: 0;

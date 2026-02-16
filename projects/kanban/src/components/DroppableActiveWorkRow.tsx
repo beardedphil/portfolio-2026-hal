@@ -25,10 +25,10 @@ export function DroppableActiveWorkRow({
   return (
     <section 
       className="active-work-row" 
-      aria-label="Active work"
+      aria-label="Active Work"
       ref={setNodeRef}
     >
-      <h2 className="active-work-title">Active work</h2>
+      <h2 className="active-work-title">Active Work</h2>
       <div className={`active-work-items ${isOver ? 'active-work-items-over' : ''}`}>
         {doingTickets.length > 0 ? (
           doingTickets.map((ticket) => {
