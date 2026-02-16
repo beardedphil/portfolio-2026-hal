@@ -97,15 +97,17 @@ div.kanban-frame-container #root {
   max-height: none !important;
   padding: 0 !important; /* 0706: Remove padding so scrollbar starts at top */
 }
-/* 0706: columns-row-scroll handles horizontal scroll only; columns-row stays overflow visible */
-.kanban-frame-container .columns-row-scroll {
-  overflow-x: auto !important;
-  overflow-y: hidden !important;
-}
+/* 0706: No nested scroll - parent (kanban-frame-container) is the single scroll container */
 .kanban-frame-container .columns-row {
   overflow: visible !important;
-  width: fit-content !important;
+  overflow-x: visible !important;
+  overflow-y: visible !important;
+  width: auto !important;
   max-width: none !important;
+  flex: 0 1 auto !important;
+  min-height: 0 !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
 }
 /* Ensure column cards don't shrink when inside kanban-frame-container */
 .kanban-frame-container .columns-row .column-card {
@@ -315,7 +317,7 @@ h1 {
   /* Ensure all cards in a row share the same height so internal top/bottom alignment works. */
   align-items: stretch;
   gap: 0.75rem;
-  overflow-x: hidden; /* prevent accidental horizontal scroll during drag */
+  overflow-x: auto;
 }
 .active-work-item {
   min-width: 200px;
@@ -352,9 +354,8 @@ h1 {
   font-size: 0.95rem;
   color: var(--kanban-text);
   line-height: 1.3;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 .active-work-item-meta {
   display: flex;
@@ -678,46 +679,41 @@ h1 {
 .add-column-form .form-actions button:hover {
   background: var(--kanban-surface);
 }
-/* 0706: Wrapper for horizontal-only scroll - overflow-x:auto + overflow-y:hidden avoids CSS spec
-   converting visible to auto, which would create unwanted vertical scroll on the row */
-.columns-row-scroll {
-  overflow-x: auto;
-  overflow-y: hidden;
-  width: 100%;
-  max-width: 100%;
-  flex: 0 1 auto;
-  min-height: 0;
-  min-width: 0;
-  box-sizing: border-box;
-  scroll-behavior: smooth;
-  scrollbar-width: thin;
-  scrollbar-color: var(--kanban-border) transparent;
-}
-.columns-row-scroll::-webkit-scrollbar {
-  height: 8px;
-}
-.columns-row-scroll::-webkit-scrollbar-track {
-  background: transparent;
-}
-.columns-row-scroll::-webkit-scrollbar-thumb {
-  background-color: var(--kanban-border);
-  border-radius: 4px;
-}
-.columns-row-scroll::-webkit-scrollbar-thumb:hover {
-  background-color: var(--kanban-text-muted);
-}
 .columns-row {
   display: flex;
   flex-direction: row;
   flex-wrap: nowrap;
   gap: 0.75rem;
-  overflow: visible;
-  flex: 0 1 auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex: 0 1 auto; /* 0706: Use natural height instead of flex: 1 to allow unified scrolling */
   min-height: 0;
   min-width: 0;
-  width: fit-content;
-  max-width: none;
+  width: 100%;
+  max-width: 100%;
   box-sizing: border-box;
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+  scrollbar-color: var(--kanban-border) transparent;
+}
+/* 0732: Prevent horizontal scrolling during drag-and-drop */
+.columns-row-dragging {
+  overflow-x: hidden;
+  scroll-behavior: auto;
+}
+/* Webkit scrollbar styling for .columns-row */
+.columns-row::-webkit-scrollbar {
+  height: 8px;
+}
+.columns-row::-webkit-scrollbar-track {
+  background: transparent;
+}
+.columns-row::-webkit-scrollbar-thumb {
+  background-color: var(--kanban-border);
+  border-radius: 4px;
+}
+.columns-row::-webkit-scrollbar-thumb:hover {
+  background-color: var(--kanban-text-muted);
 }
 .column-card {
   min-width: 280px;
@@ -810,9 +806,8 @@ h1 {
 .ticket-card-title {
   flex: 1;
   min-width: 0;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 .ticket-card-delete {
   flex-shrink: 0;
@@ -856,7 +851,7 @@ h1 {
   flex: 1;
   min-width: 0;
   display: flex;
-  align-items: flex-start; /* allow multi-line titles without vertical centering oddities */
+  align-items: center;
   gap: 0.5rem;
   padding: 0;
   border: none;

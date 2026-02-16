@@ -13,7 +13,6 @@ import {
   useSensors,
   useDraggable,
   type CollisionDetection,
-  type DragCancelEvent,
   type DragEndEvent,
   type DragStartEvent,
   type UniqueIdentifier,
@@ -215,12 +214,6 @@ function App() {
   // Sync status for cross-tab updates (0703)
   const [syncStatus, setSyncStatus] = useState<'realtime' | 'polling'>('polling')
   const [isDragging, setIsDragging] = useState(false)
-  const columnsRowRef = useRef<HTMLDivElement | null>(null)
-  const columnsRowScrollLockRef = useRef<{
-    el: HTMLDivElement
-    left: number
-    onScroll: () => void
-  } | null>(null)
   const [supabaseColumnsJustInitialized, setSupabaseColumnsJustInitialized] = useState(false)
   const [_supabaseNotInitialized, setSupabaseNotInitialized] = useState(false)
   const [_selectedSupabaseTicketId, setSelectedSupabaseTicketId] = useState<string | null>(null)
@@ -1312,26 +1305,12 @@ function App() {
       // CRITICAL FIX (0135): Update ref synchronously with final tickets
       // This ensures fetchActiveAgentRuns always has the latest tickets including optimistic updates
       supabaseTicketsRef.current = finalTickets
-
-      // Hydrate agent type for tickets already in Doing so card badge shows agent instead of Unassigned (0135)
-      if (!halCtx && finalTickets.length > 0) {
-        const inDoing = finalTickets.filter((t) => t.kanban_column_id === 'col-doing')
-        if (inDoing.length > 0) {
-          setActiveWorkAgentTypes((prev) => {
-            let next = prev
-            for (const t of inDoing) {
-              if (!next[t.pk]) next = { ...next, [t.pk]: 'Implementation' }
-            }
-            return next
-          })
-        }
-      }
-
+      
       return { success: true, freshTickets: finalTickets }
     } catch {
       return { success: false }
     }
-  }, [supabaseProjectUrl, supabaseAnonKey, pendingMoves, connectedRepoFullName, isDragging, halCtx])
+  }, [supabaseProjectUrl, supabaseAnonKey, pendingMoves, connectedRepoFullName, isDragging])
 
   /** Update one ticket's kanban fields in Supabase (0013). Returns { ok: true } or { ok: false, error: string }. */
   const updateSupabaseTicketKanban = useCallback(
@@ -1805,30 +1784,6 @@ function App() {
     setShowAddColumnForm(false)
   }, [])
 
-  const lockColumnsRowScrollX = useCallback(() => {
-    const el = columnsRowRef.current
-    if (!el) return
-    // Avoid double-locking the same element
-    if (columnsRowScrollLockRef.current?.el === el) return
-
-    const left = el.scrollLeft
-    const onScroll = () => {
-      // Guard to avoid loops; set only if changed.
-      if (el.scrollLeft !== left) el.scrollLeft = left
-    }
-
-    columnsRowScrollLockRef.current = { el, left, onScroll }
-    el.addEventListener('scroll', onScroll, { passive: true })
-    if (el.scrollLeft !== left) el.scrollLeft = left
-  }, [])
-
-  const unlockColumnsRowScrollX = useCallback(() => {
-    const lock = columnsRowScrollLockRef.current
-    if (!lock) return
-    lock.el.removeEventListener('scroll', lock.onScroll)
-    columnsRowScrollLockRef.current = null
-  }, [])
-
   const handleRemoveColumn = useCallback(
     (id: string) => {
       if (!supabaseBoardActive) {
@@ -1844,10 +1799,9 @@ function App() {
   const handleDragStart = useCallback(
     (event: DragStartEvent) => {
       setIsDragging(true) // Prevent refresh during drag (0703)
-      lockColumnsRowScrollX()
       if (!isColumnId(event.active.id)) setActiveCardId(event.active.id)
     },
-    [isColumnId, lockColumnsRowScrollX]
+    [isColumnId]
   )
 
   const handleDragOver = useCallback(() => {
@@ -1855,20 +1809,10 @@ function App() {
     // see the correct source column and persist.
   }, [])
 
-  const handleDragCancel = useCallback(
-    (_event: DragCancelEvent) => {
-      setIsDragging(false)
-      setActiveCardId(null)
-      unlockColumnsRowScrollX()
-    },
-    [unlockColumnsRowScrollX]
-  )
-
   const handleDragEnd = useCallback(
     async (event: DragEndEvent) => {
       setIsDragging(false) // Allow refresh after drag (0703)
       setActiveCardId(null)
-      unlockColumnsRowScrollX()
       const { active, over } = event
       const effectiveOverId = over?.id ?? lastOverId.current
       if (effectiveOverId == null) return
@@ -2965,18 +2909,14 @@ ${notes || '(none provided)'}
       <DndContext
         sensors={sensors}
         collisionDetection={collisionDetection}
-        autoScroll={false}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
-        onDragCancel={handleDragCancel}
       >
         {/* Active work row: shows tickets in Doing column (0145) - now inside DndContext for drag-and-drop (0669) */}
         {supabaseBoardActive && <DroppableActiveWorkRow
           doingTickets={doingTickets}
           activeWorkAgentTypes={activeWorkAgentTypes}
-          implementationAgentTicketId={halCtx?.implementationAgentTicketId ?? undefined}
-          qaAgentTicketId={halCtx?.qaAgentTicketId ?? undefined}
           agentRunsByTicketPk={halCtx?.agentRunsByTicketPk || agentRunsByTicketPk}
           onOpenDetail={handleOpenTicketDetail}
           pendingMoves={pendingMoves}
@@ -3014,8 +2954,7 @@ ${notes || '(none provided)'}
             items={columnsForDisplay.map((c) => c.id)}
             strategy={horizontalListSortingStrategy}
           >
-            <div className="columns-row-scroll">
-              <div className="columns-row" ref={columnsRowRef}>
+            <div className={`columns-row ${isDragging ? 'columns-row-dragging' : ''}`}>
               {columnsForDisplay.map((col) => (
                 <SortableColumn
                   key={col.id}
@@ -3035,7 +2974,6 @@ ${notes || '(none provided)'}
                   activeWorkAgentTypes={activeWorkAgentTypes}
                 />
               ))}
-              </div>
             </div>
           </SortableContext>
         </section>
@@ -3057,16 +2995,12 @@ ${notes || '(none provided)'}
                 const ticketIdentifier = displayId ? `${displayId}: ${ticket.title}` : ticket.title
                 const effectiveRunsByPk = halCtx?.agentRunsByTicketPk || agentRunsByTicketPk
                 const run = effectiveRunsByPk[ticket.pk]
-                let overlayAgent: string = agentTypeToLabel(run?.agent_type) ?? activeWorkAgentTypes[ticket.pk] ?? 'Unassigned'
-                if (displayId && (halCtx?.implementationAgentTicketId || halCtx?.qaAgentTicketId)) {
-                  if (displayId === halCtx?.implementationAgentTicketId) overlayAgent = 'Implementation'
-                  else if (displayId === halCtx?.qaAgentTicketId) overlayAgent = 'QA'
-                }
+                const agentLabel = agentTypeToLabel(run?.agent_type) ?? activeWorkAgentTypes[ticket.pk] ?? null
                 return (
                   <div className="active-work-item" data-ticket-pk={ticket.pk}>
                     <div className="active-work-item-title">{ticketIdentifier}</div>
                     <div className="active-work-item-meta">
-                      <span className="active-work-item-agent">{overlayAgent}</span>
+                      <span className="active-work-item-agent">{agentLabel || 'Unassigned'}</span>
                     </div>
                   </div>
                 )
