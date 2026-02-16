@@ -33,12 +33,12 @@
       "maintainability": 0
     },
     {
-      "file": "api/implementation-agent/run.ts",
-      "maintainability": 12.23
+      "file": "src/App.tsx",
+      "maintainability": 11.97
     },
     {
-      "file": "src/App.tsx",
-      "maintainability": 14.05
+      "file": "api/implementation-agent/run.ts",
+      "maintainability": 12.23
     },
     {
       "file": "api/agent-runs/launch.ts",
@@ -83,12 +83,6 @@
   ],
   "mostRecentImprovements": [
     {
-      "file": "src/hooks/useProcessReview.ts",
-      "before": 28.1,
-      "after": 31.61,
-      "delta": 3.51
-    },
-    {
       "file": "api/artifacts/get.ts",
       "before": 32.38,
       "after": 32.38,
@@ -107,19 +101,13 @@
       "delta": 0
     },
     {
-      "file": "src/App.tsx",
-      "before": 14.05,
-      "after": 14.05,
-      "delta": 0
-    },
-    {
       "file": "api/instructions/migrate-process-docs.ts",
       "before": 26.39,
       "after": 26.39,
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-16T22:30:58.491Z",
+  "generatedAt": "2026-02-16T22:36:50.325Z",
   "filesAnalyzed": 276,
   "unroundedSimplicity": 40.5
 }
