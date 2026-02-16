@@ -13,11 +13,11 @@ export function CoverageBadge() {
     <div
       className="qa-metric-box"
       style={{ backgroundColor: getMetricColor(coverage) }}
-      title={coverage !== null ? `Test Coverage: ${coverage.toFixed(0)}%` : 'Test Coverage: N/A'}
+      title={coverage !== null ? `Test Coverage: ${coverage.toFixed(1)}%` : 'Test Coverage: N/A'}
     >
       <span className="qa-metric-label">Test Coverage</span>
       <span className="qa-metric-value">
-        {coverage !== null ? `${coverage.toFixed(0)}%` : 'N/A'}
+        {coverage !== null ? `${coverage.toFixed(1)}%` : 'N/A'}
       </span>
     </div>
   )

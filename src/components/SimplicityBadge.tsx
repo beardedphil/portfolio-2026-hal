@@ -9,24 +9,25 @@ export function SimplicityBadge() {
   const qaMetrics = useQAMetrics()
   const simplicity = qaMetrics?.simplicity ?? null
   const unroundedSimplicity = qaMetrics?.unroundedSimplicity ?? null
+  const displayValue = unroundedSimplicity ?? simplicity
 
   const getTooltip = () => {
-    if (simplicity === null) return 'Simplicity: N/A'
-    if (unroundedSimplicity !== null && unroundedSimplicity !== simplicity) {
-      return `Simplicity: ${simplicity}% (rounded from ${unroundedSimplicity.toFixed(1)}%)`
+    if (displayValue === null) return 'Simplicity: N/A'
+    if (simplicity !== null && unroundedSimplicity !== null && unroundedSimplicity !== simplicity) {
+      return `Simplicity: ${unroundedSimplicity.toFixed(1)}% (rounded: ${simplicity.toFixed(0)}%)`
     }
-    return `Simplicity: ${simplicity}%`
+    return `Simplicity: ${displayValue.toFixed(1)}%`
   }
 
   return (
     <div
       className="qa-metric-box"
-      style={{ backgroundColor: getMetricColor(simplicity) }}
+      style={{ backgroundColor: getMetricColor(displayValue) }}
       title={getTooltip()}
     >
       <span className="qa-metric-label">Simplicity</span>
       <span className="qa-metric-value">
-        {simplicity !== null ? `${simplicity.toFixed(0)}%` : 'N/A'}
+        {displayValue !== null ? `${displayValue.toFixed(1)}%` : 'N/A'}
       </span>
     </div>
   )

@@ -65,8 +65,8 @@ describe('QAMetricsCard', () => {
     render(<QAMetricsCard />)
 
     await waitFor(() => {
-      expect(screen.getByText('85%')).toBeInTheDocument()
-      expect(screen.getByText('90%')).toBeInTheDocument()
+      expect(screen.getByText('85.0%')).toBeInTheDocument()
+      expect(screen.getByText('90.0%')).toBeInTheDocument()
     })
   })
 
@@ -105,9 +105,9 @@ describe('QAMetricsCard', () => {
 
     await waitFor(() => {
       // Coverage should be clamped to 100
-      expect(screen.getByText('100%')).toBeInTheDocument()
+      expect(screen.getByText('100.0%')).toBeInTheDocument()
       // Simplicity should be clamped to 0
-      expect(screen.getByText('0%')).toBeInTheDocument()
+      expect(screen.getByText('0.0%')).toBeInTheDocument()
     })
   })
 
@@ -120,7 +120,7 @@ describe('QAMetricsCard', () => {
     render(<QAMetricsCard />)
 
     await waitFor(() => {
-      expect(screen.getByText('85%')).toBeInTheDocument()
+      expect(screen.getByText('85.0%')).toBeInTheDocument()
       // Simplicity should show N/A
       const naValues = screen.getAllByText('N/A')
       expect(naValues.length).toBeGreaterThanOrEqual(1)

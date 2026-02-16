@@ -7,6 +7,10 @@ export interface QAMetrics {
   unroundedSimplicity?: number | null // Unrounded simplicity value (0-100) with 1 decimal place
 }
 
+function formatPercentTenths(value: number) {
+  return `${value.toFixed(1)}%`
+}
+
 function parseMetrics(data: unknown): QAMetrics | null {
   if (!data || typeof data !== 'object') return null
   const o = data as Record<string, unknown>
@@ -71,11 +75,11 @@ function QAMetricBadge({
     <div
       className="qa-metric-box"
       style={{ backgroundColor: getMetricColor(value) }}
-      title={value !== null ? `${label}: ${value.toFixed(0)}%` : `${label}: N/A`}
+      title={value !== null ? `${label}: ${formatPercentTenths(value)}` : `${label}: N/A`}
     >
       <span className="qa-metric-label">{label}</span>
       <span className="qa-metric-value">
-        {value !== null ? `${value.toFixed(0)}%` : 'N/A'}
+        {value !== null ? formatPercentTenths(value) : 'N/A'}
       </span>
     </div>
   )
@@ -98,24 +102,25 @@ export function SimplicityBadge() {
   const qaMetrics = useQAMetrics()
   const simplicity = qaMetrics?.simplicity ?? null
   const unroundedSimplicity = qaMetrics?.unroundedSimplicity ?? null
+  const displayValue = unroundedSimplicity ?? simplicity
 
   const getTooltip = () => {
-    if (simplicity === null) return 'Simplicity: N/A'
-    if (unroundedSimplicity !== null && unroundedSimplicity !== simplicity) {
-      return `Simplicity: ${simplicity}% (rounded from ${unroundedSimplicity.toFixed(1)}%)`
+    if (displayValue === null) return 'Simplicity: N/A'
+    if (simplicity !== null && unroundedSimplicity !== null && unroundedSimplicity !== simplicity) {
+      return `Simplicity: ${formatPercentTenths(unroundedSimplicity)} (rounded: ${simplicity.toFixed(0)}%)`
     }
-    return `Simplicity: ${simplicity}%`
+    return `Simplicity: ${formatPercentTenths(displayValue)}`
   }
 
   return (
     <div
       className="qa-metric-box"
-      style={{ backgroundColor: getMetricColor(simplicity) }}
+      style={{ backgroundColor: getMetricColor(displayValue) }}
       title={getTooltip()}
     >
       <span className="qa-metric-label">Simplicity</span>
       <span className="qa-metric-value">
-        {simplicity !== null ? `${simplicity.toFixed(0)}%` : 'N/A'}
+        {displayValue !== null ? formatPercentTenths(displayValue) : 'N/A'}
       </span>
     </div>
   )
@@ -136,7 +141,7 @@ export function QAMetricsCard({ onCoverageClick, onSimplicityClick }: QAMetricsC
       <div
         className={`qa-metric-box ${onCoverageClick ? 'qa-metric-box-clickable' : ''}`}
         style={{ backgroundColor: getMetricColor(qaMetrics?.coverage ?? null) }}
-        title={qaMetrics?.coverage !== null && qaMetrics !== null ? `Test Coverage: ${qaMetrics.coverage.toFixed(0)}%` : 'Test Coverage: N/A'}
+        title={qaMetrics?.coverage !== null && qaMetrics !== null ? `Test Coverage: ${formatPercentTenths(qaMetrics.coverage)}` : 'Test Coverage: N/A'}
         onClick={onCoverageClick}
         role={onCoverageClick ? 'button' : undefined}
         tabIndex={onCoverageClick ? 0 : undefined}
@@ -149,20 +154,21 @@ export function QAMetricsCard({ onCoverageClick, onSimplicityClick }: QAMetricsC
       >
         <span className="qa-metric-label">Test Coverage</span>
         <span className="qa-metric-value">
-          {qaMetrics?.coverage !== null && qaMetrics !== null ? `${qaMetrics.coverage.toFixed(0)}%` : 'N/A'}
+          {qaMetrics?.coverage !== null && qaMetrics !== null ? formatPercentTenths(qaMetrics.coverage) : 'N/A'}
         </span>
       </div>
       <div
         className={`qa-metric-box ${onSimplicityClick ? 'qa-metric-box-clickable' : ''}`}
-        style={{ backgroundColor: getMetricColor(qaMetrics?.simplicity ?? null) }}
+        style={{ backgroundColor: getMetricColor(qaMetrics?.unroundedSimplicity ?? qaMetrics?.simplicity ?? null) }}
         title={(() => {
           const simplicity = qaMetrics?.simplicity ?? null
           const unrounded = qaMetrics?.unroundedSimplicity ?? null
-          if (simplicity === null) return 'Simplicity: N/A'
-          if (unrounded !== null && unrounded !== simplicity) {
-            return `Simplicity: ${simplicity}% (rounded from ${unrounded.toFixed(1)}%)`
+          const displayValue = unrounded ?? simplicity
+          if (displayValue === null) return 'Simplicity: N/A'
+          if (simplicity !== null && unrounded !== null && unrounded !== simplicity) {
+            return `Simplicity: ${formatPercentTenths(unrounded)} (rounded: ${simplicity.toFixed(0)}%)`
           }
-          return `Simplicity: ${simplicity}%`
+          return `Simplicity: ${formatPercentTenths(displayValue)}`
         })()}
         onClick={onSimplicityClick}
         role={onSimplicityClick ? 'button' : undefined}
@@ -176,7 +182,9 @@ export function QAMetricsCard({ onCoverageClick, onSimplicityClick }: QAMetricsC
       >
         <span className="qa-metric-label">Simplicity</span>
         <span className="qa-metric-value">
-          {qaMetrics?.simplicity !== null && qaMetrics !== null ? `${qaMetrics.simplicity.toFixed(0)}%` : 'N/A'}
+          {qaMetrics !== null && (qaMetrics.unroundedSimplicity ?? qaMetrics.simplicity) !== null
+            ? formatPercentTenths((qaMetrics.unroundedSimplicity ?? qaMetrics.simplicity) as number)
+            : 'N/A'}
         </span>
       </div>
       {qaMetrics === null && (
