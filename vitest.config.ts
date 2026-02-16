@@ -23,6 +23,7 @@ export default defineConfig(({ mode }) => {
         '**/node_modules/**',
         '**/dist/**',
         '**/api/artifacts/insert-*.test.ts', // Integration tests requiring Supabase
+        '**/vite/helpers/.test-backup/**', // Backup tests that should not be executed
       ],
       // Pass env vars to test environment (for tests that need them)
       env: {
