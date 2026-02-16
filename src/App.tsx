@@ -209,6 +209,10 @@ function App() {
   const lastRealtimeUpdateRef = useRef<number>(0)
   /** Track subscription status for realtime channels (0140). */
   const realtimeSubscriptionsRef = useRef<{ tickets: boolean; agentRuns: boolean }>({ tickets: false, agentRuns: false })
+  /** Last sync timestamp for UI display (0703). */
+  const [kanbanLastSyncTime, setKanbanLastSyncTime] = useState<number>(Date.now())
+  /** BroadcastChannel for cross-tab synchronization (0703). */
+  const kanbanBroadcastChannelRef = useRef<BroadcastChannel | null>(null)
   // Diagnostics panels no longer visible - floating widget replaces sidebar (0698)
   const [_outboundRequestExpanded, _setOutboundRequestExpanded] = useState(false)
   const [_toolCallsExpanded, _setToolCallsExpanded] = useState(false)
@@ -1540,6 +1544,8 @@ function App() {
         if (r.ticket_pk) byPk[r.ticket_pk] = r
       }
       setKanbanAgentRunsByTicketPk(byPk)
+      // Update last sync time (0703)
+      setKanbanLastSyncTime(Date.now())
       // Removed automatic unassigned check (0161) - now only runs via explicit user action
     } catch {
       setKanbanTickets([])
@@ -1553,12 +1559,18 @@ function App() {
   }, [fetchKanbanData])
 
   // Polling fallback: only run when realtime is disconnected (0140)
+  // Safety polling: low-frequency polling even when realtime is connected (0703)
   const KANBAN_POLL_MS = 10_000
+  const KANBAN_SAFETY_POLL_MS = 60_000 // 60 seconds - low frequency safety poll when realtime is connected (0703)
   useEffect(() => {
     if (!connectedProject || !supabaseUrl || !supabaseAnonKey) return
-    // Only poll when realtime is not connected (fallback mode)
+    // Safety polling: low-frequency polling even when realtime is connected (0703)
+    if (kanbanRealtimeStatus === 'connected') {
+      const id = setInterval(() => fetchKanbanData(true), KANBAN_SAFETY_POLL_MS)
+      return () => clearInterval(id)
+    }
+    // Regular polling when realtime is not connected (fallback mode)
     // Polling should run when status is 'disconnected' OR 'polling', but not when 'connected'
-    if (kanbanRealtimeStatus === 'connected') return
     const id = setInterval(() => fetchKanbanData(true), KANBAN_POLL_MS)
     return () => clearInterval(id)
   }, [connectedProject, supabaseUrl, supabaseAnonKey, fetchKanbanData, kanbanRealtimeStatus])
@@ -1605,7 +1617,10 @@ function App() {
           if (ticket.repo_full_name !== connectedProject) return
 
           // Track realtime update timestamp to prevent polling from overwriting (0140)
-          lastRealtimeUpdateRef.current = Date.now()
+          const now = Date.now()
+          lastRealtimeUpdateRef.current = now
+          // Update last sync time for UI display (0703)
+          setKanbanLastSyncTime(now)
 
           if (payload.eventType === 'INSERT' && payload.new) {
             const newTicket = payload.new as KanbanTicketRow
@@ -1614,6 +1629,10 @@ function App() {
               if (prev.some((t) => t.pk === newTicket.pk)) return prev
               return [...prev, newTicket].sort((a, b) => (a.ticket_number ?? 0) - (b.ticket_number ?? 0))
             })
+            // Broadcast cross-tab update (0703)
+            if (kanbanBroadcastChannelRef.current) {
+              kanbanBroadcastChannelRef.current.postMessage({ type: 'ticket-updated', repo: connectedProject })
+            }
           } else if (payload.eventType === 'UPDATE' && payload.new) {
             const updatedTicket = payload.new as KanbanTicketRow
             setKanbanTickets((prev) => {
@@ -1621,9 +1640,17 @@ function App() {
               const filtered = prev.filter((t) => t.pk !== updatedTicket.pk)
               return [...filtered, updatedTicket].sort((a, b) => (a.ticket_number ?? 0) - (b.ticket_number ?? 0))
             })
+            // Broadcast cross-tab update (0703)
+            if (kanbanBroadcastChannelRef.current) {
+              kanbanBroadcastChannelRef.current.postMessage({ type: 'ticket-updated', repo: connectedProject })
+            }
           } else if (payload.eventType === 'DELETE' && payload.old) {
             const deletedTicket = payload.old as { pk: string }
             setKanbanTickets((prev) => prev.filter((t) => t.pk !== deletedTicket.pk))
+            // Broadcast cross-tab update (0703)
+            if (kanbanBroadcastChannelRef.current) {
+              kanbanBroadcastChannelRef.current.postMessage({ type: 'ticket-updated', repo: connectedProject })
+            }
           }
         }
       )
@@ -1657,7 +1684,10 @@ function App() {
           if (run.repo_full_name !== connectedProject) return
 
           // Track realtime update timestamp (0140)
-          lastRealtimeUpdateRef.current = Date.now()
+          const now = Date.now()
+          lastRealtimeUpdateRef.current = now
+          // Update last sync time for UI display (0703)
+          setKanbanLastSyncTime(now)
 
           if (payload.eventType === 'INSERT' && payload.new) {
             const newRun = payload.new as KanbanAgentRunRow
@@ -1668,6 +1698,10 @@ function App() {
                 [ticketPk]: newRun,
               }))
             }
+            // Broadcast cross-tab update (0703)
+            if (kanbanBroadcastChannelRef.current) {
+              kanbanBroadcastChannelRef.current.postMessage({ type: 'ticket-updated', repo: connectedProject })
+            }
           } else if (payload.eventType === 'UPDATE' && payload.new) {
             const updatedRun = payload.new as KanbanAgentRunRow
             const ticketPk = updatedRun.ticket_pk
@@ -1677,6 +1711,10 @@ function App() {
                 [ticketPk]: updatedRun,
               }))
             }
+            // Broadcast cross-tab update (0703)
+            if (kanbanBroadcastChannelRef.current) {
+              kanbanBroadcastChannelRef.current.postMessage({ type: 'ticket-updated', repo: connectedProject })
+            }
           } else if (payload.eventType === 'DELETE' && payload.old) {
             const deletedRun = payload.old as { ticket_pk?: string }
             if (deletedRun.ticket_pk) {
@@ -1685,6 +1723,10 @@ function App() {
                 delete next[deletedRun.ticket_pk!]
                 return next
               })
+            }
+            // Broadcast cross-tab update (0703)
+            if (kanbanBroadcastChannelRef.current) {
+              kanbanBroadcastChannelRef.current.postMessage({ type: 'ticket-updated', repo: connectedProject })
             }
           }
         }
@@ -1703,11 +1745,38 @@ function App() {
 
     subscriptions.push({ unsubscribe: () => agentRunsChannel.unsubscribe() })
 
-    return () => {
-      subscriptions.forEach((sub) => sub.unsubscribe())
-      setKanbanRealtimeStatus('disconnected')
+    // Set up BroadcastChannel for cross-tab synchronization (0703)
+    if (typeof BroadcastChannel !== 'undefined') {
+      const channel = new BroadcastChannel(`hal-kanban-${connectedProject}`)
+      kanbanBroadcastChannelRef.current = channel
+      
+      // Listen for messages from other tabs
+      channel.onmessage = (event) => {
+        if (event.data?.type === 'ticket-updated' && event.data?.repo === connectedProject) {
+          // Another tab updated tickets - refresh data (but skip if recent realtime update)
+          const timeSinceLastRealtimeUpdate = Date.now() - lastRealtimeUpdateRef.current
+          if (timeSinceLastRealtimeUpdate > 5000) {
+            // Only refresh if we haven't had a recent realtime update (avoid duplicate refreshes)
+            fetchKanbanData(true)
+          }
+        }
+      }
+      
+      // Cleanup
+      return () => {
+        subscriptions.forEach((sub) => sub.unsubscribe())
+        setKanbanRealtimeStatus('disconnected')
+        channel.close()
+        kanbanBroadcastChannelRef.current = null
+      }
+    } else {
+      // BroadcastChannel not supported - fallback to polling only
+      return () => {
+        subscriptions.forEach((sub) => sub.unsubscribe())
+        setKanbanRealtimeStatus('disconnected')
+      }
     }
-  }, [connectedProject, supabaseUrl, supabaseAnonKey])
+  }, [connectedProject, supabaseUrl, supabaseAnonKey, fetchKanbanData])
 
   const handleKanbanMoveTicket = useCallback(
     async (ticketPk: string, columnId: string, position?: number) => {
@@ -3360,6 +3429,30 @@ function App() {
                 >
                   ×
                 </button>
+              </div>
+            )}
+            {/* Sync status indicator (0703) */}
+            {connectedProject && (kanbanRealtimeStatus === 'connected' || kanbanRealtimeStatus === 'polling') && (
+              <div
+                style={{
+                  padding: '8px 12px',
+                  fontSize: '12px',
+                  color: theme === 'dark' ? '#a1a1aa' : '#71717a',
+                  backgroundColor: theme === 'dark' ? 'rgba(0, 0, 0, 0.3)' : 'rgba(0, 0, 0, 0.02)',
+                  borderBottom: `1px solid ${theme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                }}
+                role="status"
+                aria-live="polite"
+              >
+                <span>
+                  Live updates: {kanbanRealtimeStatus === 'connected' ? 'Realtime' : 'Polling'}
+                </span>
+                <span style={{ opacity: 0.7 }}>
+                  Last sync: {new Date(kanbanLastSyncTime).toLocaleTimeString()}
+                </span>
               </div>
             )}
             <KanbanBoard {...kanbanBoardProps} />
