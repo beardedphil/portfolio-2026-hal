@@ -83,24 +83,6 @@
   ],
   "mostRecentImprovements": [
     {
-      "file": "api/agent-runs/status.ts",
-      "before": 8.25,
-      "after": 12.61,
-      "delta": 4.36
-    },
-    {
-      "file": "api/implementation-agent/run.ts",
-      "before": 9.69,
-      "after": 12.23,
-      "delta": 2.54
-    },
-    {
-      "file": "api/agent-runs/launch.ts",
-      "before": 14.02,
-      "after": 15.68,
-      "delta": 1.66
-    },
-    {
       "file": "api/artifacts/get.ts",
       "before": 32.38,
       "after": 32.38,
@@ -137,7 +119,7 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-16T20:55:36.693Z",
+  "generatedAt": "2026-02-16T21:02:23.215Z",
   "filesAnalyzed": 246,
   "unroundedSimplicity": 40.9
 }
