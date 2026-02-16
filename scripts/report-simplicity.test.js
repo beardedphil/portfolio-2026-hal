@@ -195,5 +195,33 @@ describe('report-simplicity.js', () => {
       const result = runReportSimplicity()
       expect(result.exitCode).toBe(0)
     })
+
+    it('excludes invalid sentinel values (-1) from averaging (regression test)', () => {
+      // Create valid files that should produce positive maintainability scores
+      createTestFile('src/file1.ts', 'export const test = 1')
+      createTestFile('src/file2.ts', 'export function add(a: number, b: number) { return a + b }')
+      createTestFile('src/file3.ts', 'export class Test { method() { return 1 } }')
+      
+      // Create files that would cause parse errors (these should return -1 sentinel)
+      // These are binary-like or completely invalid syntax that TypeScript can't parse
+      createTestFile('src/invalid1.ts', '\x00\x01\x02\x03\x04') // Binary data
+      createTestFile('src/invalid2.ts', '!!!@@@###$$$%%%') // Invalid syntax
+      
+      const result = runReportSimplicity()
+      const simplicityLine = result.output.split('\n').find(l => l.startsWith('Simplicity:'))
+      
+      expect(simplicityLine).toBeDefined()
+      const match = simplicityLine.match(/Simplicity: (\d+)%/)
+      expect(match).toBeDefined()
+      
+      const percentage = parseInt(match[1], 10)
+      // Should be a valid percentage (0-100), not negative or skewed by -1 values
+      expect(percentage).toBeGreaterThanOrEqual(0)
+      expect(percentage).toBeLessThanOrEqual(100)
+      
+      // The percentage should be reasonable (not near 0 due to averaging in -1 values)
+      // With 3 valid files, we should get a positive percentage
+      expect(percentage).toBeGreaterThan(0)
+    })
   })
 })

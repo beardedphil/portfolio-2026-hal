@@ -2,7 +2,7 @@
 
 /**
  * Reports a single repo-wide Simplicity (maintainability) metric for QA reports.
- * Uses ts-complex to compute maintainability index per file, then averages
+ * Uses TypeScript compiler API to compute maintainability index per file, then averages
  * across the whole repo (same scope as test coverage: src, api, agents, projects).
  * Outputs "Simplicity: XX%" so QA report body_md can include it and the dashboard can parse it.
  */
@@ -15,6 +15,7 @@ import { createRequire } from 'module'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const require = createRequire(import.meta.url)
+const ts = require('typescript')
 
 const ROOT_DIR = path.join(__dirname, '..')
 
@@ -85,15 +86,97 @@ function collectAllPaths() {
   return paths
 }
 
-function main() {
-  let tscomplex
+/**
+ * Calculate maintainability index for a TypeScript/TSX file.
+ * Returns a value between 0-171 (standard maintainability index scale).
+ * Returns -1 if the file cannot be analyzed (sentinel value to be excluded).
+ */
+function calculateMaintainability(filePath) {
   try {
-    tscomplex = require('ts-complex')
-  } catch (e) {
-    console.error('ts-complex is required. Run: npm install --save-dev ts-complex')
-    process.exit(1)
-  }
+    const sourceText = fs.readFileSync(filePath, 'utf8')
+    
+    // Create a source file
+    const sourceFile = ts.createSourceFile(
+      filePath,
+      sourceText,
+      ts.ScriptTarget.Latest,
+      true
+    )
 
+    // Count lines of code (non-empty, non-comment lines)
+    const lines = sourceText.split('\n')
+    const loc = lines.filter(line => {
+      const trimmed = line.trim()
+      return trimmed.length > 0 && !trimmed.startsWith('//') && !trimmed.startsWith('/*') && !trimmed.startsWith('*')
+    }).length
+
+    if (loc === 0) {
+      // Empty file or only comments - return a high maintainability score
+      return 171
+    }
+
+    // Calculate cyclomatic complexity approximation
+    // Count decision points: if, else, for, while, switch, case, catch, &&, ||, ? (ternary), ??
+    let complexity = 1 // Base complexity
+    const complexityKeywords = [
+      /\bif\s*\(/g,
+      /\belse\s*\{/g,
+      /\bfor\s*\(/g,
+      /\bwhile\s*\(/g,
+      /\bswitch\s*\(/g,
+      /\bcase\s+/g,
+      /\bcatch\s*\(/g,
+      /\?\s*[^:]/g, // ternary operator
+      /\?\?/g, // nullish coalescing
+      /&&/g,
+      /\|\|/g,
+    ]
+    
+    for (const pattern of complexityKeywords) {
+      const matches = sourceText.match(pattern)
+      if (matches) {
+        complexity += matches.length
+      }
+    }
+
+    // Count function/method declarations (each adds to complexity)
+    function countNodes(node) {
+      let count = 0
+      if (
+        node.kind === ts.SyntaxKind.FunctionDeclaration ||
+        node.kind === ts.SyntaxKind.MethodDeclaration ||
+        node.kind === ts.SyntaxKind.ArrowFunction ||
+        node.kind === ts.SyntaxKind.FunctionExpression
+      ) {
+        count = 1
+      }
+      ts.forEachChild(node, child => {
+        count += countNodes(child)
+      })
+      return count
+    }
+    const functionCount = countNodes(sourceFile)
+
+    // Simplified Maintainability Index calculation
+    // MI = 171 - 5.2 * ln(Halstead Volume) - 0.23 * (Cyclomatic Complexity) - 16.2 * ln(LOC)
+    // For simplicity, we'll use a simplified formula:
+    // MI ≈ 171 - 0.23 * complexity - 16.2 * ln(LOC) - 0.1 * functionCount
+    const halsteadVolume = Math.max(1, loc * 2) // Rough approximation
+    const mi = 171 
+      - 5.2 * Math.log(Math.max(1, halsteadVolume))
+      - 0.23 * complexity
+      - 16.2 * Math.log(Math.max(1, loc))
+      - 0.1 * functionCount
+
+    // Clamp to valid range (0-171)
+    return Math.max(0, Math.min(171, mi))
+  } catch (error) {
+    // Return sentinel value for files that can't be analyzed
+    return -1
+  }
+}
+
+function main() {
   const filePaths = collectAllPaths()
   if (filePaths.length === 0) {
     console.log('Simplicity: N/A')
@@ -103,15 +186,11 @@ function main() {
   let sum = 0
   let count = 0
   for (const filePath of filePaths) {
-    try {
-      const result = tscomplex.calculateMaintainability(filePath)
-      const avg = result?.averageMaintainability
-      if (typeof avg === 'number' && Number.isFinite(avg)) {
-        sum += avg
-        count += 1
-      }
-    } catch (_) {
-      // Skip files that fail (e.g. parse errors, unsupported syntax)
+    const maintainability = calculateMaintainability(filePath)
+    // Explicitly exclude sentinel values (-1) and ensure value is valid
+    if (maintainability >= 0 && maintainability <= 171 && Number.isFinite(maintainability)) {
+      sum += maintainability
+      count += 1
     }
   }
 
