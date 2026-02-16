@@ -594,7 +594,10 @@ h1 {
 /* Columns section */
 .columns-section {
   margin-bottom: 1.5rem;
-  padding: 0 8px; /* 0705: 8px horizontal padding */
+  padding: 0; /* Padding handled by parent frame when embedded */
+  background: var(--kanban-surface);
+  border: 1px solid var(--kanban-border);
+  border-radius: 8px;
   flex: 0 1 auto; /* 0706: Use natural height instead of flex: 1 to allow unified scrolling */
   min-height: 0;
   display: flex;

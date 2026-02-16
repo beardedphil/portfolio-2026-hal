@@ -494,6 +494,8 @@ body {
   min-height: 0;
   min-width: 0;
   max-height: 100%; /* 0499: Constrain height to create scroll context */
+  padding: 16px;
+  box-sizing: border-box;
   overflow-x: hidden;
   overflow-y: auto; /* 0499: This is the scroll container - all nested elements should not scroll */
   display: flex;
@@ -583,8 +585,8 @@ div.kanban-frame-container #root,
   overflow: visible !important;
   overflow-y: visible !important;
   overflow-x: visible !important;
-  padding-left: 8px !important; /* 0705: 8px horizontal padding from pane edges */
-  padding-right: 8px !important; /* 0705: 8px horizontal padding from pane edges */
+  padding-left: 0 !important;
+  padding-right: 0 !important;
   max-height: none !important; /* 0706: Ensure no max-height constraint */
   height: auto !important; /* 0706: Ensure height is auto, not constrained */
 }
