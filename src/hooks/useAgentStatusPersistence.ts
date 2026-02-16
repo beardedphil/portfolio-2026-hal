@@ -52,7 +52,7 @@ export function useAgentStatusPersistence({
           savedStatus
         )
       ) {
-        setImplAgentRunStatus(savedStatus)
+        setImplAgentRunStatus(savedStatus as 'idle' | 'preparing' | 'fetching_ticket' | 'resolving_repo' | 'launching' | 'running' | 'polling' | 'completed' | 'failed')
       }
       const savedProgress = localStorage.getItem(IMPL_AGENT_PROGRESS_KEY)
       if (savedProgress) {
@@ -82,7 +82,7 @@ export function useAgentStatusPersistence({
           savedStatus
         )
       ) {
-        setQaAgentRunStatus(savedStatus)
+        setQaAgentRunStatus(savedStatus as 'idle' | 'preparing' | 'fetching_ticket' | 'fetching_branch' | 'launching' | 'reviewing' | 'polling' | 'generating_report' | 'merging' | 'moving_ticket' | 'completed' | 'failed')
       }
       const savedProgress = localStorage.getItem(QA_AGENT_PROGRESS_KEY)
       if (savedProgress) {

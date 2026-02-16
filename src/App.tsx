@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
 import type { Agent, Message, Conversation, ImageAttachment } from './lib/conversationStorage'
-import { getConversationId } from './lib/conversation-helpers'
 import type { Theme } from './types/hal'
 import * as Kanban from 'portfolio-2026-kanban'
 import type { KanbanBoardProps } from 'portfolio-2026-kanban'
@@ -14,7 +13,10 @@ import { ProcessReviewRecommendationsModal } from './components/ProcessReviewRec
 import { HalHeader } from './components/HalHeader'
 import { KanbanErrorBanner } from './components/KanbanErrorBanner'
 import { PmChatWidgetButton } from './components/PmChatWidgetButton'
+import { CoverageReportModal } from './components/CoverageReportModal'
+import { SimplicityReportModal } from './components/SimplicityReportModal'
 import type { ChatTarget, ToolCallRecord, TicketCreationResult } from './types/app'
+import { CHAT_OPTIONS } from './types/app'
 import { useGithub } from './hooks/useGithub'
 import { useKanban } from './hooks/useKanban'
 import { useConversations } from './hooks/useConversations'
@@ -34,7 +36,7 @@ import { useDisconnectHandlers } from './hooks/useDisconnectHandlers'
 import { useConversationSelection } from './hooks/useConversationSelection'
 import { useProcessReviewWelcome } from './hooks/useProcessReviewWelcome'
 import { useConversationLoading } from './hooks/useConversationLoading'
-import { extractTicketId, formatTicketId } from './lib/ticketOperations'
+// formatTicketId imported via useProcessReview hook
 
 const KanbanBoard = Kanban.default
 // KANBAN_BUILD no longer used with floating widget (0698)
@@ -65,7 +67,8 @@ function App() {
   const [_lastAgentError, setLastAgentError] = useState<string | null>(null)
   const [_persistenceError, setPersistenceError] = useState<string | null>(null)
   const [_conversationHistoryResetMessage, setConversationHistoryResetMessage] = useState<string | null>(null)
-  const [_openaiLastStatus, setOpenaiLastStatus] = useState<string | null>(null)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_openaiLastStatus, _setOpenaiLastStatus] = useState<string | null>(null)
   const [_openaiLastError, setOpenaiLastError] = useState<string | null>(null)
   // Diagnostics panel no longer visible - floating widget replaces sidebar (0698)
   // const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
@@ -95,7 +98,6 @@ function App() {
     githubConnectError,
     handleGithubConnect,
     handleGithubDisconnect,
-    loadGithubRepos,
   } = github
   const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false)
   const [agentInstructionsOpen, setAgentInstructionsOpen] = useState(false)
@@ -261,7 +263,7 @@ function App() {
   /** Auto-move diagnostics entries (0061) - no longer displayed with floating widget (0698). */
   const [_autoMoveDiagnostics, setAutoMoveDiagnostics] = useState<Array<{ timestamp: Date; message: string; type: 'error' | 'info' }>>([])
   /** Agent type that initiated the current Cursor run (0067). Used to route completion summaries to the correct chat. */
-  const [cursorRunAgentType, setCursorRunAgentType] = useState<Agent | null>(null)
+  const [_cursorRunAgentType, setCursorRunAgentType] = useState<Agent | null>(null)
   /** Raw completion summary for troubleshooting when agent type is missing (0067). */
   // Orphaned completion summary - no longer displayed with floating widget (0698)
   const [_orphanedCompletionSummary, setOrphanedCompletionSummary] = useState<string | null>(null)
@@ -309,9 +311,36 @@ function App() {
     pmMaxSequenceRef,
     messageIdRef
   )
-  const { loadConversationsForProject, getOrCreateConversation, getDefaultConversationId, MESSAGES_PER_PAGE } = conversationsHook
+  const { loadConversationsForProject, getOrCreateConversation, getDefaultConversationId } = conversationsHook
 
   // loadConversationsForProject is now provided by useConversations hook
+
+  // Wrapper functions for type compatibility
+  const getDefaultConversationIdWrapper = (agentRole: string) => getDefaultConversationId(agentRole as Agent)
+  const getDefaultConversationIdForAgent = (agentRole: Agent) => getDefaultConversationId(agentRole)
+  const setImplAgentRunStatusWrapper = (status: string) => setImplAgentRunStatus(status as any)
+  const setQaAgentRunStatusWrapper = (status: string) => setQaAgentRunStatus(status as any)
+  const setLastPmToolCallsWrapper = (calls: unknown[] | null) => setLastPmToolCalls(calls as ToolCallRecord[] | null)
+  const setCursorRunAgentTypeWrapper = (type: string | null) => setCursorRunAgentType(type as Agent | null)
+  const addMessageForProcessReview = (
+    conversationId: string,
+    agent: 'process-review-agent',
+    content: string,
+    id?: number,
+    imageAttachments?: unknown[],
+    promptText?: string
+  ) => addMessage(conversationId, agent, content, id, imageAttachments as ImageAttachment[] | undefined, promptText)
+  const triggerAgentRunWrapper = (content: string, target: ChatTarget, imageAttachments?: unknown[], conversationId?: string) => 
+    triggerAgentRun(content, target, imageAttachments as ImageAttachment[] | undefined, conversationId)
+  // Pass setters directly - they're already the correct type
+  const setProcessReviewStatusWrapper = setProcessReviewStatus
+  const setProcessReviewAgentRunStatusWrapper: React.Dispatch<React.SetStateAction<string>> = (status) => {
+    if (typeof status === 'function') {
+      setProcessReviewAgentRunStatus(status as any)
+    } else {
+      setProcessReviewAgentRunStatus(status as any)
+    }
+  }
 
   // GitHub repo selection via custom hook
   const { handleSelectGithubRepo } = useGithubRepoSelection({
@@ -321,10 +350,10 @@ function App() {
     setSupabaseUrl,
     supabaseAnonKey,
     setSupabaseAnonKey,
-    setImplAgentRunStatus,
+    setImplAgentRunStatus: setImplAgentRunStatusWrapper,
     setImplAgentProgress,
     setImplAgentError,
-    setQaAgentRunStatus,
+    setQaAgentRunStatus: setQaAgentRunStatusWrapper,
     setQaAgentProgress,
     setQaAgentError,
     loadConversationsForProject,
@@ -373,7 +402,7 @@ function App() {
   // (This useEffect is defined later after fetchPmWorkingMemory is declared)
 
   // Message pagination and scroll effects via custom hook
-  const { loadOlderMessages, activeMessages, pmMessages } = useMessagePagination({
+  const { pmMessages } = useMessagePagination({
     connectedProject,
     supabaseUrl,
     supabaseAnonKey,
@@ -438,7 +467,7 @@ function App() {
     conversations,
     supabaseUrl,
     supabaseAnonKey,
-    addMessage,
+    addMessage: addMessageForProcessReview,
   })
 
 
@@ -454,11 +483,11 @@ function App() {
     agentSequenceRefs,
     pmMaxSequenceRef,
     addMessage,
-    getDefaultConversationId,
+    getDefaultConversationId: getDefaultConversationIdWrapper,
     setLastAgentError,
     setOpenaiLastError,
     setLastPmOutboundRequest,
-    setLastPmToolCalls,
+    setLastPmToolCalls: setLastPmToolCallsWrapper,
     setAgentTypingTarget,
     setPersistenceError,
     implAgentTicketId,
@@ -467,13 +496,13 @@ function App() {
     setQaAgentTicketId,
     setImplAgentRunId,
     setQaAgentRunId,
-    setImplAgentRunStatus,
-    setQaAgentRunStatus,
+    setImplAgentRunStatus: setImplAgentRunStatusWrapper,
+    setQaAgentRunStatus: setQaAgentRunStatusWrapper,
     setImplAgentProgress,
     setQaAgentProgress,
     setImplAgentError,
     setQaAgentError,
-    setCursorRunAgentType,
+    setCursorRunAgentType: setCursorRunAgentTypeWrapper,
     setOrphanedCompletionSummary,
     kanbanTickets,
     handleKanbanMoveTicket,
@@ -486,8 +515,8 @@ function App() {
 
   // Kanban work button handler via custom hook
   const { handleKanbanOpenChatAndSend } = useKanbanWorkButton({
-    triggerAgentRun,
-    getDefaultConversationId,
+    triggerAgentRun: triggerAgentRunWrapper,
+    getDefaultConversationId: getDefaultConversationIdForAgent,
     kanbanTickets,
     handleKanbanMoveTicket,
     pmChatWidgetOpen,
@@ -513,9 +542,9 @@ function App() {
     setProcessReviewModalTicketPk,
     setProcessReviewModalTicketId,
     setProcessReviewModalReviewId,
-    setProcessReviewStatus: setProcessReviewStatus,
+    setProcessReviewStatus: setProcessReviewStatusWrapper,
     setProcessReviewTicketPk,
-    setProcessReviewAgentRunStatus: setProcessReviewAgentRunStatus,
+    setProcessReviewAgentRunStatus: setProcessReviewAgentRunStatusWrapper,
     setProcessReviewAgentError: setProcessReviewAgentError,
     setProcessReviewAgentTicketId: setProcessReviewAgentTicketId,
     setProcessReviewAgentProgress: setProcessReviewAgentProgress,
@@ -569,7 +598,7 @@ function App() {
     setAutoMoveDiagnostics,
     setCursorRunAgentType,
     setOrphanedCompletionSummary,
-    _setPmWorkingMemoryOpen,
+    setPmWorkingMemoryOpen: _setPmWorkingMemoryOpen,
   })
 
   // Disconnect handlers via custom hook
