@@ -61,16 +61,16 @@
       "maintainability": 27.95
     },
     {
-      "file": "src/hooks/useProcessReview.ts",
-      "maintainability": 28.1
-    },
-    {
       "file": "api/process-review/create-tickets.ts",
       "maintainability": 29.07
     },
     {
       "file": "projects/kanban/src/components/TicketDetailModal.tsx",
       "maintainability": 30.65
+    },
+    {
+      "file": "src/hooks/useProcessReview.ts",
+      "maintainability": 31.61
     },
     {
       "file": "api/artifacts/get.ts",
@@ -83,10 +83,10 @@
   ],
   "mostRecentImprovements": [
     {
-      "file": "src/App.tsx",
-      "before": 13.93,
-      "after": 14.05,
-      "delta": 0.12
+      "file": "src/hooks/useProcessReview.ts",
+      "before": 28.1,
+      "after": 31.61,
+      "delta": 3.51
     },
     {
       "file": "api/artifacts/get.ts",
@@ -107,13 +107,19 @@
       "delta": 0
     },
     {
+      "file": "src/App.tsx",
+      "before": 14.05,
+      "after": 14.05,
+      "delta": 0
+    },
+    {
       "file": "api/instructions/migrate-process-docs.ts",
       "before": 26.39,
       "after": 26.39,
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-16T22:24:33.480Z",
+  "generatedAt": "2026-02-16T22:32:17.757Z",
   "filesAnalyzed": 276,
   "unroundedSimplicity": 40.5
 }
