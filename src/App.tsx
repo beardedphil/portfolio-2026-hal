@@ -3140,7 +3140,7 @@ function App() {
                     {/* Repo connection row (0708: below GitHub row, functionally unchanged) */}
                     <div className="project-info-row">
                       <span className="project-name" title={connectedGithubRepo.fullName}>
-                        {connectedGithubRepo.fullName}
+                        Repo: {connectedGithubRepo.fullName.split('/').pop() || connectedGithubRepo.fullName}
                       </span>
                       <button
                         ref={disconnectButtonRef}
