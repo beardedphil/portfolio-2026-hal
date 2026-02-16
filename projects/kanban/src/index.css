@@ -194,6 +194,32 @@ h1 {
 .connection-status[data-status="connecting"] {
   color: var(--kanban-text-muted);
 }
+
+/* Sync status indicator (0703) */
+.sync-status,
+.sync-status-embedded {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--kanban-text-muted);
+  margin-left: 1rem;
+}
+
+.sync-status-label {
+  font-weight: 500;
+}
+
+.sync-status-time {
+  color: var(--kanban-text-subtle);
+}
+
+.sync-status-embedded {
+  margin: 0.5rem 0;
+  padding: 0.5rem;
+  background: var(--kanban-surface-alt);
+  border-radius: 4px;
+  border: 1px solid var(--kanban-border-muted);
+}
 .new-hal-project-btn {
   padding: 0.35rem 0.7rem;
   font-size: 0.9rem;

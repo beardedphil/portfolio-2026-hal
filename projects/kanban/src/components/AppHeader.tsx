@@ -7,6 +7,8 @@ interface AppHeaderProps {
   projectFolderHandle: FileSystemDirectoryHandle | null
   projectName: string | null
   supabaseConnectionStatus: 'disconnected' | 'connecting' | 'connected'
+  syncStatus?: 'realtime' | 'polling'
+  lastSync?: Date | null
   onConnectProjectFolder: () => void
   onDisconnect: () => void
   onOpenNewHalWizard: () => void
@@ -17,6 +19,8 @@ export function AppHeader({
   projectFolderHandle,
   projectName,
   supabaseConnectionStatus,
+  syncStatus,
+  lastSync,
   onConnectProjectFolder,
   onDisconnect,
   onOpenNewHalWizard,
@@ -27,6 +31,9 @@ export function AppHeader({
   if (isEmbedded || halCtx != null) {
     return null
   }
+
+  // Show sync status even in embedded mode (0703)
+  const showSyncStatus = supabaseConnectionStatus === 'connected' && syncStatus && !isEmbedded
 
   return (
     <>
@@ -68,7 +75,27 @@ export function AppHeader({
               ? 'Connected'
               : 'Disconnected'}
         </p>
+        {showSyncStatus && (
+          <div className="sync-status" aria-live="polite">
+            <span className="sync-status-label">Live updates: {syncStatus === 'realtime' ? 'Realtime' : 'Polling'}</span>
+            {lastSync && (
+              <span className="sync-status-time">
+                Last sync: {new Date(lastSync).toLocaleTimeString()}
+              </span>
+            )}
+          </div>
+        )}
       </header>
+      {isEmbedded && supabaseConnectionStatus === 'connected' && syncStatus && (
+        <div className="sync-status-embedded" aria-live="polite">
+          <span className="sync-status-label">Live updates: {syncStatus === 'realtime' ? 'Realtime' : 'Polling'}</span>
+          {lastSync && (
+            <span className="sync-status-time">
+              Last sync: {new Date(lastSync).toLocaleTimeString()}
+            </span>
+          )}
+        </div>
+      )}
     </>
   )
 }
