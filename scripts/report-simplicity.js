@@ -176,6 +176,20 @@ function calculateMaintainability(filePath) {
   }
 }
 
+function readJson(filePath, fallback) {
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8')
+    return JSON.parse(raw)
+  } catch {
+    return fallback
+  }
+}
+
+function writeJson(filePath, data) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + '\n', 'utf8')
+}
+
 function main() {
   const filePaths = collectAllPaths()
   if (filePaths.length === 0) {
@@ -185,12 +199,16 @@ function main() {
 
   let sum = 0
   let count = 0
+  const fileMaintainability = []
+  
   for (const filePath of filePaths) {
+    const relativePath = path.relative(ROOT_DIR, filePath).replace(/\\/g, '/')
     const maintainability = calculateMaintainability(filePath)
     // Explicitly exclude sentinel values (-1) and ensure value is valid
     if (maintainability >= 0 && maintainability <= 171 && Number.isFinite(maintainability)) {
       sum += maintainability
       count += 1
+      fileMaintainability.push({ file: relativePath, maintainability })
     }
   }
 
@@ -215,6 +233,49 @@ function main() {
   metrics.updatedAt = new Date().toISOString()
   fs.mkdirSync(path.dirname(metricsPath), { recursive: true })
   fs.writeFileSync(metricsPath, JSON.stringify(metrics, null, 2) + '\n', 'utf8')
+
+  // Generate simplicity-details.json with top offenders and improvements
+  const simplicityDetailsPath = path.join(ROOT_DIR, 'public', 'simplicity-details.json')
+  
+  // Sort by maintainability (ascending) to get worst offenders first
+  fileMaintainability.sort((a, b) => a.maintainability - b.maintainability)
+  
+  // Top 20 offenders (lowest maintainability)
+  const topOffenders = fileMaintainability.slice(0, 20).map((item) => ({
+    file: item.file,
+    maintainability: Math.round(item.maintainability * 100) / 100, // Keep precision for maintainability index
+  }))
+
+  // Compare with previous simplicity-details.json to find improvements
+  const previousDetails = readJson(simplicityDetailsPath, null)
+  const previousMaintainability = previousDetails?.topOffenders
+    ? new Map(previousDetails.topOffenders.map((item) => [item.file, item.maintainability]))
+    : null
+
+  const improvements = fileMaintainability
+    .map((item) => {
+      const before = previousMaintainability?.get(item.file) ?? null
+      const after = item.maintainability
+      const delta = before !== null ? after - before : 0
+      return { file: item.file, before, after, delta }
+    })
+    .filter((item) => item.delta > 0) // Only improvements
+    .sort((a, b) => b.delta - a.delta) // Sort by delta descending
+    .slice(0, 10) // Top 10 improvements
+    .map((item) => ({
+      file: item.file,
+      before: item.before !== null ? Math.round(item.before * 100) / 100 : null,
+      after: Math.round(item.after * 100) / 100,
+      delta: Math.round(item.delta * 100) / 100,
+    }))
+
+  const simplicityDetails = {
+    topOffenders,
+    mostRecentImprovements: improvements,
+    generatedAt: new Date().toISOString(),
+  }
+
+  writeJson(simplicityDetailsPath, simplicityDetails)
 }
 
 main()
