@@ -490,14 +490,14 @@ body {
 }
 
 /* 0706: Single vertical scroll container - Active Work and board scroll together; board scrolls horizontally */
-/* 0738: Vertical scrollbar at right edge (no right padding) */
+/* 0738: Container padding for kanban frame */
 .kanban-frame-container {
   flex: 1;
   position: relative;
   min-height: 0;
   min-width: 0;
   max-height: 100%;
-  padding: 0 0 0 16px; /* 0738: Only left padding so scrollbar appears at right edge */
+  padding: 0 16px;
   box-sizing: border-box;
   overflow-y: auto;
   overflow-x: hidden;
