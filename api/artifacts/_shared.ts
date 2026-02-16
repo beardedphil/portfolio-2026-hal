@@ -141,6 +141,11 @@ export function normalizeTicketId(ticketId: string): string {
 /**
  * Creates a canonical artifact title using the ticket's display_id.
  * This ensures consistent formatting across all artifacts for a ticket.
+ * 
+ * The displayId is normalized (prefixes like "HAL-" are removed, and numeric IDs are
+ * zero-padded to 4 digits) to ensure consistent canonical titles regardless of input format.
+ * For example, both "HAL-0121" and "0121" will produce "Plan for ticket 0121".
+ * 
  * Special case: "missing-artifact-explanation" uses a fixed title without ticket ID (0200).
  */
 export function createCanonicalTitle(
@@ -152,6 +157,7 @@ export function createCanonicalTitle(
     return 'Missing Artifact Explanation'
   }
   
+  // Normalize displayId: removes prefixes (e.g., "HAL-") and zero-pads numeric IDs to 4 digits
   const normalizedDisplayId = normalizeTicketId(displayId || '')
   
   const titleMap: Record<string, string> = {

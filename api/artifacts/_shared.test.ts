@@ -74,7 +74,7 @@ describe('extractArtifactTypeFromTitle', () => {
 describe('createCanonicalTitle', () => {
   it('creates canonical title for "plan"', () => {
     expect(createCanonicalTitle('plan', '0121')).toBe('Plan for ticket 0121')
-    expect(createCanonicalTitle('plan', 'HAL-0121')).toBe('Plan for ticket HAL-0121')
+    expect(createCanonicalTitle('plan', 'HAL-0121')).toBe('Plan for ticket 0121')
   })
 
   it('creates canonical title for "worklog"', () => {
