@@ -85,17 +85,11 @@ describe('fetchWithRetry', () => {
   describe('throws after max retries', () => {
     it('throws after exhausting max retries on 5xx errors', async () => {
       const fetchFn = vi.fn().mockResolvedValue(new Response(null, { status: 500 }))
-      // Use Promise.allSettled to ensure the promise is always handled
       const promise = fetchWithRetry(fetchFn, 2, 1000)
-      const settled = Promise.allSettled([promise])
-      // Advance timers to trigger all retries and final rejection
-      await vi.runAllTimersAsync()
-      // Check that the promise was rejected
-      const [result] = await settled
-      expect(result.status).toBe('rejected')
-      if (result.status === 'rejected') {
-        expect(result.reason.message).toContain('Fetch failed after')
-      }
+      // Attach rejection handler before advancing timers to avoid unhandled rejections
+      const rejectionPromise = expect(promise).rejects.toThrow('Fetch failed after')
+      await vi.advanceTimersByTimeAsync(3000)
+      await rejectionPromise
       expect(fetchFn).toHaveBeenCalledTimes(3)
     })
 
@@ -103,40 +97,30 @@ describe('fetchWithRetry', () => {
       const networkErrorResponse = Object.create(Response.prototype)
       Object.defineProperty(networkErrorResponse, 'status', { value: 0, writable: false })
       const fetchFn = vi.fn().mockResolvedValue(networkErrorResponse)
-      // Use Promise.allSettled to ensure the promise is always handled
       const promise = fetchWithRetry(fetchFn, 1, 1000)
-      const settled = Promise.allSettled([promise])
-      // Advance timers to trigger retry and final rejection
-      await vi.runAllTimersAsync()
-      // Check that the promise was rejected
-      const [result] = await settled
-      expect(result.status).toBe('rejected')
-      if (result.status === 'rejected') {
-        expect(result.reason.message).toContain('Fetch failed after')
-      }
+      // Attach rejection handler before advancing timers to avoid unhandled rejections
+      const rejectionPromise = expect(promise).rejects.toThrow('Fetch failed after')
+      await vi.advanceTimersByTimeAsync(1000)
+      await rejectionPromise
       expect(fetchFn).toHaveBeenCalledTimes(2)
     })
 
     it('throws the last error when fetchFn throws', async () => {
       const error = new Error('Network failure')
       const fetchFn = vi.fn().mockRejectedValue(error)
-      // Use Promise.allSettled to ensure the promise is always handled
       const promise = fetchWithRetry(fetchFn, 2, 1000)
-      const settled = Promise.allSettled([promise])
-      // Advance timers to trigger all retries and final rejection
-      await vi.runAllTimersAsync()
-      // Check that the promise was rejected with the correct error
-      const [result] = await settled
-      expect(result.status).toBe('rejected')
-      if (result.status === 'rejected') {
-        expect(result.reason).toBe(error)
-      }
+      // Attach catch handler before advancing timers to avoid unhandled rejections
+      const catchPromise = promise.catch((e) => e)
+      await vi.advanceTimersByTimeAsync(3000)
+      const caughtError = await catchPromise
+      expect(caughtError).toBe(error)
       expect(fetchFn).toHaveBeenCalledTimes(3)
     })
 
     it('throws generic error when lastError is null', async () => {
       const fetchFn = vi.fn().mockResolvedValue(new Response(null, { status: 500 }))
       const promise = fetchWithRetry(fetchFn, 0, 1000)
+      // Attach rejection handler immediately to avoid unhandled rejections
       await expect(promise).rejects.toThrow('Fetch failed after')
       expect(fetchFn).toHaveBeenCalledTimes(1)
     })
