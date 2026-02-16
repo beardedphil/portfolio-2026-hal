@@ -1113,6 +1113,7 @@ function App() {
     }
   }, [activeMessages, agentTypingTarget, selectedConversationId, implAgentRunStatus, qaAgentRunStatus, processReviewAgentRunStatus, implAgentProgress, qaAgentProgress, processReviewAgentProgress, loadingOlderMessages])
 
+<<<<<<< HEAD
   // Auto-scroll PM chat transcript to bottom when widget opens (HAL-0701)
   useEffect(() => {
     if (pmChatWidgetOpen && messagesEndRef.current) {
@@ -1137,17 +1138,17 @@ function App() {
     }
   }, [pmMessages, pmChatWidgetOpen, agentTypingTarget, loadingOlderMessages])
 
-  // Auto-scroll PM chat transcript to bottom when switching back to PM chat (HAL-0701)
+  // Auto-scroll Project Manager chat to bottom when widget opens or when switching to PM chat (HAL-0701)
   useEffect(() => {
-    if (pmChatWidgetOpen && selectedChatTarget === 'project-manager' && messagesEndRef.current) {
-      // Use requestAnimationFrame to ensure DOM is fully rendered
+    if (pmChatWidgetOpen && selectedChatTarget === 'project-manager' && transcriptRef.current) {
+      // Use requestAnimationFrame to ensure DOM has updated and layout is complete
       requestAnimationFrame(() => {
-        if (messagesEndRef.current) {
-          messagesEndRef.current.scrollTop = messagesEndRef.current.scrollHeight
+        if (transcriptRef.current) {
+          transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight
         }
       })
     }
-  }, [pmChatWidgetOpen, selectedChatTarget])
+  }, [pmChatWidgetOpen, selectedChatTarget, pmMessages])
 
   // Detect scroll to top and load older messages
   useEffect(() => {
@@ -2977,7 +2978,11 @@ function App() {
           </>
         )}
         {/* Messages list — use chat-transcript so sidebar gets same styles as right panel */}
-        <div className="chat-transcript" ref={messagesEndRef}>
+        <div className="chat-transcript" ref={(el) => {
+          // Attach both refs to the same element (HAL-0701)
+          messagesEndRef.current = el
+          transcriptRef.current = el
+        }}>
           {displayMessages.length === 0 && agentTypingTarget !== displayTarget ? (
             <p className="transcript-empty">
               {displayTarget === 'project-manager'
