@@ -33,15 +33,11 @@ export function getMetricColor(percentage: number | null): string {
 export const THEME_STORAGE_KEY = 'hal-theme'
 
 /**
- * Reads the initial theme from localStorage.
- * Returns 'light' as default if the value is missing or invalid.
+ * Returns 'dark' as the only theme.
+ * Theme toggle has been removed - dark theme is now the only theme.
  * 
- * @returns The theme ('light' or 'dark')
+ * @returns The theme (always 'dark')
  */
 export function getInitialTheme(): Theme {
-  const stored = localStorage.getItem(THEME_STORAGE_KEY)
-  if (stored === 'light' || stored === 'dark') {
-    return stored
-  }
-  return 'light' // default
+  return 'dark'
 }

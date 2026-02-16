@@ -155,7 +155,7 @@ function App() {
   // Diagnostics panel no longer visible - floating widget replaces sidebar (0698)
   // const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const [connectedProject, setConnectedProject] = useState<string | null>(null)
-  const [theme, setTheme] = useState<Theme>(getInitialTheme)
+  const [theme] = useState<Theme>(getInitialTheme) // setTheme removed - theme is always 'dark' (0707)
   // These are used in logic but not displayed in UI with floating widget (0698)
   const [_lastPmOutboundRequest, setLastPmOutboundRequest] = useState<object | null>(null)
   const [_lastPmToolCalls, setLastPmToolCalls] = useState<ToolCallRecord[] | null>(null)
@@ -340,19 +340,19 @@ function App() {
     }
   }, [selectedChatTarget])
 
-  // Apply theme to document root on mount and when theme changes (0078)
+  // Apply dark theme to document root on mount (0707: removed theme toggle, always dark)
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme)
-  }, [theme])
+    document.documentElement.setAttribute('data-theme', 'dark')
+  }, [])
 
-  // Persist theme to localStorage (0078)
+  // Persist dark theme to localStorage (0707: removed theme toggle, always dark)
   useEffect(() => {
     try {
-      localStorage.setItem(THEME_STORAGE_KEY, theme)
+      localStorage.setItem(THEME_STORAGE_KEY, 'dark')
     } catch {
       // ignore localStorage errors
     }
-  }, [theme])
+  }, [])
 
   // Restore connected GitHub repo from localStorage on load (0119: fix repo display after refresh)
   // The repo state is restored for UI display; Kanban will receive the connection message when the iframe loads
@@ -2825,9 +2825,6 @@ function App() {
     triggerAgentRun('Continue', 'project-manager', undefined, convId)
   }, [getDefaultConversationId, triggerAgentRun])
 
-  const handleThemeToggle = useCallback(() => {
-    setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))
-  }, [])
 
 
   const handleDisconnect = useCallback(() => {
@@ -3172,15 +3169,6 @@ function App() {
           )}
         </div>
         <div className="hal-header-actions">
-          <button
-            type="button"
-            className="theme-toggle"
-            onClick={handleThemeToggle}
-            aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} theme`}
-            title={`Switch to ${theme === 'light' ? 'dark' : 'light'} theme`}
-          >
-            {theme === 'light' ? '🌙' : '☀️'} {theme === 'light' ? 'Dark' : 'Light'}
-          </button>
           <button
             type="button"
             className="agent-instructions-btn"
