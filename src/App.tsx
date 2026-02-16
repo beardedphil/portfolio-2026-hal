@@ -257,6 +257,8 @@ function App() {
   const [kanbanAgentRunsByTicketPk, setKanbanAgentRunsByTicketPk] = useState<Record<string, KanbanAgentRunRow>>({})
   /** Realtime connection status for Kanban board (0140). */
   const [kanbanRealtimeStatus, setKanbanRealtimeStatus] = useState<'connected' | 'disconnected' | 'polling'>('disconnected')
+  /** Timestamp of last successful sync (realtime event or polling fetch) for Kanban board (0737). */
+  const [kanbanLastSync, setKanbanLastSync] = useState<Date | null>(null)
   /** Error message for ticket move operations (0155). */
   const [kanbanMoveError, setKanbanMoveError] = useState<string | null>(null)
   /** Timestamp of last realtime update to prevent polling from overwriting recent updates (0140). */
@@ -1600,18 +1602,42 @@ function App() {
   }, [supabaseUrl, supabaseAnonKey, connectedProject, kanbanRealtimeStatus])
 
   useEffect(() => {
-    fetchKanbanData()
+    fetchKanbanData().then(() => {
+      // Update last sync timestamp after successful fetch (0737)
+      setKanbanLastSync(new Date())
+    })
   }, [fetchKanbanData])
 
   // Polling fallback: only run when realtime is disconnected (0140)
+  // Safety polling: 15s max delay to ensure eventual consistency even if realtime misses events (0737)
   const KANBAN_POLL_MS = 10_000
+  const KANBAN_SAFETY_POLL_MS = 15_000
   useEffect(() => {
     if (!connectedProject || !supabaseUrl || !supabaseAnonKey) return
-    // Only poll when realtime is not connected (fallback mode)
+    
+    // Safety polling: always run every 15s to ensure eventual consistency (0737)
+    // This catches agent moves even if realtime subscription misses the event
+    const safetyPollId = setInterval(() => {
+      fetchKanbanData(true).then(() => {
+        setKanbanLastSync(new Date())
+      })
+    }, KANBAN_SAFETY_POLL_MS)
+    
+    // Normal polling: only when realtime is not connected (fallback mode)
     // Polling should run when status is 'disconnected' OR 'polling', but not when 'connected'
-    if (kanbanRealtimeStatus === 'connected') return
-    const id = setInterval(() => fetchKanbanData(true), KANBAN_POLL_MS)
-    return () => clearInterval(id)
+    let normalPollId: ReturnType<typeof setInterval> | null = null
+    if (kanbanRealtimeStatus !== 'connected') {
+      normalPollId = setInterval(() => {
+        fetchKanbanData(true).then(() => {
+          setKanbanLastSync(new Date())
+        })
+      }, KANBAN_POLL_MS)
+    }
+    
+    return () => {
+      clearInterval(safetyPollId)
+      if (normalPollId) clearInterval(normalPollId)
+    }
   }, [connectedProject, supabaseUrl, supabaseAnonKey, fetchKanbanData, kanbanRealtimeStatus])
 
   // Supabase Realtime subscriptions for live updates (0140)
@@ -1657,6 +1683,8 @@ function App() {
 
           // Track realtime update timestamp to prevent polling from overwriting (0140)
           lastRealtimeUpdateRef.current = Date.now()
+          // Update last sync timestamp (0737)
+          setKanbanLastSync(new Date())
 
           if (payload.eventType === 'INSERT' && payload.new) {
             const newTicket = payload.new as KanbanTicketRow
@@ -1709,6 +1737,8 @@ function App() {
 
           // Track realtime update timestamp (0140)
           lastRealtimeUpdateRef.current = Date.now()
+          // Update last sync timestamp (0737)
+          setKanbanLastSync(new Date())
 
           if (payload.eventType === 'INSERT' && payload.new) {
             const newRun = payload.new as KanbanAgentRunRow
@@ -2958,6 +2988,9 @@ function App() {
 
   // Diagnostics info - removed, no longer displayed with floating widget (0698)
 
+  // Derive sync status from realtime connection status (0737)
+  const kanbanSyncStatus: 'realtime' | 'polling' = kanbanRealtimeStatus === 'connected' ? 'realtime' : 'polling'
+
   const kanbanBoardProps: KanbanBoardProps = {
     tickets: kanbanTickets,
     columns: kanbanColumns,
@@ -2976,6 +3009,8 @@ function App() {
     supabaseUrl: supabaseUrl ?? (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? null,
     supabaseAnonKey: supabaseAnonKey ?? (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? null,
     onTicketCreated: fetchKanbanData,
+    syncStatus: kanbanSyncStatus,
+    lastSync: kanbanLastSync,
   }
 
   // Chat panel content (PM widget only) (HAL-0700)

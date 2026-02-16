@@ -253,6 +253,9 @@ function App() {
   const sourceTickets = halCtx?.tickets ?? supabaseTickets
   const sourceColumnsRows = halCtx?.columns ?? supabaseColumnsRows
   const supabaseBoardActive = !!halCtx || supabaseConnectionStatus === 'connected'
+  // Sync status: use from context (library mode) or local state (standalone mode)
+  const effectiveSyncStatus = halCtx?.syncStatus ?? syncStatus
+  const effectiveLastSync = halCtx?.lastSync ?? supabaseLastRefresh
   const { columns: supabaseColumns, unknownColumnTicketIds: supabaseUnknownColumnTicketIds } = useMemo(() => {
     if (!supabaseBoardActive || sourceColumnsRows.length === 0) {
       return { columns: EMPTY_KANBAN_COLUMNS, unknownColumnTicketIds: [] as string[] }
@@ -2518,8 +2521,8 @@ function App() {
         projectFolderHandle={projectFolderHandle}
         projectName={projectName}
         supabaseConnectionStatus={supabaseConnectionStatus}
-        syncStatus={syncStatus}
-        lastSync={supabaseLastRefresh}
+        syncStatus={effectiveSyncStatus}
+        lastSync={effectiveLastSync}
         onConnectProjectFolder={handleConnectProjectFolder}
         onDisconnect={() => {
           setProjectFolderHandle(null)
