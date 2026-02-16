@@ -27,7 +27,7 @@ export async function handleImplementationAgentMove(
     freshTickets?: SupabaseTicketRow[]
   ) => Promise<void>,
   setActiveWorkAgentTypes?: React.Dispatch<
-    React.SetStateAction<Record<string, 'Implementation' | 'QA'>>
+    React.SetStateAction<Record<string, 'Implementation' | 'QA' | 'Process Review'>>
   >
 ): Promise<void> {
   const ticket = supabaseTickets.find((t) => t.pk === firstCardId)
@@ -110,7 +110,7 @@ export async function handleQAAgentMove(
     freshTickets?: SupabaseTicketRow[]
   ) => Promise<void>,
   setActiveWorkAgentTypes?: React.Dispatch<
-    React.SetStateAction<Record<string, 'Implementation' | 'QA'>>
+    React.SetStateAction<Record<string, 'Implementation' | 'QA' | 'Process Review'>>
   >
 ): Promise<void> {
   const ticket = supabaseTickets.find((t) => t.pk === firstCardId)

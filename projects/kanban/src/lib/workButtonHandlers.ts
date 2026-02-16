@@ -106,7 +106,7 @@ export function createWorkButtonHandlers({
     freshTickets?: SupabaseTicketRow[]
   ) => Promise<void>
   setActiveWorkAgentTypes?: React.Dispatch<
-    React.SetStateAction<Record<string, 'Implementation' | 'QA'>>
+    React.SetStateAction<Record<string, 'Implementation' | 'QA' | 'Process Review'>>
   >
 }): WorkButtonHandlers {
   const handleProcessReview = async () => {
