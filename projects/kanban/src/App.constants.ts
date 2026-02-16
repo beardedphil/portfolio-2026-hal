@@ -2,7 +2,7 @@
  * Constants extracted from App.tsx for better organization
  */
 
-import type { Column } from './lib/columnTypes'
+import type { Card, Column } from './lib/columnTypes'
 
 export const SUPABASE_CONFIG_KEY = 'supabase-ticketstore-config'
 export const CONNECTED_REPO_KEY = 'hal-connected-repo'
@@ -77,8 +77,6 @@ export const EMPTY_KANBAN_COLUMNS: Column[] = [
   { id: 'col-done', title: 'Done', cardIds: [] },
   { id: 'col-wont-implement', title: 'Will Not Implement', cardIds: [] },
 ]
-
-import type { Card } from './lib/columnTypes'
 
 export const INITIAL_CARDS: Record<string, Card> = {
   'c-1': { id: 'c-1', title: 'Card A' },
