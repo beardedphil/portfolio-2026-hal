@@ -88,7 +88,7 @@ export function AttachmentsSection({
                 {isImage(attachment.mime_type) && (
                   <button
                     type="button"
-                    className="attachments-action-button"
+                    className="attachments-action-button btn-standard"
                     onClick={() => handleView(attachment)}
                     aria-label={`View ${attachment.filename}`}
                   >
@@ -97,7 +97,7 @@ export function AttachmentsSection({
                 )}
                 <button
                   type="button"
-                  className="attachments-action-button"
+                  className="attachments-action-button btn-standard"
                   onClick={() => handleDownload(attachment)}
                   aria-label={`Download ${attachment.filename}`}
                 >

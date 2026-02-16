@@ -122,7 +122,7 @@ export function SortableColumn({
           {shouldShowWorkButton(col.id) && buttonConfig && (
             <button
               type="button"
-              className="column-work-button"
+              className="column-work-button btn-standard"
               onClick={handleWorkButtonClick}
               disabled={!hasTickets || isProcessReviewRunning}
               aria-label={
@@ -150,7 +150,7 @@ export function SortableColumn({
           {!hideRemove && (
             <button
               type="button"
-              className="column-remove"
+              className="column-remove btn-destructive"
               onClick={() => onRemove(col.id)}
               aria-label={`Remove column ${col.title}`}
             >
