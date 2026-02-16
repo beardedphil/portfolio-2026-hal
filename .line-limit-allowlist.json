@@ -12,7 +12,7 @@
     },
     {
       "file": "agents/src/agents/projectManager.ts",
-      "baseline": 3590
+      "baseline": 3502
     },
     {
       "file": "api/implementation-agent/run.ts",
