@@ -34,6 +34,7 @@ import { normalizeTicketRow } from './lib/normalizeTicketRow'
 import { canonicalizeColumnRows, type SupabaseKanbanColumnRow } from './lib/canonicalizeColumns'
 import { fetchWithRetry } from './lib/fetchWithRetry'
 import { stableColumnId } from './lib/stableColumnId'
+import { processTicketsIntoColumns, createCardsFromTickets, sortDoingTickets } from './lib/kanbanDataProcessing'
 import { TicketDetailModal } from './components/TicketDetailModal'
 import { QAInfoSection } from './components/QAInfoSection'
 import { AutoDismissMessage } from './components/AutoDismissMessage'
@@ -256,42 +257,10 @@ function App() {
     if (!supabaseBoardActive || sourceColumnsRows.length === 0) {
       return { columns: EMPTY_KANBAN_COLUMNS, unknownColumnTicketIds: [] as string[] }
     }
-    const columnIds = new Set(sourceColumnsRows.map((c) => c.id))
-    const firstColumnId = sourceColumnsRows[0].id
-    const byColumn: Record<string, { id: string; position: number }[]> = {}
-    for (const c of sourceColumnsRows) {
-      byColumn[c.id] = []
-    }
-    const unknownIds: string[] = []
-    for (const t of sourceTickets) {
-      const colId =
-        t.kanban_column_id == null || t.kanban_column_id === ''
-          ? firstColumnId
-          : columnIds.has(t.kanban_column_id)
-            ? t.kanban_column_id
-            : (unknownIds.push(t.pk), firstColumnId)
-      const pos = typeof t.kanban_position === 'number' ? t.kanban_position : 0
-      byColumn[colId].push({ id: t.pk, position: pos })
-    }
-    for (const id of Object.keys(byColumn)) {
-      byColumn[id].sort((a, b) => a.position - b.position)
-    }
-    const columns: Column[] = sourceColumnsRows.map((c) => ({
-      id: c.id,
-      title: c.title,
-      cardIds: byColumn[c.id]?.map((x) => x.id) ?? [],
-    }))
-    return { columns, unknownColumnTicketIds: unknownIds }
+    return processTicketsIntoColumns(sourceColumnsRows, sourceTickets)
   }, [supabaseBoardActive, sourceColumnsRows, sourceTickets])
   const supabaseCards = useMemo(() => {
-    const map: Record<string, Card> = {}
-    for (const t of sourceTickets) {
-      const cleanTitle = t.title.replace(/^(?:[A-Za-z0-9]{2,10}-)?\d{4}\s*[—–-]\s*/, '')
-      const display = t.display_id ? `${t.display_id} — ${cleanTitle}` : t.title
-      const displayId = (t.display_id ?? (t.id ? String(t.id).padStart(4, '0') : undefined)) ?? undefined
-      map[t.pk] = { id: t.pk, title: display, displayId }
-    }
-    return map
+    return createCardsFromTickets(sourceTickets)
   }, [sourceTickets])
 
   /** Connect to Supabase with given url/key; sets status, tickets, errors. */
@@ -524,21 +493,7 @@ function App() {
   // Get tickets in Doing column for Active work row (0145)
   // Use sourceTickets (halCtx.tickets in library mode, supabaseTickets in standalone) so it works in both modes
   const doingTickets = supabaseBoardActive
-    ? sourceTickets.filter((t) => t.kanban_column_id === 'col-doing').sort((a, b) => {
-        // Sort by position, then by moved_at timestamp
-        if (a.kanban_position !== null && b.kanban_position !== null) {
-          return a.kanban_position - b.kanban_position
-        }
-        if (a.kanban_position !== null) return -1
-        if (b.kanban_position !== null) return 1
-        // Both null position - sort by moved_at (newer first)
-        if (a.kanban_moved_at && b.kanban_moved_at) {
-          return new Date(b.kanban_moved_at).getTime() - new Date(a.kanban_moved_at).getTime()
-        }
-        if (a.kanban_moved_at) return -1
-        if (b.kanban_moved_at) return 1
-        return 0
-      })
+    ? sortDoingTickets(sourceTickets.filter((t) => t.kanban_column_id === 'col-doing'))
     : []
 
   /** Fetch artifacts for a ticket (0082) */
