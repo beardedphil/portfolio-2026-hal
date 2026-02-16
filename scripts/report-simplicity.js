@@ -23,8 +23,10 @@ const SOURCE_DIRS = ['src', 'api', 'agents', 'projects']
 const EXCLUDE_DIRS = ['node_modules', 'dist', 'build', '.git', '.cursor', 'public', 'hal-template']
 const SOURCE_EXTENSIONS = ['.ts', '.tsx']
 const EXCLUDE_PATTERNS = [
-  /\\.test\\.(ts|tsx)$/,
+  /\\.test\\.(ts|tsx)$/, // Matches files ending with .test.ts or .test.tsx
+  /\\.test\\./, // Matches any file with .test. in the name (e.g., AgentInstructionsViewer.edit.test.tsx)
   /\\.spec\\.(ts|tsx)$/,
+  /\\.spec\\./, // Matches any file with .spec. in the name
   /test-setup\\.ts$/,
   /setup\\.ts$/,
   /vitest\\.config\\.ts$/,
@@ -85,7 +87,14 @@ function collectAllPaths() {
   return paths
 }
 
+function getRelativePath(filePath) {
+  return path.relative(ROOT_DIR, filePath).replace(/\\/g, '/')
+}
+
 function main() {
+  const args = process.argv.slice(2)
+  const includeDetails = args.includes('--details')
+
   let tscomplex
   try {
     tscomplex = require('ts-complex')
@@ -102,6 +111,8 @@ function main() {
 
   let sum = 0
   let count = 0
+  const fileScores = [] // For --details mode
+
   for (const filePath of filePaths) {
     try {
       const result = tscomplex.calculateMaintainability(filePath)
@@ -109,6 +120,19 @@ function main() {
       if (typeof avg === 'number' && Number.isFinite(avg)) {
         sum += avg
         count += 1
+        if (includeDetails) {
+          const relativePath = getRelativePath(filePath)
+          // Only include files that pass the exclusion check (exclude test files, etc.)
+          if (!shouldExcludeFile(relativePath)) {
+            // Maintainability index is typically 0–171; scale to 0–100 and clamp
+            const simplicityPct = Math.round(Math.min(100, Math.max(0, (avg / 171) * 100)))
+            fileScores.push({
+              file: relativePath,
+              maintainability: avg,
+              simplicity: simplicityPct,
+            })
+          }
+        }
       }
     } catch (_) {
       // Skip files that fail (e.g. parse errors, unsupported syntax)
@@ -136,6 +160,35 @@ function main() {
   metrics.updatedAt = new Date().toISOString()
   fs.mkdirSync(path.dirname(metricsPath), { recursive: true })
   fs.writeFileSync(metricsPath, JSON.stringify(metrics, null, 2) + '\n', 'utf8')
+
+  // If --details flag is present, write detailed file scores
+  if (includeDetails && fileScores.length > 0) {
+    // Sort by maintainability (lowest first) - these are the files dragging down simplicity
+    fileScores.sort((a, b) => a.maintainability - b.maintainability)
+    
+    // Take at least top 20, but include all files with the same maintainability as the 20th
+    const topN = Math.max(20, fileScores.length)
+    const threshold = fileScores[Math.min(19, fileScores.length - 1)]?.maintainability
+    const topFiles = fileScores.filter(
+      (item, index) => index < topN || item.maintainability === threshold
+    )
+
+    const detailsPath = path.join(ROOT_DIR, 'public', 'simplicity-details.json')
+    const details = {
+      overallSimplicity: simplicityPct,
+      overallMaintainability: overallAvg,
+      totalFiles: fileScores.length,
+      lowestMaintainabilityFiles: topFiles.map((item) => ({
+        file: item.file,
+        maintainability: Math.round(item.maintainability * 100) / 100, // Round to 2 decimals
+        simplicity: item.simplicity,
+      })),
+      generatedAt: new Date().toISOString(),
+    }
+
+    fs.mkdirSync(path.dirname(detailsPath), { recursive: true })
+    fs.writeFileSync(detailsPath, JSON.stringify(details, null, 2) + '\n', 'utf8')
+  }
 }
 
 main()
