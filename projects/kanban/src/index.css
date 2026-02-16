@@ -98,9 +98,11 @@ div.kanban-frame-container #root {
   padding: 0 !important; /* 0706: Remove padding so scrollbar starts at top */
 }
 /* 0734: Allow HAL app to control horizontal scrolling on .columns-row */
+/* 0738: Support both `.columns-row` and `.column-row` (singular) for compatibility */
 /* The HAL app sets overflow-x: auto on .kanban-frame-container .columns-row for horizontal scrolling */
 /* We only ensure no vertical scrolling here - horizontal scrolling is controlled by HAL app */
-.kanban-frame-container .columns-row {
+.kanban-frame-container .columns-row,
+.kanban-frame-container .column-row {
   overflow-y: hidden !important; /* Prevent vertical scrolling - parent handles it */
   /* overflow-x is controlled by HAL app CSS - don't override it */
   width: auto !important;
@@ -111,7 +113,8 @@ div.kanban-frame-container #root {
   box-sizing: border-box !important;
 }
 /* Ensure column cards don't shrink when inside kanban-frame-container */
-.kanban-frame-container .columns-row .column-card {
+.kanban-frame-container .columns-row .column-card,
+.kanban-frame-container .column-row .column-card {
   flex-shrink: 0 !important;
   width: 280px !important;
   min-width: 280px !important;
