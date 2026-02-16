@@ -621,6 +621,8 @@ h1 {
   flex: 1;
   min-height: 0;
   min-width: 0;
+  width: 100%;
+  max-width: 100%;
   scroll-behavior: smooth;
   scrollbar-width: thin;
   scrollbar-color: var(--kanban-border) transparent;
