@@ -20,8 +20,17 @@ export function StatusIndicator({
   const indicatorRef = useRef<HTMLDivElement>(null)
 
   // Determine agent type from agentRun or agentName
-  const agentType: 'implementation' | 'qa' | null = agentRun?.agent_type || 
-    (agentName === 'QA' ? 'qa' : agentName === 'Implementation' ? 'implementation' : null)
+  const agentType: 'implementation' | 'qa' | 'process-review' | 'project-manager' | null =
+    agentRun?.agent_type ||
+    (agentName === 'QA'
+      ? 'qa'
+      : agentName === 'Implementation'
+      ? 'implementation'
+      : agentName === 'Process Review'
+      ? 'process-review'
+      : agentName === 'Project Manager'
+      ? 'project-manager'
+      : null)
   
   // Get workflow steps for this agent type
   const workflowSteps = getAgentWorkflowSteps(agentType)

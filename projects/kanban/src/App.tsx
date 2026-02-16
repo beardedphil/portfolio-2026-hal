@@ -33,6 +33,7 @@ import {
 import { normalizeTicketRow } from './lib/normalizeTicketRow'
 import { canonicalizeColumnRows, type SupabaseKanbanColumnRow } from './lib/canonicalizeColumns'
 import { fetchWithRetry } from './lib/fetchWithRetry'
+import { agentTypeToLabel } from './lib/agentTypeLabel'
 import { stableColumnId } from './lib/stableColumnId'
 import { TicketDetailModal } from './components/TicketDetailModal'
 import { QAInfoSection } from './components/QAInfoSection'
@@ -2992,11 +2993,14 @@ ${notes || '(none provided)'}
                 if (!ticket) return null
                 const displayId = ticket.display_id || (ticket.ticket_number ? `HAL-${String(ticket.ticket_number).padStart(4, '0')}` : null)
                 const ticketIdentifier = displayId ? `${displayId}: ${ticket.title}` : ticket.title
+                const effectiveRunsByPk = halCtx?.agentRunsByTicketPk || agentRunsByTicketPk
+                const run = effectiveRunsByPk[ticket.pk]
+                const agentLabel = agentTypeToLabel(run?.agent_type) ?? activeWorkAgentTypes[ticket.pk] ?? null
                 return (
                   <div className="active-work-item" data-ticket-pk={ticket.pk}>
                     <div className="active-work-item-title">{ticketIdentifier}</div>
                     <div className="active-work-item-meta">
-                      <span className="active-work-item-agent">{activeWorkAgentTypes[ticket.pk] || 'Unassigned'}</span>
+                      <span className="active-work-item-agent">{agentLabel || 'Unassigned'}</span>
                     </div>
                   </div>
                 )

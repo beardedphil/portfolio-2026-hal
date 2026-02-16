@@ -5,7 +5,7 @@
  * and determine step status for the multi-dot status indicator.
  */
 
-export type AgentType = 'implementation' | 'qa' | null
+export type AgentType = 'implementation' | 'qa' | 'process-review' | 'project-manager' | null
 
 export type WorkflowStep = {
   id: string
@@ -39,6 +39,21 @@ export function getAgentWorkflowSteps(agentType: AgentType): Array<WorkflowStep>
       { id: 'running', label: 'Running' },
       { id: 'completed', label: 'Completed' },
     ]
+  } else if (agentType === 'process-review') {
+    return [
+      { id: 'preparing', label: 'Preparing' },
+      { id: 'launching', label: 'Launching Process Review' },
+      { id: 'reviewing', label: 'Reviewing' },
+      { id: 'completed', label: 'Completed' },
+    ]
+  } else if (agentType === 'project-manager') {
+    // Minimal timeline; PM runs are typically short-lived and may not emit detailed stages.
+    return [
+      { id: 'preparing', label: 'Preparing' },
+      { id: 'launching', label: 'Launching' },
+      { id: 'running', label: 'Running' },
+      { id: 'completed', label: 'Completed' },
+    ]
   }
   return []
 }
@@ -69,7 +84,9 @@ export function mapStatusToStepId(status: string | null, agentType: AgentType): 
   if (validStages.includes(status)) {
     // Map 'polling' to appropriate stage based on agent type (backward compatibility)
     if (status === 'polling') {
-      return agentType === 'implementation' ? 'running' : 'reviewing'
+      if (agentType === 'qa') return 'reviewing'
+      // Implementation, process-review, project-manager: "polling" means "running/reviewing" work is in progress.
+      return 'running'
     }
     return status
   }
@@ -93,6 +110,16 @@ export function mapStatusToStepId(status: string | null, agentType: AgentType): 
     return 'preparing'
   } else if (agentType === 'implementation') {
     if (status === 'created') return 'fetching_ticket'
+    if (status === 'launching') return 'launching'
+    if (status === 'polling') return 'running'
+    return 'preparing'
+  } else if (agentType === 'process-review') {
+    if (status === 'created') return 'preparing'
+    if (status === 'launching') return 'launching'
+    if (status === 'polling') return 'reviewing'
+    return 'preparing'
+  } else if (agentType === 'project-manager') {
+    if (status === 'created') return 'preparing'
     if (status === 'launching') return 'launching'
     if (status === 'polling') return 'running'
     return 'preparing'

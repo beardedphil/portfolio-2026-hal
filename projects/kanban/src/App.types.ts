@@ -40,7 +40,7 @@ export type SupabaseAgentArtifactRow = {
 /** Supabase hal_agent_runs table row (0114) */
 export type SupabaseAgentRunRow = {
   run_id: string
-  agent_type: 'implementation' | 'qa'
+  agent_type: 'implementation' | 'qa' | 'process-review' | 'project-manager'
   repo_full_name: string
   ticket_pk: string | null
   ticket_number: number | null

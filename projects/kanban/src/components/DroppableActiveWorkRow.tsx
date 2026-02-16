@@ -1,6 +1,7 @@
 import { useDroppable } from '@dnd-kit/core'
 import { DraggableActiveWorkItem } from './DraggableActiveWorkItem'
 import type { SupabaseTicketRow, SupabaseAgentRunRow } from '../App.types'
+import { agentTypeToLabel } from '../lib/agentTypeLabel'
 
 /** Droppable Active Work row component (0669): makes Active Work row a drop target */
 export function DroppableActiveWorkRow({
@@ -31,10 +32,9 @@ export function DroppableActiveWorkRow({
       <div className={`active-work-items ${isOver ? 'active-work-items-over' : ''}`}>
         {doingTickets.length > 0 ? (
           doingTickets.map((ticket) => {
-            // Use simple string storage from button click (0135) - no DB lookup
-            const agentName = activeWorkAgentTypes[ticket.pk] || null
-            // Get agent run data from context (0203)
             const agentRun = agentRunsByTicketPk[ticket.pk]
+            // Prefer persisted agent run type (survives refresh/sync); fall back to local ephemeral map (0135).
+            const agentName = agentTypeToLabel(agentRun?.agent_type) ?? activeWorkAgentTypes[ticket.pk] ?? null
             const timestamp = ticket.kanban_moved_at
               ? new Date(ticket.kanban_moved_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
               : ticket.updated_at
