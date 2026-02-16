@@ -10,6 +10,12 @@ import * as Kanban from 'portfolio-2026-kanban'
 import type { KanbanTicketRow, KanbanColumnRow, KanbanAgentRunRow, KanbanBoardProps } from 'portfolio-2026-kanban'
 import 'portfolio-2026-kanban/style.css'
 import { AgentInstructionsViewer } from './AgentInstructionsViewer'
+import { useGithub, type GithubRepo, type ConnectedGithubRepo } from './hooks/useGithub'
+import { PromptModal } from './components/modals/PromptModal'
+import { DisconnectConfirmModal } from './components/modals/DisconnectConfirmModal'
+import { GithubRepoPicker } from './components/modals/GithubRepoPicker'
+import { ProcessReviewModal, type ProcessReviewRecommendation } from './components/modals/ProcessReviewModal'
+import { ChatPanel } from './components/ChatPanel'
 
 const KanbanBoard = Kanban.default
 const _kanbanBuild = (Kanban as unknown as { KANBAN_BUILD?: string }).KANBAN_BUILD
@@ -91,26 +97,7 @@ type DiagnosticsInfo = {
   conversationHistoryResetMessage: string | null
 }
 
-type GithubAuthMe = {
-  authenticated: boolean
-  login: string | null
-  scope: string | null
-}
-
-type GithubRepo = {
-  id: number
-  full_name: string
-  private: boolean
-  default_branch: string
-  html_url: string
-}
-
-type ConnectedGithubRepo = {
-  fullName: string
-  defaultBranch: string
-  htmlUrl: string
-  private: boolean
-}
+// GitHub types moved to src/hooks/useGithub.ts
 
 // PM_AGENT_ID kept for reference but conversation IDs are used now (0124)
 // const PM_AGENT_ID = 'project-manager'
@@ -165,12 +152,22 @@ function App() {
   const [supabaseUrl, setSupabaseUrl] = useState<string | null>(null)
   const [supabaseAnonKey, setSupabaseAnonKey] = useState<string | null>(null)
   const [lastSendPayloadSummary, setLastSendPayloadSummary] = useState<string | null>(null)
-  const [githubAuth, setGithubAuth] = useState<GithubAuthMe | null>(null)
-  const [githubRepos, setGithubRepos] = useState<GithubRepo[] | null>(null)
-  const [githubRepoPickerOpen, setGithubRepoPickerOpen] = useState(false)
-  const [githubRepoQuery, setGithubRepoQuery] = useState('')
-  const [connectedGithubRepo, setConnectedGithubRepo] = useState<ConnectedGithubRepo | null>(null)
-  const [githubConnectError, setGithubConnectError] = useState<string | null>(null)
+  
+  // GitHub state and handlers from useGithub hook
+  const {
+    githubAuth,
+    githubRepos,
+    githubRepoPickerOpen,
+    setGithubRepoPickerOpen,
+    githubRepoQuery,
+    setGithubRepoQuery,
+    connectedGithubRepo,
+    setConnectedGithubRepo,
+    githubConnectError,
+    handleGithubConnect,
+    handleGithubDisconnect,
+    loadGithubRepos,
+  } = useGithub()
   const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false)
   const [agentInstructionsOpen, setAgentInstructionsOpen] = useState(false)
   const [promptModalMessage, setPromptModalMessage] = useState<Message | null>(null)
@@ -372,69 +369,20 @@ function App() {
     }
   }, [theme])
 
-  // Restore connected GitHub repo from localStorage on load (0119: fix repo display after refresh)
-  // The repo state is restored for UI display; Kanban will receive the connection message when the iframe loads
-  // Note: If GitHub auth fails, refreshGithubAuth will clear the restored repo
+  // Note: GitHub repo restoration is handled by useGithub hook
+  // Set connectedProject when connectedGithubRepo changes
+  const isInitialMountRef = useRef(true)
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem('hal-github-repo')
-      if (saved) {
-        const parsed = JSON.parse(saved) as ConnectedGithubRepo
-        if (parsed?.fullName) {
-          setConnectedGithubRepo(parsed)
-          setConnectedProject(parsed.fullName)
-          // Conversations will be loaded by the useEffect that watches connectedProject (0124)
-        }
-      }
-    } catch {
-      // ignore localStorage errors
+    if (connectedGithubRepo?.fullName) {
+      setConnectedProject(connectedGithubRepo.fullName)
+      isInitialMountRef.current = false
+    } else if (!connectedGithubRepo && !isInitialMountRef.current) {
+      // Only clear connectedProject if we're explicitly disconnecting (not on initial load)
+      setConnectedProject(null)
+    } else {
+      isInitialMountRef.current = false
     }
-  }, [])
-
-  const refreshGithubAuth = useCallback(async () => {
-    try {
-      setGithubConnectError(null)
-      const res = await fetch('/api/auth/me', { credentials: 'include' })
-      const text = await res.text()
-      if (!res.ok) {
-        setGithubAuth(null)
-        setGithubConnectError(text.slice(0, 200) || 'Failed to check GitHub auth status.')
-        // If auth fails and we have a restored repo in localStorage, clear it (0119: handle auth failure gracefully)
-        try {
-          const saved = localStorage.getItem('hal-github-repo')
-          if (saved) {
-            setConnectedGithubRepo(null)
-            setConnectedProject(null)
-            localStorage.removeItem('hal-github-repo')
-          }
-        } catch {
-          // ignore
-        }
-        return
-      }
-      const json = JSON.parse(text) as GithubAuthMe
-      setGithubAuth(json)
-    } catch (err) {
-      setGithubAuth(null)
-      setGithubConnectError(err instanceof Error ? err.message : String(err))
-      // If auth check fails and we have a restored repo in localStorage, clear it (0119: handle auth failure gracefully)
-      try {
-        const saved = localStorage.getItem('hal-github-repo')
-        if (saved) {
-          setConnectedGithubRepo(null)
-          setConnectedProject(null)
-          localStorage.removeItem('hal-github-repo')
-        }
-      } catch {
-        // ignore
-      }
-    }
-  }, [])
-
-  // On load, check whether GitHub session already exists (0079)
-  useEffect(() => {
-    refreshGithubAuth().catch(() => {})
-  }, [refreshGithubAuth])
+  }, [connectedGithubRepo])
 
   // Redirect if Standup chat is accessed (0154: Standup removed)
   useEffect(() => {
@@ -449,50 +397,6 @@ function App() {
   }, [openChatTarget])
 
   // Auto-load working memory when PM chat opens (0173) - moved after loadWorkingMemory definition
-
-  const loadGithubRepos = useCallback(async () => {
-    try {
-      setGithubConnectError(null)
-      const res = await fetch('/api/github/repos', { credentials: 'include' })
-      const text = await res.text()
-      if (!res.ok) {
-        setGithubRepos(null)
-        setGithubConnectError(text.slice(0, 200) || 'Failed to load repos.')
-        return
-      }
-      const json = JSON.parse(text) as { repos: GithubRepo[] }
-      setGithubRepos(Array.isArray(json.repos) ? json.repos : [])
-    } catch (err) {
-      setGithubRepos(null)
-      setGithubConnectError(err instanceof Error ? err.message : String(err))
-    }
-  }, [])
-
-  const handleGithubConnect = useCallback(async () => {
-    setGithubConnectError(null)
-    // If already authenticated, open picker and load repos
-    if (githubAuth?.authenticated) {
-      setGithubRepoPickerOpen(true)
-      if (!githubRepos) {
-        await loadGithubRepos()
-      }
-      return
-    }
-    // Start OAuth flow (redirect)
-    window.location.href = '/api/auth/github/start'
-  }, [githubAuth?.authenticated, githubRepos, loadGithubRepos])
-
-  const handleGithubDisconnect = useCallback(async () => {
-    try {
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
-    } catch {
-      // ignore
-    }
-    setGithubAuth(null)
-    setGithubRepos(null)
-    setGithubRepoPickerOpen(false)
-    setGithubRepoQuery('')
-  }, [])
 
   // Load conversations for a project (0124: extracted to be reusable for page refresh)
   const loadConversationsForProject = useCallback(async (projectName: string) => {
@@ -3229,195 +3133,41 @@ function App() {
   }
 
   // Chat panel content (used in sidebar when openChatTarget is set — same structure/classes as right panel for correct styling)
-  const chatPanelContent = (function renderChatPanelContent() {
-    const displayMessages = activeMessages
-    const displayTarget = selectedChatTarget
-    const lastMsg = displayMessages[displayMessages.length - 1]
-    const showContinueButton =
-      displayTarget === 'project-manager' &&
-      agentTypingTarget !== 'project-manager' &&
-      !!lastMsg &&
-      lastMsg.agent === 'project-manager' &&
-      lastMsg.content.includes('Reply with **Continue** to move the next batch')
-    return (
-      <div className="hal-chat-panel-inner" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
-        {/* Agent stub banners and status panels */}
-        {displayTarget === 'implementation-agent' && (
-          <>
-            <div className="agent-stub-banner" role="status">
-              <p className="agent-stub-title">Implementation Agent — Cursor Cloud Agents</p>
-              <p className="agent-stub-hint">
-                {import.meta.env.VITE_CURSOR_API_KEY
-                  ? 'Say "Implement ticket XXXX" (e.g. Implement ticket 0046) to fetch the ticket, launch a Cursor cloud agent, and move the ticket to QA when done.'
-                  : 'Cursor API is not configured. Set CURSOR_API_KEY and VITE_CURSOR_API_KEY in .env to enable.'}
-              </p>
-            </div>
-            {(implAgentRunStatus !== 'idle' || implAgentError) && (
-              <div className="impl-agent-status-panel" role="status" aria-live="polite">
-                <div className="impl-agent-status-header">
-                  <span className="impl-agent-status-label">Status:</span>
-                  <span className={`impl-agent-status-value impl-status-${implAgentRunStatus}`}>
-                    {implAgentRunStatus === 'preparing' ? 'Preparing' :
-                     implAgentRunStatus === 'fetching_ticket' ? 'Fetching ticket' :
-                     implAgentRunStatus === 'resolving_repo' ? 'Resolving repository' :
-                     implAgentRunStatus === 'launching' ? 'Launching agent' :
-                     implAgentRunStatus === 'running' ? 'Running' :
-                     implAgentRunStatus === 'polling' ? 'Running' :
-                     implAgentRunStatus === 'completed' ? 'Completed' :
-                     implAgentRunStatus === 'failed' ? 'Failed' : implAgentRunStatus}
-                  </span>
-                </div>
-                {implAgentError && <div className="impl-agent-error">{implAgentError}</div>}
-              </div>
-            )}
-          </>
-        )}
-        {displayTarget === 'qa-agent' && (
-          <>
-            <div className="agent-stub-banner" role="status">
-              <p className="agent-stub-title">QA Agent — Cursor Cloud Agents</p>
-              <p className="agent-stub-hint">
-                {import.meta.env.VITE_CURSOR_API_KEY
-                  ? 'Say "QA ticket XXXX" to run QA for a ticket. The agent will run in the cloud and report results here.'
-                  : 'Cursor API is not configured.'}
-              </p>
-            </div>
-            {(qaAgentRunStatus !== 'idle' || qaAgentError) && (
-              <div className="impl-agent-status-panel" role="status" aria-live="polite">
-                <div className="impl-agent-status-header">
-                  <span className="impl-agent-status-label">Status:</span>
-                  <span className={`impl-agent-status-value impl-status-${qaAgentRunStatus}`}>
-                    {qaAgentRunStatus === 'preparing' ? 'Preparing' :
-                     qaAgentRunStatus === 'fetching_ticket' ? 'Fetching ticket' :
-                     qaAgentRunStatus === 'fetching_branch' ? 'Finding branch' :
-                     qaAgentRunStatus === 'launching' ? 'Launching QA' :
-                     qaAgentRunStatus === 'reviewing' ? 'Reviewing' :
-                     qaAgentRunStatus === 'polling' ? 'Reviewing' :
-                     qaAgentRunStatus === 'generating_report' ? 'Generating report' :
-                     qaAgentRunStatus === 'merging' ? 'Merging' :
-                     qaAgentRunStatus === 'moving_ticket' ? 'Moving ticket' :
-                     qaAgentRunStatus === 'completed' ? 'Completed' :
-                     qaAgentRunStatus === 'failed' ? 'Failed' : qaAgentRunStatus}
-                  </span>
-                </div>
-                {qaAgentError && <div className="impl-agent-error">{qaAgentError}</div>}
-              </div>
-            )}
-          </>
-        )}
-        {/* Messages list — use chat-transcript so sidebar gets same styles as right panel */}
-        <div className="chat-transcript" ref={messagesEndRef}>
-          {displayMessages.length === 0 && agentTypingTarget !== displayTarget ? (
-            <p className="transcript-empty">
-              {displayTarget === 'project-manager'
-                ? 'Send a message to the Project Manager to get started.'
-                : displayTarget === 'implementation-agent'
-                ? 'Ask to implement a ticket (e.g. "Implement ticket 0046").'
-                : displayTarget === 'qa-agent'
-                ? 'Ask to run QA on a ticket (e.g. "QA ticket 0046").'
-                : 'Send a message to start the conversation.'}
-            </p>
-          ) : (
-            <>
-              {displayMessages.map((msg) => (
-                <div key={msg.id} className={`message-row message-row-${msg.agent}`} data-agent={msg.agent}>
-                  <div
-                    className={`message message-${msg.agent} ${displayTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText ? 'message-clickable' : ''}`}
-                    onClick={displayTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText ? () => setPromptModalMessage(msg) : undefined}
-                    style={displayTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText ? { cursor: 'pointer' } : undefined}
-                    title={displayTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText ? 'Click to view sent prompt' : undefined}
-                  >
-                    <div className="message-header">
-                      <span className="message-author">{getMessageAuthorLabel(msg.agent)}</span>
-                      <span className="message-time">[{formatTime(msg.timestamp)}]</span>
-                      {displayTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText && (
-                        <span className="message-prompt-indicator" title="Click to view sent prompt">📋</span>
-                      )}
-                      {msg.imageAttachments && msg.imageAttachments.length > 0 && (
-                        <div className="message-images">
-                          {msg.imageAttachments.map((img, idx) => (
-                            <div key={idx} className="message-image-container">
-                              <img src={img.dataUrl} alt={img.filename} className="message-image-thumbnail" />
-                              <span className="message-image-filename">{img.filename}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      {msg.content.trimStart().startsWith('{') ? (
-                        <pre className="message-content message-json">{msg.content}</pre>
-                      ) : (
-                        <span className="message-content">{msg.content}</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-              {agentTypingTarget === displayTarget && (
-                <div className="message-row message-row-typing" data-agent="typing" aria-live="polite">
-                  <div className="message message-typing">
-                    <div className="message-header">
-                      <span className="message-author">HAL</span>
-                    </div>
-                    <span className="typing-bubble">
-                      <span className="typing-label">Thinking</span>
-                      <span className="typing-dots">
-                        <span className="typing-dot" />
-                        <span className="typing-dot" />
-                        <span className="typing-dot" />
-                      </span>
-                    </span>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-        {/* Composer — use chat-composer and composer-input-row so sidebar matches right panel */}
-        <div className="chat-composer">
-          {imageAttachment && (
-            <div className="image-attachment-preview">
-              <img src={imageAttachment.dataUrl} alt={imageAttachment.filename} className="attachment-thumbnail" />
-              <span className="attachment-filename">{imageAttachment.filename}</span>
-              <button type="button" className="remove-attachment-btn" onClick={handleRemoveImage} aria-label="Remove attachment">×</button>
-            </div>
-          )}
-          {(imageError || sendValidationError) && (
-            <div className="image-error-message" role="alert">{imageError || sendValidationError}</div>
-          )}
-          <div className="composer-input-row">
-            <textarea
-              ref={composerRef}
-              className="message-input"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Type a message... (Enter to send)"
-              rows={2}
-              aria-label="Message input"
-            />
-            <label className="attach-image-btn" title="Attach image">
-              <input
-                type="file"
-                accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
-                onChange={handleImageSelect}
-                style={{ display: 'none' }}
-                aria-label="Attach image"
-              />
-              📎
-            </label>
-            {showContinueButton && (
-              <button type="button" className="continue-batch-btn send-btn" onClick={handleContinueBatch} title="Continue moving the next batch of tickets">
-                Continue
-              </button>
-            )}
-            <button type="button" className="send-btn" onClick={handleSend} disabled={!!imageError}>
-              Send
-            </button>
-          </div>
-        </div>
-      </div>
-    )
-  })()
+  const displayMessages = activeMessages
+  const displayTarget = selectedChatTarget
+  const lastMsg = displayMessages[displayMessages.length - 1]
+  const showContinueButton =
+    displayTarget === 'project-manager' &&
+    agentTypingTarget !== 'project-manager' &&
+    !!lastMsg &&
+    lastMsg.agent === 'project-manager' &&
+    lastMsg.content.includes('Reply with **Continue** to move the next batch')
+  
+  const chatPanelContent = (
+    <ChatPanel
+      displayTarget={displayTarget}
+      displayMessages={displayMessages}
+      agentTypingTarget={agentTypingTarget}
+      implAgentRunStatus={implAgentRunStatus}
+      implAgentError={implAgentError}
+      qaAgentRunStatus={qaAgentRunStatus}
+      qaAgentError={qaAgentError}
+      inputValue={inputValue}
+      imageAttachment={imageAttachment}
+      imageError={imageError}
+      sendValidationError={sendValidationError}
+      composerRef={composerRef}
+      messagesEndRef={messagesEndRef}
+      onInputChange={setInputValue}
+      onKeyDown={handleKeyDown}
+      onImageSelect={handleImageSelect}
+      onRemoveImage={handleRemoveImage}
+      onSend={handleSend}
+      onContinueBatch={handleContinueBatch}
+      onPromptClick={setPromptModalMessage}
+      showContinueButton={showContinueButton}
+    />
+  )
 
   return (
     <div className="hal-app">
@@ -3496,116 +3246,21 @@ function App() {
         </div>
       )}
 
-      {githubRepoPickerOpen && (
-        <div className="conversation-modal-overlay" onClick={() => setGithubRepoPickerOpen(false)}>
-          <div className="conversation-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="conversation-modal-header">
-              <h3>Select GitHub repository</h3>
-              <button type="button" className="conversation-modal-close" onClick={() => setGithubRepoPickerOpen(false)} aria-label="Close repo picker">
-                ×
-              </button>
-            </div>
-            <div className="conversation-modal-content">
-              <div style={{ padding: '12px' }}>
-                <input
-                  type="text"
-                  value={githubRepoQuery}
-                  onChange={(e) => setGithubRepoQuery(e.target.value)}
-                  placeholder="Filter repos (owner/name)"
-                  style={{ width: '100%', padding: '10px', marginBottom: '12px' }}
-                />
-                {!githubRepos ? (
-                  <div>Loading repos…</div>
-                ) : githubRepos.length === 0 ? (
-                  <div>No repos found.</div>
-                ) : (
-                  <div style={{ maxHeight: '50vh', overflow: 'auto' }}>
-                    {githubRepos
-                      .filter((r) => r.full_name.toLowerCase().includes(githubRepoQuery.trim().toLowerCase()))
-                      .slice(0, 200)
-                      .map((r) => (
-                        <button
-                          key={r.id}
-                          type="button"
-                          onClick={() => handleSelectGithubRepo(r)}
-                          style={{
-                            display: 'block',
-                            width: '100%',
-                            textAlign: 'left',
-                            padding: '10px',
-                            marginBottom: '8px',
-                            borderRadius: '8px',
-                            border: '1px solid rgba(0,0,0,0.15)',
-                            background: 'transparent',
-                          }}
-                        >
-                          <div style={{ fontWeight: 600 }}>{r.full_name}</div>
-                          <div style={{ fontSize: '0.9em', opacity: 0.8 }}>
-                            {r.private ? 'Private' : 'Public'} • default: {r.default_branch}
-                          </div>
-                        </button>
-                      ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <GithubRepoPicker
+        isOpen={githubRepoPickerOpen}
+        repos={githubRepos}
+        query={githubRepoQuery}
+        onQueryChange={setGithubRepoQuery}
+        onSelect={handleSelectGithubRepo}
+        onClose={() => setGithubRepoPickerOpen(false)}
+      />
 
-      {disconnectConfirmOpen && (
-        <div className="conversation-modal-overlay" onClick={handleDisconnectCancel}>
-          <div className="conversation-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-labelledby="disconnect-confirm-title" aria-modal="true">
-            <div className="conversation-modal-header">
-              <h3 id="disconnect-confirm-title">Disconnect this repository?</h3>
-              <button type="button" className="conversation-modal-close" onClick={handleDisconnectCancel} aria-label="Close confirmation">
-                ×
-              </button>
-            </div>
-            <div className="conversation-modal-content">
-              <div style={{ padding: '1.25rem' }}>
-                <p style={{ margin: '0 0 1.5rem 0', color: 'var(--hal-text)' }}>
-                  Are you sure you want to disconnect from this repository? You can reconnect later.
-                </p>
-                <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
-                  <button
-                    type="button"
-                    onClick={handleDisconnectCancel}
-                    style={{
-                      padding: '0.5rem 1rem',
-                      borderRadius: '6px',
-                      border: '1px solid var(--hal-border)',
-                      background: 'var(--hal-surface)',
-                      color: 'var(--hal-text)',
-                      cursor: 'pointer',
-                      fontSize: '0.9rem',
-                    }}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    ref={disconnectConfirmButtonRef}
-                    type="button"
-                    onClick={handleDisconnectConfirm}
-                    style={{
-                      padding: '0.5rem 1rem',
-                      borderRadius: '6px',
-                      border: '1px solid var(--hal-border)',
-                      background: 'var(--hal-danger, #dc3545)',
-                      color: 'white',
-                      cursor: 'pointer',
-                      fontSize: '0.9rem',
-                      fontWeight: 500,
-                    }}
-                  >
-                    Yes, disconnect
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <DisconnectConfirmModal
+        isOpen={disconnectConfirmOpen}
+        onConfirm={handleDisconnectConfirm}
+        onCancel={handleDisconnectCancel}
+        disconnectButtonRef={disconnectButtonRef}
+      />
 
       <main className="hal-main">
         {/* Left column: Kanban board */}
@@ -4780,207 +4435,22 @@ function App() {
         repoFullName={connectedGithubRepo?.fullName || 'beardedphil/portfolio-2026-hal'}
       />
 
-      {/* Prompt Modal (0202) */}
-      {promptModalMessage && (
-        <div className="conversation-modal-overlay" onClick={() => setPromptModalMessage(null)}>
-          <div className="conversation-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '90vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
-            <div className="conversation-modal-header">
-              <h3>Sent Prompt</h3>
-              <button 
-                type="button" 
-                className="conversation-modal-close" 
-                onClick={() => setPromptModalMessage(null)} 
-                aria-label="Close prompt modal"
-              >
-                ×
-              </button>
-            </div>
-            <div className="conversation-modal-content" style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
-              {promptModalMessage.promptText ? (
-                <>
-                  <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'flex-end' }}>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (promptModalMessage.promptText) {
-                          try {
-                            await navigator.clipboard.writeText(promptModalMessage.promptText)
-                            // Show brief feedback (could be enhanced with a toast)
-                            const btn = document.activeElement as HTMLButtonElement
-                            if (btn) {
-                              const originalText = btn.textContent
-                              btn.textContent = 'Copied!'
-                              setTimeout(() => {
-                                btn.textContent = originalText
-                              }, 2000)
-                            }
-                          } catch (err) {
-                            console.error('Failed to copy prompt:', err)
-                          }
-                        }
-                      }}
-                      style={{
-                        padding: '6px 12px',
-                        background: 'var(--hal-primary, #007bff)',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        fontSize: '14px',
-                      }}
-                    >
-                      Copy prompt
-                    </button>
-                  </div>
-                  <pre
-                    style={{
-                      fontFamily: 'monospace',
-                      fontSize: '12px',
-                      lineHeight: '1.5',
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-word',
-                      background: 'var(--hal-bg-secondary, #f5f5f5)',
-                      padding: '16px',
-                      borderRadius: '4px',
-                      border: '1px solid var(--hal-border, #ddd)',
-                      margin: 0,
-                      overflow: 'auto',
-                      maxHeight: 'calc(90vh - 120px)',
-                    }}
-                  >
-                    {promptModalMessage.promptText}
-                  </pre>
-                </>
-              ) : (
-                <div style={{ padding: '24px', textAlign: 'center', color: 'var(--hal-text-secondary, #666)' }}>
-                  <p>Prompt unavailable for this message</p>
-                  <p style={{ fontSize: '14px', marginTop: '8px' }}>
-                    This message was generated without an external LLM call, or the prompt data is not available.
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <PromptModal
+        message={promptModalMessage}
+        onClose={() => setPromptModalMessage(null)}
+      />
 
-      {/* Process Review Recommendations Modal (0484) */}
-      {processReviewRecommendations && processReviewRecommendations.length > 0 && (
-        <div 
-          className="conversation-modal-overlay" 
-          onClick={() => {
-            // Only close if all recommendations are processed
-            if (processReviewRecommendations.length === 0) {
-              setProcessReviewRecommendations(null)
-              setProcessReviewModalTicketPk(null)
-              setProcessReviewModalTicketId(null)
-              setProcessReviewModalReviewId(null)
-            }
-          }}
-        >
-          <div 
-            className="conversation-modal" 
-            onClick={(e) => e.stopPropagation()} 
-            style={{ maxWidth: '800px', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}
-          >
-            <div className="conversation-modal-header">
-              <h3>Process Review Recommendations</h3>
-              <button 
-                type="button" 
-                className="conversation-modal-close" 
-                onClick={() => {
-                  setProcessReviewRecommendations(null)
-                  setProcessReviewModalTicketPk(null)
-                  setProcessReviewModalTicketId(null)
-                  setProcessReviewModalReviewId(null)
-                }} 
-                aria-label="Close recommendations modal"
-              >
-                ×
-              </button>
-            </div>
-            <div className="conversation-modal-content" style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
-              <p style={{ marginBottom: '16px', color: 'var(--hal-text-muted)' }}>
-                Review the recommendations below. Click "Implement" to create a ticket, or "Ignore" to dismiss.
-              </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                {processReviewRecommendations.map((recommendation) => (
-                  <div
-                    key={recommendation.id}
-                    style={{
-                      border: '1px solid var(--hal-border)',
-                      borderRadius: '8px',
-                      padding: '16px',
-                      background: recommendation.error ? 'var(--hal-surface-alt)' : 'var(--hal-surface)',
-                    }}
-                  >
-                    <div style={{ marginBottom: '12px' }}>
-                      <h4 style={{ margin: '0 0 8px 0', fontSize: '16px', fontWeight: '600' }}>
-                        {recommendation.text}
-                      </h4>
-                      {recommendation.justification && (
-                        <p style={{ margin: 0, fontSize: '14px', color: 'var(--hal-text-muted)', fontStyle: 'italic' }}>
-                          {recommendation.justification}
-                        </p>
-                      )}
-                    </div>
-                    {recommendation.error && (
-                      <div
-                        style={{
-                          marginBottom: '12px',
-                          padding: '8px 12px',
-                          background: 'var(--hal-status-error, #c62828)',
-                          color: 'white',
-                          borderRadius: '4px',
-                          fontSize: '14px',
-                        }}
-                      >
-                        Error: {recommendation.error}
-                      </div>
-                    )}
-                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                      <button
-                        type="button"
-                        onClick={() => handleProcessReviewIgnore(recommendation.id)}
-                        disabled={recommendation.isCreating}
-                        style={{
-                          padding: '8px 16px',
-                          background: 'var(--hal-surface)',
-                          color: 'var(--hal-text)',
-                          border: '1px solid var(--hal-border)',
-                          borderRadius: '4px',
-                          cursor: recommendation.isCreating ? 'not-allowed' : 'pointer',
-                          fontSize: '14px',
-                          opacity: recommendation.isCreating ? 0.6 : 1,
-                        }}
-                      >
-                        Ignore
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleProcessReviewImplement(recommendation.id)}
-                        disabled={recommendation.isCreating}
-                        style={{
-                          padding: '8px 16px',
-                          background: recommendation.isCreating ? 'var(--hal-text-muted)' : 'var(--hal-primary)',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '4px',
-                          cursor: recommendation.isCreating ? 'not-allowed' : 'pointer',
-                          fontSize: '14px',
-                          opacity: recommendation.isCreating ? 0.7 : 1,
-                        }}
-                      >
-                        {recommendation.isCreating ? 'Creating...' : 'Implement'}
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <ProcessReviewModal
+        recommendations={processReviewRecommendations}
+        onImplement={handleProcessReviewImplement}
+        onIgnore={handleProcessReviewIgnore}
+        onClose={() => {
+          setProcessReviewRecommendations(null)
+          setProcessReviewModalTicketPk(null)
+          setProcessReviewModalTicketId(null)
+          setProcessReviewModalReviewId(null)
+        }}
+      />
     </div>
   )
 }
