@@ -25,16 +25,16 @@
       "maintainability": 0
     },
     {
-      "file": "api/agent-runs/status.ts",
-      "maintainability": 8.25
+      "file": "api/implementation-agent/run.ts",
+      "maintainability": 12.23
     },
     {
-      "file": "api/implementation-agent/run.ts",
-      "maintainability": 9.69
+      "file": "api/agent-runs/status.ts",
+      "maintainability": 12.61
     },
     {
       "file": "api/agent-runs/launch.ts",
-      "maintainability": 14.02
+      "maintainability": 15.68
     },
     {
       "file": "projects/kanban/src/components/ArtifactReportViewer.tsx",
@@ -65,6 +65,10 @@
       "maintainability": 32.38
     },
     {
+      "file": "api/agent-runs/_shared.ts",
+      "maintainability": 32.99
+    },
+    {
       "file": "api/tickets/create-from-suggestion.ts",
       "maintainability": 33.81
     },
@@ -75,13 +79,27 @@
     {
       "file": "api/pm/working-memory.ts",
       "maintainability": 35.13
-    },
-    {
-      "file": "api/process-review/run.ts",
-      "maintainability": 37.36
     }
   ],
   "mostRecentImprovements": [
+    {
+      "file": "api/agent-runs/status.ts",
+      "before": 8.25,
+      "after": 12.61,
+      "delta": 4.36
+    },
+    {
+      "file": "api/implementation-agent/run.ts",
+      "before": 9.69,
+      "after": 12.23,
+      "delta": 2.54
+    },
+    {
+      "file": "api/agent-runs/launch.ts",
+      "before": 14.02,
+      "after": 15.68,
+      "delta": 1.66
+    },
     {
       "file": "api/artifacts/get.ts",
       "before": 32.38,
@@ -117,13 +135,9 @@
       "before": 26.39,
       "after": 26.39,
       "delta": 0
-    },
-    {
-      "file": "api/agent-runs/status.ts",
-      "before": 8.25,
-      "after": 8.25,
-      "delta": 0
     }
   ],
-  "generatedAt": "2026-02-16T17:39:03.606Z"
+  "generatedAt": "2026-02-16T18:14:50.553Z",
+  "filesAnalyzed": 244,
+  "unroundedSimplicity": 40.8
 }

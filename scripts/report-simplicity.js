@@ -219,7 +219,8 @@ function main() {
 
   const overallAvg = sum / count
   // Maintainability index is typically 0–171; scale to 0–100 and clamp
-  const simplicityPct = Math.round(Math.min(100, Math.max(0, (overallAvg / 171) * 100)))
+  const unroundedSimplicity = Math.min(100, Math.max(0, (overallAvg / 171) * 100))
+  const simplicityPct = Math.round(unroundedSimplicity)
   console.log(`Simplicity: ${simplicityPct}%`)
 
   // Update repo metrics file for dashboard (no QA report parsing)
@@ -230,6 +231,7 @@ function main() {
     metrics = { ...metrics, ...JSON.parse(raw) }
   } catch (_) {}
   metrics.simplicity = simplicityPct
+  metrics.unroundedSimplicity = Math.round(unroundedSimplicity * 10) / 10 // Round to 1 decimal place
   metrics.updatedAt = new Date().toISOString()
   fs.mkdirSync(path.dirname(metricsPath), { recursive: true })
   fs.writeFileSync(metricsPath, JSON.stringify(metrics, null, 2) + '\n', 'utf8')
@@ -273,6 +275,8 @@ function main() {
     topOffenders,
     mostRecentImprovements: improvements,
     generatedAt: new Date().toISOString(),
+    filesAnalyzed: count,
+    unroundedSimplicity: Math.round(unroundedSimplicity * 10) / 10, // Round to 1 decimal place
   }
 
   writeJson(simplicityDetailsPath, simplicityDetails)

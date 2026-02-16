@@ -43,7 +43,7 @@ jobs:
       - name: Check for changes
         id: check-changes
         run: |
-          if git diff --quiet public/metrics.json; then
+          if git diff --quiet public/metrics.json public/simplicity-details.json; then
             echo "changed=false" >> $GITHUB_OUTPUT
           else
             echo "changed=true" >> $GITHUB_OUTPUT
@@ -54,6 +54,6 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add public/metrics.json
+          git add public/metrics.json public/simplicity-details.json
           git commit -m "chore: auto-update metrics (coverage and simplicity)"
           git push origin main
