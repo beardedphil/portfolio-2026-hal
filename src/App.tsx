@@ -3137,7 +3137,7 @@ function App() {
                     {/* GitHub connection row (0708: on top, same layout as repo row) */}
                     <div className="project-info-row">
                       <span className="project-name">
-                        {githubAuth?.authenticated ? `GitHub: ${githubAuth.login ?? 'connected'}` : 'Not signed in'}
+                        {githubAuth?.authenticated ? `GitHub: ${githubAuth.login ?? 'connected'}` : 'GitHub: Not signed in'}
                       </span>
                       <button
                         type="button"
