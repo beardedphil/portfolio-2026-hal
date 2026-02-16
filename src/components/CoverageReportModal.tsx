@@ -50,18 +50,18 @@ export function CoverageReportModal({ isOpen, onClose }: CoverageReportModalProp
     <div className="conversation-modal-overlay" onClick={onClose}>
       <div className="conversation-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '90vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
         <div className="conversation-modal-header">
-          <h3>Coverage Report</h3>
+          <h3>Test Coverage Report</h3>
           <button
             type="button"
             className="conversation-modal-close"
             onClick={onClose}
-            aria-label="Close coverage report"
+            aria-label="Close test coverage report"
           >
             ×
           </button>
         </div>
         <div className="conversation-modal-content" style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
-          {loading && <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--hal-text-muted)' }}>Loading coverage details...</div>}
+          {loading && <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--hal-text-muted)' }}>Loading test coverage details...</div>}
           {error && (
             <div style={{ padding: '1rem', background: 'rgba(198, 40, 40, 0.1)', border: '1px solid var(--hal-status-error)', borderRadius: '6px', color: 'var(--hal-status-error)' }}>
               {error}
@@ -82,7 +82,7 @@ export function CoverageReportModal({ isOpen, onClose }: CoverageReportModalProp
                       <thead>
                         <tr style={{ background: 'var(--hal-surface-alt)' }}>
                           <th style={{ padding: '0.75rem', textAlign: 'left', borderBottom: '1px solid var(--hal-border)' }}>File</th>
-                          <th style={{ padding: '0.75rem', textAlign: 'right', borderBottom: '1px solid var(--hal-border)' }}>Coverage</th>
+                          <th style={{ padding: '0.75rem', textAlign: 'right', borderBottom: '1px solid var(--hal-border)' }}>Test Coverage</th>
                         </tr>
                       </thead>
                       <tbody>

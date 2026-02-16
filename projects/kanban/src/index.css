@@ -107,8 +107,8 @@ body[data-embedded="true"] #root,
 /* Ensure column cards don't shrink when inside kanban-frame-container */
 .kanban-frame-container .columns-row .column-card {
   flex-shrink: 0 !important;
-  width: 240px !important;
-  min-width: 240px !important;
+  width: 280px !important;
+  min-width: 280px !important;
 }
 
 h1 {
@@ -689,9 +689,9 @@ h1 {
   background-color: var(--kanban-text-muted);
 }
 .column-card {
-  min-width: 240px;
+  min-width: 280px;
   max-width: 300px;
-  width: 240px;
+  width: 280px;
   flex-shrink: 0;
   padding: 0.6rem 0.75rem;
   background: var(--kanban-surface);
