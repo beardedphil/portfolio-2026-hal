@@ -5,6 +5,8 @@ import { saveConversationsToStorage, loadConversationsFromStorage, type Agent, t
 import { getInitialTheme, THEME_STORAGE_KEY } from './lib/metricColor'
 import { getConversationId, parseConversationId, getNextInstanceNumber, formatTime, getMessageAuthorLabel } from './lib/conversation-helpers'
 import { CoverageBadge, SimplicityBadge } from './components/QAMetricsCard'
+import { CoverageReportModal } from './components/CoverageReportModal'
+import { SimplicityReportModal } from './components/SimplicityReportModal'
 import type { Theme } from './types/hal'
 import * as Kanban from 'portfolio-2026-kanban'
 import type { KanbanTicketRow, KanbanColumnRow, KanbanAgentRunRow, KanbanBoardProps } from 'portfolio-2026-kanban'
@@ -326,6 +328,9 @@ function App() {
   /** Floating PM chat widget state (0698). */
   const [pmChatWidgetOpen, setPmChatWidgetOpen] = useState<boolean>(false)
   const [pmChatWidgetFullscreen, setPmChatWidgetFullscreen] = useState<boolean>(false)
+  /** Coverage and Simplicity report modals (0693). */
+  const [coverageReportOpen, setCoverageReportOpen] = useState<boolean>(false)
+  const [simplicityReportOpen, setSimplicityReportOpen] = useState<boolean>(false)
 
   useEffect(() => {
     selectedChatTargetRef.current = selectedChatTarget
@@ -3658,6 +3663,12 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* Coverage Report Modal (0693) */}
+      <CoverageReportModal isOpen={coverageReportOpen} onClose={() => setCoverageReportOpen(false)} />
+
+      {/* Simplicity Report Modal (0693) */}
+      <SimplicityReportModal isOpen={simplicityReportOpen} onClose={() => setSimplicityReportOpen(false)} />
     </div>
   )
 }

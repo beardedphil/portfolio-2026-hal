@@ -22,6 +22,11 @@ function fetchMetrics(cacheBust = false): Promise<QAMetrics | null> {
     .catch(() => null)
 }
 
+interface QAMetricsCardProps {
+  onCoverageClick?: () => void
+  onSimplicityClick?: () => void
+}
+
 /**
  * Hook to fetch and poll QA metrics from /metrics.json.
  * Returns metrics state that updates automatically when metrics.json changes.
@@ -99,13 +104,49 @@ export function SimplicityBadge() {
  * 
  * @deprecated Use CoverageBadge and SimplicityBadge separately instead.
  */
-export function QAMetricsCard() {
+export function QAMetricsCard({ onCoverageClick, onSimplicityClick }: QAMetricsCardProps = {}) {
   const qaMetrics = useQAMetrics()
 
   return (
     <div className="qa-metrics">
-      <QAMetricBadge label="Coverage" value={qaMetrics?.coverage ?? null} />
-      <QAMetricBadge label="Simplicity" value={qaMetrics?.simplicity ?? null} />
+      <div
+        className={`qa-metric-box ${onCoverageClick ? 'qa-metric-box-clickable' : ''}`}
+        style={{ backgroundColor: getMetricColor(qaMetrics?.coverage ?? null) }}
+        title={qaMetrics?.coverage !== null && qaMetrics !== null ? `Coverage: ${qaMetrics.coverage.toFixed(0)}%` : 'Coverage: N/A'}
+        onClick={onCoverageClick}
+        role={onCoverageClick ? 'button' : undefined}
+        tabIndex={onCoverageClick ? 0 : undefined}
+        onKeyDown={onCoverageClick ? (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onCoverageClick()
+          }
+        } : undefined}
+      >
+        <span className="qa-metric-label">Coverage</span>
+        <span className="qa-metric-value">
+          {qaMetrics?.coverage !== null && qaMetrics !== null ? `${qaMetrics.coverage.toFixed(0)}%` : 'N/A'}
+        </span>
+      </div>
+      <div
+        className={`qa-metric-box ${onSimplicityClick ? 'qa-metric-box-clickable' : ''}`}
+        style={{ backgroundColor: getMetricColor(qaMetrics?.simplicity ?? null) }}
+        title={qaMetrics?.simplicity !== null && qaMetrics !== null ? `Simplicity: ${qaMetrics.simplicity.toFixed(0)}%` : 'Simplicity: N/A'}
+        onClick={onSimplicityClick}
+        role={onSimplicityClick ? 'button' : undefined}
+        tabIndex={onSimplicityClick ? 0 : undefined}
+        onKeyDown={onSimplicityClick ? (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onSimplicityClick()
+          }
+        } : undefined}
+      >
+        <span className="qa-metric-label">Simplicity</span>
+        <span className="qa-metric-value">
+          {qaMetrics?.simplicity !== null && qaMetrics !== null ? `${qaMetrics.simplicity.toFixed(0)}%` : 'N/A'}
+        </span>
+      </div>
       {qaMetrics === null && (
         <span className="qa-metrics-hint">Run test:coverage and report:simplicity to update</span>
       )}
