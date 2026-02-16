@@ -2,8 +2,8 @@ import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { getSupabaseClient } from './lib/supabase'
 import { saveConversationsToStorage, loadConversationsFromStorage, type Agent, type Message, type Conversation, type ImageAttachment } from './lib/conversationStorage'
 import { getChatWidth, setChatWidth, getChatCollapsed, setChatCollapsed } from './lib/persistedUiState'
-import { getInitialTheme, THEME_STORAGE_KEY } from './lib/metricColor'
-import { getConversationId, parseConversationId, getNextInstanceNumber, formatTime, getMessageAuthorLabel } from './lib/conversationHelpers'
+import { getMetricColor, getInitialTheme, THEME_STORAGE_KEY } from './lib/metricColor'
+import { getConversationId, parseConversationId, getNextInstanceNumber, formatTime, getMessageAuthorLabel } from './lib/conversation-helpers'
 import { QAMetricsCard } from './components/QAMetricsCard'
 import type { Theme } from './types/hal'
 import * as Kanban from 'portfolio-2026-kanban'
@@ -115,8 +115,8 @@ type ConnectedGithubRepo = {
 // PM_AGENT_ID kept for reference but conversation IDs are used now (0124)
 // const PM_AGENT_ID = 'project-manager'
 
-// getConversationId, parseConversationId, getNextInstanceNumber, formatTime, and getMessageAuthorLabel
-// are now imported from './lib/conversationHelpers'
+// Helper functions (getConversationId, parseConversationId, getNextInstanceNumber, formatTime, getMessageAuthorLabel)
+// are now imported from './lib/conversation-helpers'
 
 // saveConversationsToStorage and loadConversationsFromStorage are now imported from './lib/conversationStorage'
 
@@ -132,9 +132,6 @@ const CHAT_OPTIONS: { id: ChatTarget; label: string }[] = [
 ]
 // DEBUG: QA option should be visible
 console.log('CHAT_OPTIONS:', CHAT_OPTIONS.map(o => o.label))
-
-// formatTime and getMessageAuthorLabel are now imported from './lib/conversationHelpers'
-
 
 function App() {
   const [selectedChatTarget, setSelectedChatTarget] = useState<ChatTarget>('project-manager')

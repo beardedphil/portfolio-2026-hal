@@ -4,7 +4,143 @@
   "files": [
     {
       "file": "src/App.tsx",
-      "baseline": 4991
+      "baseline": 5031
+    },
+    {
+      "file": "projects/kanban/src/App.tsx",
+      "baseline": 4137
+    },
+    {
+      "file": "agents/src/agents/projectManager.ts",
+      "baseline": 3590
+    },
+    {
+      "file": "api/implementation-agent/run.ts",
+      "baseline": 528
+    },
+    {
+      "file": "api/instructions/migrate-process-docs.ts",
+      "baseline": 434
+    },
+    {
+      "file": "api/tickets/create.ts",
+      "baseline": 420
+    },
+    {
+      "file": "api/agent-runs/launch.ts",
+      "baseline": 404
+    },
+    {
+      "file": "api/pm-agent/launch.ts",
+      "baseline": 317
+    },
+    {
+      "file": "api/tickets/move.ts",
+      "baseline": 379
+    },
+    {
+      "file": "scripts/migrate-process-docs-to-supabase.js",
+      "baseline": 377
+    },
+    {
+      "file": "api/process-review/create-tickets.ts",
+      "baseline": 365
+    },
+    {
+      "file": "api/agent-runs/status.ts",
+      "baseline": 364
+    },
+    {
+      "file": "projects/kanban/src/components/TicketDetailModal.tsx",
+      "baseline": 342
+    },
+    {
+      "file": "api/qa-agent/run.ts",
+      "baseline": 341
+    },
+    {
+      "file": "scripts/migrate-process-docs-direct.ts",
+      "baseline": 340
+    },
+    {
+      "file": "api/tickets/_failure-escalation.ts",
+      "baseline": 327
+    },
+    {
+      "file": "projects/kanban/src/lib/ticketBody.test.ts",
+      "baseline": 325
+    },
+    {
+      "file": "scripts/cleanup-duplicate-artifacts.js",
+      "baseline": 321
+    },
+    {
+      "file": "api/conversations/working-memory/update.ts",
+      "baseline": 309
+    },
+    {
+      "file": "api/pm/working-memory.ts",
+      "baseline": 304
+    },
+    {
+      "file": "api/artifacts/get.ts",
+      "baseline": 296
+    },
+    {
+      "file": "api/tickets/create-from-suggestion.ts",
+      "baseline": 294
+    },
+    {
+      "file": "api/process-review/run.ts",
+      "baseline": 280
+    },
+    {
+      "file": "api/artifacts/insert-qa.test.ts",
+      "baseline": 277
+    },
+    {
+      "file": "api/instructions/migrate.ts",
+      "baseline": 266
+    },
+    {
+      "file": "scripts/sync-tickets.js",
+      "baseline": 266
+    },
+    {
+      "file": "api/agent-runs/_shared.ts",
+      "baseline": 265
+    },
+    {
+      "file": "api/agent-tools/_artifact-cleanup.test.ts",
+      "baseline": 265
+    },
+    {
+      "file": "agents/src/agents/qaTools.ts",
+      "baseline": 262
+    },
+    {
+      "file": "api/artifacts/insert-implementation.test.ts",
+      "baseline": 261
+    },
+    {
+      "file": "scripts/cleanup-duplicate-artifacts-v2.js",
+      "baseline": 261
+    },
+    {
+      "file": "api/artifacts/cleanup-duplicates.ts",
+      "baseline": 260
+    },
+    {
+      "file": "scripts/generate-overcomplication-section.js",
+      "baseline": 260
+    },
+    {
+      "file": "projects/kanban/src/components/ProcessReviewSection.tsx",
+      "baseline": 258
+    },
+    {
+      "file": "api/tickets/_shared.test.ts",
+      "baseline": 335
     }
   ]
 }
