@@ -10,6 +10,7 @@ export function useConversations(
   supabaseAnonKey: string | null,
   setSupabaseUrl: (url: string) => void,
   setSupabaseAnonKey: (key: string) => void,
+  conversations: Map<string, Conversation>,
   setConversations: React.Dispatch<React.SetStateAction<Map<string, Conversation>>>,
   setPersistenceError: (error: string | null) => void,
   setConversationHistoryResetMessage: (message: string | null) => void,
@@ -238,9 +239,38 @@ export function useConversations(
     }
   }, [supabaseUrl, supabaseAnonKey, setSupabaseUrl, setSupabaseAnonKey, setConversations, setPersistenceError, setConversationHistoryResetMessage, agentSequenceRefs, pmMaxSequenceRef, messageIdRef])
 
-  // Note: getOrCreateConversation and getDefaultConversationId are kept in App.tsx
-  // because they need direct access to the conversations state and are used as callbacks
-  // throughout the code. They can be extracted later if needed.
+  // Get or create a conversation for an agent role (0070, 0111)
+  const getOrCreateConversation = useCallback((agentRole: Agent, conversationId?: string): string => {
+    if (conversationId && conversations.has(conversationId)) {
+      return conversationId
+    }
+    // Create new conversation instance
+    const instanceNumber = getNextInstanceNumber(conversations, agentRole)
+    const newId = getConversationId(agentRole, instanceNumber)
+    const newConversation: Conversation = {
+      id: newId,
+      agentRole,
+      instanceNumber,
+      messages: [],
+      createdAt: new Date(),
+    }
+    setConversations((prev) => {
+      const next = new Map(prev)
+      next.set(newId, newConversation)
+      return next
+    })
+    return newId
+  }, [conversations, setConversations])
+
+  // Get default conversation ID for an agent role (for backward compatibility) (0070)
+  const getDefaultConversationId = useCallback((agentRole: Agent): string => {
+    // Find existing conversation-1, or create it
+    const defaultId = getConversationId(agentRole, 1)
+    if (conversations.has(defaultId)) {
+      return defaultId
+    }
+    return getOrCreateConversation(agentRole, defaultId)
+  }, [conversations, getOrCreateConversation])
 
   return {
     loadConversationsForProject,
