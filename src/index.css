@@ -615,9 +615,11 @@ div.kanban-frame-container #root,
 }
 
 /* 0706: Horizontal scrolling belongs on the columns row.
+   0738: Support both `.columns-row` and `.column-row` (singular) for compatibility.
    NOTE: The embedded Kanban currently renders `.columns-row` directly (no `.columns-row-scroll` wrapper),
    so we support BOTH selectors for backward compatibility. */
 .kanban-frame-container .columns-row,
+.kanban-frame-container .column-row,
 .kanban-frame-container .columns-row-scroll {
   overflow-x: auto !important;
   overflow-y: hidden !important; /* Prevent spec conversion to auto; avoid nested vertical scroll areas */
@@ -627,19 +629,23 @@ div.kanban-frame-container #root,
   scrollbar-color: var(--kanban-border, #3d3550) transparent;
 }
 .kanban-frame-container .columns-row::-webkit-scrollbar,
+.kanban-frame-container .column-row::-webkit-scrollbar,
 .kanban-frame-container .columns-row-scroll::-webkit-scrollbar {
   height: 8px;
 }
 .kanban-frame-container .columns-row::-webkit-scrollbar-track,
+.kanban-frame-container .column-row::-webkit-scrollbar-track,
 .kanban-frame-container .columns-row-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
 .kanban-frame-container .columns-row::-webkit-scrollbar-thumb,
+.kanban-frame-container .column-row::-webkit-scrollbar-thumb,
 .kanban-frame-container .columns-row-scroll::-webkit-scrollbar-thumb {
   background-color: var(--kanban-border, #3d3550);
   border-radius: 4px;
 }
 .kanban-frame-container .columns-row::-webkit-scrollbar-thumb:hover,
+.kanban-frame-container .column-row::-webkit-scrollbar-thumb:hover,
 .kanban-frame-container .columns-row-scroll::-webkit-scrollbar-thumb:hover {
   background-color: var(--kanban-text-muted, #9d8fb8);
 }
@@ -681,6 +687,7 @@ div.kanban-frame-container #root,
 .kanban-frame-container .columns-section,
 .kanban-frame-container .columns-row-scroll,
 .kanban-frame-container .columns-row,
+.kanban-frame-container .column-row,
 .kanban-frame-container .column-card,
 .kanban-frame-container .column-content,
 .kanban-frame-container .column-cards,
@@ -697,7 +704,9 @@ div.kanban-frame-container #root,
 }
 
 /* 0706: `.columns-row` is the horizontal scroll container when embedded (library mode). */
-.kanban-frame-container .columns-row {
+/* 0738: Also support `.column-row` (singular) for compatibility. */
+.kanban-frame-container .columns-row,
+.kanban-frame-container .column-row {
   max-height: none !important;
   height: auto !important;
   flex: 0 1 auto !important;
