@@ -64,7 +64,7 @@ export function AppHeader({
             <span className="project-name">{projectName}</span>
             <button
               type="button"
-              className="disconnect-btn btn-destructive"
+              className="btn-destructive"
               onClick={onDisconnect}
             >
               Disconnect

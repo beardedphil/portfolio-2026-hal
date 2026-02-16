@@ -185,11 +185,6 @@ h1 {
   font-weight: 600;
   color: var(--kanban-primary);
 }
-.disconnect-btn {
-  /* Uses base .btn-destructive class (0739) */
-  padding: 0.3rem 0.6rem;
-  font-size: 0.85rem;
-}
 .connection-status {
   font-size: 0.9rem;
   margin: 0;
