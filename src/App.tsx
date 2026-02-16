@@ -304,7 +304,6 @@ function App() {
   /** QA Agent run status for on-screen timeline. */
   const [processReviewStatus, setProcessReviewStatus] = useState<'idle' | 'running' | 'completed' | 'failed'>('idle')
   const [processReviewTicketPk, setProcessReviewTicketPk] = useState<string | null>(null)
-  const [processReviewMessage, setProcessReviewMessage] = useState<string | null>(null)
   const [qaAgentRunStatus, setQaAgentRunStatus] = useState<
     | 'idle'
     | 'preparing'
@@ -1852,11 +1851,10 @@ function App() {
           throw error
         }
 
-        // Clear Process Review banner when moving a ticket to Process Review column
+        // Clear Process Review status when moving a ticket to Process Review column
         // (unless it's the ticket currently being reviewed)
         if (columnId === 'col-process-review' && processReviewTicketPk !== ticketPk) {
           setProcessReviewStatus('idle')
-          setProcessReviewMessage(null)
           // Don't clear processReviewTicketPk if a review is running for a different ticket
           // (let it finish and auto-clear after 5 seconds)
         }
@@ -2560,10 +2558,9 @@ function App() {
         // Continue with Process Review even if move fails
       }
       
-      // Set status to running (for both Kanban banner and chat UI)
+      // Set status to running (for chat UI only; no banner)
       setProcessReviewStatus('running')
       setProcessReviewTicketPk(data.ticketPk)
-      setProcessReviewMessage(`Process Review started for ticket ${data.ticketId || data.ticketPk}`)
       setProcessReviewAgentRunStatus('preparing')
       setProcessReviewAgentTicketId(data.ticketId || null) // Track ticket ID for future use
       setProcessReviewAgentProgress([])
@@ -2596,7 +2593,6 @@ function App() {
           setProcessReviewStatus('failed')
           setProcessReviewAgentRunStatus('failed')
           const errorMsg = launchData.error || 'Launch failed'
-          setProcessReviewMessage(`Process Review failed: ${errorMsg}`)
           setProcessReviewAgentError(errorMsg)
           addMessage(convId, 'process-review-agent', `[Process Review] ❌ Failed: ${errorMsg}`)
           return
@@ -2620,7 +2616,6 @@ function App() {
             setProcessReviewStatus('failed')
             setProcessReviewAgentRunStatus('failed')
             const errorMsg = pollData.error || 'Unknown error'
-            setProcessReviewMessage(`Process Review failed: ${errorMsg}`)
             setProcessReviewAgentError(errorMsg)
             addMessage(convId, 'process-review-agent', `[Process Review] ❌ Failed: ${errorMsg}`)
             return
@@ -2645,28 +2640,20 @@ function App() {
           setProcessReviewStatus('completed')
           setProcessReviewAgentRunStatus('completed')
           const successMsg = `Process Review completed for ticket ${ticketDisplayId}. ${suggestionCount} recommendation${suggestionCount !== 1 ? 's' : ''} ready for review.`
-          setProcessReviewMessage(successMsg)
           addMessage(convId, 'process-review-agent', `[Process Review] ✅ ${successMsg}\n\nReview the recommendations in the modal and click "Implement" to create tickets.`)
 
-          // Process Review is done when the suggestion modal appears; move ticket to Done so the board reflects that (0484)
-          const doneCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-done').length
-          handleKanbanMoveTicket(data.ticketPk, 'col-done', doneCount).catch((moveErr) => {
-            console.error('Failed to move Process Review ticket to Done:', moveErr)
-          })
-          addProgress('Process Review ticket moved to Done')
+          // Modal auto-opens when recommendations are set (no banner, ticket stays in Active Work)
+          addProgress('Process Review completed - recommendations modal opened')
         } else {
           setProcessReviewStatus('completed')
           setProcessReviewAgentRunStatus('completed')
           const successMsg = `Process Review completed for ticket ${ticketDisplayId}. No recommendations found.`
-          setProcessReviewMessage(successMsg)
           addMessage(convId, 'process-review-agent', `[Process Review] ✅ ${successMsg}`)
 
-          const doneCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-done').length
-          await handleKanbanMoveTicket(data.ticketPk, 'col-done', doneCount)
-          addProgress('Process Review ticket moved to Done')
+          // Ticket stays in Active Work (no move to Done, no banner)
+          addProgress('Process Review completed - no recommendations found')
           setTimeout(() => {
             setProcessReviewStatus('idle')
-            setProcessReviewMessage(null)
             setProcessReviewTicketPk(null)
           }, 5000)
         }
@@ -2674,7 +2661,6 @@ function App() {
         setProcessReviewStatus('failed')
         setProcessReviewAgentRunStatus('failed')
         const errorMsg = err instanceof Error ? err.message : String(err)
-        setProcessReviewMessage(`Process Review failed: ${errorMsg}`)
         setProcessReviewAgentError(errorMsg)
         addMessage(convId, 'process-review-agent', `[Process Review] ❌ Failed: ${errorMsg}`)
       }
@@ -3393,19 +3379,6 @@ function App() {
           {lastError && (
             <div className="connect-error" role="alert">
               {lastError}
-            </div>
-          )}
-          {/* Process Review status (0118) */}
-          {processReviewMessage && (
-            <div
-              className={`process-review-status ${processReviewStatus === 'running' ? 'process-review-status-running' : processReviewStatus === 'completed' ? 'process-review-status-completed' : 'process-review-status-failed'}`}
-              role="status"
-              aria-live="polite"
-            >
-              {processReviewStatus === 'running' && '⏳ '}
-              {processReviewStatus === 'completed' && '✅ '}
-              {processReviewStatus === 'failed' && '❌ '}
-              {processReviewMessage}
             </div>
           )}
           {/* Kanban board (HAL owns data; passes tickets/columns and callbacks). Cast props so fetchArtifactsForTicket is accepted when package types are older (e.g. Vercel cache). */}
