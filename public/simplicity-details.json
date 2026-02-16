@@ -81,6 +81,49 @@
       "maintainability": 37.36
     }
   ],
-  "mostRecentImprovements": [],
-  "generatedAt": "2026-02-16T15:56:33.709Z"
+  "mostRecentImprovements": [
+    {
+      "file": "api/artifacts/get.ts",
+      "before": 32.38,
+      "after": 32.38,
+      "delta": 0
+    },
+    {
+      "file": "api/pm/working-memory.ts",
+      "before": 35.13,
+      "after": 35.13,
+      "delta": 0
+    },
+    {
+      "file": "api/tickets/create-from-suggestion.ts",
+      "before": 33.81,
+      "after": 33.81,
+      "delta": 0
+    },
+    {
+      "file": "projects/kanban/src/components/TicketDetailModal.tsx",
+      "before": 30.65,
+      "after": 30.65,
+      "delta": 0
+    },
+    {
+      "file": "api/qa-agent/run.ts",
+      "before": 24.9,
+      "after": 24.9,
+      "delta": 0
+    },
+    {
+      "file": "api/instructions/migrate-process-docs.ts",
+      "before": 26.39,
+      "after": 26.39,
+      "delta": 0
+    },
+    {
+      "file": "api/agent-runs/status.ts",
+      "before": 8.25,
+      "after": 8.25,
+      "delta": 0
+    }
+  ],
+  "generatedAt": "2026-02-16T17:39:03.606Z"
 }
