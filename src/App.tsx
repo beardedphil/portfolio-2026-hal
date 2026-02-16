@@ -2,7 +2,8 @@ import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { getSupabaseClient } from './lib/supabase'
 import { saveConversationsToStorage, loadConversationsFromStorage, type Agent, type Message, type Conversation, type ImageAttachment } from './lib/conversationStorage'
 import { getChatWidth, setChatWidth, getChatCollapsed, setChatCollapsed } from './lib/persistedUiState'
-import { getMetricColor, getInitialTheme, THEME_STORAGE_KEY } from './lib/metricColor'
+import { getInitialTheme, THEME_STORAGE_KEY } from './lib/metricColor'
+import { QAMetricsCard } from './components/QAMetricsCard'
 import type { Theme } from './types/hal'
 import * as Kanban from 'portfolio-2026-kanban'
 import type { KanbanTicketRow, KanbanColumnRow, KanbanAgentRunRow, KanbanBoardProps } from 'portfolio-2026-kanban'
@@ -207,10 +208,6 @@ function App() {
   const [agentInstructionsOpen, setAgentInstructionsOpen] = useState(false)
   const [promptModalMessage, setPromptModalMessage] = useState<Message | null>(null)
   /** QA quality metrics (0667) */
-  const [qaMetrics, setQaMetrics] = useState<{
-    coverage: number | null // 0-100 or null for N/A
-    simplicity: number | null // 0-100 or null for N/A
-  } | null>(null)
   /** Working memory for PM conversation (0173) */
   const [pmWorkingMemory, setPmWorkingMemory] = useState<{
     summary: string
@@ -2152,21 +2149,6 @@ function App() {
     [connectedProject, supabaseUrl, supabaseAnonKey, openChatTarget, selectedConversationId]
   )
 
-  // Load Coverage and Simplicity from repo metrics file (updated by test:coverage and report:simplicity)
-  useEffect(() => {
-    fetch('/metrics.json')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data && typeof data === 'object') {
-          const coverage = data.coverage != null ? Math.min(100, Math.max(0, Number(data.coverage))) : null
-          const simplicity = data.simplicity != null ? Math.min(100, Math.max(0, Number(data.simplicity))) : null
-          setQaMetrics({ coverage: coverage ?? null, simplicity: simplicity ?? null })
-        } else {
-          setQaMetrics(null)
-        }
-      })
-      .catch(() => setQaMetrics(null))
-  }, [])
 
   /** Fetch artifacts for a ticket (same Supabase as tickets). Used by Kanban when opening ticket detail. */
   const fetchArtifactsForTicket = useCallback(
@@ -3500,31 +3482,7 @@ function App() {
                     </button>
                   </div>
                   {/* QA quality metrics (0667) */}
-                  <div className="qa-metrics">
-                    <div
-                      className="qa-metric-box"
-                      style={{ backgroundColor: getMetricColor(qaMetrics?.coverage ?? null) }}
-                      title={qaMetrics?.coverage !== null && qaMetrics !== null ? `Coverage: ${qaMetrics.coverage.toFixed(0)}%` : 'Coverage: N/A'}
-                    >
-                      <span className="qa-metric-label">Coverage</span>
-                      <span className="qa-metric-value">
-                        {qaMetrics?.coverage !== null && qaMetrics !== null ? `${qaMetrics.coverage.toFixed(0)}%` : 'N/A'}
-                      </span>
-                    </div>
-                    <div
-                      className="qa-metric-box"
-                      style={{ backgroundColor: getMetricColor(qaMetrics?.simplicity ?? null) }}
-                      title={qaMetrics?.simplicity !== null && qaMetrics !== null ? `Simplicity: ${qaMetrics.simplicity.toFixed(0)}%` : 'Simplicity: N/A'}
-                    >
-                      <span className="qa-metric-label">Simplicity</span>
-                      <span className="qa-metric-value">
-                        {qaMetrics?.simplicity !== null && qaMetrics !== null ? `${qaMetrics.simplicity.toFixed(0)}%` : 'N/A'}
-                      </span>
-                    </div>
-                    {qaMetrics === null && (
-                      <span className="qa-metrics-hint">Run test:coverage and report:simplicity to update</span>
-                    )}
-                  </div>
+                  <QAMetricsCard />
                 </>
               )}
             </div>
