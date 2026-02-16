@@ -272,6 +272,14 @@ body {
   border-radius: 6px;
 }
 
+/* Wider project-info box on desktop for better readability (0731) */
+@media (min-width: 1024px) {
+  .project-info {
+    width: 23rem; /* ~368px */
+    min-width: 0; /* Allow shrinking on smaller screens if needed */
+  }
+}
+
 .project-info-row {
   display: flex;
   align-items: center;
@@ -295,6 +303,13 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 300px;
+}
+
+/* Increase max-width on desktop to take advantage of wider project-info box (0731) */
+@media (min-width: 1024px) {
+  .project-name {
+    max-width: 16rem; /* ~256px, allows more text before ellipsis in 23rem box */
+  }
 }
 
 .disconnect-btn {
