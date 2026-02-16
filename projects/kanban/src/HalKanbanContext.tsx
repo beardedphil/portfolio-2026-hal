@@ -44,6 +44,10 @@ export interface HalKanbanContextValue {
   supabaseAnonKey?: string | null
   /** Called when a ticket is created (e.g. via Process Review). HAL should refresh its Kanban data. */
   onTicketCreated?: () => void | Promise<void>
+  /** Sync status: 'realtime' when Supabase realtime is connected, 'polling' when using polling fallback. */
+  syncStatus?: 'realtime' | 'polling'
+  /** Timestamp of last successful sync (realtime event or polling fetch). */
+  lastSync?: Date | null
 }
 
 export const HalKanbanContext = createContext<HalKanbanContextValue | null>(null)
