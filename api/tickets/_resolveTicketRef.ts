@@ -7,7 +7,7 @@
  * performed by the caller using these attempts.
  * 
  * Strategies:
- * 1. Try by id field as-is (e.g., "172")
+ * 1. Try by id field as-is (e.g., "172") - only for numeric IDs
  * 2. Try by display_id (e.g., "HAL-0172")
  * 3. If ticketId looks like display_id (e.g., "HAL-0172"), extract numeric part and try by id (with leading zeros stripped)
  * 4. If ticketId is numeric with leading zeros (e.g., "0172"), try without leading zeros

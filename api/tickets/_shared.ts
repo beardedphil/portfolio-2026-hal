@@ -122,6 +122,7 @@ export async function fetchTicketByPkOrId(
 
   // Get resolution plan from helper module
   const attempts = resolveTicketRef(ticketId)
+  if (attempts.length === 0) return null
 
   // Try each lookup attempt in order until one succeeds
   // Match original behavior: continue to next strategy if error or no data
