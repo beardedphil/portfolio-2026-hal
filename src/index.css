@@ -559,6 +559,8 @@ body {
   overflow-y: visible !important;
   overflow-x: visible !important;
   position: relative !important; /* 0499: Ensure proper positioning for header/controls */
+  padding-left: 8px !important; /* 0705: 8px horizontal padding from pane edges */
+  padding-right: 8px !important; /* 0705: 8px horizontal padding from pane edges */
 }
 
 .kanban-frame-container .columns-section {
@@ -568,6 +570,8 @@ body {
   overflow: visible !important;
   overflow-y: visible !important;
   overflow-x: visible !important;
+  padding-left: 8px !important; /* 0705: 8px horizontal padding from pane edges */
+  padding-right: 8px !important; /* 0705: 8px horizontal padding from pane edges */
 }
 
 /* Ensure Kanban columns container can scroll horizontally (preserved) */
