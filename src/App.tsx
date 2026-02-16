@@ -23,6 +23,7 @@ import { CHAT_OPTIONS } from './types/app'
 import { useGithub } from './hooks/useGithub'
 import { useKanban } from './hooks/useKanban'
 import { useConversations } from './hooks/useConversations'
+import { extractTicketId, formatTicketId } from './lib/ticketOperations'
 
 const KanbanBoard = Kanban.default
 // KANBAN_BUILD no longer used with floating widget (0698)
@@ -614,13 +615,7 @@ function App() {
 
   // Get preview text for PM chat - removed, no longer used with floating widget (0698)
 
-  // Format ticket ID as HAL-XXXX (0098)
-  const formatTicketId = useCallback((ticketId: string | null): string => {
-    if (!ticketId) return 'No ticket'
-    // Ensure ticket ID is 4 digits, pad with zeros if needed
-    const padded = ticketId.padStart(4, '0')
-    return `HAL-${padded}`
-  }, [])
+  // formatTicketId is now imported from ./lib/ticketOperations
 
   // Fetch working memory - removed, no longer used with floating widget (0698)
 
@@ -868,18 +863,7 @@ function App() {
     setAutoMoveDiagnostics((prev) => [...prev, { timestamp: new Date(), message, type }])
   }, [])
 
-  /** Extract ticket ID from message content (0061). */
-  const extractTicketId = useCallback((content: string): string | null => {
-    // Try "Implement ticket XXXX" or "QA ticket XXXX" patterns
-    const implMatch = content.match(/implement\s+ticket\s+(\d{4})/i)
-    if (implMatch) return implMatch[1]
-    const qaMatch = content.match(/qa\s+ticket\s+(\d{4})/i)
-    if (qaMatch) return qaMatch[1]
-    // Try to find any 4-digit ticket ID in the message
-    const anyMatch = content.match(/\b(\d{4})\b/)
-    if (anyMatch) return anyMatch[1]
-    return null
-  }, [])
+  // extractTicketId is now imported from ./lib/ticketOperations
 
   /** Move ticket to next column via Supabase (0061). */
   const moveTicketToColumn = useCallback(
