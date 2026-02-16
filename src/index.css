@@ -488,7 +488,7 @@ body {
   color: #155724;
 }
 
-/* 0706: Single scroll container - both Active Work and board scroll together, no nested scroll */
+/* 0706: Single vertical scroll container - Active Work and board scroll together; board scrolls horizontally */
 .kanban-frame-container {
   flex: 1;
   position: relative;
@@ -497,10 +497,26 @@ body {
   max-height: 100%;
   padding: 16px;
   box-sizing: border-box;
-  overflow: auto; /* Single scroll container for vertical + horizontal - no nested scroll in children */
+  overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
-  align-items: flex-start; /* Content sizes naturally so horizontal scroll works when board is wide */
+  align-items: stretch;
+  scrollbar-width: thin;
+  scrollbar-color: var(--kanban-border, #3d3550) transparent;
+}
+.kanban-frame-container::-webkit-scrollbar {
+  width: 8px;
+}
+.kanban-frame-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+.kanban-frame-container::-webkit-scrollbar-thumb {
+  background-color: var(--kanban-border, #3d3550);
+  border-radius: 4px;
+}
+.kanban-frame-container::-webkit-scrollbar-thumb:hover {
+  background-color: var(--kanban-text-muted, #9d8fb8);
 }
 
 /* Kanban visibility states (0096: keep mounted, hide/show with CSS) */
@@ -597,14 +613,28 @@ div.kanban-frame-container #root,
   height: auto !important; /* 0706: Ensure height is auto, not constrained */
 }
 
-/* 0706: No nested scroll - columns-row uses natural width, parent scrolls horizontally */
+/* 0706: Board scrolls horizontally only; parent handles vertical scroll */
 .kanban-frame-container .columns-row {
-  overflow: visible !important;
-  overflow-x: visible !important;
+  overflow-x: auto !important;
   overflow-y: visible !important;
   flex: 0 1 auto;
   min-height: 0;
   align-items: flex-start;
+  scrollbar-width: thin;
+  scrollbar-color: var(--kanban-border, #3d3550) transparent;
+}
+.kanban-frame-container .columns-row::-webkit-scrollbar {
+  height: 8px;
+}
+.kanban-frame-container .columns-row::-webkit-scrollbar-track {
+  background: transparent;
+}
+.kanban-frame-container .columns-row::-webkit-scrollbar-thumb {
+  background-color: var(--kanban-border, #3d3550);
+  border-radius: 4px;
+}
+.kanban-frame-container .columns-row::-webkit-scrollbar-thumb:hover {
+  background-color: var(--kanban-text-muted, #9d8fb8);
 }
 
 /* Ensure Kanban column content doesn't have height constraint - allows natural height */
@@ -658,10 +688,9 @@ div.kanban-frame-container #root,
   max-height: none !important;
 }
 
-/* 0706: columns-row must NOT scroll - parent (kanban-frame-container) handles all scrolling */
+/* 0706: columns-row scrolls horizontally only; parent handles vertical scroll */
 .kanban-frame-container .columns-row {
-  overflow: visible !important;
-  overflow-x: visible !important;
+  overflow-x: auto !important;
   overflow-y: visible !important;
   max-height: none !important;
   height: auto !important;

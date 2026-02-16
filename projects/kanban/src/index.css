@@ -97,13 +97,12 @@ div.kanban-frame-container #root {
   max-height: none !important;
   padding: 0 !important; /* 0706: Remove padding so scrollbar starts at top */
 }
-/* 0706: No nested scroll - parent (kanban-frame-container) is the single scroll container */
+/* 0706: Board scrolls horizontally only; parent handles vertical scroll */
 .kanban-frame-container .columns-row {
-  overflow: visible !important;
-  overflow-x: visible !important;
+  overflow-x: auto !important;
   overflow-y: visible !important;
-  width: auto !important;
-  max-width: none !important;
+  width: 100% !important;
+  max-width: 100% !important;
   flex: 0 1 auto !important;
   min-height: 0 !important;
   min-width: 0 !important;
