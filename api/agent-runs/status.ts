@@ -246,12 +246,21 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       errMsg = statusData.summary ?? `Agent ended with status ${cursorStatus}.`
       finishedAt = new Date().toISOString()
     } else {
-      // While polling, keep current stage (running for implementation, reviewing for QA)
-      // Don't update stage if it's already set to a valid polling stage
+      // While polling, preserve intermediate stages (0690)
+      // Only set to 'running'/'reviewing' if stage is null or an old/legacy value
       const currentStage = (run as any).current_stage as string | null
-      if (!currentStage || (currentStage !== 'running' && currentStage !== 'reviewing')) {
+      // Valid intermediate stages that should be preserved:
+      // - 'preparing', 'fetching_ticket', 'resolving_repo', 'fetching_branch', 'launching' (set by launch.ts)
+      // - 'running' (implementation), 'reviewing' (QA) (set when agent is actively running)
+      const validIntermediateStages = [
+        'preparing', 'fetching_ticket', 'resolving_repo', 'fetching_branch', 
+        'launching', 'running', 'reviewing'
+      ]
+      if (!currentStage || !validIntermediateStages.includes(currentStage)) {
+        // Stage is null or an old/legacy value - set to appropriate polling stage
         nextStage = agentType === 'implementation' ? 'running' : 'reviewing'
       }
+      // Otherwise, preserve the current stage (don't overwrite intermediate stages)
     }
 
     const progress = appendProgress((run as any).progress, `Status: ${cursorStatus}`) as ProgressEntry[]
