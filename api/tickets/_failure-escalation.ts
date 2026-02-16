@@ -49,8 +49,11 @@ export async function countQaFailures(
 
 /**
  * Count HITL failures by parsing QA artifacts created from HITL validation failures.
- * HITL failures are identified by checking if the artifact was created when the ticket
- * was in the Human in the Loop column, or by checking for "Human validation failure" text.
+ * Only artifacts that are unambiguously from the human "Fail" action in the HITL
+ * validation section are counted. We require the exact phrasing used when the user
+ * clicks Fail (section "## Human validation failure" or "failed human validation
+ * and has been moved back to To Do") so that QA pass reports that mention
+ * "Human in the Loop" are not counted as HITL failures.
  */
 export async function countHitlFailures(
   supabase: SupabaseClientLike,
@@ -75,15 +78,16 @@ export async function countHitlFailures(
 
   let failCount = 0
   const qaResultRegex = /QA RESULT:\s*(FAIL|PASS)\s*—\s*([A-Z0-9-]+)/gi
-  const hitlFailureIndicator = /Human validation failure|Human in the Loop phase/i
+  // Only count artifacts that are clearly from the HITL Fail button, not QA reports
+  // that mention "Human in the Loop" in a different context (e.g. "moved to Human in the Loop").
+  const hitlFailureIndicator =
+    /##\s*Human validation failure|failed human validation and has been moved back to To Do/i
 
   for (const artifact of qaReportArtifacts) {
     const bodyMd = artifact.body_md || ''
-    // Check if this artifact is from a HITL failure
     const isHitlFailure = hitlFailureIndicator.test(bodyMd)
-    
+
     if (isHitlFailure) {
-      // Count FAIL outcomes in HITL artifacts
       const matches = Array.from(bodyMd.matchAll(qaResultRegex))
       for (const match of matches) {
         if (match[1]?.toUpperCase() === 'FAIL') {
@@ -250,32 +254,24 @@ This ticket was automatically created when ticket ${sourceRef} failed ${failureT
 }
 
 /**
- * Check if a ticket should be escalated to Process Review and perform the escalation if needed.
- * Returns the failure counts and whether escalation occurred.
+ * Return QA and HITL failure counts for a ticket. No automatic escalation:
+ * tickets always cycle back to To-do on failure until the user breaks the cycle
+ * or the issue is resolved.
  */
 export async function checkFailureEscalation(
   supabase: SupabaseClientLike,
   ticketPk: string,
-  failureType?: 'qa' | 'hitl'
+  _failureType?: 'qa' | 'hitl'
 ): Promise<{
   qaFailCount: number
   hitlFailCount: number
-  escalated: boolean
-  /**
-   * Deprecated: we no longer auto-create Process Review follow-up tickets.
-   * Kept for backward compatibility with older clients that may read this field.
-   */
+  escalated: false
   suggestionTickets?: string[]
-  /**
-   * Deprecated: auto-creation errors are no longer applicable.
-   * Kept for backward compatibility.
-   */
   errors?: string[]
 }> {
-  // Fetch ticket
   const { data: ticket, error: ticketError } = await supabase
     .from('tickets')
-    .select('pk, id, display_id, title, repo_full_name')
+    .select('pk')
     .eq('pk', ticketPk)
     .maybeSingle()
 
@@ -283,41 +279,9 @@ export async function checkFailureEscalation(
     throw new Error(`Ticket ${ticketPk} not found.`)
   }
 
-  // Count failures
   const qaFailCount = await countQaFailures(supabase, ticketPk)
   const hitlFailCount = await countHitlFailures(supabase, ticketPk)
 
-  // Determine if escalation is needed
-  const shouldEscalateQa = qaFailCount >= 3 && failureType !== 'hitl'
-  const shouldEscalateHitl = hitlFailCount >= 3 && failureType !== 'qa'
-
-  // If escalation is needed, move ticket to Process Review.
-  // IMPORTANT: We intentionally do NOT auto-create any follow-up tickets here.
-  // Process Review should only create tickets after the user reviews suggestions in the UI and clicks "Implement".
-  if (shouldEscalateQa || shouldEscalateHitl) {
-    // Move ticket to Process Review
-    const { error: moveError } = await supabase
-      .from('tickets')
-      .update({
-        kanban_column_id: 'col-process-review',
-        kanban_moved_at: new Date().toISOString(),
-      })
-      .eq('pk', ticketPk)
-
-    if (moveError) {
-      throw new Error(`Failed to move ticket to Process Review: ${moveError.message}`)
-    }
-
-    return {
-      qaFailCount,
-      hitlFailCount,
-      escalated: true,
-      suggestionTickets: [],
-      errors: undefined,
-    }
-  }
-
-  // No escalation needed
   return {
     qaFailCount,
     hitlFailCount,

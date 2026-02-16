@@ -3766,31 +3766,6 @@ QA RESULT: FAIL — ${displayId}
                         refreshDetailModalArtifacts()
                       }, 500)
                     }
-                    
-                    // Check for escalation to Process Review (0195)
-                    // Trigger escalation check asynchronously (don't block the response)
-                    setTimeout(async () => {
-                      try {
-                        const escalationResponse = await fetch('/api/tickets/check-failure-escalation', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({
-                            ticketPk: ticket.pk,
-                            failureType: 'hitl',
-                          }),
-                        })
-                        const escalationResult = await escalationResponse.json()
-                        if (escalationResult.success && escalationResult.escalated) {
-                          addLog(`Ticket ${displayId} escalated to Process Review (${escalationResult.hitl_fail_count} HITL failures)`)
-                          if (escalationResult.suggestion_tickets && escalationResult.suggestion_tickets.length > 0) {
-                            addLog(`Created ${escalationResult.suggestion_tickets.length} suggestion ticket(s): ${escalationResult.suggestion_tickets.join(', ')}`)
-                          }
-                        }
-                      } catch (err) {
-                        // Log but don't fail - escalation check is best effort
-                        console.warn(`[HITL validation] Escalation check error: ${err instanceof Error ? err.message : String(err)}`)
-                      }
-                    }, 200)
                   }
                 } catch (err) {
                   console.error('Error creating QA artifact:', err)
@@ -3833,7 +3808,7 @@ ${notes || '(none provided)'}
             }
             
             addLog(`Human validation: Ticket ${ticketPk} failed, moved to To Do with feedback`)
-            
+
             // HAL will update the data and pass it back, so we don't need to update local state
             // Close ticket detail modal after a short delay to show success message
             setTimeout(() => {
