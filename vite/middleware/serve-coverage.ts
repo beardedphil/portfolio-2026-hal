@@ -6,8 +6,17 @@ import { fileURLToPath } from 'url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '../..')
 const COVERAGE_DIR = path.join(ROOT, 'coverage')
+const PUBLIC_DIR = path.join(ROOT, 'public')
+const COVERAGE_DETAILS_FILE = path.join(PUBLIC_DIR, 'coverage-details.json')
 
-/** Serve coverage JSON (and related files) at /coverage/ so the Test Coverage Report gets JSON, not SPA HTML. */
+/** Minimal JSON so the Test Coverage Report modal never receives HTML (SPA fallback). */
+const FALLBACK_COVERAGE_DETAILS = {
+  topOffenders: [],
+  mostRecentImprovements: [],
+  generatedAt: '',
+}
+
+/** Serve coverage JSON and /coverage-details.json so the Test Coverage Report gets JSON, not SPA HTML. */
 export function serveCoveragePlugin(): Plugin {
   return {
     name: 'serve-coverage',
@@ -15,6 +24,24 @@ export function serveCoveragePlugin(): Plugin {
       server.middlewares.use((req, res, next) => {
         const url = req.url ?? ''
         const pathname = url.split('?')[0]
+
+        // Modal fetches /coverage-details.json; serve from public or fallback so we never return HTML
+        if (pathname === '/coverage-details.json') {
+          const filePath = COVERAGE_DETAILS_FILE
+          if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+            res.statusCode = 200
+            res.setHeader('Content-Type', 'application/json')
+            res.setHeader('Cache-Control', 'no-cache')
+            res.end(fs.readFileSync(filePath))
+          } else {
+            res.statusCode = 200
+            res.setHeader('Content-Type', 'application/json')
+            res.setHeader('Cache-Control', 'no-cache')
+            res.end(JSON.stringify(FALLBACK_COVERAGE_DETAILS))
+          }
+          return
+        }
+
         if (!pathname.startsWith('/coverage/')) {
           next()
           return

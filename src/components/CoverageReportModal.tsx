@@ -32,6 +32,10 @@ export function CoverageReportModal({ isOpen, onClose }: CoverageReportModalProp
     fetch('/coverage-details.json')
       .then((res) => {
         if (!res.ok) throw new Error(`Failed to load: ${res.statusText}`)
+        const ct = res.headers.get('content-type') ?? ''
+        if (!ct.includes('application/json')) {
+          throw new Error('Server returned non-JSON. Run npm run test:coverage to generate coverage data.')
+        }
         return res.json()
       })
       .then((data: CoverageDetails) => {
@@ -39,7 +43,12 @@ export function CoverageReportModal({ isOpen, onClose }: CoverageReportModalProp
         setLoading(false)
       })
       .catch((err) => {
-        setError(err.message || 'Failed to load coverage details')
+        const msg = err.message || 'Failed to load coverage details'
+        const friendly =
+          msg.includes('JSON') || msg.includes('DOCTYPE')
+            ? 'Could not load coverage data. Run npm run test:coverage to generate.'
+            : msg
+        setError(friendly)
         setLoading(false)
       })
   }, [isOpen])
@@ -69,6 +78,11 @@ export function CoverageReportModal({ isOpen, onClose }: CoverageReportModalProp
           )}
           {!loading && !error && details && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+              {(!details.generatedAt && details.topOffenders.length === 0) && (
+                <p style={{ color: 'var(--hal-text-muted)', margin: 0 }}>
+                  No coverage data yet. Run <code style={{ fontSize: '0.9em' }}>npm run test:coverage</code> to generate.
+                </p>
+              )}
               <section>
                 <h4 style={{ margin: '0 0 1rem 0', fontSize: '1.1rem', fontWeight: 600 }}>Top Offenders</h4>
                 <p style={{ margin: '0 0 1rem 0', color: 'var(--hal-text-muted)', fontSize: '0.9rem' }}>
