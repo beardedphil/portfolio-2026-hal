@@ -93,13 +93,14 @@ body[data-embedded="true"] #root,
   min-height: 0 !important;
 }
 /* Override HAL's .kanban-frame-container .columns-row rule to enable horizontal scrolling */
+/* 0706: Use flex: 0 1 auto instead of flex: 1 to allow unified scrolling - don't grow to fill space */
 .kanban-frame-container .columns-row {
   overflow-x: auto !important;
   overflow-y: hidden !important;
   overflow: auto !important;
   width: 100% !important;
   max-width: 100% !important;
-  flex: 1 !important;
+  flex: 0 1 auto !important; /* 0706: Use natural height instead of flex: 1 to allow unified scrolling */
   min-height: 0 !important;
   min-width: 0 !important;
   box-sizing: border-box !important;

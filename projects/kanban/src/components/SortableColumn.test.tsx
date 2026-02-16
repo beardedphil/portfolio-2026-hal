@@ -15,7 +15,6 @@ vi.mock('./SortableCard', () => ({
 
 describe('SortableColumn', () => {
   const mockOnRemove = vi.fn()
-  const mockOnOpenDetail = vi.fn()
   const mockHalContext = {
     tickets: [],
     columns: [],
