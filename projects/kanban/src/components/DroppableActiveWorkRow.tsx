@@ -1,4 +1,3 @@
-import React from 'react'
 import { useDroppable } from '@dnd-kit/core'
 import { DraggableActiveWorkItem } from './DraggableActiveWorkItem'
 import type { SupabaseTicketRow, SupabaseAgentRunRow } from '../App.types'

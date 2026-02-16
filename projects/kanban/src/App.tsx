@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect, useMemo, useContext } from 'react'
+import { useState, useCallback, useRef, useEffect, useMemo, useContext } from 'react'
 import { HalKanbanContext } from './HalKanbanContext'
 import {
   DndContext,
@@ -40,11 +40,10 @@ import { AutoDismissMessage } from './components/AutoDismissMessage'
 import { SortableColumn } from './components/SortableColumn'
 import { ArtifactReportViewer } from './components/ArtifactReportViewer'
 import { DroppableActiveWorkRow } from './components/DroppableActiveWorkRow'
-import { SortableCard } from './components/SortableCard'
 import type { Card, Column } from './lib/columnTypes'
 import type { LogEntry, SupabaseTicketRow, SupabaseAgentArtifactRow, SupabaseAgentRunRow, TicketAttachment } from './App.types'
-import { SUPABASE_CONFIG_KEY, CONNECTED_REPO_KEY, SUPABASE_POLL_INTERVAL_MS, REFETCH_AFTER_MOVE_MS, EMPTY_KANBAN_COLUMNS, DEFAULT_KANBAN_COLUMNS_SEED, _SUPABASE_KANBAN_COLUMNS_SETUP_SQL } from './App.constants'
-import { formatTime } from './App.utils'
+import { SUPABASE_CONFIG_KEY, CONNECTED_REPO_KEY, SUPABASE_POLL_INTERVAL_MS, REFETCH_AFTER_MOVE_MS, EMPTY_KANBAN_COLUMNS, DEFAULT_KANBAN_COLUMNS_SEED, _SUPABASE_KANBAN_COLUMNS_SETUP_SQL, DEFAULT_COLUMNS, INITIAL_CARDS, _SUPABASE_SETUP_SQL, _SUPABASE_TICKET_ATTACHMENTS_SETUP_SQL } from './App.constants'
+import { formatTime, normalizeTitle } from './App.utils'
 
 /** Supabase kanban_columns table row (0020) - use imported type from canonicalizeColumns */
 
