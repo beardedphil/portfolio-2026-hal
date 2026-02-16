@@ -1,4 +1,6 @@
 // FileSystemDirectoryHandle is a global type from vite-env.d.ts
+import { useContext } from 'react'
+import { HalKanbanContext } from '../HalKanbanContext'
 
 interface AppHeaderProps {
   isEmbedded: boolean
@@ -19,7 +21,10 @@ export function AppHeader({
   onDisconnect,
   onOpenNewHalWizard,
 }: AppHeaderProps) {
-  if (isEmbedded) {
+  const halCtx = useContext(HalKanbanContext)
+  
+  // Hide AppHeader when embedded (iframe) or when used as library in HAL (halCtx provided)
+  if (isEmbedded || halCtx != null) {
     return null
   }
 
