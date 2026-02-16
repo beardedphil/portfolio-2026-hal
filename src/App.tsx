@@ -3078,9 +3078,12 @@ function App() {
               Connect GitHub Repo
             </button>
           ) : (
-            <div className="project-info">
+            <>
+              {/* Coverage badge (left) */}
+              {connectedGithubRepo && <QAMetricsCard metric="coverage" />}
+              {/* Repo/Disconnect box (middle) */}
               {connectedGithubRepo && (
-                <>
+                <div className="project-info">
                   <div className="project-info-row">
                     <span className="project-name" title={connectedGithubRepo.fullName}>
                       {connectedGithubRepo.fullName}
@@ -3094,11 +3097,11 @@ function App() {
                       Disconnect
                     </button>
                   </div>
-                  {/* QA quality metrics (0667) */}
-                  <QAMetricsCard />
-                </>
+                </div>
               )}
-            </div>
+              {/* Simplicity badge (right) */}
+              {connectedGithubRepo && <QAMetricsCard metric="simplicity" />}
+            </>
           )}
         </div>
         <div className="hal-header-actions">

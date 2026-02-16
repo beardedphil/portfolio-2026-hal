@@ -26,8 +26,10 @@ function fetchMetrics(cacheBust = false): Promise<QAMetrics | null> {
  * Component that fetches and displays QA metrics (Coverage and Simplicity)
  * from /metrics.json. Handles missing metrics gracefully by showing "N/A".
  * Polls periodically so updates (e.g. from report:simplicity or CI) appear automatically.
+ * 
+ * @param metric - Optional prop to show only 'coverage' or 'simplicity'. If undefined, shows both.
  */
-export function QAMetricsCard() {
+export function QAMetricsCard({ metric }: { metric?: 'coverage' | 'simplicity' } = {}) {
   const [qaMetrics, setQaMetrics] = useState<QAMetrics | null>(null)
 
   // Load metrics on mount and poll so UI updates when metrics.json changes (CI or local report:simplicity)
@@ -48,6 +50,38 @@ export function QAMetricsCard() {
     }
   }, [])
 
+  // If metric prop is specified, show only that metric
+  if (metric === 'coverage') {
+    return (
+      <div
+        className="qa-metric-box"
+        style={{ backgroundColor: getMetricColor(qaMetrics?.coverage ?? null) }}
+        title={qaMetrics?.coverage !== null && qaMetrics !== null ? `Coverage: ${qaMetrics.coverage.toFixed(0)}%` : 'Coverage: N/A'}
+      >
+        <span className="qa-metric-label">Coverage</span>
+        <span className="qa-metric-value">
+          {qaMetrics?.coverage !== null && qaMetrics !== null ? `${qaMetrics.coverage.toFixed(0)}%` : 'N/A'}
+        </span>
+      </div>
+    )
+  }
+
+  if (metric === 'simplicity') {
+    return (
+      <div
+        className="qa-metric-box"
+        style={{ backgroundColor: getMetricColor(qaMetrics?.simplicity ?? null) }}
+        title={qaMetrics?.simplicity !== null && qaMetrics !== null ? `Simplicity: ${qaMetrics.simplicity.toFixed(0)}%` : 'Simplicity: N/A'}
+      >
+        <span className="qa-metric-label">Simplicity</span>
+        <span className="qa-metric-value">
+          {qaMetrics?.simplicity !== null && qaMetrics !== null ? `${qaMetrics.simplicity.toFixed(0)}%` : 'N/A'}
+        </span>
+      </div>
+    )
+  }
+
+  // Default: show both metrics (backward compatibility)
   return (
     <div className="qa-metrics">
       <div
