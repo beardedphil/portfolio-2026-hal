@@ -254,24 +254,41 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     // Update stage to 'fetching_ticket' (0690) - ticket was fetched before run creation
     await supabase
       .from('hal_agent_runs')
-      .update({ current_stage: 'fetching_ticket' })
+      .update({
+        current_stage: 'fetching_ticket',
+        progress: appendProgress(initialProgress, 'Fetching ticket...'),
+      })
       .eq('run_id', runId)
 
+    // For QA: update to 'fetching_branch' stage (0690)
+    // Extract branch name from ticket body for QA
+    if (agentType === 'qa') {
+      const branchMatch = bodyMd.match(/##\s*QA[^\n]*\n[\s\S]*?Branch[:\s]+([^\n]+)/i)
+      const branchName = branchMatch?.[1]?.trim()
+      if (branchName) {
+        await supabase
+          .from('hal_agent_runs')
+          .update({
+            current_stage: 'fetching_branch',
+            progress: appendProgress(initialProgress, `Finding branch: ${branchName}`),
+          })
+          .eq('run_id', runId)
+      } else {
+        await supabase
+          .from('hal_agent_runs')
+          .update({ current_stage: 'fetching_branch' })
+          .eq('run_id', runId)
+      }
+    }
+
     // For implementation: update to 'resolving_repo' stage (0690)
-    // Note: Repo is already resolved (repoUrl is known), but we track the stage for UI consistency
     if (agentType === 'implementation') {
       await supabase
         .from('hal_agent_runs')
-        .update({ current_stage: 'resolving_repo' })
-        .eq('run_id', runId)
-    }
-
-    // For QA: update to 'fetching_branch' stage (0690)
-    // Note: Branch is determined from ticket body, but we track the stage for UI consistency
-    if (agentType === 'qa') {
-      await supabase
-        .from('hal_agent_runs')
-        .update({ current_stage: 'fetching_branch' })
+        .update({
+          current_stage: 'resolving_repo',
+          progress: appendProgress(initialProgress, 'Resolving repository...'),
+        })
         .eq('run_id', runId)
     }
 
@@ -308,7 +325,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     // Update stage to 'launching' (0690)
     await supabase
       .from('hal_agent_runs')
-      .update({ current_stage: 'launching' })
+      .update({
+        current_stage: 'launching',
+        status: 'launching',
+        progress: appendProgress(initialProgress, 'Launching agent...'),
+      })
       .eq('run_id', runId)
 
     // Launch Cursor agent

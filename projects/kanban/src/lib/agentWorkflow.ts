@@ -69,8 +69,16 @@ export function mapStatusToStepId(status: string | null, agentType: AgentType): 
   
   // Fallback: Map legacy database statuses to workflow steps
   if (status === 'failed') return 'failed'
-  if (status === 'finished') return 'completed'
+  if (status === 'finished' || status === 'completed') return 'completed'
   
+  // If status is already a workflow step ID, return it directly (0690)
+  const workflowSteps = getAgentWorkflowSteps(agentType)
+  const stepIds = workflowSteps.map(s => s.id)
+  if (stepIds.includes(status)) {
+    return status
+  }
+  
+  // Backward compatibility: map old status values to workflow steps
   if (agentType === 'qa') {
     if (status === 'created') return 'fetching_ticket'
     if (status === 'launching') return 'launching'

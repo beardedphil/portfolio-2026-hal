@@ -35,7 +35,11 @@ export interface KanbanAgentRunRow {
   ticket_pk: string | null
   ticket_number: number | null
   display_id: string | null
-  status: 'created' | 'launching' | 'polling' | 'finished' | 'failed'
+  // Status is now the workflow step ID directly (0690)
+  // Implementation: 'preparing' | 'fetching_ticket' | 'resolving_repo' | 'launching' | 'polling' | 'completed' | 'failed'
+  // QA: 'preparing' | 'fetching_ticket' | 'fetching_branch' | 'launching' | 'polling' | 'generating_report' | 'merging' | 'moving_ticket' | 'completed' | 'failed'
+  // For backward compatibility, old values are still supported: 'created' | 'finished'
+  status: 'preparing' | 'fetching_ticket' | 'resolving_repo' | 'fetching_branch' | 'launching' | 'polling' | 'generating_report' | 'merging' | 'moving_ticket' | 'completed' | 'failed' | 'created' | 'finished'
   created_at: string
   updated_at: string
 }

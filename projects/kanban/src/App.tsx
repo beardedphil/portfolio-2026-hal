@@ -1578,7 +1578,10 @@ function App() {
         .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, status, current_stage, created_at, updated_at')
         .eq('repo_full_name', connectedRepoFullName)
         .in('ticket_pk', ticketPks)
-        .in('status', ['created', 'launching', 'polling'])
+        // Filter for active runs: any status that's not 'completed' or 'failed' (0690)
+        // Includes: 'preparing', 'fetching_ticket', 'resolving_repo', 'fetching_branch', 'launching', 'polling', 'generating_report', 'merging', 'moving_ticket'
+        // Also includes old status values for backward compatibility: 'created', 'finished' (though 'finished' should be 'completed' now)
+        .in('status', ['preparing', 'fetching_ticket', 'resolving_repo', 'fetching_branch', 'launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'created', 'finished'])
         .order('created_at', { ascending: false })
       if (error) {
         console.warn('Failed to fetch agent runs:', error)
