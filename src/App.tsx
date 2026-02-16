@@ -1112,6 +1112,18 @@ function App() {
     }
   }, [activeMessages, agentTypingTarget, selectedConversationId, implAgentRunStatus, qaAgentRunStatus, processReviewAgentRunStatus, implAgentProgress, qaAgentProgress, processReviewAgentProgress, loadingOlderMessages])
 
+  // Auto-scroll Project Manager chat to bottom when widget opens or when switching to PM chat (HAL-0701)
+  useEffect(() => {
+    if (pmChatWidgetOpen && selectedChatTarget === 'project-manager' && transcriptRef.current) {
+      // Use requestAnimationFrame to ensure DOM has updated and layout is complete
+      requestAnimationFrame(() => {
+        if (transcriptRef.current) {
+          transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight
+        }
+      })
+    }
+  }, [pmChatWidgetOpen, selectedChatTarget, pmMessages])
+
   // Detect scroll to top and load older messages
   useEffect(() => {
     const transcript = transcriptRef.current
@@ -2940,7 +2952,11 @@ function App() {
           </>
         )}
         {/* Messages list — use chat-transcript so sidebar gets same styles as right panel */}
-        <div className="chat-transcript" ref={messagesEndRef}>
+        <div className="chat-transcript" ref={(el) => {
+          // Attach both refs to the same element (HAL-0701)
+          messagesEndRef.current = el
+          transcriptRef.current = el
+        }}>
           {displayMessages.length === 0 && agentTypingTarget !== displayTarget ? (
             <p className="transcript-empty">
               {displayTarget === 'project-manager'
