@@ -3,7 +3,8 @@ import { getSupabaseClient } from './lib/supabase'
 import { saveConversationsToStorage, loadConversationsFromStorage, type Agent, type Message, type Conversation, type ImageAttachment } from './lib/conversationStorage'
 // Chat width/collapse state no longer needed - floating widget replaces sidebar (0698)
 import { getConversationId, parseConversationId, getNextInstanceNumber, formatTime, getMessageAuthorLabel } from './lib/conversation-helpers'
-import { CoverageBadge, SimplicityBadge } from './components/QAMetricsCard'
+import { CoverageBadge } from './components/CoverageBadge'
+import { SimplicityBadge } from './components/SimplicityBadge'
 import { CoverageReportModal } from './components/CoverageReportModal'
 import { SimplicityReportModal } from './components/SimplicityReportModal'
 import type { Theme } from './types/hal'
@@ -3119,7 +3120,7 @@ function App() {
               {connectedGithubRepo && (
                 <>
                   {/* Coverage badge on the left (0699) */}
-                  <CoverageBadge />
+                  <CoverageBadge onClick={() => setCoverageReportOpen(true)} />
                   {/* Repo/Disconnect box in the middle (0708: GitHub row on top, both rows use same layout) */}
                   <div className="project-info">
                     {/* GitHub connection row (0708: on top, same layout as repo row) */}
@@ -3152,7 +3153,7 @@ function App() {
                     </div>
                   </div>
                   {/* Simplicity badge on the right (0699) */}
-                  <SimplicityBadge />
+                  <SimplicityBadge onClick={() => setSimplicityReportOpen(true)} />
                 </>
               )}
             </>
