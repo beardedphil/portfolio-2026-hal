@@ -97,11 +97,12 @@ div.kanban-frame-container #root {
   max-height: none !important;
   padding: 0 !important; /* 0706: Remove padding so scrollbar starts at top */
 }
-/* 0706: No nested scroll - parent (kanban-frame-container) is the single scroll container */
+/* 0734: Allow HAL app to control horizontal scrolling on .columns-row */
+/* The HAL app sets overflow-x: auto on .kanban-frame-container .columns-row for horizontal scrolling */
+/* We only ensure no vertical scrolling here - horizontal scrolling is controlled by HAL app */
 .kanban-frame-container .columns-row {
-  overflow: visible !important;
-  overflow-x: visible !important;
-  overflow-y: visible !important;
+  overflow-y: hidden !important; /* Prevent vertical scrolling - parent handles it */
+  /* overflow-x is controlled by HAL app CSS - don't override it */
   width: auto !important;
   max-width: none !important;
   flex: 0 1 auto !important;
