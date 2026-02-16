@@ -456,9 +456,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const isConfigError =
       /Supabase server env is missing|Cursor API is not configured|Missing .* in environment/i.test(message)
     const statusCode = isConfigError ? 503 : 500
-    const safeMessage = isConfigError
-      ? message
-      : 'Launch failed. Check server logs for details.'
+    // Always return the real error message so the UI can display it (no stack or internal details)
+    const safeMessage = message.slice(0, 500)
     json(res, statusCode, { error: safeMessage })
   }
 }
