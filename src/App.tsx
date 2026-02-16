@@ -23,6 +23,7 @@ import { CHAT_OPTIONS } from './types/app'
 import { useGithub } from './hooks/useGithub'
 import { useKanban } from './hooks/useKanban'
 import { useConversations } from './hooks/useConversations'
+import { useAgentRuns } from './hooks/useAgentRuns'
 import { extractTicketId, formatTicketId } from './lib/ticketOperations'
 
 const KanbanBoard = Kanban.default
@@ -1073,8 +1074,45 @@ function App() {
 
   // Kanban handlers are now in useKanban hook
 
-  /** Trigger agent run for a given message and target (used by handleSend and HAL_OPEN_CHAT_AND_SEND) */
-  const triggerAgentRun = useCallback(
+  // Agent run handlers via custom hook
+  const agentRuns = useAgentRuns({
+    supabaseUrl,
+    supabaseAnonKey,
+    connectedProject,
+    connectedGithubRepo,
+    conversations,
+    agentSequenceRefs,
+    pmMaxSequenceRef,
+    addMessage,
+    getDefaultConversationId,
+    setLastAgentError,
+    setOpenaiLastError,
+    setLastPmOutboundRequest,
+    setLastPmToolCalls,
+    setAgentTypingTarget,
+    setPersistenceError,
+    implAgentTicketId,
+    qaAgentTicketId,
+    setImplAgentTicketId,
+    setQaAgentTicketId,
+    setImplAgentRunId,
+    setQaAgentRunId,
+    setImplAgentRunStatus,
+    setQaAgentRunStatus,
+    setImplAgentProgress,
+    setQaAgentProgress,
+    setImplAgentError,
+    setQaAgentError,
+    setCursorRunAgentType,
+    setOrphanedCompletionSummary,
+    kanbanTickets,
+    handleKanbanMoveTicket,
+    fetchKanbanData,
+  })
+  const { triggerAgentRun } = agentRuns
+
+  // Legacy triggerAgentRun function - now provided by useAgentRuns hook
+  const _triggerAgentRun = useCallback(
     (content: string, target: ChatTarget, imageAttachments?: ImageAttachment[], conversationId?: string) => {
       // Get or create conversation ID (0070)
       const convId = conversationId || getDefaultConversationId(target === 'project-manager' ? 'project-manager' : target)
@@ -1603,6 +1641,7 @@ function App() {
       fetchKanbanData,
     ]
   )
+  // triggerAgentRun is now provided by useAgentRuns hook
 
   // Track most recent work button click event for diagnostics (0072) - no longer displayed with floating widget (0698)
   const [_lastWorkButtonClick, setLastWorkButtonClick] = useState<{ eventId: string; timestamp: Date; chatTarget: ChatTarget; message: string } | null>(null)
