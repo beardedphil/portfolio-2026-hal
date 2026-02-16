@@ -48,6 +48,7 @@ import type { Card, Column } from './lib/columnTypes'
 import type { LogEntry, SupabaseTicketRow, SupabaseAgentArtifactRow, SupabaseAgentRunRow, TicketAttachment } from './App.types'
 import { SUPABASE_CONFIG_KEY, CONNECTED_REPO_KEY, SUPABASE_POLL_INTERVAL_MS, SUPABASE_SAFETY_POLL_INTERVAL_MS, REFETCH_AFTER_MOVE_MS, KANBAN_BROADCAST_CHANNEL, EMPTY_KANBAN_COLUMNS, DEFAULT_KANBAN_COLUMNS_SEED, _SUPABASE_KANBAN_COLUMNS_SETUP_SQL, DEFAULT_COLUMNS, INITIAL_CARDS, _SUPABASE_SETUP_SQL, _SUPABASE_TICKET_ATTACHMENTS_SETUP_SQL } from './App.constants'
 import { formatTime, normalizeTitle } from './App.utils'
+import { cleanTicketTitle, transformTicketsToCards, organizeTicketsIntoColumns } from './lib/ticketTransformations'
 
 /** Supabase kanban_columns table row (0020) - use imported type from canonicalizeColumns */
 
@@ -96,7 +97,7 @@ function _DraggableSupabaseTicketItem({
     opacity: isDragging ? 0.5 : 1,
   }
   const displayId = row.display_id ?? row.id
-  const cleanTitle = row.title.replace(/^(?:[A-Za-z0-9]{2,10}-)?\d{4}\s*[—–-]\s*/, '')
+  const cleanTitle = cleanTicketTitle(row.title)
   return (
     <li ref={setNodeRef} style={style} {...attributes} {...listeners}>
       <button
@@ -260,42 +261,10 @@ function App() {
     if (!supabaseBoardActive || sourceColumnsRows.length === 0) {
       return { columns: EMPTY_KANBAN_COLUMNS, unknownColumnTicketIds: [] as string[] }
     }
-    const columnIds = new Set(sourceColumnsRows.map((c) => c.id))
-    const firstColumnId = sourceColumnsRows[0].id
-    const byColumn: Record<string, { id: string; position: number }[]> = {}
-    for (const c of sourceColumnsRows) {
-      byColumn[c.id] = []
-    }
-    const unknownIds: string[] = []
-    for (const t of sourceTickets) {
-      const colId =
-        t.kanban_column_id == null || t.kanban_column_id === ''
-          ? firstColumnId
-          : columnIds.has(t.kanban_column_id)
-            ? t.kanban_column_id
-            : (unknownIds.push(t.pk), firstColumnId)
-      const pos = typeof t.kanban_position === 'number' ? t.kanban_position : 0
-      byColumn[colId].push({ id: t.pk, position: pos })
-    }
-    for (const id of Object.keys(byColumn)) {
-      byColumn[id].sort((a, b) => a.position - b.position)
-    }
-    const columns: Column[] = sourceColumnsRows.map((c) => ({
-      id: c.id,
-      title: c.title,
-      cardIds: byColumn[c.id]?.map((x) => x.id) ?? [],
-    }))
-    return { columns, unknownColumnTicketIds: unknownIds }
+    return organizeTicketsIntoColumns(sourceColumnsRows, sourceTickets)
   }, [supabaseBoardActive, sourceColumnsRows, sourceTickets])
   const supabaseCards = useMemo(() => {
-    const map: Record<string, Card> = {}
-    for (const t of sourceTickets) {
-      const cleanTitle = t.title.replace(/^(?:[A-Za-z0-9]{2,10}-)?\d{4}\s*[—–-]\s*/, '')
-      const display = t.display_id ? `${t.display_id} — ${cleanTitle}` : t.title
-      const displayId = (t.display_id ?? (t.id ? String(t.id).padStart(4, '0') : undefined)) ?? undefined
-      map[t.pk] = { id: t.pk, title: display, displayId }
-    }
-    return map
+    return transformTicketsToCards(sourceTickets)
   }, [sourceTickets])
 
   /** Connect to Supabase with given url/key; sets status, tickets, errors. */
