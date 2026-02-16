@@ -62,3 +62,11 @@ export function getMessageAuthorLabel(agent: Agent | 'user' | 'system'): string 
   if (agent === 'project-manager' || agent === 'implementation-agent' || agent === 'qa-agent' || agent === 'process-review-agent') return 'HAL'
   return 'System'
 }
+
+/**
+ * Get an empty conversations map
+ * @returns A new empty Map for storing conversations
+ */
+export function getEmptyConversations(): Map<string, Conversation> {
+  return new Map()
+}
