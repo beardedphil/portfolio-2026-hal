@@ -52,6 +52,13 @@ export function getAgentWorkflowSteps(agentType: AgentType): Array<WorkflowStep>
 export function mapStatusToStepId(status: string | null, agentType: AgentType): string {
   if (!status) return 'preparing'
   
+  // If agentType is null, only handle terminal states, otherwise return 'preparing'
+  if (agentType === null) {
+    if (status === 'failed') return 'failed'
+    if (status === 'finished' || status === 'completed') return 'completed'
+    return 'preparing'
+  }
+  
   // Handle current_stage values directly (0690)
   const validStages = [
     'preparing', 'fetching_ticket', 'resolving_repo', 'fetching_branch',

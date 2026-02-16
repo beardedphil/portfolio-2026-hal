@@ -153,7 +153,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const repoFullName = (run as any).repo_full_name as string
     const ticketPk = (run as any).ticket_pk as string | null
     const displayId = ((run as any).display_id as string) ?? ''
-    const agentType = (run as any).agent_type as AgentType
     let nextStatus = 'polling'
     let nextStage: string | null = null
     let summary: string | null = null

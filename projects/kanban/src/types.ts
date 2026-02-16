@@ -40,6 +40,7 @@ export interface KanbanAgentRunRow {
   // QA: 'preparing' | 'fetching_ticket' | 'fetching_branch' | 'launching' | 'polling' | 'generating_report' | 'merging' | 'moving_ticket' | 'completed' | 'failed'
   // For backward compatibility, old values are still supported: 'created' | 'finished'
   status: 'preparing' | 'fetching_ticket' | 'resolving_repo' | 'fetching_branch' | 'launching' | 'polling' | 'generating_report' | 'merging' | 'moving_ticket' | 'completed' | 'failed' | 'created' | 'finished'
+  current_stage: string | null
   created_at: string
   updated_at: string
 }
