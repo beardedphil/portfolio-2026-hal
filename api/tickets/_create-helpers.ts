@@ -3,6 +3,10 @@ import { createClient } from '@supabase/supabase-js'
 import { slugFromTitle, isUniqueViolation } from './_shared.js'
 import { computeSuggestionHash, buildHashPattern, buildSourcePattern } from './_processReviewIdempotency.js'
 
+// Type alias for Supabase client to avoid type inference issues in build environments
+// Using 'any' to work around TypeScript type inference issues with SupabaseClient generics
+type SupabaseClientType = any
+
 export function generateSingleSuggestionBody(sourceRef: string, suggestion: string, idempotencySection: string): string {
   return `# Ticket
 
@@ -96,7 +100,7 @@ This ticket was automatically created from Process Review suggestions for ticket
 }
 
 export async function checkIdempotency(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseClientType,
   singleSuggestion: string | undefined,
   repoFullName: string,
   sourceRef: string
@@ -120,7 +124,7 @@ export async function checkIdempotency(
 }
 
 export async function getNextTicketNumber(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseClientType,
   repoFullName: string
 ): Promise<number> {
   try {
@@ -142,7 +146,7 @@ export async function getNextTicketNumber(
 }
 
 export async function createTicketWithRetry(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseClientType,
   startNum: number,
   prefix: string,
   title: string,
@@ -172,7 +176,7 @@ export async function createTicketWithRetry(
         kanban_column_id: 'col-unassigned',
         kanban_position: 0,
         kanban_moved_at: now,
-      })
+      } as any)
 
       const insertData = insert.data as Array<{ pk: string }> | null
       if (!insert.error && insertData && insertData.length > 0) {
