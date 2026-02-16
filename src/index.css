@@ -269,23 +269,6 @@ body {
   justify-content: flex-end;
 }
 
-.agent-instructions-btn {
-  /* Uses base .btn-standard class (0739) */
-  padding: 0.4rem 0.8rem;
-  font-size: 0.9rem;
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  /* Override for header: use white text on dark background */
-  background: rgba(255, 255, 255, 0.15) !important;
-  color: var(--hal-header-text) !important;
-  border-color: rgba(255, 255, 255, 0.3) !important;
-}
-.agent-instructions-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.25) !important;
-  border-color: rgba(255, 255, 255, 0.4) !important;
-}
-
 .hal-main {
   display: flex;
   flex: 1;
@@ -404,17 +387,6 @@ body {
   }
 }
 
-.disconnect-btn {
-  /* Uses base .btn-destructive class (0739) */
-  padding: 0.25rem 0.5rem;
-  font-size: 0.8rem;
-  /* Override for header: use white text on dark background */
-  background: rgba(255, 255, 255, 0.1) !important;
-  color: var(--hal-header-text) !important;
-  border-color: rgba(255, 255, 255, 0.2) !important;
-  border-radius: 4px;
-}
-
 .github-connect {
   /* Uses base .btn-standard class (0739) */
   padding: 0.25rem 0.5rem;
@@ -510,11 +482,6 @@ body {
   font-style: italic;
   margin-left: 0.25rem;
 }
-}
-
-.disconnect-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.2) !important;
-  border-color: rgba(255, 255, 255, 0.3) !important;
 }
 
 /* Process Review status (0118) */

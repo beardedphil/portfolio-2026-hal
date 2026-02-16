@@ -3209,7 +3209,7 @@ function App() {
                       </span>
                       <button
                         type="button"
-                        className={`disconnect-btn ${githubAuth?.authenticated ? 'btn-destructive' : 'btn-standard'}`}
+                        className={githubAuth?.authenticated ? 'btn-destructive' : 'btn-standard'}
                         onClick={githubAuth?.authenticated ? handleGithubDisconnect : handleGithubConnect}
                         title={githubAuth?.authenticated ? 'Sign out of GitHub' : 'Sign in with GitHub'}
                       >
@@ -3224,7 +3224,7 @@ function App() {
                       <button
                         ref={disconnectButtonRef}
                         type="button"
-                        className="disconnect-btn btn-destructive"
+                        className="btn-destructive"
                         onClick={handleDisconnectClick}
                       >
                         Disconnect
@@ -3241,7 +3241,7 @@ function App() {
         <div className="hal-header-actions">
           <button
             type="button"
-            className="agent-instructions-btn btn-standard"
+            className="btn-standard"
             onClick={() => setAgentInstructionsOpen(true)}
             aria-label="View agent instructions"
             title="View agent instructions"
