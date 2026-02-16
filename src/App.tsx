@@ -13,6 +13,12 @@ import type { KanbanTicketRow, KanbanColumnRow, KanbanAgentRunRow, KanbanBoardPr
 import 'portfolio-2026-kanban/style.css'
 import { AgentInstructionsViewer } from './AgentInstructionsViewer'
 import { PmChatWidget } from './components/PmChatWidget'
+import { GithubRepoPickerModal } from './components/GithubRepoPickerModal'
+import { DisconnectConfirmModal } from './components/DisconnectConfirmModal'
+import { PromptModal } from './components/PromptModal'
+import { ProcessReviewRecommendationsModal } from './components/ProcessReviewRecommendationsModal'
+import { HalHeader } from './components/HalHeader'
+import { KanbanErrorBanner } from './components/KanbanErrorBanner'
 import {
   routeKanbanWorkButtonClick,
   type KanbanWorkButtonPayload,
@@ -24,6 +30,7 @@ import { useGithub } from './hooks/useGithub'
 import { useKanban } from './hooks/useKanban'
 import { useConversations } from './hooks/useConversations'
 import { useAgentRuns } from './hooks/useAgentRuns'
+import { useMessageManagement } from './hooks/useMessageManagement'
 import { extractTicketId, formatTicketId } from './lib/ticketOperations'
 
 const KanbanBoard = Kanban.default
@@ -928,97 +935,15 @@ function App() {
 
   // getOrCreateConversation and getDefaultConversationId are now provided by useConversations hook
 
-  const addMessage = useCallback((conversationId: string, agent: Message['agent'], content: string, id?: number, imageAttachments?: ImageAttachment[], promptText?: string) => {
-    const nextId = id ?? ++messageIdRef.current
-    if (id != null) messageIdRef.current = Math.max(messageIdRef.current, nextId)
-    setConversations((prev) => {
-      const next = new Map(prev)
-      let conv = next.get(conversationId)
-      // Create conversation if it doesn't exist (0124: fix PM chat clearing on refresh)
-      if (!conv) {
-        const parsed = parseConversationId(conversationId)
-        if (parsed) {
-          conv = {
-            id: conversationId,
-            agentRole: parsed.agentRole,
-            instanceNumber: parsed.instanceNumber,
-            messages: [],
-            createdAt: new Date(),
-          }
-          next.set(conversationId, conv)
-        } else {
-          // Legacy format: try to parse as agent role only
-          const agentRole = conversationId.split('-')[0] as Agent
-          if (agentRole === 'project-manager' || agentRole === 'implementation-agent' || agentRole === 'qa-agent' || agentRole === 'process-review-agent') {
-            // Convert legacy format to new format (instance 1)
-            const newConvId = `${agentRole}-1`
-            conv = next.get(newConvId)
-            if (!conv) {
-              conv = {
-                id: newConvId,
-                agentRole,
-                instanceNumber: 1,
-                messages: [],
-                createdAt: new Date(),
-              }
-              next.set(newConvId, conv)
-            }
-            // Use the new conversation ID for the message
-            conversationId = newConvId
-          } else {
-            // Unknown format, can't create conversation
-            return next
-          }
-        }
-      }
-      // Deduplication: Check if a message with the same ID already exists (0153: prevent duplicate messages)
-      const existingMessageIndex = conv.messages.findIndex(msg => msg.id === nextId)
-      if (existingMessageIndex >= 0) {
-        // Message with this ID already exists, skip adding duplicate
-        return next
-      }
-      next.set(conversationId, {
-        ...conv,
-        messages: [...conv.messages, { id: nextId, agent, content, timestamp: new Date(), imageAttachments, ...(promptText && { promptText }) }],
-      })
-      return next
-    })
-    // Auto-move ticket when QA completion message is detected in QA Agent chat (0061, 0086)
-    const parsed = parseConversationId(conversationId)
-    if (parsed && parsed.agentRole === 'qa-agent' && agent === 'qa-agent') {
-      const isQaCompletion = /qa.*complete|qa.*report|qa.*pass|qa.*fail|verdict.*pass|verdict.*fail|move.*human.*loop|verified.*main|pass.*ok.*merge/i.test(content)
-      if (isQaCompletion) {
-        const isPass = /pass|ok.*merge|verified.*main|verdict.*pass/i.test(content) && !/fail|verdict.*fail/i.test(content)
-        const isFail = /fail|verdict.*fail|qa.*fail/i.test(content) && !/pass|verdict.*pass/i.test(content)
-        
-        if (isPass) {
-          const currentTicketId = qaAgentTicketId || extractTicketId(content)
-          if (currentTicketId) {
-            moveTicketToColumn(currentTicketId, 'col-human-in-the-loop', 'qa').catch(() => {
-              // Error already logged via addAutoMoveDiagnostic
-            })
-          } else {
-            addAutoMoveDiagnostic(
-              `QA Agent completion (PASS): Could not determine ticket ID from message. Auto-move skipped.`,
-              'error'
-            )
-          }
-        } else if (isFail) {
-          const currentTicketId = qaAgentTicketId || extractTicketId(content)
-          if (currentTicketId) {
-            moveTicketToColumn(currentTicketId, 'col-todo', 'qa').catch(() => {
-              // Error already logged via addAutoMoveDiagnostic
-            })
-          } else {
-            addAutoMoveDiagnostic(
-              `QA Agent completion (FAIL): Could not determine ticket ID from message. Auto-move skipped.`,
-              'error'
-            )
-          }
-        }
-      }
-    }
-  }, [qaAgentTicketId, extractTicketId, moveTicketToColumn, addAutoMoveDiagnostic])
+  // Message management via custom hook
+  const { addMessage } = useMessageManagement({
+    conversations,
+    setConversations,
+    messageIdRef,
+    qaAgentTicketId,
+    moveTicketToColumn,
+    addAutoMoveDiagnostic,
+  })
 
   // Ensure Process Review Agent conversation exists when chat is opened (0111)
   useEffect(() => {
@@ -1592,72 +1517,18 @@ function App() {
 
   return (
     <div className="hal-app">
-      <header className="hal-header">
-        <div className="hal-header-left">
-          <h1>HAL</h1>
-          <span className="hal-subtitle">Agent Workspace</span>
-        </div>
-        <div className="hal-header-center">
-          {!connectedProject ? (
-            <button type="button" className="connect-project-btn btn-standard" onClick={handleGithubConnect}>
-              Connect GitHub Repo
-            </button>
-          ) : (
-            <>
-              {connectedGithubRepo && (
-                <>
-                  {/* Coverage badge on the left (0699) */}
-                  <CoverageBadge onClick={() => setCoverageReportOpen(true)} />
-                  {/* Repo/Disconnect box in the middle (0708: GitHub row on top, both rows use same layout) */}
-                  <div className="project-info">
-                    {/* GitHub connection row (0708: on top, same layout as repo row) */}
-                    <div className="project-info-row">
-                      <span className="project-name">
-                        {githubAuth?.authenticated ? `GitHub: ${githubAuth.login ?? 'connected'}` : 'GitHub: Not signed in'}
-                      </span>
-                      <button
-                        type="button"
-                        className={`disconnect-btn ${githubAuth?.authenticated ? 'btn-destructive' : 'btn-standard'}`}
-                        onClick={githubAuth?.authenticated ? handleGithubDisconnect : handleGithubConnect}
-                        title={githubAuth?.authenticated ? 'Sign out of GitHub' : 'Sign in with GitHub'}
-                      >
-                        {githubAuth?.authenticated ? 'Sign out' : 'Sign in'}
-                      </button>
-                    </div>
-                    {/* Repo connection row (0708: below GitHub row, functionally unchanged) */}
-                    <div className="project-info-row">
-                      <span className="project-name" title={connectedGithubRepo.fullName}>
-                        Repo: {connectedGithubRepo.fullName.split('/').pop() || connectedGithubRepo.fullName}
-                      </span>
-                      <button
-                        ref={disconnectButtonRef}
-                        type="button"
-                        className="disconnect-btn btn-destructive"
-                        onClick={handleDisconnectClick}
-                      >
-                        Disconnect
-                      </button>
-                    </div>
-                  </div>
-                  {/* Simplicity badge on the right (0699) */}
-                  <SimplicityBadge onClick={() => setSimplicityReportOpen(true)} />
-                </>
-              )}
-            </>
-          )}
-        </div>
-        <div className="hal-header-actions">
-          <button
-            type="button"
-            className="agent-instructions-btn btn-standard"
-            onClick={() => setAgentInstructionsOpen(true)}
-            aria-label="View agent instructions"
-            title="View agent instructions"
-          >
-            Agent Instructions
-          </button>
-        </div>
-      </header>
+      <HalHeader
+        connectedProject={connectedProject}
+        connectedGithubRepo={connectedGithubRepo}
+        githubAuth={githubAuth}
+        onGithubConnect={handleGithubConnect}
+        onGithubDisconnect={handleGithubDisconnect}
+        onDisconnectClick={handleDisconnectClick}
+        disconnectButtonRef={disconnectButtonRef}
+        onAgentInstructionsClick={() => setAgentInstructionsOpen(true)}
+        onCoverageReportClick={() => setCoverageReportOpen(true)}
+        onSimplicityReportClick={() => setSimplicityReportOpen(true)}
+      />
 
       {githubConnectError && (
         <div className="connect-error" role="alert">
@@ -1665,99 +1536,21 @@ function App() {
         </div>
       )}
 
-      {githubRepoPickerOpen && (
-        <div className="conversation-modal-overlay" onClick={() => setGithubRepoPickerOpen(false)}>
-          <div className="conversation-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="conversation-modal-header">
-              <h3>Select GitHub repository</h3>
-              <button type="button" className="conversation-modal-close btn-destructive" onClick={() => setGithubRepoPickerOpen(false)} aria-label="Close repo picker">
-                ×
-              </button>
-            </div>
-            <div className="conversation-modal-content">
-              <div style={{ padding: '12px' }}>
-                <input
-                  type="text"
-                  value={githubRepoQuery}
-                  onChange={(e) => setGithubRepoQuery(e.target.value)}
-                  placeholder="Filter repos (owner/name)"
-                  style={{ width: '100%', padding: '10px', marginBottom: '12px' }}
-                />
-                {!githubRepos ? (
-                  <div>Loading repos…</div>
-                ) : githubRepos.length === 0 ? (
-                  <div>No repos found.</div>
-                ) : (
-                  <div style={{ maxHeight: '50vh', overflow: 'auto' }}>
-                    {githubRepos
-                      .filter((r) => r.full_name.toLowerCase().includes(githubRepoQuery.trim().toLowerCase()))
-                      .slice(0, 200)
-                      .map((r) => (
-                        <button
-                          key={r.id}
-                          type="button"
-                          onClick={() => handleSelectGithubRepo(r)}
-                          style={{
-                            display: 'block',
-                            width: '100%',
-                            textAlign: 'left',
-                            padding: '10px',
-                            marginBottom: '8px',
-                            borderRadius: '8px',
-                            border: '1px solid rgba(0,0,0,0.15)',
-                            background: 'transparent',
-                          }}
-                        >
-                          <div style={{ fontWeight: 600 }}>{r.full_name}</div>
-                          <div style={{ fontSize: '0.9em', opacity: 0.8 }}>
-                            {r.private ? 'Private' : 'Public'} • default: {r.default_branch}
-                          </div>
-                        </button>
-                      ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <GithubRepoPickerModal
+        isOpen={githubRepoPickerOpen}
+        repos={githubRepos}
+        query={githubRepoQuery}
+        onQueryChange={setGithubRepoQuery}
+        onSelectRepo={handleSelectGithubRepo}
+        onClose={() => setGithubRepoPickerOpen(false)}
+      />
 
-      {disconnectConfirmOpen && (
-        <div className="conversation-modal-overlay" onClick={handleDisconnectCancel}>
-          <div className="conversation-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-labelledby="disconnect-confirm-title" aria-modal="true">
-            <div className="conversation-modal-header">
-              <h3 id="disconnect-confirm-title">Disconnect this repository?</h3>
-              <button type="button" className="conversation-modal-close btn-destructive" onClick={handleDisconnectCancel} aria-label="Close confirmation">
-                ×
-              </button>
-            </div>
-            <div className="conversation-modal-content">
-              <div style={{ padding: '1.25rem' }}>
-                <p style={{ margin: '0 0 1.5rem 0', color: 'var(--hal-text)' }}>
-                  Are you sure you want to disconnect from this repository? You can reconnect later.
-                </p>
-                <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
-                  <button
-                    type="button"
-                    className="btn-standard"
-                    onClick={handleDisconnectCancel}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    ref={disconnectConfirmButtonRef}
-                    type="button"
-                    className="btn-destructive"
-                    onClick={handleDisconnectConfirm}
-                  >
-                    Yes, disconnect
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <DisconnectConfirmModal
+        isOpen={disconnectConfirmOpen}
+        onConfirm={handleDisconnectConfirm}
+        onCancel={handleDisconnectCancel}
+        confirmButtonRef={disconnectConfirmButtonRef}
+      />
 
       <main className="hal-main">
         {/* Left column: Kanban board */}
@@ -1774,52 +1567,11 @@ function App() {
           )}
           {/* Kanban board (HAL owns data; passes tickets/columns and callbacks). Cast props so fetchArtifactsForTicket is accepted when package types are older (e.g. Vercel cache). */}
           <div className="kanban-frame-container">
-            {/* Ticket move error message (0155) */}
-            {kanbanMoveError && (
-              <div
-                style={{
-                  position: 'absolute',
-                  top: '8px',
-                  left: '8px',
-                  right: connectedProject ? '120px' : '8px',
-                  padding: '8px 12px',
-                  borderRadius: '4px',
-                  fontSize: '13px',
-                  fontWeight: '500',
-                  zIndex: 1001,
-                  backgroundColor: '#ef4444',
-                  color: 'white',
-                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                }}
-              >
-                <span>⚠️</span>
-                <span>{kanbanMoveError}</span>
-                <button
-                  onClick={() => setKanbanMoveError(null)}
-                  style={{
-                    marginLeft: 'auto',
-                    background: 'transparent',
-                    border: 'none',
-                    color: 'white',
-                    cursor: 'pointer',
-                    fontSize: '18px',
-                    lineHeight: '1',
-                    padding: '0',
-                    width: '20px',
-                    height: '20px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                  aria-label="Dismiss error"
-                >
-                  ×
-                </button>
-              </div>
-            )}
+            <KanbanErrorBanner
+              error={kanbanMoveError}
+              onDismiss={() => setKanbanMoveError(null)}
+              connectedProject={connectedProject}
+            />
             <KanbanBoard {...kanbanBoardProps} />
           </div>
         </section>
@@ -1893,189 +1645,19 @@ function App() {
         repoFullName={connectedGithubRepo?.fullName || 'beardedphil/portfolio-2026-hal'}
       />
 
-      {/* Prompt Modal (0202) */}
-      {promptModalMessage && (
-        <div className="conversation-modal-overlay" onClick={() => setPromptModalMessage(null)}>
-          <div className="conversation-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '90vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
-            <div className="conversation-modal-header">
-              <h3>Sent Prompt</h3>
-              <button
-                type="button"
-                className="conversation-modal-close btn-destructive"
-                onClick={() => setPromptModalMessage(null)}
-                aria-label="Close prompt modal"
-              >
-                ×
-              </button>
-            </div>
-            <div className="conversation-modal-content" style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
-              {promptModalMessage.promptText ? (
-                <>
-                  <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'flex-end' }}>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (promptModalMessage.promptText) {
-                          try {
-                            await navigator.clipboard.writeText(promptModalMessage.promptText)
-                            // Show brief feedback (could be enhanced with a toast)
-                            const btn = document.activeElement as HTMLButtonElement
-                            if (btn) {
-                              const originalText = btn.textContent
-                              btn.textContent = 'Copied!'
-                              setTimeout(() => {
-                                btn.textContent = originalText
-                              }, 2000)
-                            }
-                          } catch (err) {
-                            console.error('Failed to copy prompt:', err)
-                          }
-                        }
-                      }}
-                      style={{
-                        padding: '6px 12px',
-                        background: 'var(--hal-primary, #007bff)',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        fontSize: '14px',
-                      }}
-                    >
-                      Copy prompt
-                    </button>
-                  </div>
-                  <pre
-                    style={{
-                      fontFamily: 'monospace',
-                      fontSize: '12px',
-                      lineHeight: '1.5',
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-word',
-                      background: 'var(--hal-bg-secondary, #f5f5f5)',
-                      padding: '16px',
-                      borderRadius: '4px',
-                      border: '1px solid var(--hal-border, #ddd)',
-                      margin: 0,
-                      overflow: 'auto',
-                      maxHeight: 'calc(90vh - 120px)',
-                    }}
-                  >
-                    {promptModalMessage.promptText}
-                  </pre>
-                </>
-              ) : (
-                <div style={{ padding: '24px', textAlign: 'center', color: 'var(--hal-text-secondary, #666)' }}>
-                  <p>Prompt unavailable for this message</p>
-                  <p style={{ fontSize: '14px', marginTop: '8px' }}>
-                    This message was generated without an external LLM call, or the prompt data is not available.
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <PromptModal message={promptModalMessage} onClose={() => setPromptModalMessage(null)} />
 
-      {/* Process Review Recommendations Modal (0484) */}
-      {processReviewRecommendations && processReviewRecommendations.length > 0 && (
-        <div
-          className="conversation-modal-overlay"
-          onClick={() => {
-            // Only close if all recommendations are processed
-            if (processReviewRecommendations.length === 0) {
-              setProcessReviewRecommendations(null)
-              setProcessReviewModalTicketPk(null)
-              setProcessReviewModalTicketId(null)
-              setProcessReviewModalReviewId(null)
-            }
-          }}
-        >
-          <div
-            className="conversation-modal"
-            onClick={(e) => e.stopPropagation()}
-            style={{ maxWidth: '800px', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}
-          >
-            <div className="conversation-modal-header">
-              <h3>Process Review Recommendations</h3>
-              <button
-                type="button"
-                className="conversation-modal-close btn-destructive"
-                onClick={() => {
-                  setProcessReviewRecommendations(null)
-                  setProcessReviewModalTicketPk(null)
-                  setProcessReviewModalTicketId(null)
-                  setProcessReviewModalReviewId(null)
-                }}
-                aria-label="Close recommendations modal"
-              >
-                ×
-              </button>
-            </div>
-            <div className="conversation-modal-content" style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
-              <p style={{ marginBottom: '16px', color: 'var(--hal-text-muted)' }}>
-                Review the recommendations below. Click "Implement" to create a ticket, or "Ignore" to dismiss.
-              </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                {processReviewRecommendations.map((recommendation) => (
-                  <div
-                    key={recommendation.id}
-                    style={{
-                      border: '1px solid var(--hal-border)',
-                      borderRadius: '8px',
-                      padding: '16px',
-                      background: recommendation.error ? 'var(--hal-surface-alt)' : 'var(--hal-surface)',
-                    }}
-                  >
-                    <div style={{ marginBottom: '12px' }}>
-                      <h4 style={{ margin: '0 0 8px 0', fontSize: '16px', fontWeight: '600' }}>
-                        {recommendation.text}
-                      </h4>
-                      {recommendation.justification && (
-                        <p style={{ margin: 0, fontSize: '14px', color: 'var(--hal-text-muted)', fontStyle: 'italic' }}>
-                          {recommendation.justification}
-                        </p>
-                      )}
-                    </div>
-                    {recommendation.error && (
-                      <div
-                        style={{
-                          marginBottom: '12px',
-                          padding: '8px 12px',
-                          background: 'var(--hal-status-error, #c62828)',
-                          color: 'white',
-                          borderRadius: '4px',
-                          fontSize: '14px',
-                        }}
-                      >
-                        Error: {recommendation.error}
-                      </div>
-                    )}
-                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                      <button
-                        type="button"
-                        className="btn-destructive"
-                        onClick={() => handleProcessReviewIgnore(recommendation.id)}
-                        disabled={recommendation.isCreating}
-                      >
-                        Ignore
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-standard"
-                        onClick={() => handleProcessReviewImplement(recommendation.id)}
-                        disabled={recommendation.isCreating}
-                      >
-                        {recommendation.isCreating ? 'Creating...' : 'Implement'}
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <ProcessReviewRecommendationsModal
+        recommendations={processReviewRecommendations}
+        onImplement={handleProcessReviewImplement}
+        onIgnore={handleProcessReviewIgnore}
+        onClose={() => {
+          setProcessReviewRecommendations(null)
+          setProcessReviewModalTicketPk(null)
+          setProcessReviewModalTicketId(null)
+          setProcessReviewModalReviewId(null)
+        }}
+      />
 
       {/* Coverage Report Modal (0693) */}
       <CoverageReportModal isOpen={coverageReportOpen} onClose={() => setCoverageReportOpen(false)} />
