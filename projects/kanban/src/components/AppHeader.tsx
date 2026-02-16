@@ -27,13 +27,23 @@ export function AppHeader({
 }: AppHeaderProps) {
   const halCtx = useContext(HalKanbanContext)
   
-  // Hide AppHeader when embedded (iframe) or when used as library in HAL (halCtx provided)
+  // Show sync status when embedded or in library mode (0703)
+  const showSyncStatus = supabaseConnectionStatus === 'connected' && syncStatus
+  
+  // Hide full AppHeader when embedded (iframe) or when used as library in HAL (halCtx provided)
+  // But still show sync status (0703)
   if (isEmbedded || halCtx != null) {
-    return null
+    return showSyncStatus ? (
+      <div className="sync-status-embedded" aria-live="polite">
+        <span className="sync-status-label">Live updates: {syncStatus === 'realtime' ? 'Realtime' : 'Polling'}</span>
+        {lastSync && (
+          <span className="sync-status-time">
+            Last sync: {new Date(lastSync).toLocaleTimeString()}
+          </span>
+        )}
+      </div>
+    ) : null
   }
-
-  // Show sync status even in embedded mode (0703)
-  const showSyncStatus = supabaseConnectionStatus === 'connected' && syncStatus && !isEmbedded
 
   return (
     <>
@@ -86,16 +96,6 @@ export function AppHeader({
           </div>
         )}
       </header>
-      {isEmbedded && supabaseConnectionStatus === 'connected' && syncStatus && (
-        <div className="sync-status-embedded" aria-live="polite">
-          <span className="sync-status-label">Live updates: {syncStatus === 'realtime' ? 'Realtime' : 'Polling'}</span>
-          {lastSync && (
-            <span className="sync-status-time">
-              Last sync: {new Date(lastSync).toLocaleTimeString()}
-            </span>
-          )}
-        </div>
-      )}
     </>
   )
 }
