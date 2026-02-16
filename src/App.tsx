@@ -16,175 +16,22 @@ import {
   routeKanbanWorkButtonClick,
   type KanbanWorkButtonPayload,
 } from './lib/kanbanWorkButtonRouting'
+import { buildAgentRunsByTicketPk, pickMoreRelevantRun } from './lib/agentRuns'
+import type { ChatTarget, ArtifactRow, GithubRepo, ConnectedGithubRepo } from './types/app'
+import { CHAT_OPTIONS } from './types/app'
+import { useGithub } from './hooks/useGithub'
 
 const KanbanBoard = Kanban.default
 // KANBAN_BUILD no longer used with floating widget (0698)
 // const _kanbanBuild = (Kanban as unknown as { KANBAN_BUILD?: string }).KANBAN_BUILD
 // const _KANBAN_BUILD: string = typeof _kanbanBuild === 'string' ? _kanbanBuild : 'unknown'
 
-/**
- * hal_agent_runs selection logic:
- * A ticket can have multiple runs (implementation + QA + retries). The Kanban "Active Work" badge
- * should reflect the most relevant run for that ticket: prefer any non-terminal run; otherwise the
- * most recent run.
- */
-const TERMINAL_RUN_STATUSES = new Set(['finished', 'completed', 'failed'])
-function isNonTerminalRunStatus(status: string | null | undefined): boolean {
-  const s = String(status ?? '').trim().toLowerCase()
-  if (!s) return false
-  return !TERMINAL_RUN_STATUSES.has(s)
-}
-
-function toTimeMs(iso: string | null | undefined): number {
-  if (!iso) return 0
-  const t = new Date(iso).getTime()
-  return Number.isFinite(t) ? t : 0
-}
-
-function pickMoreRelevantRun(
-  a: KanbanAgentRunRow | undefined,
-  b: KanbanAgentRunRow | undefined
-): KanbanAgentRunRow | undefined {
-  if (!a) return b
-  if (!b) return a
-
-  const aActive = isNonTerminalRunStatus((a as any).status)
-  const bActive = isNonTerminalRunStatus((b as any).status)
-  if (aActive !== bActive) return bActive ? b : a
-
-  const aCreated = toTimeMs((a as any).created_at)
-  const bCreated = toTimeMs((b as any).created_at)
-  if (aCreated !== bCreated) return bCreated > aCreated ? b : a
-
-  const aUpdated = toTimeMs((a as any).updated_at)
-  const bUpdated = toTimeMs((b as any).updated_at)
-  if (aUpdated !== bUpdated) return bUpdated > aUpdated ? b : a
-
-  // Stable tie-breaker: keep existing to avoid churn.
-  return a
-}
-
-function buildAgentRunsByTicketPk(runRows: KanbanAgentRunRow[]): Record<string, KanbanAgentRunRow> {
-  const byPk: Record<string, KanbanAgentRunRow> = {}
-  for (const r of runRows) {
-    const ticketPk = (r as any).ticket_pk as string | null | undefined
-    if (!ticketPk) continue
-    const chosen = pickMoreRelevantRun(byPk[ticketPk], r)
-    if (chosen) byPk[ticketPk] = chosen
-  }
-  return byPk
-}
-
-/** Artifact row shape (matches Kanban package KanbanAgentArtifactRow). HAL owns DB so we type locally. */
-type ArtifactRow = {
-  artifact_id: string
-  ticket_pk: string
-  repo_full_name: string
-  agent_type: 'implementation' | 'qa' | 'human-in-the-loop' | 'other'
-  title: string
-  body_md: string
-  created_at: string
-  updated_at: string
-}
-
-type ChatTarget = Agent
-
-type ToolCallRecord = {
-  name: string
-  input: unknown
-  output: unknown
-}
-
-type TicketCreationResult = {
-  id: string
-  filename: string
-  filePath: string
-  syncSuccess: boolean
-  syncError?: string
-  /** True when create_ticket retried due to id/filename collision (0023). */
-  retried?: boolean
-  attempts?: number
-  /** True when ticket was automatically moved to To Do (0083). */
-  movedToTodo?: boolean
-  /** Error message if auto-move to To Do failed (0083). */
-  moveError?: string
-  /** True if ticket is ready to start (0083). */
-  ready?: boolean
-  /** Missing items if ticket is not ready (0083). */
-  missingItems?: string[]
-  /** True if ticket was auto-fixed (formatting issues resolved) (0095). */
-  autoFixed?: boolean
-}
-
-// DiagnosticsInfo type - no longer used with floating widget (0698)
-// type DiagnosticsInfo = {
-//   kanbanRenderMode: string
-//   selectedChatTarget: ChatTarget
-//   pmImplementationSource: 'hal-agents' | 'inline'
-//   lastAgentError: string | null
-//   lastError: string | null
-//   openaiLastStatus: string | null
-//   openaiLastError: string | null
-//   kanbanLoaded: boolean
-//   kanbanUrl: string
-//   kanbanBuild: string
-//   connectedProject: string | null
-//   lastPmOutboundRequest: object | null
-//   lastPmToolCalls: ToolCallRecord[] | null
-//   lastTicketCreationResult: TicketCreationResult | null
-//   lastCreateTicketAvailable: boolean | null
-//   persistenceError: string | null
-//   agentRunner: string | null
-//   autoMoveDiagnostics: Array<{ timestamp: Date; message: string; type: 'error' | 'info' }>
-//   theme: Theme
-//   themeSource: 'default' | 'saved'
-//   lastSendPayloadSummary: string | null
-//   repoInspectionAvailable: boolean
-//   unitTestsConfigured: boolean
-//   conversationHistoryResetMessage: string | null
-// }
-
-type GithubAuthMe = {
-  authenticated: boolean
-  login: string | null
-  scope: string | null
-}
-
-type GithubRepo = {
-  id: number
-  full_name: string
-  private: boolean
-  default_branch: string
-  html_url: string
-}
-
-type ConnectedGithubRepo = {
-  fullName: string
-  defaultBranch: string
-  htmlUrl: string
-  private: boolean
-}
-
-// PM_AGENT_ID kept for reference but conversation IDs are used now (0124)
-// const PM_AGENT_ID = 'project-manager'
-
-// Helper functions (getConversationId, parseConversationId, getNextInstanceNumber, formatTime, getMessageAuthorLabel)
-// are now imported from './lib/conversation-helpers'
-
-// saveConversationsToStorage and loadConversationsFromStorage are now imported from './lib/conversationStorage'
+// DEBUG: QA option should be visible
+console.log('CHAT_OPTIONS:', CHAT_OPTIONS.map(o => o.label))
 
 function getEmptyConversations(): Map<string, Conversation> {
   return new Map()
 }
-
-const CHAT_OPTIONS: { id: ChatTarget; label: string }[] = [
-  { id: 'project-manager', label: 'Project Manager' },
-  { id: 'implementation-agent', label: 'Implementation Agent' },
-  { id: 'qa-agent', label: 'QA' },
-  { id: 'process-review-agent', label: 'Process Review' },
-]
-// DEBUG: QA option should be visible
-console.log('CHAT_OPTIONS:', CHAT_OPTIONS.map(o => o.label))
 
 function App() {
   const [selectedChatTarget, setSelectedChatTarget] = useState<ChatTarget>('project-manager')
@@ -219,12 +66,22 @@ function App() {
   const [supabaseUrl, setSupabaseUrl] = useState<string | null>(null)
   const [supabaseAnonKey, setSupabaseAnonKey] = useState<string | null>(null)
   const [_lastSendPayloadSummary, setLastSendPayloadSummary] = useState<string | null>(null)
-  const [githubAuth, setGithubAuth] = useState<GithubAuthMe | null>(null)
-  const [githubRepos, setGithubRepos] = useState<GithubRepo[] | null>(null)
-  const [githubRepoPickerOpen, setGithubRepoPickerOpen] = useState(false)
-  const [githubRepoQuery, setGithubRepoQuery] = useState('')
-  const [connectedGithubRepo, setConnectedGithubRepo] = useState<ConnectedGithubRepo | null>(null)
-  const [githubConnectError, setGithubConnectError] = useState<string | null>(null)
+  // GitHub integration via custom hook
+  const github = useGithub()
+  const {
+    githubAuth,
+    githubRepos,
+    githubRepoPickerOpen,
+    setGithubRepoPickerOpen,
+    githubRepoQuery,
+    setGithubRepoQuery,
+    connectedGithubRepo,
+    setConnectedGithubRepo,
+    githubConnectError,
+    handleGithubConnect,
+    handleGithubDisconnect,
+    loadGithubRepos,
+  } = github
   const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false)
   const [agentInstructionsOpen, setAgentInstructionsOpen] = useState(false)
   const [promptModalMessage, setPromptModalMessage] = useState<Message | null>(null)
@@ -402,115 +259,14 @@ function App() {
 
   // Restore connected GitHub repo from localStorage on load (0119: fix repo display after refresh)
   // The repo state is restored for UI display; Kanban will receive the connection message when the iframe loads
-  // Note: If GitHub auth fails, refreshGithubAuth will clear the restored repo
+  // Note: GitHub hook handles repo restoration, but we need to set connectedProject here
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem('hal-github-repo')
-      if (saved) {
-        const parsed = JSON.parse(saved) as ConnectedGithubRepo
-        if (parsed?.fullName) {
-          setConnectedGithubRepo(parsed)
-          setConnectedProject(parsed.fullName)
-          // Conversations will be loaded by the useEffect that watches connectedProject (0124)
-        }
-      }
-    } catch {
-      // ignore localStorage errors
+    if (connectedGithubRepo?.fullName) {
+      setConnectedProject(connectedGithubRepo.fullName)
     }
-  }, [])
+  }, [connectedGithubRepo])
 
-  const refreshGithubAuth = useCallback(async () => {
-    try {
-      setGithubConnectError(null)
-      const res = await fetch('/api/auth/me', { credentials: 'include' })
-      const text = await res.text()
-      if (!res.ok) {
-        setGithubAuth(null)
-        setGithubConnectError(text.slice(0, 200) || 'Failed to check GitHub auth status.')
-        // If auth fails and we have a restored repo in localStorage, clear it (0119: handle auth failure gracefully)
-        try {
-          const saved = localStorage.getItem('hal-github-repo')
-          if (saved) {
-            setConnectedGithubRepo(null)
-            setConnectedProject(null)
-            localStorage.removeItem('hal-github-repo')
-          }
-        } catch {
-          // ignore
-        }
-        return
-      }
-      const json = JSON.parse(text) as GithubAuthMe
-      setGithubAuth(json)
-    } catch (err) {
-      setGithubAuth(null)
-      setGithubConnectError(err instanceof Error ? err.message : String(err))
-      // If auth check fails and we have a restored repo in localStorage, clear it (0119: handle auth failure gracefully)
-      try {
-        const saved = localStorage.getItem('hal-github-repo')
-        if (saved) {
-          setConnectedGithubRepo(null)
-          setConnectedProject(null)
-          localStorage.removeItem('hal-github-repo')
-        }
-      } catch {
-        // ignore
-      }
-    }
-  }, [])
-
-  // On load, check whether GitHub session already exists (0079)
-  useEffect(() => {
-    refreshGithubAuth().catch(() => {})
-  }, [refreshGithubAuth])
-
-  // Standup chat removed (0154) - no longer needed with floating widget (0698)
-
-  // Auto-load working memory when PM chat opens (0173) - moved after loadWorkingMemory definition
-
-  const loadGithubRepos = useCallback(async () => {
-    try {
-      setGithubConnectError(null)
-      const res = await fetch('/api/github/repos', { credentials: 'include' })
-      const text = await res.text()
-      if (!res.ok) {
-        setGithubRepos(null)
-        setGithubConnectError(text.slice(0, 200) || 'Failed to load repos.')
-        return
-      }
-      const json = JSON.parse(text) as { repos: GithubRepo[] }
-      setGithubRepos(Array.isArray(json.repos) ? json.repos : [])
-    } catch (err) {
-      setGithubRepos(null)
-      setGithubConnectError(err instanceof Error ? err.message : String(err))
-    }
-  }, [])
-
-  const handleGithubConnect = useCallback(async () => {
-    setGithubConnectError(null)
-    // If already authenticated, open picker and load repos
-    if (githubAuth?.authenticated) {
-      setGithubRepoPickerOpen(true)
-      if (!githubRepos) {
-        await loadGithubRepos()
-      }
-      return
-    }
-    // Start OAuth flow (redirect)
-    window.location.href = '/api/auth/github/start'
-  }, [githubAuth?.authenticated, githubRepos, loadGithubRepos])
-
-  const handleGithubDisconnect = useCallback(async () => {
-    try {
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
-    } catch {
-      // ignore
-    }
-    setGithubAuth(null)
-    setGithubRepos(null)
-    setGithubRepoPickerOpen(false)
-    setGithubRepoQuery('')
-  }, [])
+  // GitHub integration handled by useGithub hook
 
   // Load conversations for a project (0124: extracted to be reusable for page refresh)
   const loadConversationsForProject = useCallback(async (projectName: string) => {
