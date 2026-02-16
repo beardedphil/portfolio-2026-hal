@@ -100,12 +100,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     // Terminal states: return without calling Cursor (unless we need to enrich a placeholder summary)
     // For all agent types, if summary is placeholder, fetch conversation to extract last assistant message
+    // Note: 'completed' is the new terminal status (replaces 'finished') (0690)
     const shouldEnrichTerminalSummary =
-      status === 'finished' &&
+      (status === 'finished' || status === 'completed') &&
       !!cursorAgentId &&
       isPlaceholderSummary((run as any).summary as string | null)
 
-    if ((status === 'finished' || status === 'failed') && !shouldEnrichTerminalSummary) {
+    if ((status === 'finished' || status === 'completed' || status === 'failed') && !shouldEnrichTerminalSummary) {
       json(res, 200, run)
       return
     }
@@ -161,7 +162,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     let conversationText: string | null = null
 
     if (cursorStatus === 'FINISHED') {
-      nextStatus = 'finished'
+      // Use 'completed' instead of 'finished' for consistency with workflow steps (0690)
+      nextStatus = 'completed'
       summary = statusData.summary ?? null
       prUrl = statusData.target?.prUrl ?? statusData.target?.pr_url ?? prUrl
       const repo = (run as any).repo_full_name as string
@@ -245,33 +247,34 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const progress = appendProgress((run as any).progress, `Status: ${cursorStatus}`) as ProgressEntry[]
 
-    // Implementation runs: update worklog artifact on every poll (so we have a trail even if agent crashes)
-    if (
-      ((run as any).agent_type as AgentType) === 'implementation' &&
-      repoFullName &&
-      ticketPk
-    ) {
-      try {
-        const worklogTitle = `Worklog for ticket ${displayId}`
-        if (cursorStatus === 'FINISHED' || progress.length <= 2) {
-          console.warn('[agent-runs] upserting worklog', { displayId, ticketPk, repoFullName })
+      // Implementation runs: update worklog artifact on every poll (so we have a trail even if agent crashes)
+      if (
+        ((run as any).agent_type as AgentType) === 'implementation' &&
+        repoFullName &&
+        ticketPk
+      ) {
+        try {
+          const worklogTitle = `Worklog for ticket ${displayId}`
+          if (cursorStatus === 'FINISHED' || progress.length <= 2) {
+            console.warn('[agent-runs] upserting worklog', { displayId, ticketPk, repoFullName })
+          }
+          const worklogBody = buildWorklogBodyFromProgress(
+            displayId,
+            progress,
+            cursorStatus,
+            summary,
+            errMsg,
+            prUrl
+          )
+          const result = await upsertArtifact(supabase, ticketPk, repoFullName, 'implementation', worklogTitle, worklogBody)
+          if (!result.ok) console.warn('[agent-runs] worklog upsert failed:', (result as { ok: false; error: string }).error)
+        } catch (e) {
+          console.warn('[agent-runs] worklog upsert error:', e instanceof Error ? e.message : e)
         }
-        const worklogBody = buildWorklogBodyFromProgress(
-          displayId,
-          progress,
-          cursorStatus,
-          summary,
-          errMsg,
-          prUrl
-        )
-        const result = await upsertArtifact(supabase, ticketPk, repoFullName, 'implementation', worklogTitle, worklogBody)
-        if (!result.ok) console.warn('[agent-runs] worklog upsert failed:', (result as { ok: false; error: string }).error)
-      } catch (e) {
-        console.warn('[agent-runs] worklog upsert error:', e instanceof Error ? e.message : e)
-      }
 
       // When finished: move ticket to QA and upsert full artifact set (plan, changed-files, etc.) from PR when available
-      if (nextStatus === 'finished') {
+      // Note: 'completed' is the new status (replaces 'finished') (0690)
+      if (nextStatus === 'completed') {
         try {
           const { data: inColumn } = await supabase
             .from('tickets')

@@ -46,28 +46,31 @@ export function getAgentWorkflowSteps(agentType: AgentType): Array<WorkflowStep>
 /**
  * Map database status to workflow step ID
  * 
- * Database has: 'created' | 'launching' | 'polling' | 'finished' | 'failed'
+ * Database status is now the workflow step ID directly (0690):
+ * - 'preparing' | 'fetching_ticket' | 'resolving_repo' | 'fetching_branch' | 'launching' | 'polling' | 'generating_report' | 'merging' | 'moving_ticket' | 'completed' | 'failed'
+ * 
+ * For backward compatibility, we still handle old status values ('created', 'finished').
  */
 export function mapStatusToStepId(status: string, agentType: AgentType): string {
-  // Map database statuses to workflow steps
-  // Database has: 'created' | 'launching' | 'polling' | 'finished' | 'failed'
+  // Handle terminal states
   if (status === 'failed') return 'failed'
-  if (status === 'finished') return 'completed'
+  if (status === 'finished' || status === 'completed') return 'completed'
   
-  if (agentType === 'qa') {
-    // For QA, map database status to workflow step
-    // Note: 'polling' in database could mean Reviewing, Generating report, Merging, or Moving ticket
-    // We'll show it as 'polling' (Reviewing) since that's the first polling step
-    if (status === 'created') return 'fetching_ticket'
-    if (status === 'launching') return 'launching'
-    if (status === 'polling') return 'polling'
-    return 'preparing'
-  } else if (agentType === 'implementation') {
-    if (status === 'created') return 'fetching_ticket'
-    if (status === 'launching') return 'launching'
-    if (status === 'polling') return 'polling'
-    return 'preparing'
+  // If status is already a workflow step ID, return it directly (0690)
+  const workflowSteps = getAgentWorkflowSteps(agentType)
+  const stepIds = workflowSteps.map(s => s.id)
+  if (stepIds.includes(status)) {
+    return status
   }
+  
+  // Backward compatibility: map old status values to workflow steps
+  if (status === 'created') {
+    return agentType === 'qa' ? 'fetching_ticket' : 'fetching_ticket'
+  }
+  if (status === 'launching') return 'launching'
+  if (status === 'polling') return 'polling'
+  
+  // Default to 'preparing' for unknown statuses
   return 'preparing'
 }
 

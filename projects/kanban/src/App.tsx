@@ -99,7 +99,11 @@ type SupabaseAgentRunRow = {
   ticket_pk: string | null
   ticket_number: number | null
   display_id: string | null
-  status: 'created' | 'launching' | 'polling' | 'finished' | 'failed'
+  // Status is now the workflow step ID directly (0690)
+  // Implementation: 'preparing' | 'fetching_ticket' | 'resolving_repo' | 'launching' | 'polling' | 'completed' | 'failed'
+  // QA: 'preparing' | 'fetching_ticket' | 'fetching_branch' | 'launching' | 'polling' | 'generating_report' | 'merging' | 'moving_ticket' | 'completed' | 'failed'
+  // For backward compatibility, old values are still supported: 'created' | 'finished'
+  status: 'preparing' | 'fetching_ticket' | 'resolving_repo' | 'fetching_branch' | 'launching' | 'polling' | 'generating_report' | 'merging' | 'moving_ticket' | 'completed' | 'failed' | 'created' | 'finished'
   created_at: string
   updated_at: string
 }
@@ -1577,7 +1581,10 @@ function App() {
         .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, status, created_at, updated_at')
         .eq('repo_full_name', connectedRepoFullName)
         .in('ticket_pk', ticketPks)
-        .in('status', ['created', 'launching', 'polling'])
+        // Filter for active runs: any status that's not 'completed' or 'failed' (0690)
+        // Includes: 'preparing', 'fetching_ticket', 'resolving_repo', 'fetching_branch', 'launching', 'polling', 'generating_report', 'merging', 'moving_ticket'
+        // Also includes old status values for backward compatibility: 'created', 'finished' (though 'finished' should be 'completed' now)
+        .in('status', ['preparing', 'fetching_ticket', 'resolving_repo', 'fetching_branch', 'launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'created', 'finished'])
         .order('created_at', { ascending: false })
       if (error) {
         console.warn('Failed to fetch agent runs:', error)

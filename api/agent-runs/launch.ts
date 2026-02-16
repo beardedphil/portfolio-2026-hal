@@ -224,7 +224,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             criteria || '(not specified)',
           ].join('\n')
 
-    // Create run row
+    // Create run row - start with 'preparing' status (0690)
     const initialProgress = appendProgress([], `Launching ${agentType} run for ${displayId}`)
     const { data: runRow, error: runInsErr } = await supabase
       .from('hal_agent_runs')
@@ -234,7 +234,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         ticket_pk: ticketPk,
         ticket_number: ticketNumber,
         display_id: displayId,
-        status: 'launching',
+        status: 'preparing',
         progress: initialProgress,
       })
       .select('run_id')
@@ -246,6 +246,42 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     const runId = runRow.run_id as string
+
+    // Update to 'fetching_ticket' - ticket was already fetched above, but update status to show progression (0690)
+    await supabase
+      .from('hal_agent_runs')
+      .update({
+        status: 'fetching_ticket',
+        progress: appendProgress(initialProgress, 'Fetching ticket...'),
+      })
+      .eq('run_id', runId)
+
+    // For QA: update to 'fetching_branch' status (0690)
+    // Extract branch name from ticket body for QA
+    if (agentType === 'qa') {
+      const branchMatch = bodyMd.match(/##\s*QA[^\n]*\n[\s\S]*?Branch[:\s]+([^\n]+)/i)
+      const branchName = branchMatch?.[1]?.trim()
+      if (branchName) {
+        await supabase
+          .from('hal_agent_runs')
+          .update({
+            status: 'fetching_branch',
+            progress: appendProgress(initialProgress, `Finding branch: ${branchName}`),
+          })
+          .eq('run_id', runId)
+      }
+    }
+
+    // For implementation: update to 'resolving_repo' status (0690)
+    if (agentType === 'implementation') {
+      await supabase
+        .from('hal_agent_runs')
+        .update({
+          status: 'resolving_repo',
+          progress: appendProgress(initialProgress, 'Resolving repository...'),
+        })
+        .eq('run_id', runId)
+    }
 
     // If repo has no branches (new empty repo), create initial commit so Cursor API can run
     let ghToken: string | undefined
@@ -285,6 +321,15 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       agentType === 'implementation'
         ? { autoCreatePr: true, branchName }
         : { branchName: defaultBranch }
+
+    // Update to 'launching' status before launching agent (0690)
+    await supabase
+      .from('hal_agent_runs')
+      .update({
+        status: 'launching',
+        progress: appendProgress([], 'Launching agent...'),
+      })
+      .eq('run_id', runId)
 
     const launchRes = await fetch('https://api.cursor.com/v0/agents', {
       method: 'POST',
@@ -354,6 +399,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     const progressAfterLaunch = appendProgress(initialProgress, `Launched Cursor agent (${cursorStatus}).`)
+    // Update to 'polling' status after successful launch (0690)
     await supabase
       .from('hal_agent_runs')
       .update({
