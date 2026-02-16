@@ -3132,7 +3132,7 @@ function App() {
                 <>
                   {/* Coverage badge on the left (0699) */}
                   <CoverageBadge />
-                  {/* Repo/Disconnect box in the middle (0699) */}
+                  {/* Repo/Disconnect box in the middle (0704: includes GitHub connection UI) */}
                   <div className="project-info">
                     <div className="project-info-row">
                       <span className="project-name" title={connectedGithubRepo.fullName}>
@@ -3147,6 +3147,22 @@ function App() {
                         Disconnect
                       </button>
                     </div>
+                    {/* GitHub connection UI grouped with repo info (0704) */}
+                    <div className="project-info-github">
+                      <button
+                        type="button"
+                        className="github-connect"
+                        onClick={handleGithubConnect}
+                        title={githubAuth?.authenticated ? 'GitHub connected' : 'Sign in with GitHub'}
+                      >
+                        {githubAuth?.authenticated ? `GitHub: ${githubAuth.login ?? 'connected'}` : 'Sign into GitHub'}
+                      </button>
+                      {githubAuth?.authenticated && (
+                        <button type="button" className="github-logout" onClick={handleGithubDisconnect} title="Sign out of GitHub">
+                          Sign out
+                        </button>
+                      )}
+                    </div>
                   </div>
                   {/* Simplicity badge on the right (0699) */}
                   <SimplicityBadge />
@@ -3156,19 +3172,6 @@ function App() {
           )}
         </div>
         <div className="hal-header-actions">
-          <button
-            type="button"
-            className="github-connect"
-            onClick={handleGithubConnect}
-            title={githubAuth?.authenticated ? 'GitHub connected' : 'Sign in with GitHub'}
-          >
-            {githubAuth?.authenticated ? `GitHub: ${githubAuth.login ?? 'connected'}` : 'Sign into GitHub'}
-          </button>
-          {githubAuth?.authenticated && (
-            <button type="button" className="github-logout" onClick={handleGithubDisconnect} title="Sign out of GitHub">
-              Sign out
-            </button>
-          )}
           <button
             type="button"
             className="theme-toggle"

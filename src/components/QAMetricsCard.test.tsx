@@ -12,7 +12,7 @@ describe('QAMetricsCard', () => {
     ;(global.fetch as any).mockReset()
   })
 
-  it('renders Coverage and Simplicity labels', async () => {
+  it('renders Test Coverage and Simplicity labels', async () => {
     ;(global.fetch as any).mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({ coverage: 85, simplicity: 90 }),
@@ -22,7 +22,7 @@ describe('QAMetricsCard', () => {
 
     // Wait for fetch to complete
     await waitFor(() => {
-      expect(screen.getByText('Coverage')).toBeInTheDocument()
+      expect(screen.getByText('Test Coverage')).toBeInTheDocument()
       expect(screen.getByText('Simplicity')).toBeInTheDocument()
     })
   })

@@ -81,11 +81,11 @@ function QAMetricBadge({
 
 /**
  * Coverage metric badge component.
- * Fetches and displays Coverage from /metrics.json. Handles missing metrics gracefully by showing "N/A".
+ * Fetches and displays Test Coverage from /metrics.json. Handles missing metrics gracefully by showing "N/A".
  */
 export function CoverageBadge() {
   const qaMetrics = useQAMetrics()
-  return <QAMetricBadge label="Coverage" value={qaMetrics?.coverage ?? null} />
+  return <QAMetricBadge label="Test Coverage" value={qaMetrics?.coverage ?? null} />
 }
 
 /**
@@ -112,7 +112,7 @@ export function QAMetricsCard({ onCoverageClick, onSimplicityClick }: QAMetricsC
       <div
         className={`qa-metric-box ${onCoverageClick ? 'qa-metric-box-clickable' : ''}`}
         style={{ backgroundColor: getMetricColor(qaMetrics?.coverage ?? null) }}
-        title={qaMetrics?.coverage !== null && qaMetrics !== null ? `Coverage: ${qaMetrics.coverage.toFixed(0)}%` : 'Coverage: N/A'}
+        title={qaMetrics?.coverage !== null && qaMetrics !== null ? `Test Coverage: ${qaMetrics.coverage.toFixed(0)}%` : 'Test Coverage: N/A'}
         onClick={onCoverageClick}
         role={onCoverageClick ? 'button' : undefined}
         tabIndex={onCoverageClick ? 0 : undefined}
@@ -123,7 +123,7 @@ export function QAMetricsCard({ onCoverageClick, onSimplicityClick }: QAMetricsC
           }
         } : undefined}
       >
-        <span className="qa-metric-label">Coverage</span>
+        <span className="qa-metric-label">Test Coverage</span>
         <span className="qa-metric-value">
           {qaMetrics?.coverage !== null && qaMetrics !== null ? `${qaMetrics.coverage.toFixed(0)}%` : 'N/A'}
         </span>
