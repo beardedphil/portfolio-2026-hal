@@ -33,10 +33,9 @@ export function getMetricColor(percentage: number | null): string {
 export const THEME_STORAGE_KEY = 'hal-theme'
 
 /**
- * Returns 'dark' as the only theme.
- * Theme toggle has been removed - dark theme is now the only theme.
+ * Returns 'dark' as the only theme (0707: removed light/dark toggle).
  * 
- * @returns The theme (always 'dark')
+ * @returns The theme ('dark')
  */
 export function getInitialTheme(): Theme {
   return 'dark'

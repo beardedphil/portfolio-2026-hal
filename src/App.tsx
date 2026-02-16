@@ -2,7 +2,6 @@ import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { getSupabaseClient } from './lib/supabase'
 import { saveConversationsToStorage, loadConversationsFromStorage, type Agent, type Message, type Conversation, type ImageAttachment } from './lib/conversationStorage'
 // Chat width/collapse state no longer needed - floating widget replaces sidebar (0698)
-import { getInitialTheme, THEME_STORAGE_KEY } from './lib/metricColor'
 import { getConversationId, parseConversationId, getNextInstanceNumber, formatTime, getMessageAuthorLabel } from './lib/conversation-helpers'
 import { CoverageBadge, SimplicityBadge } from './components/QAMetricsCard'
 import { CoverageReportModal } from './components/CoverageReportModal'
@@ -155,7 +154,8 @@ function App() {
   // Diagnostics panel no longer visible - floating widget replaces sidebar (0698)
   // const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const [connectedProject, setConnectedProject] = useState<string | null>(null)
-  const [theme] = useState<Theme>(getInitialTheme) // setTheme removed - theme is always 'dark' (0707)
+  // Theme is always 'dark' (0707: removed light/dark toggle)
+  const theme: Theme = 'dark'
   // These are used in logic but not displayed in UI with floating widget (0698)
   const [_lastPmOutboundRequest, setLastPmOutboundRequest] = useState<object | null>(null)
   const [_lastPmToolCalls, setLastPmToolCalls] = useState<ToolCallRecord[] | null>(null)
@@ -340,18 +340,15 @@ function App() {
     }
   }, [selectedChatTarget])
 
+<<<<<<< HEAD
   // Apply dark theme to document root on mount (0707: removed theme toggle, always dark)
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', 'dark')
   }, [])
 
-  // Persist dark theme to localStorage (0707: removed theme toggle, always dark)
+  // Apply dark theme to document root on mount (0707: removed light/dark toggle)
   useEffect(() => {
-    try {
-      localStorage.setItem(THEME_STORAGE_KEY, 'dark')
-    } catch {
-      // ignore localStorage errors
-    }
+    document.documentElement.setAttribute('data-theme', 'dark')
   }, [])
 
   // Restore connected GitHub repo from localStorage on load (0119: fix repo display after refresh)

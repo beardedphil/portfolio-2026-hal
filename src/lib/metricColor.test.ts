@@ -76,34 +76,27 @@ describe('metricColor', () => {
   })
 
   describe('getInitialTheme', () => {
-    it('should return "light" when localStorage is missing', () => {
-      expect(getInitialTheme()).toBe('light')
-    })
-
-    it('should return "light" when localStorage has "light"', () => {
-      localStorage.setItem(THEME_STORAGE_KEY, 'light')
-      expect(getInitialTheme()).toBe('light')
-    })
-
-    it('should return "dark" when localStorage has "dark"', () => {
-      localStorage.setItem(THEME_STORAGE_KEY, 'dark')
+    it('should always return "dark" (0707: removed light/dark toggle)', () => {
       expect(getInitialTheme()).toBe('dark')
     })
 
-    it('should return "light" (default) when localStorage has invalid value', () => {
+    it('should return "dark" regardless of localStorage value', () => {
+      localStorage.setItem(THEME_STORAGE_KEY, 'light')
+      expect(getInitialTheme()).toBe('dark')
+      
+      localStorage.setItem(THEME_STORAGE_KEY, 'dark')
+      expect(getInitialTheme()).toBe('dark')
+      
       localStorage.setItem(THEME_STORAGE_KEY, 'invalid')
-      expect(getInitialTheme()).toBe('light')
-    })
-
-    it('should return "light" (default) when localStorage has empty string', () => {
+      expect(getInitialTheme()).toBe('dark')
+      
       localStorage.setItem(THEME_STORAGE_KEY, '')
-      expect(getInitialTheme()).toBe('light')
+      expect(getInitialTheme()).toBe('dark')
     })
 
-    it('should return "light" (default) when localStorage has null (via getItem returning null)', () => {
-      // localStorage.getItem returns null for missing keys
-      expect(localStorage.getItem('nonexistent-key')).toBe(null)
-      expect(getInitialTheme()).toBe('light')
+    it('should return "dark" when localStorage is missing', () => {
+      localStorageMock.clear()
+      expect(getInitialTheme()).toBe('dark')
     })
   })
 
