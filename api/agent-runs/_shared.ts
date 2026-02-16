@@ -49,6 +49,17 @@ export function validateMethod(
   return true
 }
 
+/** Get query parameter from request URL. Returns null if not found or URL is invalid. */
+export function getQueryParam(req: IncomingMessage, name: string): string | null {
+  try {
+    const url = new URL(req.url ?? '', 'http://localhost')
+    const v = url.searchParams.get(name)
+    return v ? v : null
+  } catch {
+    return null
+  }
+}
+
 export function getServerSupabase() {
   const url = process.env.SUPABASE_URL?.trim() || process.env.VITE_SUPABASE_URL?.trim()
   const key =

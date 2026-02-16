@@ -11,25 +11,15 @@ import {
   appendProgress,
   upsertArtifact,
   buildWorklogBodyFromProgress,
-  type ProgressEntry,
+  getQueryParam,
   json,
   validateMethod,
+  type ProgressEntry,
 } from './_shared.js'
 
 type AgentType = 'implementation' | 'qa' | 'project-manager' | 'process-review'
 
 const MAX_RUN_SUMMARY_CHARS = 20_000
-
-function getQueryParam(req: IncomingMessage, name: string): string | null {
-  try {
-    const url = new URL(req.url ?? '', 'http://localhost')
-    const v = url.searchParams.get(name)
-    return v ? v : null
-  } catch {
-    return null
-  }
-}
-
 function capText(input: string, maxChars: number): string {
   if (input.length <= maxChars) return input
   return `${input.slice(0, maxChars)}\n\n[truncated]`
