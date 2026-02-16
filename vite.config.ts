@@ -36,6 +36,7 @@ import {
 } from './vite/middleware/simple-handlers'
 import { pmCheckUnassignedPlugin } from './vite/middleware/pm-check-unassigned'
 import { pmFileAccessPlugin } from './vite/middleware/pm-file-access'
+import { serveCoveragePlugin } from './vite/middleware/serve-coverage'
 
 export default defineConfig({
   build: {
@@ -143,6 +144,7 @@ export default defineConfig({
     ticketsCheckFailureEscalationPlugin(),
     conversationsWorkingMemoryGetPlugin(),
     conversationsWorkingMemoryUpdatePlugin(),
+    serveCoveragePlugin(),
   ],
   server: {
     port: 5173,
