@@ -45,7 +45,7 @@ import { AddColumnForm } from './components/AddColumnForm'
 import { DebugPanel } from './components/DebugPanel'
 import type { Card, Column } from './lib/columnTypes'
 import type { LogEntry, SupabaseTicketRow, SupabaseAgentArtifactRow, SupabaseAgentRunRow, TicketAttachment } from './App.types'
-import { SUPABASE_CONFIG_KEY, CONNECTED_REPO_KEY, SUPABASE_POLL_INTERVAL_MS, REFETCH_AFTER_MOVE_MS, EMPTY_KANBAN_COLUMNS, DEFAULT_KANBAN_COLUMNS_SEED, _SUPABASE_KANBAN_COLUMNS_SETUP_SQL, DEFAULT_COLUMNS, INITIAL_CARDS, _SUPABASE_SETUP_SQL, _SUPABASE_TICKET_ATTACHMENTS_SETUP_SQL } from './App.constants'
+import { SUPABASE_CONFIG_KEY, CONNECTED_REPO_KEY, SUPABASE_POLL_INTERVAL_MS, SUPABASE_SAFETY_POLL_INTERVAL_MS, REFETCH_AFTER_MOVE_MS, KANBAN_BROADCAST_CHANNEL, EMPTY_KANBAN_COLUMNS, DEFAULT_KANBAN_COLUMNS_SEED, _SUPABASE_KANBAN_COLUMNS_SETUP_SQL, DEFAULT_COLUMNS, INITIAL_CARDS, _SUPABASE_SETUP_SQL, _SUPABASE_TICKET_ATTACHMENTS_SETUP_SQL } from './App.constants'
 import { formatTime, normalizeTitle } from './App.utils'
 
 /** Supabase kanban_columns table row (0020) - use imported type from canonicalizeColumns */
@@ -210,6 +210,9 @@ function App() {
   const [supabaseLastRefresh, setSupabaseLastRefresh] = useState<Date | null>(null)
   const [supabaseColumnsLastRefresh, setSupabaseColumnsLastRefresh] = useState<Date | null>(null)
   const [supabaseColumnsLastError, setSupabaseColumnsLastError] = useState<string | null>(null)
+  // Sync status for cross-tab updates (0703)
+  const [syncStatus, setSyncStatus] = useState<'realtime' | 'polling'>('polling')
+  const [isDragging, setIsDragging] = useState(false)
   const [supabaseColumnsJustInitialized, setSupabaseColumnsJustInitialized] = useState(false)
   const [_supabaseNotInitialized, setSupabaseNotInitialized] = useState(false)
   const [_selectedSupabaseTicketId, setSelectedSupabaseTicketId] = useState<string | null>(null)
@@ -1119,6 +1122,8 @@ function App() {
 
   /** Refetch tickets and columns from Supabase (0020). Uses current url/key. */
   const refetchSupabaseTickets = useCallback(async (skipPendingMoves = false): Promise<{ success: boolean; freshTickets?: SupabaseTicketRow[] }> => {
+    // Skip refresh if user is dragging (0703)
+    if (isDragging) return { success: false }
     const url = supabaseProjectUrl.trim()
     const key = supabaseAnonKey.trim()
     if (!url || !key) return { success: false }
@@ -1304,7 +1309,7 @@ function App() {
     } catch {
       return { success: false }
     }
-  }, [supabaseProjectUrl, supabaseAnonKey, pendingMoves, connectedRepoFullName])
+  }, [supabaseProjectUrl, supabaseAnonKey, pendingMoves, connectedRepoFullName, isDragging])
 
   /** Update one ticket's kanban fields in Supabase (0013). Returns { ok: true } or { ok: false, error: string }. */
   const updateSupabaseTicketKanban = useCallback(
@@ -1457,9 +1462,13 @@ function App() {
   }, [supabaseTickets])
 
   // Polling when Supabase board is active (0013). Skip when library mode (HAL passes data).
+  // 0703: Use safety polling (60s) when realtime is connected, normal polling (10s) when not.
   useEffect(() => {
     if (halCtx || !supabaseBoardActive) return
+    const pollInterval = syncStatus === 'realtime' ? SUPABASE_SAFETY_POLL_INTERVAL_MS : SUPABASE_POLL_INTERVAL_MS
     const id = setInterval(() => {
+      // Skip refresh if user is dragging (0703)
+      if (isDragging) return
       refetchSupabaseTickets(true).then((result) => {
         // Pass fresh tickets to fetchActiveAgentRuns to ensure accurate badges (0135)
         if (result.freshTickets) {
@@ -1468,9 +1477,9 @@ function App() {
           fetchActiveAgentRuns()
         }
       })
-    }, SUPABASE_POLL_INTERVAL_MS)
+    }, pollInterval)
     return () => clearInterval(id)
-  }, [halCtx, supabaseBoardActive, refetchSupabaseTickets, fetchActiveAgentRuns])
+  }, [halCtx, supabaseBoardActive, syncStatus, isDragging, refetchSupabaseTickets, fetchActiveAgentRuns])
 
   // Fetch agent runs when board becomes active (0114). Skip when library mode (HAL passes agentRunsByTicketPk).
   // NOTE: We don't depend on supabaseTickets here to avoid stale data issues (0135).
@@ -1480,6 +1489,90 @@ function App() {
     // Only fetch on initial mount or when repo/board becomes active, not on every ticket change
     fetchActiveAgentRuns()
   }, [halCtx, supabaseBoardActive, connectedRepoFullName, fetchActiveAgentRuns])
+
+  // Supabase Realtime subscription for cross-tab updates (0703)
+  useEffect(() => {
+    if (halCtx || !supabaseBoardActive || !connectedRepoFullName || !supabaseProjectUrl?.trim() || !supabaseAnonKey?.trim()) {
+      setSyncStatus('polling')
+      return
+    }
+
+    const url = supabaseProjectUrl.trim()
+    const key = supabaseAnonKey.trim()
+    const client = createClient(url, key)
+
+    // Subscribe to ticket changes
+    const channel = client
+      .channel('kanban-tickets-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'tickets',
+          filter: `repo_full_name=eq.${connectedRepoFullName}`,
+        },
+        (_payload) => {
+          // Skip refresh if user is dragging (0703)
+          if (isDragging) return
+          
+          // Update last sync time (0703)
+          setSupabaseLastRefresh(new Date())
+          
+          // Trigger refetch when tickets change
+          refetchSupabaseTickets(true).then((result) => {
+            if (result.freshTickets) {
+              fetchActiveAgentRuns(result.freshTickets)
+            } else {
+              fetchActiveAgentRuns()
+            }
+          })
+        }
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          setSyncStatus('realtime')
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          setSyncStatus('polling')
+        }
+      })
+
+    return () => {
+      channel.unsubscribe()
+      setSyncStatus('polling')
+    }
+  }, [halCtx, supabaseBoardActive, connectedRepoFullName, supabaseProjectUrl, supabaseAnonKey, isDragging, refetchSupabaseTickets, fetchActiveAgentRuns])
+
+  // BroadcastChannel for cross-tab communication (0703)
+  useEffect(() => {
+    if (halCtx || !supabaseBoardActive || typeof BroadcastChannel === 'undefined') return
+
+    const channel = new BroadcastChannel(KANBAN_BROADCAST_CHANNEL)
+
+    // Listen for ticket move events from other tabs
+    channel.onmessage = (event) => {
+      if (event.data?.type === 'TICKET_MOVED') {
+        // Skip refresh if user is dragging (0703)
+        if (isDragging) return
+        
+        // Update last sync time (0703)
+        setSupabaseLastRefresh(new Date())
+        
+        // Trigger refetch when ticket is moved in another tab
+        refetchSupabaseTickets(true).then((result) => {
+          if (result.freshTickets) {
+            fetchActiveAgentRuns(result.freshTickets)
+          } else {
+            fetchActiveAgentRuns()
+          }
+        })
+      }
+    }
+
+    return () => {
+      channel.close()
+    }
+  }, [halCtx, supabaseBoardActive, isDragging, refetchSupabaseTickets, fetchActiveAgentRuns])
 
   // Log "Initialized default columns" when we seed kanban_columns (0020)
   useEffect(() => {
@@ -1698,6 +1791,7 @@ function App() {
 
   const handleDragStart = useCallback(
     (event: DragStartEvent) => {
+      setIsDragging(true) // Prevent refresh during drag (0703)
       if (!isColumnId(event.active.id)) setActiveCardId(event.active.id)
     },
     [isColumnId]
@@ -1710,6 +1804,7 @@ function App() {
 
   const handleDragEnd = useCallback(
     async (event: DragEndEvent) => {
+      setIsDragging(false) // Allow refresh after drag (0703)
       setActiveCardId(null)
       const { active, over } = event
       const effectiveOverId = over?.id ?? lastOverId.current
@@ -1865,6 +1960,16 @@ function App() {
           kanban_moved_at: movedAt,
         })
           if (result.ok) {
+            // Notify other tabs via BroadcastChannel (0703)
+            if (typeof BroadcastChannel !== 'undefined') {
+              try {
+                const channel = new BroadcastChannel(KANBAN_BROADCAST_CHANNEL)
+                channel.postMessage({ type: 'TICKET_MOVED', ticketPk })
+                channel.close()
+              } catch (e) {
+                // Ignore BroadcastChannel errors (e.g., in environments where it's not supported)
+              }
+            }
             setLastMovePersisted({ success: true, timestamp: new Date(), ticketId: ticketPk })
             addLog(`Supabase ticket dropped into ${overColumn.title}`)
             // Store expected optimistic position to verify backend confirmation (0144)
@@ -1983,6 +2088,16 @@ function App() {
         })
         
         if (result.ok) {
+          // Notify other tabs via BroadcastChannel (0703)
+          if (typeof BroadcastChannel !== 'undefined') {
+            try {
+              const channel = new BroadcastChannel(KANBAN_BROADCAST_CHANNEL)
+              channel.postMessage({ type: 'TICKET_MOVED', ticketPk })
+              channel.close()
+            } catch (e) {
+              // Ignore BroadcastChannel errors
+            }
+          }
           setLastMovePersisted({ success: true, timestamp: new Date(), ticketId: ticketPk })
           addLog(`Supabase ticket moved to Active Work`)
           const expectedColumnId = 'col-doing'
@@ -2396,6 +2511,8 @@ function App() {
         projectFolderHandle={projectFolderHandle}
         projectName={projectName}
         supabaseConnectionStatus={supabaseConnectionStatus}
+        syncStatus={syncStatus}
+        lastSync={supabaseLastRefresh}
         onConnectProjectFolder={handleConnectProjectFolder}
         onDisconnect={() => {
           setProjectFolderHandle(null)

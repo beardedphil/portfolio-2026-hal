@@ -8,8 +8,12 @@ export const SUPABASE_CONFIG_KEY = 'supabase-ticketstore-config'
 export const CONNECTED_REPO_KEY = 'hal-connected-repo'
 /** Polling interval when Supabase board is active (0013); 10s */
 export const SUPABASE_POLL_INTERVAL_MS = 10_000
+/** Safety polling interval when realtime is connected (0703); 60s - low-frequency fallback */
+export const SUPABASE_SAFETY_POLL_INTERVAL_MS = 60_000
 /** Delay before refetch after a move so DB write is visible; avoids stale read overwriting last moves (0144) */
 export const REFETCH_AFTER_MOVE_MS = 2000 // Increased from 1500ms to give backend more time to persist
+/** BroadcastChannel name for cross-tab communication (0703) */
+export const KANBAN_BROADCAST_CHANNEL = 'hal-kanban-sync'
 
 export const _SUPABASE_SETUP_SQL = `create table if not exists public.tickets (
   id text primary key,
