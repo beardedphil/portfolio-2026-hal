@@ -69,7 +69,7 @@ export function ImageViewerModal({
         <div className="ticket-detail-body-wrap" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '1rem' }}>
           <img
             src={imageSrc}
-            alt={imageAlt}
+            alt={imageAlt || 'Image'}
             style={{
               maxWidth: '100%',
               maxHeight: 'calc(90vh - 100px)',
