@@ -14,6 +14,8 @@
     "fix:istanbul-reports": "node scripts/fix-istanbul-reports.js",
     "fix:node-domexception": "node scripts/fix-node-domexception.js",
     "fix:nanoid": "node scripts/fix-nanoid.js",
+    "fix:react-symlinks": "node scripts/fix-react-symlinks.js",
+    "postinstall": "npm run fix:react-symlinks",
     "build:hal": "npm run check:lines && node scripts/bundle-docs-instructions.js && node scripts/bundle-instructions.js && npm run fix:rxjs && npm run fix:vitest-browser && npm run fix:istanbul-reports && npm run fix:node-domexception && npm run fix:nanoid && tsc -b && npm run build:agents && vite build --configLoader runner",
     "build": "node scripts/build-vercel.js",
     "bundle-instructions": "node scripts/bundle-instructions.js",
