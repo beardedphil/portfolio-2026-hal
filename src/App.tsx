@@ -2630,52 +2630,62 @@ function App() {
         }
 
         // If suggestions weren't in the poll response, try loading from process_reviews table
+        // Add a small delay to ensure database writes have completed, then retry a few times
         if (suggestions.length === 0 && supabaseUrl && supabaseAnonKey) {
-          try {
-            const supabase = getSupabaseClient(supabaseUrl, supabaseAnonKey)
-            const { data: reviewData, error: reviewError } = await supabase
-              .from('process_reviews')
-              .select('id, suggestions, status, error_message')
-              .eq('ticket_pk', data.ticketPk)
-              .order('created_at', { ascending: false })
-              .limit(1)
-              .maybeSingle()
-
-            if (!reviewError && reviewData) {
-              if (reviewData.status === 'success' && reviewData.suggestions && Array.isArray(reviewData.suggestions)) {
-                // Parse suggestions from database (may be stored as strings or objects)
-                const dbSuggestions = reviewData.suggestions
-                  .map((s: string | { text: string; justification?: string }) => {
-                    if (typeof s === 'string') {
-                      return { text: s, justification: 'No justification provided.' }
-                    } else if (s && typeof s === 'object' && typeof s.text === 'string') {
-                      return {
-                        text: s.text,
-                        justification: s.justification || 'No justification provided.',
-                      }
-                    }
-                    return null
-                  })
-                  .filter((s): s is { text: string; justification: string } => s !== null)
-                
-                if (dbSuggestions.length > 0) {
-                  suggestions = dbSuggestions
-                  reviewId = reviewData.id
-                  addProgress('Loaded recommendations from database')
-                }
-              } else if (reviewData.status === 'failed' && reviewData.error_message) {
-                // Review completed but failed - show error
-                setProcessReviewStatus('failed')
-                setProcessReviewAgentRunStatus('failed')
-                const errorMsg = reviewData.error_message
-                setProcessReviewAgentError(errorMsg)
-                addMessage(convId, 'process-review-agent', `[Process Review] ❌ Failed: ${errorMsg}`)
-                return
-              }
+          let dbSuggestionsFound = false
+          for (let retry = 0; retry < 3 && !dbSuggestionsFound; retry++) {
+            if (retry > 0) {
+              // Wait before retrying (500ms, 1000ms)
+              await new Promise((r) => setTimeout(r, 500 * retry))
             }
-          } catch (dbError) {
-            console.warn('[Process Review] Failed to load suggestions from database:', dbError)
-            // Continue - we'll show an error if no suggestions found
+            try {
+              const supabase = getSupabaseClient(supabaseUrl, supabaseAnonKey)
+              const { data: reviewData, error: reviewError } = await supabase
+                .from('process_reviews')
+                .select('id, suggestions, status, error_message')
+                .eq('ticket_pk', data.ticketPk)
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle()
+
+              if (!reviewError && reviewData) {
+                if (reviewData.status === 'success' && reviewData.suggestions && Array.isArray(reviewData.suggestions) && reviewData.suggestions.length > 0) {
+                  // Parse suggestions from database (may be stored as strings or objects)
+                  const dbSuggestions = reviewData.suggestions
+                    .map((s: string | { text: string; justification?: string }) => {
+                      if (typeof s === 'string') {
+                        return { text: s, justification: 'No justification provided.' }
+                      } else if (s && typeof s === 'object' && typeof s.text === 'string') {
+                        return {
+                          text: s.text,
+                          justification: s.justification || 'No justification provided.',
+                        }
+                      }
+                      return null
+                    })
+                    .filter((s): s is { text: string; justification: string } => s !== null)
+                  
+                  if (dbSuggestions.length > 0) {
+                    suggestions = dbSuggestions
+                    reviewId = reviewData.id
+                    addProgress('Loaded recommendations from database')
+                    dbSuggestionsFound = true
+                    break
+                  }
+                } else if (reviewData.status === 'failed' && reviewData.error_message) {
+                  // Review completed but failed - show error
+                  setProcessReviewStatus('failed')
+                  setProcessReviewAgentRunStatus('failed')
+                  const errorMsg = reviewData.error_message
+                  setProcessReviewAgentError(errorMsg)
+                  addMessage(convId, 'process-review-agent', `[Process Review] ❌ Failed: ${errorMsg}`)
+                  return
+                }
+              }
+            } catch (dbError) {
+              console.warn(`[Process Review] Failed to load suggestions from database (attempt ${retry + 1}):`, dbError)
+              // Continue to next retry or show error if all retries exhausted
+            }
           }
         }
 
@@ -2702,7 +2712,8 @@ function App() {
           addProgress('Process Review completed - recommendations modal opened')
         } else {
           // Check if there was a parsing/loading error
-          const hasError = suggestions === null || (Array.isArray(suggestions) && suggestions.length === 0 && lastStatus === 'finished')
+          // suggestions is always an array (initialized as []), so check length
+          const hasError = Array.isArray(suggestions) && suggestions.length === 0 && (lastStatus === 'finished' || lastStatus === 'completed')
           
           if (hasError) {
             // Show error state with retry option
