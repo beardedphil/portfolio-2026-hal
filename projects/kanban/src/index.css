@@ -294,7 +294,7 @@ h1 {
 /* Active work row (0145) */
 .active-work-row {
   margin-bottom: 1.5rem;
-  padding: 1rem;
+  padding: 1rem 8px; /* 0705: 8px horizontal padding */
   background: var(--kanban-surface);
   border: 1px solid var(--kanban-border);
   border-radius: 8px;
@@ -594,6 +594,7 @@ h1 {
 /* Columns section */
 .columns-section {
   margin-bottom: 1.5rem;
+  padding: 0 8px; /* 0705: 8px horizontal padding */
   flex: 0 1 auto; /* 0706: Use natural height instead of flex: 1 to allow unified scrolling */
   min-height: 0;
   display: flex;
@@ -602,6 +603,7 @@ h1 {
   overflow-y: visible;
   width: 100%;
   max-width: 100%;
+  box-sizing: border-box;
 }
 .add-column-btn {
   margin-bottom: 0.75rem;
