@@ -6,8 +6,8 @@ import { HalKanbanContext } from '../HalKanbanContext'
 import type { Column, Card } from '../lib/columnTypes'
 import type { SupabaseTicketRow } from '../lib/workButtonHandlers'
 
-// Mock SortableCard since it's imported from App.tsx
-vi.mock('../App', () => ({
+// Mock SortableCard (SortableColumn imports it from './SortableCard')
+vi.mock('./SortableCard', () => ({
   SortableCard: ({ card }: { card: Card }) => (
     <div data-testid={`card-${card.id}`}>{card.title}</div>
   ),
