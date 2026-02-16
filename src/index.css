@@ -590,8 +590,7 @@ div.kanban-frame-container #root,
   overflow-y: visible !important;
   overflow-x: visible !important;
   position: relative !important;
-  padding-left: 8px !important;
-  padding-right: 8px !important;
+  padding: 16px !important;
   max-height: none !important;
 }
 .kanban-frame-container .active-work-items {
@@ -608,7 +607,7 @@ div.kanban-frame-container #root,
   overflow: visible !important;
   overflow-y: visible !important;
   overflow-x: visible !important;
-  padding: 8px !important;
+  padding: 16px !important;
   max-height: none !important; /* 0706: Ensure no max-height constraint */
   height: auto !important; /* 0706: Ensure height is auto, not constrained */
 }
