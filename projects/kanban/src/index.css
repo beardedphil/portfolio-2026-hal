@@ -85,12 +85,17 @@ body[data-embedded="true"] #root,
 }
 
 /* When embedded in HAL's kanban-frame-container, remove scroll container so parent handles scrolling */
-.kanban-frame-container #root {
+/* 0706: CRITICAL - This must override the base #root overflow-y: auto to prevent nested scroll container */
+.kanban-frame-container #root,
+.kanban-frame-container > #root,
+div.kanban-frame-container #root {
   overflow: visible !important;
   overflow-y: visible !important;
   overflow-x: hidden !important;
   height: auto !important;
   min-height: 0 !important;
+  max-height: none !important;
+  padding: 0 !important; /* 0706: Remove padding so scrollbar starts at top */
 }
 /* Override HAL's .kanban-frame-container .columns-row rule to enable horizontal scrolling */
 /* 0706: Use flex: 0 1 auto instead of flex: 1 to allow unified scrolling - don't grow to fill space */
