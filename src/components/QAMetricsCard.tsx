@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { getMetricColor } from '../lib/metricColor'
 
-interface QAMetrics {
+export interface QAMetrics {
   coverage: number | null // 0-100 or null for N/A
   simplicity: number | null // 0-100 or null for N/A
 }
@@ -23,11 +23,10 @@ function fetchMetrics(cacheBust = false): Promise<QAMetrics | null> {
 }
 
 /**
- * Component that fetches and displays QA metrics (Coverage and Simplicity)
- * from /metrics.json. Handles missing metrics gracefully by showing "N/A".
- * Polls periodically so updates (e.g. from report:simplicity or CI) appear automatically.
+ * Hook to fetch and poll QA metrics from /metrics.json.
+ * Returns metrics state that updates automatically when metrics.json changes.
  */
-export function QAMetricsCard() {
+export function useQAMetrics() {
   const [qaMetrics, setQaMetrics] = useState<QAMetrics | null>(null)
 
   // Load metrics on mount and poll so UI updates when metrics.json changes (CI or local report:simplicity)
@@ -48,28 +47,65 @@ export function QAMetricsCard() {
     }
   }, [])
 
+  return qaMetrics
+}
+
+/**
+ * Individual metric badge component for Coverage or Simplicity.
+ */
+function QAMetricBadge({ 
+  label, 
+  value
+}: { 
+  label: string
+  value: number | null
+}) {
+  return (
+    <div
+      className="qa-metric-box"
+      style={{ backgroundColor: getMetricColor(value) }}
+      title={value !== null ? `${label}: ${value.toFixed(0)}%` : `${label}: N/A`}
+    >
+      <span className="qa-metric-label">{label}</span>
+      <span className="qa-metric-value">
+        {value !== null ? `${value.toFixed(0)}%` : 'N/A'}
+      </span>
+    </div>
+  )
+}
+
+/**
+ * Coverage metric badge component.
+ * Fetches and displays Coverage from /metrics.json. Handles missing metrics gracefully by showing "N/A".
+ */
+export function CoverageBadge() {
+  const qaMetrics = useQAMetrics()
+  return <QAMetricBadge label="Coverage" value={qaMetrics?.coverage ?? null} />
+}
+
+/**
+ * Simplicity metric badge component.
+ * Fetches and displays Simplicity from /metrics.json. Handles missing metrics gracefully by showing "N/A".
+ */
+export function SimplicityBadge() {
+  const qaMetrics = useQAMetrics()
+  return <QAMetricBadge label="Simplicity" value={qaMetrics?.simplicity ?? null} />
+}
+
+/**
+ * Component that fetches and displays QA metrics (Coverage and Simplicity)
+ * from /metrics.json. Handles missing metrics gracefully by showing "N/A".
+ * Polls periodically so updates (e.g. from report:simplicity or CI) appear automatically.
+ * 
+ * @deprecated Use CoverageBadge and SimplicityBadge separately instead.
+ */
+export function QAMetricsCard() {
+  const qaMetrics = useQAMetrics()
+
   return (
     <div className="qa-metrics">
-      <div
-        className="qa-metric-box"
-        style={{ backgroundColor: getMetricColor(qaMetrics?.coverage ?? null) }}
-        title={qaMetrics?.coverage !== null && qaMetrics !== null ? `Coverage: ${qaMetrics.coverage.toFixed(0)}%` : 'Coverage: N/A'}
-      >
-        <span className="qa-metric-label">Coverage</span>
-        <span className="qa-metric-value">
-          {qaMetrics?.coverage !== null && qaMetrics !== null ? `${qaMetrics.coverage.toFixed(0)}%` : 'N/A'}
-        </span>
-      </div>
-      <div
-        className="qa-metric-box"
-        style={{ backgroundColor: getMetricColor(qaMetrics?.simplicity ?? null) }}
-        title={qaMetrics?.simplicity !== null && qaMetrics !== null ? `Simplicity: ${qaMetrics.simplicity.toFixed(0)}%` : 'Simplicity: N/A'}
-      >
-        <span className="qa-metric-label">Simplicity</span>
-        <span className="qa-metric-value">
-          {qaMetrics?.simplicity !== null && qaMetrics !== null ? `${qaMetrics.simplicity.toFixed(0)}%` : 'N/A'}
-        </span>
-      </div>
+      <QAMetricBadge label="Coverage" value={qaMetrics?.coverage ?? null} />
+      <QAMetricBadge label="Simplicity" value={qaMetrics?.simplicity ?? null} />
       {qaMetrics === null && (
         <span className="qa-metrics-hint">Run test:coverage and report:simplicity to update</span>
       )}

@@ -4,7 +4,7 @@ import { saveConversationsToStorage, loadConversationsFromStorage, type Agent, t
 // Chat width/collapse state no longer needed - floating widget replaces sidebar (0698)
 import { getInitialTheme, THEME_STORAGE_KEY } from './lib/metricColor'
 import { getConversationId, parseConversationId, getNextInstanceNumber, formatTime, getMessageAuthorLabel } from './lib/conversation-helpers'
-import { QAMetricsCard } from './components/QAMetricsCard'
+import { CoverageBadge, SimplicityBadge } from './components/QAMetricsCard'
 import type { Theme } from './types/hal'
 import * as Kanban from 'portfolio-2026-kanban'
 import type { KanbanTicketRow, KanbanColumnRow, KanbanAgentRunRow, KanbanBoardProps } from 'portfolio-2026-kanban'
@@ -1136,17 +1136,17 @@ function App() {
     }
   }, [pmMessages, pmChatWidgetOpen, agentTypingTarget, loadingOlderMessages])
 
-  // Auto-scroll PM chat transcript to bottom when switching back to PM chat (HAL-0701)
+  // Auto-scroll Project Manager chat to bottom when widget opens or when switching to PM chat (HAL-0701)
   useEffect(() => {
-    if (pmChatWidgetOpen && selectedChatTarget === 'project-manager' && messagesEndRef.current) {
-      // Use requestAnimationFrame to ensure DOM is fully rendered
+    if (pmChatWidgetOpen && selectedChatTarget === 'project-manager' && transcriptRef.current) {
+      // Use requestAnimationFrame to ensure DOM has updated and layout is complete
       requestAnimationFrame(() => {
-        if (messagesEndRef.current) {
-          messagesEndRef.current.scrollTop = messagesEndRef.current.scrollHeight
+        if (transcriptRef.current) {
+          transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight
         }
       })
     }
-  }, [pmChatWidgetOpen, selectedChatTarget])
+  }, [pmChatWidgetOpen, selectedChatTarget, pmMessages])
 
   // Detect scroll to top and load older messages
   useEffect(() => {
@@ -2976,7 +2976,15 @@ function App() {
           </>
         )}
         {/* Messages list — use chat-transcript so sidebar gets same styles as right panel */}
-        <div className="chat-transcript" ref={messagesEndRef}>
+        <div 
+          className="chat-transcript" 
+          ref={(el) => {
+            // Attach both refs to the same element (HAL-0701)
+            // Use type assertion since we know these are mutable refs
+            ;(messagesEndRef as React.MutableRefObject<HTMLDivElement | null>).current = el
+            ;(transcriptRef as React.MutableRefObject<HTMLDivElement | null>).current = el
+          }}
+        >
           {displayMessages.length === 0 && agentTypingTarget !== displayTarget ? (
             <p className="transcript-empty">
               {displayTarget === 'project-manager'
@@ -3114,27 +3122,32 @@ function App() {
               Connect GitHub Repo
             </button>
           ) : (
-            <div className="project-info">
+            <>
               {connectedGithubRepo && (
                 <>
-                  <div className="project-info-row">
-                    <span className="project-name" title={connectedGithubRepo.fullName}>
-                      {connectedGithubRepo.fullName}
-                    </span>
-                    <button
-                      ref={disconnectButtonRef}
-                      type="button"
-                      className="disconnect-btn"
-                      onClick={handleDisconnectClick}
-                    >
-                      Disconnect
-                    </button>
+                  {/* Coverage badge on the left (0699) */}
+                  <CoverageBadge />
+                  {/* Repo/Disconnect box in the middle (0699) */}
+                  <div className="project-info">
+                    <div className="project-info-row">
+                      <span className="project-name" title={connectedGithubRepo.fullName}>
+                        {connectedGithubRepo.fullName}
+                      </span>
+                      <button
+                        ref={disconnectButtonRef}
+                        type="button"
+                        className="disconnect-btn"
+                        onClick={handleDisconnectClick}
+                      >
+                        Disconnect
+                      </button>
+                    </div>
                   </div>
-                  {/* QA quality metrics (0667) */}
-                  <QAMetricsCard />
+                  {/* Simplicity badge on the right (0699) */}
+                  <SimplicityBadge />
                 </>
               )}
-            </div>
+            </>
           )}
         </div>
         <div className="hal-header-actions">
