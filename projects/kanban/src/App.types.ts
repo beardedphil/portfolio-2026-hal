@@ -46,7 +46,22 @@ export type SupabaseAgentRunRow = {
   ticket_number: number | null
   display_id: string | null
   // Status can be legacy values or new workflow step IDs (0690)
-  status: 'preparing' | 'fetching_ticket' | 'resolving_repo' | 'fetching_branch' | 'launching' | 'polling' | 'generating_report' | 'merging' | 'moving_ticket' | 'completed' | 'failed' | 'created' | 'finished'
+  status:
+    | 'preparing'
+    | 'fetching_ticket'
+    | 'resolving_repo'
+    | 'fetching_branch'
+    | 'launching'
+    | 'running'
+    | 'reviewing'
+    | 'polling'
+    | 'generating_report'
+    | 'merging'
+    | 'moving_ticket'
+    | 'completed'
+    | 'failed'
+    | 'created'
+    | 'finished'
   current_stage: string | null
   created_at: string
   updated_at: string
