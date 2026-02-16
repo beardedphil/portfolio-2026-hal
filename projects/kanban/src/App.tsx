@@ -35,6 +35,9 @@ import { canonicalizeColumnRows, type SupabaseKanbanColumnRow } from './lib/cano
 import { fetchWithRetry } from './lib/fetchWithRetry'
 import { agentTypeToLabel } from './lib/agentTypeLabel'
 import { stableColumnId } from './lib/stableColumnId'
+import { createSupabaseClient, fetchTickets, fetchTicketArtifacts as fetchTicketArtifactsCore, fetchTicketAttachments as fetchTicketAttachmentsCore, fetchActiveAgentRuns as fetchActiveAgentRunsCore } from './lib/supabaseDataFetchers'
+import { updateTicketKanban } from './lib/supabaseTicketUpdates'
+import { fetchAndInitializeColumns } from './lib/supabaseColumnManagement'
 import { TicketDetailModal } from './components/TicketDetailModal'
 import { QAInfoSection } from './components/QAInfoSection'
 import { AutoDismissMessage } from './components/AutoDismissMessage'
@@ -44,6 +47,7 @@ import { DroppableActiveWorkRow } from './components/DroppableActiveWorkRow'
 import { AppHeader } from './components/AppHeader'
 import { AddColumnForm } from './components/AddColumnForm'
 import { DebugPanel } from './components/DebugPanel'
+import { DraggableSupabaseTicketItem } from './components/DraggableSupabaseTicketItem'
 import type { Card, Column } from './lib/columnTypes'
 import type { LogEntry, SupabaseTicketRow, SupabaseAgentArtifactRow, SupabaseAgentRunRow, TicketAttachment } from './App.types'
 import { SUPABASE_CONFIG_KEY, CONNECTED_REPO_KEY, SUPABASE_POLL_INTERVAL_MS, SUPABASE_SAFETY_POLL_INTERVAL_MS, REFETCH_AFTER_MOVE_MS, KANBAN_BROADCAST_CHANNEL, EMPTY_KANBAN_COLUMNS, DEFAULT_KANBAN_COLUMNS_SEED, _SUPABASE_KANBAN_COLUMNS_SETUP_SQL, DEFAULT_COLUMNS, INITIAL_CARDS, _SUPABASE_SETUP_SQL, _SUPABASE_TICKET_ATTACHMENTS_SETUP_SQL } from './App.constants'
@@ -76,43 +80,7 @@ import { formatTime, normalizeTitle } from './App.utils'
 
 // QAInfoSection extracted to components/QAInfoSection.tsx
 // TicketDetailModal extracted to components/TicketDetailModal.tsx
-
-/** Draggable Supabase ticket list item (0013): id is ticket id for DnD. */
-function _DraggableSupabaseTicketItem({
-  row,
-  onClick,
-  isSelected,
-}: {
-  row: SupabaseTicketRow
-  onClick: () => void
-  isSelected: boolean
-}) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: row.pk,
-    data: { type: 'supabase-ticket-from-list', id: row.pk },
-  })
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    opacity: isDragging ? 0.5 : 1,
-  }
-  const displayId = row.display_id ?? row.id
-  const cleanTitle = row.title.replace(/^(?:[A-Za-z0-9]{2,10}-)?\d{4}\s*[—–-]\s*/, '')
-  return (
-    <li ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <button
-        type="button"
-        className="ticket-file-btn"
-        onClick={(e) => {
-          e.stopPropagation()
-          onClick()
-        }}
-        aria-pressed={isSelected}
-      >
-        {displayId} — {cleanTitle}
-      </button>
-    </li>
-  )
-}
+// DraggableSupabaseTicketItem extracted to components/DraggableSupabaseTicketItem.tsx
 
 function App() {
   const [debugOpen, setDebugOpen] = useState(false)
@@ -340,25 +308,13 @@ function App() {
         setSupabaseColumnsRows([])
         return
       }
-      // Repo-scoped schema (0079). If columns don't exist yet, show a clear migration error.
-      let rows: unknown[] | null = null
-      let error: { code?: string; message?: string } | null = null
-      if (connectedRepoFullName) {
-        const r = await client
-          .from('tickets')
-          .select('pk, id, repo_full_name, ticket_number, display_id, filename, title, body_md, kanban_column_id, kanban_position, kanban_moved_at, updated_at')
-          .eq('repo_full_name', connectedRepoFullName)
-          .order('ticket_number', { ascending: true })
-        rows = (r.data ?? null) as unknown[] | null
-        error = (r.error as typeof error) ?? null
-      } else {
-        // No repo connected: show no tickets (repo-scoped 0079)
-        rows = []
-        error = null
-      }
-      if (error) {
-        const eAny = error as any
-        const msg = eAny?.message ?? String(error)
+      // Repo-scoped schema (0079). Fetch tickets using extracted function
+      try {
+        const tickets = await fetchTickets(client, connectedRepoFullName)
+        setSupabaseTickets(tickets)
+      } catch (e) {
+        const eAny = e as any
+        const msg = eAny?.message ?? String(e)
         const looksLikeOldSchema =
           eAny?.code === '42703' ||
           (msg.toLowerCase().includes('column') && msg.toLowerCase().includes('does not exist'))
@@ -372,91 +328,27 @@ function App() {
         setSupabaseColumnsRows([])
         return
       }
-      setSupabaseTickets(((rows ?? []) as any[]).map((r) => normalizeTicketRow(r)))
 
       // Fetch kanban_columns (0020); init defaults if empty
       setSupabaseColumnsLastError(null)
-      const { data: colRows, error: colError } = await client
-        .from('kanban_columns')
-        .select('id, title, position, created_at, updated_at')
-        .order('position', { ascending: true })
-      if (colError) {
-        const eAny = colError as any
-        const code = eAny?.code as string | undefined
-        const msg = (eAny?.message as string | undefined) ?? String(colError)
-        const lower = msg.toLowerCase()
-        const isTableMissing =
-          code === '42P01' ||
-          lower.includes('relation') ||
-          lower.includes('does not exist') ||
-          lower.includes('could not find')
-        if (isTableMissing) {
+      const columnResult = await fetchAndInitializeColumns(client)
+      if (columnResult.error) {
+        if (columnResult.error === 'kanban_columns table missing') {
           setSupabaseColumnsLastError('kanban_columns table missing. Run: ' + _SUPABASE_KANBAN_COLUMNS_SETUP_SQL.slice(0, 80) + '...')
           setSupabaseLastError('Supabase schema incomplete (kanban_columns table missing).')
         } else {
-          setSupabaseColumnsLastError(msg)
+          setSupabaseColumnsLastError(columnResult.error)
         }
         setSupabaseConnectionStatus('disconnected')
         setSupabaseTickets([])
         setSupabaseColumnsRows([])
         return
       }
-      let finalColRows = (colRows ?? []) as SupabaseKanbanColumnRow[]
-      if (finalColRows.length === 0) {
-        for (const seed of DEFAULT_KANBAN_COLUMNS_SEED) {
-          const { error: insErr } = await client.from('kanban_columns').insert(seed)
-          if (insErr) {
-            setSupabaseColumnsLastError(insErr.message ?? String(insErr))
-            setSupabaseLastError('Failed to initialize default columns: ' + (insErr.message ?? String(insErr)))
-            setSupabaseConnectionStatus('disconnected')
-            setSupabaseTickets([])
-            setSupabaseColumnsRows([])
-            return
-          }
-        }
-        const { data: afterRows } = await client
-          .from('kanban_columns')
-          .select('id, title, position, created_at, updated_at')
-          .order('position', { ascending: true })
-        finalColRows = (afterRows ?? []) as SupabaseKanbanColumnRow[]
-        setSupabaseColumnsJustInitialized(true)
-      } else {
-        // Migration: add missing columns for existing DBs (col-qa, col-human-in-the-loop, col-process-review, col-wont-implement)
-        const ids = new Set(finalColRows.map((c) => c.id))
-        const toInsert: { id: string; title: string; position: number }[] = []
-        if (!ids.has('col-qa')) {
-          toInsert.push({ id: 'col-qa', title: 'QA', position: -1 })
-        }
-        if (!ids.has('col-human-in-the-loop')) {
-          toInsert.push({ id: 'col-human-in-the-loop', title: 'Human in the Loop', position: -1 })
-        }
-        if (!ids.has('col-process-review')) {
-          toInsert.push({ id: 'col-process-review', title: 'Process Review', position: -1 })
-        }
-        if (!ids.has('col-wont-implement')) {
-          toInsert.push({ id: 'col-wont-implement', title: 'Will Not Implement', position: -1 })
-        }
-        if (toInsert.length > 0) {
-          const maxPosition = Math.max(...finalColRows.map((c) => c.position), -1)
-          for (let i = 0; i < toInsert.length; i++) {
-            toInsert[i].position = maxPosition + 1 + i
-          }
-          for (const row of toInsert) {
-            const { error: insErr } = await client.from('kanban_columns').insert(row)
-            if (!insErr) {
-              finalColRows = [...finalColRows, row as SupabaseKanbanColumnRow]
-            }
-          }
-          finalColRows.sort((a, b) => a.position - b.position)
-          const { data: afterRows } = await client
-            .from('kanban_columns')
-            .select('id, title, position, created_at, updated_at')
-            .order('position', { ascending: true })
-          if (afterRows?.length) finalColRows = afterRows as SupabaseKanbanColumnRow[]
-        }
-      }
 
-      setSupabaseColumnsRows(canonicalizeColumnRows(finalColRows))
+      setSupabaseColumnsRows(columnResult.columns)
+      if (columnResult.justInitialized) {
+        setSupabaseColumnsJustInitialized(true)
+      }
       setSupabaseColumnsLastRefresh(new Date())
       setSupabaseLastRefresh(new Date())
       setSupabaseConnectionStatus('connected')
@@ -548,26 +440,9 @@ function App() {
   /** Fetch artifacts for a ticket (0082) */
   const fetchTicketArtifacts = useCallback(
     async (ticketPk: string): Promise<SupabaseAgentArtifactRow[]> => {
-      const url = supabaseProjectUrl.trim()
-      const key = supabaseAnonKey.trim()
-      if (!url || !key) return []
-      try {
-        const client = createClient(url, key)
-        const { data, error } = await client
-          .from('agent_artifacts')
-          .select('artifact_id, ticket_pk, repo_full_name, agent_type, title, body_md, created_at, updated_at')
-          .eq('ticket_pk', ticketPk)
-          .order('created_at', { ascending: true })
-          .order('artifact_id', { ascending: true })
-        if (error) {
-          console.warn('Failed to fetch artifacts:', error)
-          return []
-        }
-        return (data ?? []) as SupabaseAgentArtifactRow[]
-      } catch (e) {
-        console.warn('Failed to fetch artifacts:', e)
-        return []
-      }
+      const client = createSupabaseClient(supabaseProjectUrl, supabaseAnonKey)
+      if (!client) return []
+      return fetchTicketArtifactsCore(client, ticketPk)
     },
     [supabaseProjectUrl, supabaseAnonKey]
   )
@@ -575,25 +450,9 @@ function App() {
   /** Fetch ticket attachments (0092) */
   const fetchTicketAttachments = useCallback(
     async (ticketId: string): Promise<TicketAttachment[]> => {
-      const url = supabaseProjectUrl.trim()
-      const key = supabaseAnonKey.trim()
-      if (!url || !key) return []
-      try {
-        const client = createClient(url, key)
-        const { data, error } = await client
-          .from('ticket_attachments')
-          .select('pk, ticket_pk, ticket_id, filename, mime_type, data_url, file_size, created_at')
-          .eq('ticket_id', ticketId)
-          .order('created_at', { ascending: false })
-        if (error) {
-          console.warn('Failed to fetch ticket attachments:', error)
-          return []
-        }
-        return (data ?? []) as TicketAttachment[]
-      } catch (e) {
-        console.warn('Failed to fetch ticket attachments:', e)
-        return []
-      }
+      const client = createSupabaseClient(supabaseProjectUrl, supabaseAnonKey)
+      if (!client) return []
+      return fetchTicketAttachmentsCore(client, ticketId)
     },
     [supabaseProjectUrl, supabaseAnonKey]
   )
@@ -640,28 +499,8 @@ function App() {
         return
       }
       const ticketPks = doingTickets.map((t) => t.pk)
-      // Fetch active agent runs (status not 'finished' or 'failed') for these tickets (0690: include current_stage)
-      const { data, error } = await client
-        .from('hal_agent_runs')
-        .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, status, current_stage, created_at, updated_at')
-        .eq('repo_full_name', connectedRepoFullName)
-        .in('ticket_pk', ticketPks)
-        // Filter for active runs: any status that's not 'completed' or 'failed' (0690)
-        // Includes: 'preparing', 'fetching_ticket', 'resolving_repo', 'fetching_branch', 'launching', 'running', 'reviewing', 'polling', 'generating_report', 'merging', 'moving_ticket'
-        // Also includes old status values for backward compatibility: 'created', 'finished' (though 'finished' should be 'completed' now)
-        .in('status', ['preparing', 'fetching_ticket', 'resolving_repo', 'fetching_branch', 'launching', 'running', 'reviewing', 'polling', 'generating_report', 'merging', 'moving_ticket', 'created', 'finished'])
-        .order('created_at', { ascending: false })
-      if (error) {
-        console.warn('Failed to fetch agent runs:', error)
-        return
-      }
-      // Map by ticket_pk, keeping only the most recent active run per ticket
-      const runsByTicket: Record<string, SupabaseAgentRunRow> = {}
-      for (const run of (data ?? []) as SupabaseAgentRunRow[]) {
-        if (run.ticket_pk && (!runsByTicket[run.ticket_pk] || new Date(run.created_at) > new Date(runsByTicket[run.ticket_pk].created_at))) {
-          runsByTicket[run.ticket_pk] = run
-        }
-      }
+      // Fetch active agent runs using extracted function
+      const runsByTicket = await fetchActiveAgentRunsCore(client, connectedRepoFullName, ticketPks)
       // CRITICAL FIX (0135): Final check using current state to ensure we only include tickets currently in Doing
       // This handles race conditions where tickets might have moved during the async fetch
       // Read the absolute latest tickets from ref (updated synchronously in refetchSupabaseTickets)
@@ -1321,27 +1160,11 @@ function App() {
       pk: string,
       updates: { kanban_column_id?: string; kanban_position?: number; kanban_moved_at?: string }
     ): Promise<{ ok: true } | { ok: false; error: string }> => {
-      const url = supabaseProjectUrl.trim()
-      const key = supabaseAnonKey.trim()
-      if (!url || !key) {
-        const err = 'Supabase not configured (URL/key missing). Connect first.'
-        setSupabaseLastError(err)
-        return { ok: false, error: err }
+      const result = await updateTicketKanban(supabaseProjectUrl, supabaseAnonKey, pk, updates)
+      if (!result.ok) {
+        setSupabaseLastError(result.error)
       }
-      try {
-        const client = createClient(url, key)
-        const { error } = await client.from('tickets').update(updates).eq('pk', pk)
-        if (error) {
-          const msg = error.message ?? String(error)
-          setSupabaseLastError(msg)
-          return { ok: false, error: msg }
-        }
-        return { ok: true }
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
-        setSupabaseLastError(msg)
-        return { ok: false, error: msg }
-      }
+      return result
     },
     [supabaseProjectUrl, supabaseAnonKey]
   )
@@ -2510,7 +2333,7 @@ function App() {
     _SUPABASE_SETUP_SQL,
     _SUPABASE_KANBAN_COLUMNS_SETUP_SQL,
     _SUPABASE_TICKET_ATTACHMENTS_SETUP_SQL,
-    _DraggableSupabaseTicketItem,
+                DraggableSupabaseTicketItem,
     _supabaseNotInitialized,
     _selectedSupabaseTicketId,
     _selectedSupabaseTicketContent,
