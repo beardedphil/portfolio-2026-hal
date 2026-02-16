@@ -3378,133 +3378,51 @@ function App() {
         />
       )}
 
-      {newHalWizardOpen && (
-        <div className="modal-backdrop" role="dialog" aria-label="New HAL project wizard">
-          <div className="modal">
-            <div className="modal-header">
-              <h2 className="modal-title">New HAL project (wizard v0)</h2>
-              <button type="button" className="modal-close" onClick={() => setNewHalWizardOpen(false)}>
-                Close
-              </button>
-            </div>
-
-            {/* Wizard content moved to NewHalProjectWizard component */}
-
-            <div className="checklist">
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={newHalChecklist.createdRepo}
-                  onChange={(e) => setNewHalChecklist((p) => ({ ...p, createdRepo: e.target.checked }))}
-                />
-                <span>Repo created (local + remote)</span>
-              </label>
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={newHalChecklist.copiedScaffold}
-                  onChange={(e) => setNewHalChecklist((p) => ({ ...p, copiedScaffold: e.target.checked }))}
-                />
-                <span>Copied scaffold (`.cursor/rules`, `docs/`, `scripts/sync-tickets.js`, `.env.example`)</span>
-              </label>
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={newHalChecklist.setEnv}
-                  onChange={(e) => setNewHalChecklist((p) => ({ ...p, setEnv: e.target.checked }))}
-                />
-                <span>Configured `.env` (Supabase keys) and confirmed `.env` is ignored</span>
-              </label>
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={newHalChecklist.addedToHalSuperProject}
-                  onChange={(e) => setNewHalChecklist((p) => ({ ...p, addedToHalSuperProject: e.target.checked }))}
-                />
-                <span>Added as submodule in HAL super-project</span>
-              </label>
-            </div>
-
-            <div className="modal-actions">
-              <button type="button" className="primary" onClick={generateNewHalReport}>
-                Generate bootstrap report
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setNewHalProjectName('')
-                  setNewHalRepoUrl('')
-                  setNewHalChecklist({ createdRepo: false, copiedScaffold: false, setEnv: false, addedToHalSuperProject: false })
-                  setNewHalReport(null)
-                  setNewHalTemplateRoot(null)
-                  setNewHalTargetRoot(null)
-                  setNewHalBootstrapLog(null)
-                  setNewHalBootstrapError(null)
-                }}
-              >
-                Reset
-              </button>
-            </div>
-
-            <div className="wizard-v1">
-              <p className="field-label">Wizard v1: copy scaffold (writes files)</p>
-              <p className="wizard-help">
-                Select the scaffold folder (recommended: this repo’s <code>hal-template/</code>) and a destination folder for your new project, then copy.
-              </p>
-              <div className="wizard-actions">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    try {
-                      const dir = await pickWizardFolder('read')
-                      setNewHalTemplateRoot(dir)
-                      setNewHalBootstrapError(null)
-                    } catch (e) {
-                      setNewHalBootstrapError(e instanceof Error ? e.message : String(e))
-                    }
-                  }}
-                >
-                  Select scaffold folder
-                </button>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    try {
-                      const dir = await pickWizardFolder('readwrite')
-                      setNewHalTargetRoot(dir)
-                      setNewHalBootstrapError(null)
-                    } catch (e) {
-                      setNewHalBootstrapError(e instanceof Error ? e.message : String(e))
-                    }
-                  }}
-                >
-                  Select destination folder
-                </button>
-                <button type="button" className="primary" onClick={runWizardBootstrap}>
-                  Copy scaffold
-                </button>
-              </div>
-
-              <p className="wizard-status">
-                Scaffold selected: {String(!!newHalTemplateRoot)} | Destination selected: {String(!!newHalTargetRoot)}
-              </p>
-              {newHalBootstrapError && (
-                <p className="wizard-error" role="alert">
-                  {newHalBootstrapError}
-                </p>
-              )}
-              {newHalBootstrapLog && <pre className="report-pre">{newHalBootstrapLog}</pre>}
-            </div>
-
-            {newHalReport && (
-              <div className="report">
-                <p className="field-label">Bootstrap report</p>
-                <pre className="report-pre">{newHalReport}</pre>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      <NewHalProjectWizard
+        open={newHalWizardOpen}
+        onClose={() => setNewHalWizardOpen(false)}
+        projectName={newHalProjectName}
+        repoUrl={newHalRepoUrl}
+        checklist={newHalChecklist}
+        report={newHalReport}
+        templateRoot={newHalTemplateRoot}
+        targetRoot={newHalTargetRoot}
+        bootstrapLog={newHalBootstrapLog}
+        bootstrapError={newHalBootstrapError}
+        onProjectNameChange={setNewHalProjectName}
+        onRepoUrlChange={setNewHalRepoUrl}
+        onChecklistChange={(updates) => setNewHalChecklist((p) => ({ ...p, ...updates }))}
+        onGenerateReport={generateNewHalReport}
+        onReset={() => {
+          setNewHalProjectName('')
+          setNewHalRepoUrl('')
+          setNewHalChecklist({ createdRepo: false, copiedScaffold: false, setEnv: false, addedToHalSuperProject: false })
+          setNewHalReport(null)
+          setNewHalTemplateRoot(null)
+          setNewHalTargetRoot(null)
+          setNewHalBootstrapLog(null)
+          setNewHalBootstrapError(null)
+        }}
+        onSelectTemplateRoot={async () => {
+          try {
+            const dir = await pickWizardFolder('read')
+            setNewHalTemplateRoot(dir)
+            setNewHalBootstrapError(null)
+          } catch (e) {
+            setNewHalBootstrapError(e instanceof Error ? e.message : String(e))
+          }
+        }}
+        onSelectTargetRoot={async () => {
+          try {
+            const dir = await pickWizardFolder('readwrite')
+            setNewHalTargetRoot(dir)
+            setNewHalBootstrapError(null)
+          } catch (e) {
+            setNewHalBootstrapError(e instanceof Error ? e.message : String(e))
+          }
+        }}
+        onRunBootstrap={runWizardBootstrap}
+      />
 
       {showConfigMissingError && !connectError && (
         <div className="config-missing-error" role="alert">
