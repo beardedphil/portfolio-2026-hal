@@ -4,7 +4,6 @@ import { saveConversationsToStorage, loadConversationsFromStorage, type Agent, t
 // Chat width/collapse state no longer needed - floating widget replaces sidebar (0698)
 import { getInitialTheme, THEME_STORAGE_KEY } from './lib/metricColor'
 import { getConversationId, parseConversationId, getNextInstanceNumber, formatTime, getMessageAuthorLabel } from './lib/conversation-helpers'
-import { QAMetricsCard } from './components/QAMetricsCard'
 import { CoverageBadge } from './components/CoverageBadge'
 import { SimplicityBadge } from './components/SimplicityBadge'
 import type { Theme } from './types/hal'
