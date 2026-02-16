@@ -5,6 +5,8 @@ import { saveConversationsToStorage, loadConversationsFromStorage, type Agent, t
 import { getInitialTheme, THEME_STORAGE_KEY } from './lib/metricColor'
 import { getConversationId, parseConversationId, getNextInstanceNumber, formatTime, getMessageAuthorLabel } from './lib/conversation-helpers'
 import { QAMetricsCard } from './components/QAMetricsCard'
+import { CoverageBadge } from './components/CoverageBadge'
+import { SimplicityBadge } from './components/SimplicityBadge'
 import type { Theme } from './types/hal'
 import * as Kanban from 'portfolio-2026-kanban'
 import type { KanbanTicketRow, KanbanColumnRow, KanbanAgentRunRow, KanbanBoardProps } from 'portfolio-2026-kanban'
@@ -3078,11 +3080,9 @@ function App() {
               Connect GitHub Repo
             </button>
           ) : (
-            <>
-              {/* Coverage badge (left) */}
-              {connectedGithubRepo && <QAMetricsCard metric="coverage" />}
-              {/* Repo/Disconnect box (middle) */}
-              {connectedGithubRepo && (
+            connectedGithubRepo && (
+              <div className="header-center-metrics">
+                <CoverageBadge />
                 <div className="project-info">
                   <div className="project-info-row">
                     <span className="project-name" title={connectedGithubRepo.fullName}>
@@ -3098,10 +3098,9 @@ function App() {
                     </button>
                   </div>
                 </div>
-              )}
-              {/* Simplicity badge (right) */}
-              {connectedGithubRepo && <QAMetricsCard metric="simplicity" />}
-            </>
+                <SimplicityBadge />
+              </div>
+            )
           )}
         </div>
         <div className="hal-header-actions">
