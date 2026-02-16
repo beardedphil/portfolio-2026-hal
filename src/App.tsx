@@ -22,6 +22,59 @@ const KanbanBoard = Kanban.default
 // const _kanbanBuild = (Kanban as unknown as { KANBAN_BUILD?: string }).KANBAN_BUILD
 // const _KANBAN_BUILD: string = typeof _kanbanBuild === 'string' ? _kanbanBuild : 'unknown'
 
+/**
+ * hal_agent_runs selection logic:
+ * A ticket can have multiple runs (implementation + QA + retries). The Kanban "Active Work" badge
+ * should reflect the most relevant run for that ticket: prefer any non-terminal run; otherwise the
+ * most recent run.
+ */
+const TERMINAL_RUN_STATUSES = new Set(['finished', 'completed', 'failed'])
+function isNonTerminalRunStatus(status: string | null | undefined): boolean {
+  const s = String(status ?? '').trim().toLowerCase()
+  if (!s) return false
+  return !TERMINAL_RUN_STATUSES.has(s)
+}
+
+function toTimeMs(iso: string | null | undefined): number {
+  if (!iso) return 0
+  const t = new Date(iso).getTime()
+  return Number.isFinite(t) ? t : 0
+}
+
+function pickMoreRelevantRun(
+  a: KanbanAgentRunRow | undefined,
+  b: KanbanAgentRunRow | undefined
+): KanbanAgentRunRow | undefined {
+  if (!a) return b
+  if (!b) return a
+
+  const aActive = isNonTerminalRunStatus((a as any).status)
+  const bActive = isNonTerminalRunStatus((b as any).status)
+  if (aActive !== bActive) return bActive ? b : a
+
+  const aCreated = toTimeMs((a as any).created_at)
+  const bCreated = toTimeMs((b as any).created_at)
+  if (aCreated !== bCreated) return bCreated > aCreated ? b : a
+
+  const aUpdated = toTimeMs((a as any).updated_at)
+  const bUpdated = toTimeMs((b as any).updated_at)
+  if (aUpdated !== bUpdated) return bUpdated > aUpdated ? b : a
+
+  // Stable tie-breaker: keep existing to avoid churn.
+  return a
+}
+
+function buildAgentRunsByTicketPk(runRows: KanbanAgentRunRow[]): Record<string, KanbanAgentRunRow> {
+  const byPk: Record<string, KanbanAgentRunRow> = {}
+  for (const r of runRows) {
+    const ticketPk = (r as any).ticket_pk as string | null | undefined
+    if (!ticketPk) continue
+    const chosen = pickMoreRelevantRun(byPk[ticketPk], r)
+    if (chosen) byPk[ticketPk] = chosen
+  }
+  return byPk
+}
+
 /** Artifact row shape (matches Kanban package KanbanAgentArtifactRow). HAL owns DB so we type locally. */
 type ArtifactRow = {
   artifact_id: string
@@ -1504,6 +1557,7 @@ function App() {
         .from('hal_agent_runs')
         .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, status, current_stage, created_at, updated_at')
         .eq('repo_full_name', connectedProject)
+        .order('created_at', { ascending: false })
 
       setKanbanTickets((ticketRows ?? []) as KanbanTicketRow[])
       const canonicalColumnOrder = [
@@ -1536,11 +1590,7 @@ function App() {
         c.id === 'col-qa' ? { ...c, title: 'Ready for QA' } : c
       )
       setKanbanColumns(withTitles)
-      const byPk: Record<string, KanbanAgentRunRow> = {}
-      for (const r of (runRows ?? []) as KanbanAgentRunRow[]) {
-        if (r.ticket_pk) byPk[r.ticket_pk] = r
-      }
-      setKanbanAgentRunsByTicketPk(byPk)
+      setKanbanAgentRunsByTicketPk(buildAgentRunsByTicketPk((runRows ?? []) as KanbanAgentRunRow[]))
       // Removed automatic unassigned check (0161) - now only runs via explicit user action
     } catch {
       setKanbanTickets([])
@@ -1664,26 +1714,34 @@ function App() {
             const newRun = payload.new as KanbanAgentRunRow
             const ticketPk = newRun.ticket_pk
             if (ticketPk) {
-              setKanbanAgentRunsByTicketPk((prev) => ({
-                ...prev,
-                [ticketPk]: newRun,
-              }))
+              setKanbanAgentRunsByTicketPk((prev) => {
+                const chosen = pickMoreRelevantRun(prev[ticketPk], newRun)
+                if (!chosen) return prev
+                if (prev[ticketPk]?.run_id === chosen.run_id) return prev
+                return { ...prev, [ticketPk]: chosen }
+              })
             }
           } else if (payload.eventType === 'UPDATE' && payload.new) {
             const updatedRun = payload.new as KanbanAgentRunRow
             const ticketPk = updatedRun.ticket_pk
             if (ticketPk) {
-              setKanbanAgentRunsByTicketPk((prev) => ({
-                ...prev,
-                [ticketPk]: updatedRun,
-              }))
+              setKanbanAgentRunsByTicketPk((prev) => {
+                const chosen = pickMoreRelevantRun(prev[ticketPk], updatedRun)
+                if (!chosen) return prev
+                if (prev[ticketPk]?.run_id === chosen.run_id) return prev
+                return { ...prev, [ticketPk]: chosen }
+              })
             }
           } else if (payload.eventType === 'DELETE' && payload.old) {
-            const deletedRun = payload.old as { ticket_pk?: string }
+            const deletedRun = payload.old as { ticket_pk?: string; run_id?: string }
             if (deletedRun.ticket_pk) {
               setKanbanAgentRunsByTicketPk((prev) => {
                 const next = { ...prev }
-                delete next[deletedRun.ticket_pk!]
+                const ticketPk = deletedRun.ticket_pk!
+                // Only remove if the deleted run is the one we currently surface.
+                if (!deletedRun.run_id || next[ticketPk]?.run_id === deletedRun.run_id) {
+                  delete next[ticketPk]
+                }
                 return next
               })
             }
