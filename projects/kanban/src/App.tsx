@@ -1167,6 +1167,9 @@ function App() {
   const [detailModalError, setDetailModalError] = useState<string | null>(null)
   const [detailModalLoading, setDetailModalLoading] = useState(false)
   const [detailModalRetryTrigger, setDetailModalRetryTrigger] = useState(0)
+  // Track the last ticket ID and retry trigger we fetched artifacts for to prevent unnecessary refetches
+  const lastFetchedTicketIdRef = useRef<string | null>(null)
+  const lastFetchedRetryTriggerRef = useRef<number>(0)
   
   // Agent artifacts (0082)
   const [detailModalArtifacts, setDetailModalArtifacts] = useState<SupabaseAgentArtifactRow[]>([])
@@ -1617,9 +1620,21 @@ function App() {
       setDetailModalAttachments([])
       setDetailModalAttachmentsLoading(false)
       setDetailModalFailureCounts(null)
+      lastFetchedTicketIdRef.current = null
+      lastFetchedRetryTriggerRef.current = 0
       return
     }
     const { ticketId } = detailModal
+    
+    // Only fetch artifacts if ticket ID changed or retry was triggered
+    // This prevents refetching when supabaseTickets updates during polling
+    const ticketIdChanged = lastFetchedTicketIdRef.current !== ticketId
+    const retryTriggerChanged = lastFetchedRetryTriggerRef.current !== detailModalRetryTrigger
+    const shouldFetchArtifacts = ticketIdChanged || retryTriggerChanged
+    if (shouldFetchArtifacts) {
+      lastFetchedTicketIdRef.current = ticketId
+      lastFetchedRetryTriggerRef.current = detailModalRetryTrigger
+    }
     // Library mode: body from HAL-passed data; artifacts via HAL callback (HAL owns DB)
     if (halCtx) {
       const row = sourceTickets.find((t) => t.pk === ticketId)
@@ -1630,9 +1645,12 @@ function App() {
       }
       setDetailModalLoading(false)
       setDetailModalError(null)
-      setDetailModalArtifactsLoading(true)
-      setDetailModalArtifactsStatus('Loading…')
-      const tryApiFallback = (): Promise<SupabaseAgentArtifactRow[]> => {
+      
+      // Only fetch artifacts if ticket ID changed or retry was triggered
+      if (shouldFetchArtifacts) {
+        setDetailModalArtifactsLoading(true)
+        setDetailModalArtifactsStatus('Loading…')
+        const tryApiFallback = (): Promise<SupabaseAgentArtifactRow[]> => {
         const url = halCtx.supabaseUrl?.trim()
         const key = halCtx.supabaseAnonKey?.trim()
         const body: { ticketPk: string; supabaseUrl?: string; supabaseAnonKey?: string } = { ticketPk: ticketId }
@@ -1658,71 +1676,77 @@ function App() {
             }
             return Array.isArray(j.artifacts) ? j.artifacts : []
           })
-      }
-      if (halCtx.fetchArtifactsForTicket) {
-        halCtx
-          .fetchArtifactsForTicket(ticketId)
-          .then((data) => {
-            const list = data ?? []
-            if (list.length > 0) {
-              setDetailModalArtifacts(list)
-              setDetailModalArtifactsStatus(`Loaded ${list.length} (callback)`)
-              return
-            }
-            return tryApiFallback().then((apiList) => {
-              setDetailModalArtifacts(apiList)
-              setDetailModalArtifactsStatus(apiList.length > 0 ? `Loaded ${apiList.length} (API fallback)` : 'No artifacts (callback empty, API empty)')
+        }
+        if (halCtx.fetchArtifactsForTicket) {
+          halCtx
+            .fetchArtifactsForTicket(ticketId)
+            .then((data) => {
+              const list = data ?? []
+              if (list.length > 0) {
+                setDetailModalArtifacts(list)
+                setDetailModalArtifactsStatus(`Loaded ${list.length} (callback)`)
+                return
+              }
+              return tryApiFallback().then((apiList) => {
+                setDetailModalArtifacts(apiList)
+                setDetailModalArtifactsStatus(apiList.length > 0 ? `Loaded ${apiList.length} (API fallback)` : 'No artifacts (callback empty, API empty)')
+              })
             })
-          })
-          .catch((e) => {
-            const msg = e instanceof Error ? e.message : String(e)
-            console.warn('Failed to fetch artifacts (library mode):', e)
-            setDetailModalArtifactsStatus(`Error: ${msg}`)
-            return tryApiFallback().then((apiList) => {
-              setDetailModalArtifacts(apiList)
-              if (apiList.length > 0) setDetailModalArtifactsStatus(`Loaded ${apiList.length} (API fallback after error)`)
+            .catch((e) => {
+              const msg = e instanceof Error ? e.message : String(e)
+              console.warn('Failed to fetch artifacts (library mode):', e)
+              setDetailModalArtifactsStatus(`Error: ${msg}`)
+              return tryApiFallback().then((apiList) => {
+                setDetailModalArtifacts(apiList)
+                if (apiList.length > 0) setDetailModalArtifactsStatus(`Loaded ${apiList.length} (API fallback after error)`)
+              })
             })
-          })
-          .finally(() => setDetailModalArtifactsLoading(false))
+            .finally(() => setDetailModalArtifactsLoading(false))
+        } else {
+          tryApiFallback()
+            .then((apiList) => {
+              setDetailModalArtifacts(apiList)
+              setDetailModalArtifactsStatus(apiList.length > 0 ? `Loaded ${apiList.length} (API)` : 'No artifacts')
+            })
+            .catch(() => {
+              setDetailModalArtifacts([])
+              setDetailModalArtifactsStatus('Error: API request failed')
+            })
+            .finally(() => setDetailModalArtifactsLoading(false))
+        }
       } else {
-        tryApiFallback()
-          .then((apiList) => {
-            setDetailModalArtifacts(apiList)
-            setDetailModalArtifactsStatus(apiList.length > 0 ? `Loaded ${apiList.length} (API)` : 'No artifacts')
-          })
-          .catch(() => {
-            setDetailModalArtifacts([])
-            setDetailModalArtifactsStatus('Error: API request failed')
-          })
-          .finally(() => setDetailModalArtifactsLoading(false))
+        // Ticket ID hasn't changed - don't refetch artifacts, but still update body if it changed
+        // (body updates are handled above)
       }
       
-      // Fetch failure counts in library mode (0195)
-      const url = halCtx.supabaseUrl?.trim()
-      const key = halCtx.supabaseAnonKey?.trim()
-      if (url && key) {
-        fetch('/api/tickets/check-failure-escalation', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ticketPk: ticketId,
-            supabaseUrl: url,
-            supabaseAnonKey: key,
-          }),
-        })
-          .then((r) => r.json())
-          .then((result: { success?: boolean; qa_fail_count?: number; hitl_fail_count?: number }) => {
-            if (result.success) {
-              setDetailModalFailureCounts({
-                qa: result.qa_fail_count ?? 0,
-                hitl: result.hitl_fail_count ?? 0,
-              })
-            }
+      // Fetch failure counts in library mode (0195) - only on ticket change, not on every sourceTickets update
+      if (shouldFetchArtifacts) {
+        const url = halCtx.supabaseUrl?.trim()
+        const key = halCtx.supabaseAnonKey?.trim()
+        if (url && key) {
+          fetch('/api/tickets/check-failure-escalation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ticketPk: ticketId,
+              supabaseUrl: url,
+              supabaseAnonKey: key,
+            }),
           })
-          .catch(() => {
-            // Silently fail - failure counts are optional
-            setDetailModalFailureCounts(null)
-          })
+            .then((r) => r.json())
+            .then((result: { success?: boolean; qa_fail_count?: number; hitl_fail_count?: number }) => {
+              if (result.success) {
+                setDetailModalFailureCounts({
+                  qa: result.qa_fail_count ?? 0,
+                  hitl: result.hitl_fail_count ?? 0,
+                })
+              }
+            })
+            .catch(() => {
+              // Silently fail - failure counts are optional
+              setDetailModalFailureCounts(null)
+            })
+        }
       }
       return
     }
@@ -1755,55 +1779,62 @@ function App() {
         }
         setDetailModalBody(normalized)
         
-        // Fetch artifacts (0082)
-        setDetailModalArtifactsLoading(true)
-        setDetailModalArtifactsStatus('Loading…')
-        fetchTicketArtifacts(ticketId).then((artifacts) => {
-          setDetailModalArtifacts(artifacts)
-          setDetailModalArtifactsStatus(artifacts.length > 0 ? `Loaded ${artifacts.length}` : 'No artifacts')
-          setDetailModalArtifactsLoading(false)
-        }).catch((e) => {
-          setDetailModalArtifacts([])
-          setDetailModalArtifactsStatus(`Error: ${e instanceof Error ? e.message : String(e)}`)
-          setDetailModalArtifactsLoading(false)
-        })
-        
-        // Fetch attachments (0092)
-        setDetailModalAttachmentsLoading(true)
-        fetchTicketAttachments(row.id).then((attachments) => {
-          setDetailModalAttachments(attachments)
-          setDetailModalAttachmentsLoading(false)
-        }).catch(() => {
-          setDetailModalAttachments([])
-          setDetailModalAttachmentsLoading(false)
-        })
-        
-        // Fetch failure counts (0195)
-        const url = supabaseProjectUrl.trim()
-        const key = supabaseAnonKey.trim()
-        if (url && key) {
-          fetch('/api/tickets/check-failure-escalation', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              ticketPk: ticketId,
-              supabaseUrl: url,
-              supabaseAnonKey: key,
-            }),
+        // Only fetch artifacts if ticket ID changed or retry was triggered
+        if (shouldFetchArtifacts) {
+          // Fetch artifacts (0082)
+          setDetailModalArtifactsLoading(true)
+          setDetailModalArtifactsStatus('Loading…')
+          fetchTicketArtifacts(ticketId).then((artifacts) => {
+            setDetailModalArtifacts(artifacts)
+            setDetailModalArtifactsStatus(artifacts.length > 0 ? `Loaded ${artifacts.length}` : 'No artifacts')
+            setDetailModalArtifactsLoading(false)
+          }).catch((e) => {
+            setDetailModalArtifacts([])
+            setDetailModalArtifactsStatus(`Error: ${e instanceof Error ? e.message : String(e)}`)
+            setDetailModalArtifactsLoading(false)
           })
-            .then((r) => r.json())
-            .then((result: { success?: boolean; qa_fail_count?: number; hitl_fail_count?: number }) => {
-              if (result.success) {
-                setDetailModalFailureCounts({
-                  qa: result.qa_fail_count ?? 0,
-                  hitl: result.hitl_fail_count ?? 0,
-                })
-              }
+        }
+        
+        // Fetch attachments (0092) - only on ticket change, not on every supabaseTickets update
+        if (shouldFetchArtifacts) {
+          setDetailModalAttachmentsLoading(true)
+          fetchTicketAttachments(row.id).then((attachments) => {
+            setDetailModalAttachments(attachments)
+            setDetailModalAttachmentsLoading(false)
+          }).catch(() => {
+            setDetailModalAttachments([])
+            setDetailModalAttachmentsLoading(false)
+          })
+        }
+        
+        // Fetch failure counts (0195) - only on ticket change, not on every supabaseTickets update
+        if (shouldFetchArtifacts) {
+          const url = supabaseProjectUrl.trim()
+          const key = supabaseAnonKey.trim()
+          if (url && key) {
+            fetch('/api/tickets/check-failure-escalation', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                ticketPk: ticketId,
+                supabaseUrl: url,
+                supabaseAnonKey: key,
+              }),
             })
-            .catch(() => {
-              // Silently fail - failure counts are optional
-              setDetailModalFailureCounts(null)
-            })
+              .then((r) => r.json())
+              .then((result: { success?: boolean; qa_fail_count?: number; hitl_fail_count?: number }) => {
+                if (result.success) {
+                  setDetailModalFailureCounts({
+                    qa: result.qa_fail_count ?? 0,
+                    hitl: result.hitl_fail_count ?? 0,
+                  })
+                }
+              })
+              .catch(() => {
+                // Silently fail - failure counts are optional
+                setDetailModalFailureCounts(null)
+              })
+          }
         }
       } else {
         setDetailModalBody('')
@@ -1828,6 +1859,8 @@ function App() {
       setDetailModalAttachmentsLoading(false)
     }
   }, [detailModal, halCtx, sourceTickets, supabaseBoardActive, supabaseTickets, supabaseProjectUrl, supabaseAnonKey, detailModalRetryTrigger, addLog, fetchTicketArtifacts, fetchTicketAttachments])
+  // Note: supabaseTickets and sourceTickets are in dependencies to read ticket data,
+  // but artifacts are only fetched when ticketId changes (tracked via lastFetchedTicketIdRef)
 
   /** Re-run artifact fetch for the currently open ticket (library or Supabase mode). */
   const refreshDetailModalArtifacts = useCallback(() => {
