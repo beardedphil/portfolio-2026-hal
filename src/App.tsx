@@ -17,6 +17,7 @@ import {
   routeKanbanWorkButtonClick,
   type KanbanWorkButtonPayload,
 } from './lib/kanbanWorkButtonRouting'
+import { buildAgentRunsByTicketPk, pickMoreRelevantRun } from './lib/agentRunSelection'
 
 const KanbanBoard = Kanban.default
 // KANBAN_BUILD no longer used with floating widget (0698)
@@ -1517,11 +1518,7 @@ function App() {
         c.id === 'col-qa' ? { ...c, title: 'Ready for QA' } : c
       )
       setKanbanColumns(withTitles)
-      const byPk: Record<string, KanbanAgentRunRow> = {}
-      for (const r of (runRows ?? []) as KanbanAgentRunRow[]) {
-        if (r.ticket_pk) byPk[r.ticket_pk] = r
-      }
-      setKanbanAgentRunsByTicketPk(byPk)
+      setKanbanAgentRunsByTicketPk(buildAgentRunsByTicketPk((runRows ?? []) as KanbanAgentRunRow[]))
       // Removed automatic unassigned check (0161) - now only runs via explicit user action
     } catch {
       setKanbanTickets([])
@@ -1645,19 +1642,23 @@ function App() {
             const newRun = payload.new as KanbanAgentRunRow
             const ticketPk = newRun.ticket_pk
             if (ticketPk) {
-              setKanbanAgentRunsByTicketPk((prev) => ({
-                ...prev,
-                [ticketPk]: newRun,
-              }))
+              setKanbanAgentRunsByTicketPk((prev) => {
+                const chosen = pickMoreRelevantRun(prev[ticketPk], newRun)
+                if (!chosen) return prev
+                if (prev[ticketPk]?.run_id === chosen.run_id) return prev
+                return { ...prev, [ticketPk]: chosen }
+              })
             }
           } else if (payload.eventType === 'UPDATE' && payload.new) {
             const updatedRun = payload.new as KanbanAgentRunRow
             const ticketPk = updatedRun.ticket_pk
             if (ticketPk) {
-              setKanbanAgentRunsByTicketPk((prev) => ({
-                ...prev,
-                [ticketPk]: updatedRun,
-              }))
+              setKanbanAgentRunsByTicketPk((prev) => {
+                const chosen = pickMoreRelevantRun(prev[ticketPk], updatedRun)
+                if (!chosen) return prev
+                if (prev[ticketPk]?.run_id === chosen.run_id) return prev
+                return { ...prev, [ticketPk]: chosen }
+              })
             }
           } else if (payload.eventType === 'DELETE' && payload.old) {
             const deletedRun = payload.old as { ticket_pk?: string }
