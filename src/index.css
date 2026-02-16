@@ -323,6 +323,20 @@ body {
   transform: scale(1.05);
 }
 
+.qa-metric-box-clickable {
+  cursor: pointer;
+}
+
+.qa-metric-box-clickable:hover {
+  opacity: 0.85;
+  transform: scale(1.08);
+}
+
+.qa-metric-box-clickable:focus {
+  outline: 2px solid rgba(255, 255, 255, 0.8);
+  outline-offset: 2px;
+}
+
 .qa-metric-label {
   font-size: 0.7rem;
   font-weight: 500;
