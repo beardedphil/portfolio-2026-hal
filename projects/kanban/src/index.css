@@ -314,6 +314,8 @@ h1 {
   display: flex;
   flex-direction: row;
   flex-wrap: wrap;
+  /* Ensure all cards in a row share the same height so internal top/bottom alignment works. */
+  align-items: stretch;
   gap: 0.75rem;
   overflow-x: auto;
 }
@@ -358,6 +360,8 @@ h1 {
   flex-direction: column;
   gap: 0.25rem;
   font-size: 0.85rem;
+  /* Title pinned top; meta pinned bottom within the stretched card. */
+  margin-top: auto;
 }
 .active-work-item-agent {
   font-weight: 500;
