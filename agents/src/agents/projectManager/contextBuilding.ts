@@ -76,31 +76,29 @@ export const PM_LOCAL_RULES = [
   'qa-audit-report.mdc',
 ] as const
 
-export function formatPmInputsSummary(config: PmAgentConfig): string {
-  const hasSupabase =
-    typeof config.supabaseUrl === 'string' &&
-    config.supabaseUrl.trim() !== '' &&
-    typeof config.supabaseAnonKey === 'string' &&
-    config.supabaseAnonKey.trim() !== ''
+function hasNonEmptyString(value: unknown): boolean {
+  return typeof value === 'string' && value.trim() !== ''
+}
 
-  const hasGitHubRepo =
-    typeof config.repoFullName === 'string' && config.repoFullName.trim() !== ''
+function hasNonEmptyArray<T>(value: unknown): value is T[] {
+  return Array.isArray(value) && value.length > 0
+}
 
-  const hasConversationContextPack =
-    typeof config.conversationContextPack === 'string' &&
-    config.conversationContextPack.trim() !== ''
+function isVisionModel(model: string): boolean {
+  return model.includes('vision') || model.includes('gpt-4o')
+}
 
-  const hasConversationHistory = Array.isArray(config.conversationHistory) && config.conversationHistory.length > 0
+function getConversationSource(
+  hasContextPack: boolean,
+  hasHistory: boolean
+): string {
+  if (hasContextPack) return 'conversationContextPack (DB-derived)'
+  if (hasHistory) return 'conversationHistory (client-provided)'
+  return 'none'
+}
 
-  const hasWorkingMemoryText =
-    typeof config.workingMemoryText === 'string' &&
-    config.workingMemoryText.trim() !== ''
-
-  const imageCount = Array.isArray(config.images) ? config.images.length : 0
-  const openaiModel = String(config.openaiModel ?? '').trim()
-  const isVisionModel = openaiModel.includes('vision') || openaiModel.includes('gpt-4o')
-
-  const availableTools: Array<{ name: string; available: boolean }> = [
+function buildToolList(hasSupabase: boolean, imageCount: number): Array<{ name: string; available: boolean }> {
+  return [
     { name: 'get_instruction_set', available: true },
     { name: 'list_directory', available: true },
     { name: 'read_file', available: true },
@@ -117,17 +115,24 @@ export function formatPmInputsSummary(config: PmAgentConfig): string {
     { name: 'kanban_move_ticket_to_other_repo_todo', available: hasSupabase },
     { name: 'attach_image_to_ticket', available: hasSupabase && imageCount > 0 },
   ]
+}
 
+export function formatPmInputsSummary(config: PmAgentConfig): string {
+  const hasSupabase = hasNonEmptyString(config.supabaseUrl) && hasNonEmptyString(config.supabaseAnonKey)
+  const hasGitHubRepo = hasNonEmptyString(config.repoFullName)
+  const hasConversationContextPack = hasNonEmptyString(config.conversationContextPack)
+  const hasConversationHistory = hasNonEmptyArray<ConversationTurn>(config.conversationHistory)
+  const hasWorkingMemoryText = hasNonEmptyString(config.workingMemoryText)
+
+  const imageCount = hasNonEmptyArray(config.images) ? config.images.length : 0
+  const openaiModel = String(config.openaiModel ?? '').trim()
+  const modelIsVision = isVisionModel(openaiModel)
+
+  const availableTools = buildToolList(hasSupabase, imageCount)
   const enabledTools = availableTools.filter((t) => t.available).map((t) => `- ${t.name}`)
-  const disabledTools = availableTools
-    .filter((t) => !t.available)
-    .map((t) => `- ${t.name}`)
+  const disabledTools = availableTools.filter((t) => !t.available).map((t) => `- ${t.name}`)
 
-  const conversationSource = hasConversationContextPack
-    ? 'conversationContextPack (DB-derived)'
-    : hasConversationHistory
-      ? 'conversationHistory (client-provided)'
-      : 'none'
+  const conversationSource = getConversationSource(hasConversationContextPack, hasConversationHistory)
 
   const lines: string[] = [
     '## Inputs (provided by HAL)',
@@ -139,7 +144,7 @@ export function formatPmInputsSummary(config: PmAgentConfig): string {
     `- **supabase**: ${hasSupabase ? 'available (ticket tools enabled)' : 'not provided (ticket tools disabled)'}`,
     `- **conversation context**: ${conversationSource}`,
     `- **working memory**: ${hasWorkingMemoryText ? 'present' : 'absent'}`,
-    `- **images**: ${imageCount} (${imageCount > 0 ? (isVisionModel ? 'included' : 'ignored by model') : 'none'})`,
+    `- **images**: ${imageCount} (${imageCount > 0 ? (modelIsVision ? 'included' : 'ignored by model') : 'none'})`,
     '',
     '## Tools available (this run)',
     '',
@@ -157,28 +162,49 @@ export function formatPmInputsSummary(config: PmAgentConfig): string {
   return lines.join('\n')
 }
 
-export async function buildContextPack(config: PmAgentConfig, userMessage: string): Promise<string> {
-  const rulesDir = config.rulesDir ?? '.cursor/rules'
-  const rulesPath = path.resolve(config.repoRoot, rulesDir)
+function addConversationSection(
+  sections: string[],
+  config: PmAgentConfig
+): boolean {
+  if (hasNonEmptyString(config.conversationContextPack)) {
+    sections.push('## Conversation so far\n\n' + config.conversationContextPack.trim())
+    return true
+  }
 
-  const sections: string[] = []
+  if (hasNonEmptyArray<ConversationTurn>(config.conversationHistory)) {
+    const { recent, omitted } = recentTurnsWithinCharBudget(
+      config.conversationHistory,
+      CONVERSATION_RECENT_MAX_CHARS
+    )
+    const truncNote =
+      omitted > 0
+        ? `\n(older messages omitted; showing recent conversation within ${CONVERSATION_RECENT_MAX_CHARS.toLocaleString()} characters)\n\n`
+        : '\n\n'
+    const lines = recent.map((t) => `**${t.role}**: ${t.content}`)
+    sections.push('## Conversation so far' + truncNote + lines.join('\n\n'))
+    return true
+  }
 
-  // Always include a compact list of HAL-provided inputs and enabled tools (helps debugging while keeping context small).
-  sections.push(formatPmInputsSummary(config))
+  return false
+}
 
-  // Local-first: try loading rules from repo
-  let localLoaded = false
+async function tryLoadLocalRules(
+  repoRoot: string,
+  rulesPath: string
+): Promise<{
+  localLoaded: boolean
+  ticketTemplateContent: string | null
+  checklistContent: string | null
+  localRulesContent: string
+}> {
   let ticketTemplateContent: string | null = null
   let checklistContent: string | null = null
   let localRulesContent = ''
 
   try {
-    const templatePath =
-      path.join(config.repoRoot, 'docs/templates/ticket.template.md')
-    const templateAltPath =
-      path.join(config.repoRoot, 'projects/kanban/docs/templates/ticket.template.md')
-    const checklistPath =
-      path.join(config.repoRoot, 'docs/process/ready-to-start-checklist.md')
+    const templatePath = path.join(repoRoot, 'docs/templates/ticket.template.md')
+    const templateAltPath = path.join(repoRoot, 'projects/kanban/docs/templates/ticket.template.md')
+    const checklistPath = path.join(repoRoot, 'docs/process/ready-to-start-checklist.md')
 
     let templateContent: string | null = null
     try {
@@ -206,15 +232,31 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
           .catch(() => '')
         if (content) ruleParts.push(content)
       }
-      const halContractPath = path.join(config.repoRoot, 'docs/process/hal-tool-call-contract.mdc')
+      const halContractPath = path.join(repoRoot, 'docs/process/hal-tool-call-contract.mdc')
       const halContract = await fs.readFile(halContractPath, 'utf8').catch(() => '')
       if (halContract) ruleParts.push(halContract)
       localRulesContent = ruleParts.join('\n\n---\n\n')
-      localLoaded = true
+      return { localLoaded: true, ticketTemplateContent, checklistContent, localRulesContent }
     }
   } catch {
     // local load failed, will use HAL/Supabase fallback
   }
+
+  return { localLoaded: false, ticketTemplateContent, checklistContent, localRulesContent }
+}
+
+export async function buildContextPack(config: PmAgentConfig, userMessage: string): Promise<string> {
+  const rulesDir = config.rulesDir ?? '.cursor/rules'
+  const rulesPath = path.resolve(config.repoRoot, rulesDir)
+
+  const sections: string[] = []
+
+  // Always include a compact list of HAL-provided inputs and enabled tools (helps debugging while keeping context small).
+  sections.push(formatPmInputsSummary(config))
+
+  // Local-first: try loading rules from repo
+  const localRulesResult = await tryLoadLocalRules(config.repoRoot, rulesPath)
+  let { localLoaded, ticketTemplateContent, checklistContent, localRulesContent } = localRulesResult
 
   if (localLoaded) {
     sections.push(
@@ -236,28 +278,12 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
   }
 
   // Working Memory (0173: PM working memory) - include before conversation context
-  if (config.workingMemoryText && config.workingMemoryText.trim() !== '') {
+  if (hasNonEmptyString(config.workingMemoryText)) {
     sections.push(config.workingMemoryText.trim())
   }
 
   // Conversation so far: pre-built context pack (e.g. summary + recent from DB) or bounded history
-  let hasConversation = false
-  if (config.conversationContextPack && config.conversationContextPack.trim() !== '') {
-    sections.push('## Conversation so far\n\n' + config.conversationContextPack.trim())
-    hasConversation = true
-  } else {
-    const history = config.conversationHistory
-    if (history && history.length > 0) {
-      const { recent, omitted } = recentTurnsWithinCharBudget(history, CONVERSATION_RECENT_MAX_CHARS)
-      const truncNote =
-        omitted > 0
-          ? `\n(older messages omitted; showing recent conversation within ${CONVERSATION_RECENT_MAX_CHARS.toLocaleString()} characters)\n\n`
-          : '\n\n'
-      const lines = recent.map((t) => `**${t.role}**: ${t.content}`)
-      sections.push('## Conversation so far' + truncNote + lines.join('\n\n'))
-      hasConversation = true
-    }
-  }
+  const hasConversation = addConversationSection(sections, config)
 
   if (hasConversation) {
     sections.push('## User message (latest reply in the conversation above)\n\n' + userMessage)
