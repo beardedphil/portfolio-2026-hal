@@ -15,10 +15,23 @@ const __dirname = path.dirname(__filename)
 
 const ROOT_DIR = path.join(__dirname, '..')
 const MAX_LINES = 250
+const ALLOWLIST_PATH = path.join(ROOT_DIR, '.line-limit-allowlist.json')
 
 const SOURCE_DIRS = ['src', 'api', 'agents', 'scripts', 'projects']
 const EXCLUDE_DIRS = ['node_modules', 'dist', 'dist-kanban-lib', 'build', '.git', '.cursor', 'public']
 const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']
+
+function loadAllowlist() {
+  try {
+    if (fs.existsSync(ALLOWLIST_PATH)) {
+      const content = fs.readFileSync(ALLOWLIST_PATH, 'utf-8')
+      return JSON.parse(content)
+    }
+  } catch (err) {
+    // If allowlist file is malformed or unreadable, treat as empty
+  }
+  return {}
+}
 
 function shouldExcludeDir(dirName) {
   return EXCLUDE_DIRS.some((exclude) => dirName === exclude || dirName.startsWith(exclude + '/'))
@@ -64,6 +77,7 @@ function findSourceFiles(dirPath, relativePath = '') {
 }
 
 function runCheck() {
+  const allowlist = loadAllowlist()
   const allFiles = []
   for (const sourceDir of SOURCE_DIRS) {
     const dirPath = path.join(ROOT_DIR, sourceDir)
@@ -74,7 +88,19 @@ function runCheck() {
   const over = []
   for (const file of allFiles) {
     const lineCount = countLines(path.join(ROOT_DIR, file))
-    if (lineCount > MAX_LINES) over.push({ file, lines: lineCount })
+    const baseline = allowlist[file]
+    
+    if (baseline !== undefined) {
+      // Allowlisted file: enforce baseline (must not exceed baseline)
+      if (lineCount > baseline) {
+        over.push({ file, lines: lineCount, baseline, isAllowlisted: true })
+      }
+    } else {
+      // Non-allowlisted file: enforce 250-line cap
+      if (lineCount > MAX_LINES) {
+        over.push({ file, lines: lineCount, isAllowlisted: false })
+      }
+    }
   }
 
   if (over.length === 0) {
@@ -83,11 +109,12 @@ function runCheck() {
   }
 
   over.sort((a, b) => b.lines - a.lines)
-  console.log(`\n⚠ ${over.length} file(s) over ${MAX_LINES} lines (advisory; build not blocked):\n`)
-  console.log('Lines | Path')
-  console.log('------|' + '-'.repeat(60))
+  console.log(`\n⚠ ${over.length} file(s) over limit (advisory; build not blocked):\n`)
+  console.log('Lines | Baseline | Path')
+  console.log('------|----------|' + '-'.repeat(60))
   for (const v of over) {
-    console.log(`${String(v.lines).padStart(5)} | ${v.file}`)
+    const baselineStr = v.isAllowlisted ? String(v.baseline).padStart(7) : '   N/A'
+    console.log(`${String(v.lines).padStart(5)} | ${baselineStr} | ${v.file}`)
   }
   console.log('\nRefactor when convenient; run `npm run report:lines` for full report.\n')
 }
