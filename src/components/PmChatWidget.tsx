@@ -4,7 +4,6 @@ import type { Message, ImageAttachment } from '../lib/conversationStorage'
 import type { ChatTarget } from '../types/app'
 
 interface PmChatWidgetProps {
-  isOpen: boolean
   isFullscreen: boolean
   onToggleFullscreen: () => void
   onClose: () => void
@@ -31,7 +30,6 @@ interface PmChatWidgetProps {
 }
 
 export function PmChatWidget({
-  isOpen,
   isFullscreen,
   onToggleFullscreen,
   onClose,
@@ -56,7 +54,7 @@ export function PmChatWidget({
   transcriptRef,
   composerRef,
 }: PmChatWidgetProps) {
-  // Component only renders when isOpen is true (button is handled by parent)
+  // Component only renders when parent determines it should be visible (button is handled by parent)
 
   return (
     <div className={`pm-chat-widget ${isFullscreen ? 'pm-chat-widget-fullscreen' : 'pm-chat-widget-small'}`}>

@@ -1,6 +1,7 @@
 import { useCallback } from 'react'
-import type { ChatTarget, ImageAttachment } from '../types/app'
-import type { Message, Conversation } from '../lib/conversationStorage'
+import type { ChatTarget } from '../types/app'
+import type { ImageAttachment } from '../types/app'
+import type { Message, Conversation, Agent } from '../lib/conversationStorage'
 
 interface UseChatHandlersParams {
   inputValue: string
@@ -11,7 +12,7 @@ interface UseChatHandlersParams {
   setImageError: (error: string | null) => void
   setSendValidationError: (error: string | null) => void
   conversations: Map<string, Conversation>
-  getDefaultConversationId: (agentRole: string) => string
+  getDefaultConversationId: (agentRole: Agent) => string
   addMessage: (
     conversationId: string,
     agent: Message['agent'],

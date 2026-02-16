@@ -2,10 +2,11 @@ import { useCallback } from 'react'
 import { routeKanbanWorkButtonClick, type KanbanWorkButtonPayload } from '../lib/kanbanWorkButtonRouting'
 import type { ChatTarget } from '../types/app'
 import type { KanbanTicketRow } from 'portfolio-2026-kanban'
+import type { Agent } from '../lib/conversationStorage'
 
 interface UseKanbanWorkButtonParams {
   triggerAgentRun: (content: string, target: ChatTarget, imageAttachments?: unknown[], conversationId?: string) => void
-  getDefaultConversationId: (agentRole: string) => string
+  getDefaultConversationId: (agentRole: Agent) => string
   kanbanTickets: KanbanTicketRow[]
   handleKanbanMoveTicket: (ticketPk: string, columnId: string, position?: number) => Promise<void>
   pmChatWidgetOpen: boolean

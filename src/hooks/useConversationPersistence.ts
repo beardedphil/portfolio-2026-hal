@@ -10,7 +10,7 @@ interface UseConversationPersistenceParams {
   supabaseAnonKey: string | null
   agentSequenceRefs: React.MutableRefObject<Map<string, number>>
   pmMaxSequenceRef: React.MutableRefObject<number>
-  setPersistenceError: (error: string | null) => void
+  setPersistenceError: React.Dispatch<React.SetStateAction<string | null>>
 }
 
 export function useConversationPersistence({

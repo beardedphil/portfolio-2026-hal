@@ -1,11 +1,9 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect } from 'react'
 import { getSupabaseClient } from '../lib/supabase'
 import { getConversationId } from '../lib/conversation-helpers'
 import type { Message, Conversation } from '../lib/conversationStorage'
 
 const MESSAGES_PER_PAGE = 50
-
-import { getConversationId } from '../lib/conversation-helpers'
 
 interface UseMessagePaginationParams {
   connectedProject: string | null

@@ -1,5 +1,3 @@
-import React from 'react'
-
 interface KanbanErrorBannerProps {
   error: string | null
   onDismiss: () => void

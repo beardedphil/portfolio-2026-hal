@@ -2,7 +2,8 @@ import { useCallback } from 'react'
 import { getSupabaseClient } from '../lib/supabase'
 import { parseConversationId } from '../lib/conversation-helpers'
 import { extractTicketId } from '../lib/ticketOperations'
-import type { ChatTarget, ImageAttachment } from '../types/app'
+import type { ChatTarget } from '../types/app'
+import type { ImageAttachment } from '../types/app'
 import type { Message, Conversation } from '../lib/conversationStorage'
 import type { KanbanTicketRow } from 'portfolio-2026-kanban'
 
@@ -34,6 +35,8 @@ interface UseAgentRunsParams {
   setQaAgentError: (error: string | null) => void
   setCursorRunAgentType: (type: string | null) => void
   setOrphanedCompletionSummary: (summary: string | null) => void
+  implAgentTicketId: string | null
+  qaAgentTicketId: string | null
   kanbanTickets: KanbanTicketRow[]
   handleKanbanMoveTicket: (ticketPk: string, columnId: string, position?: number) => Promise<void>
   fetchKanbanData: () => Promise<void>
@@ -257,8 +260,8 @@ export function useAgentRuns(params: UseAgentRunsParams) {
 
         ;(async () => {
           const addProgress = (message: string) => {
-            const progressEntry = { timestamp: new Date(), message }
-            setImplAgentProgress((prev) => [...prev, progressEntry])
+                 const progressEntry = { timestamp: new Date(), message }
+                 setImplAgentProgress((prev: Array<{ timestamp: Date; message: string }>) => [...prev, progressEntry])
             addMessage(convId, 'system', `[Progress] ${message}`)
           }
 
@@ -446,8 +449,8 @@ export function useAgentRuns(params: UseAgentRunsParams) {
 
         ;(async () => {
           const addProgress = (message: string) => {
-            const progressEntry = { timestamp: new Date(), message }
-            setQaAgentProgress((prev) => [...prev, progressEntry])
+                 const progressEntry = { timestamp: new Date(), message }
+                 setQaAgentProgress((prev: Array<{ timestamp: Date; message: string }>) => [...prev, progressEntry])
             addMessage(convId, 'system', `[Progress] ${message}`)
           }
 

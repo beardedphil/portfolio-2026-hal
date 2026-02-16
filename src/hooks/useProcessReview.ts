@@ -1,7 +1,8 @@
 import { useCallback } from 'react'
-import { getSupabaseClient } from '../lib/supabase'
 import { formatTicketId } from '../lib/ticketOperations'
 import type { KanbanTicketRow } from 'portfolio-2026-kanban'
+import type { ImageAttachment } from '../types/app'
+import type { Agent } from '../lib/conversationStorage'
 
 interface ProcessReviewRecommendation {
   text: string
@@ -14,13 +15,13 @@ interface ProcessReviewRecommendation {
 interface UseProcessReviewParams {
   supabaseUrl: string | null
   supabaseAnonKey: string | null
-  getOrCreateConversation: (agentRole: string, conversationId?: string) => string
+  getOrCreateConversation: (agentRole: Agent, conversationId?: string) => string
   addMessage: (
     conversationId: string,
     agent: 'process-review-agent',
     content: string,
     id?: number,
-    imageAttachments?: unknown[],
+    imageAttachments?: ImageAttachment[],
     promptText?: string
   ) => void
   kanbanTickets: KanbanTicketRow[]
@@ -33,9 +34,9 @@ interface UseProcessReviewParams {
   setProcessReviewModalTicketPk: (pk: string | null) => void
   setProcessReviewModalTicketId: (id: string | null) => void
   setProcessReviewModalReviewId: (id: string | null) => void
-  setProcessReviewStatus: (status: 'idle' | 'running' | 'completed' | 'failed') => void
+  setProcessReviewStatus: React.Dispatch<React.SetStateAction<'idle' | 'running' | 'completed' | 'failed'>>
   setProcessReviewTicketPk: (pk: string | null) => void
-  setProcessReviewAgentRunStatus: (status: string) => void
+  setProcessReviewAgentRunStatus: React.Dispatch<React.SetStateAction<string>>
   setProcessReviewAgentError: (error: string | null) => void
   setProcessReviewAgentTicketId: (id: string | null) => void
   setProcessReviewAgentProgress: React.Dispatch<React.SetStateAction<Array<{ timestamp: Date; message: string }>>>

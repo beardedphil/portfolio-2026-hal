@@ -1,6 +1,6 @@
-import { useCallback, useRef } from 'react'
+import { useCallback } from 'react'
 import { getSupabaseClient } from '../lib/supabase'
-import { loadConversationsFromStorage, type Agent, type Message, type Conversation, type ImageAttachment } from '../lib/conversationStorage'
+import { loadConversationsFromStorage, type Agent, type Message, type Conversation } from '../lib/conversationStorage'
 import { getConversationId, parseConversationId, getNextInstanceNumber } from '../lib/conversation-helpers'
 
 const MESSAGES_PER_PAGE = 50 // Number of messages to load per page

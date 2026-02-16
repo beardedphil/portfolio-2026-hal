@@ -1,15 +1,9 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react'
-import { getSupabaseClient } from './lib/supabase'
-import { saveConversationsToStorage, loadConversationsFromStorage, type Agent, type Message, type Conversation, type ImageAttachment } from './lib/conversationStorage'
-// Chat width/collapse state no longer needed - floating widget replaces sidebar (0698)
-import { getConversationId, parseConversationId, getNextInstanceNumber, formatTime, getMessageAuthorLabel } from './lib/conversation-helpers'
-import { CoverageBadge } from './components/CoverageBadge'
-import { SimplicityBadge } from './components/SimplicityBadge'
-import { CoverageReportModal } from './components/CoverageReportModal'
-import { SimplicityReportModal } from './components/SimplicityReportModal'
+import { useState, useRef, useEffect } from 'react'
+import type { Agent, Message, Conversation, ImageAttachment } from './lib/conversationStorage'
+import { getConversationId } from './lib/conversation-helpers'
 import type { Theme } from './types/hal'
 import * as Kanban from 'portfolio-2026-kanban'
-import type { KanbanTicketRow, KanbanColumnRow, KanbanAgentRunRow, KanbanBoardProps } from 'portfolio-2026-kanban'
+import type { KanbanBoardProps } from 'portfolio-2026-kanban'
 import 'portfolio-2026-kanban/style.css'
 import { AgentInstructionsViewer } from './AgentInstructionsViewer'
 import { PmChatWidget } from './components/PmChatWidget'
@@ -20,13 +14,7 @@ import { ProcessReviewRecommendationsModal } from './components/ProcessReviewRec
 import { HalHeader } from './components/HalHeader'
 import { KanbanErrorBanner } from './components/KanbanErrorBanner'
 import { PmChatWidgetButton } from './components/PmChatWidgetButton'
-import {
-  routeKanbanWorkButtonClick,
-  type KanbanWorkButtonPayload,
-} from './lib/kanbanWorkButtonRouting'
-import { buildAgentRunsByTicketPk, pickMoreRelevantRun } from './lib/agentRuns'
-import type { ChatTarget, ArtifactRow, GithubRepo, ConnectedGithubRepo } from './types/app'
-import { CHAT_OPTIONS } from './types/app'
+import type { ChatTarget, ToolCallRecord, TicketCreationResult } from './types/app'
 import { useGithub } from './hooks/useGithub'
 import { useKanban } from './hooks/useKanban'
 import { useConversations } from './hooks/useConversations'
@@ -184,7 +172,9 @@ function App() {
     kanbanTickets,
     setKanbanTickets,
     kanbanColumns,
+    setKanbanColumns,
     kanbanAgentRunsByTicketPk,
+    setKanbanAgentRunsByTicketPk,
     kanbanRealtimeStatus,
     kanbanLastSync,
     kanbanMoveError,
@@ -364,13 +354,19 @@ function App() {
   // Agent status persistence via custom hook
   useAgentStatusPersistence({
     implAgentRunStatus,
+    setImplAgentRunStatus,
     implAgentRunId,
     implAgentProgress,
+    setImplAgentProgress,
     implAgentError,
+    setImplAgentError,
     qaAgentRunStatus,
+    setQaAgentRunStatus,
     qaAgentRunId,
     qaAgentProgress,
+    setQaAgentProgress,
     qaAgentError,
+    setQaAgentError,
   })
 
   // Fetch working memory when PM conversation changes (0173) - moved after fetchPmWorkingMemory definition
@@ -517,12 +513,12 @@ function App() {
     setProcessReviewModalTicketPk,
     setProcessReviewModalTicketId,
     setProcessReviewModalReviewId,
-    setProcessReviewStatus,
+    setProcessReviewStatus: setProcessReviewStatus,
     setProcessReviewTicketPk,
-    setProcessReviewAgentRunStatus,
-    setProcessReviewAgentError,
-    setProcessReviewAgentTicketId,
-    setProcessReviewAgentProgress,
+    setProcessReviewAgentRunStatus: setProcessReviewAgentRunStatus,
+    setProcessReviewAgentError: setProcessReviewAgentError,
+    setProcessReviewAgentTicketId: setProcessReviewAgentTicketId,
+    setProcessReviewAgentProgress: setProcessReviewAgentProgress,
   })
   const { handleKanbanProcessReview, handleProcessReviewImplement, handleProcessReviewIgnore } = processReview
 
@@ -705,9 +701,8 @@ function App() {
               />
             )}
             {pmChatWidgetOpen && (
-              <PmChatWidget
-                isOpen={pmChatWidgetOpen}
-                isFullscreen={pmChatWidgetFullscreen}
+        <PmChatWidget
+          isFullscreen={pmChatWidgetFullscreen}
                 onToggleFullscreen={() => setPmChatWidgetFullscreen(!pmChatWidgetFullscreen)}
                 onClose={() => {
                   setPmChatWidgetOpen(false)

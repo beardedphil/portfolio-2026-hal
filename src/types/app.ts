@@ -1,7 +1,7 @@
-import type { Agent, Message, Conversation, ImageAttachment } from '../lib/conversationStorage'
-import type { KanbanAgentRunRow } from 'portfolio-2026-kanban'
+import type { Agent, ImageAttachment } from '../lib/conversationStorage'
 
 export type ChatTarget = Agent
+export type { ImageAttachment }
 
 export type ToolCallRecord = {
   name: string

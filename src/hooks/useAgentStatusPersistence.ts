@@ -10,20 +10,20 @@ const QA_AGENT_ERROR_KEY = 'hal-qa-agent-error'
 const QA_AGENT_RUN_ID_KEY = 'hal-qa-agent-run-id'
 
 interface UseAgentStatusPersistenceParams {
-  implAgentRunStatus: string
-  setImplAgentRunStatus: (status: string) => void
+  implAgentRunStatus: 'idle' | 'preparing' | 'fetching_ticket' | 'resolving_repo' | 'launching' | 'running' | 'polling' | 'completed' | 'failed'
+  setImplAgentRunStatus: React.Dispatch<React.SetStateAction<'idle' | 'preparing' | 'fetching_ticket' | 'resolving_repo' | 'launching' | 'running' | 'polling' | 'completed' | 'failed'>>
   implAgentRunId: string | null
   implAgentProgress: Array<{ timestamp: Date; message: string }>
-  setImplAgentProgress: (progress: Array<{ timestamp: Date; message: string }>) => void
+  setImplAgentProgress: React.Dispatch<React.SetStateAction<Array<{ timestamp: Date; message: string }>>>
   implAgentError: string | null
-  setImplAgentError: (error: string | null) => void
-  qaAgentRunStatus: string
-  setQaAgentRunStatus: (status: string) => void
+  setImplAgentError: React.Dispatch<React.SetStateAction<string | null>>
+  qaAgentRunStatus: 'idle' | 'preparing' | 'fetching_ticket' | 'fetching_branch' | 'launching' | 'reviewing' | 'polling' | 'generating_report' | 'merging' | 'moving_ticket' | 'completed' | 'failed'
+  setQaAgentRunStatus: React.Dispatch<React.SetStateAction<'idle' | 'preparing' | 'fetching_ticket' | 'fetching_branch' | 'launching' | 'reviewing' | 'polling' | 'generating_report' | 'merging' | 'moving_ticket' | 'completed' | 'failed'>>
   qaAgentRunId: string | null
   qaAgentProgress: Array<{ timestamp: Date; message: string }>
-  setQaAgentProgress: (progress: Array<{ timestamp: Date; message: string }>) => void
+  setQaAgentProgress: React.Dispatch<React.SetStateAction<Array<{ timestamp: Date; message: string }>>>
   qaAgentError: string | null
-  setQaAgentError: (error: string | null) => void
+  setQaAgentError: React.Dispatch<React.SetStateAction<string | null>>
 }
 
 export function useAgentStatusPersistence({

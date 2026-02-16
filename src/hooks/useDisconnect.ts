@@ -1,30 +1,33 @@
 import { useCallback } from 'react'
-import type { Conversation } from '../lib/conversationStorage'
+import type { Conversation, Agent } from '../lib/conversationStorage'
+import type { ConnectedGithubRepo, TicketCreationResult } from '../types/app'
 
 function getEmptyConversations(): Map<string, Conversation> {
   return new Map()
 }
 
+import type { KanbanTicketRow, KanbanColumnRow, KanbanAgentRunRow } from 'portfolio-2026-kanban'
+
 interface UseDisconnectParams {
-  setKanbanTickets: (tickets: unknown[]) => void
-  setKanbanColumns: (columns: unknown[]) => void
-  setKanbanAgentRunsByTicketPk: (runs: Record<string, unknown>) => void
+  setKanbanTickets: React.Dispatch<React.SetStateAction<KanbanTicketRow[]>>
+  setKanbanColumns: React.Dispatch<React.SetStateAction<KanbanColumnRow[]>>
+  setKanbanAgentRunsByTicketPk: React.Dispatch<React.SetStateAction<Record<string, KanbanAgentRunRow>>>
   setLastError: (error: string | null) => void
   setConversations: React.Dispatch<React.SetStateAction<Map<string, Conversation>>>
   messageIdRef: React.MutableRefObject<number>
   pmMaxSequenceRef: React.MutableRefObject<number>
   setPersistenceError: (error: string | null) => void
   setConnectedProject: (project: string | null) => void
-  setConnectedGithubRepo: (repo: unknown) => void
-  setLastTicketCreationResult: (result: unknown) => void
-  setLastCreateTicketAvailable: (available: unknown) => void
+  setConnectedGithubRepo: React.Dispatch<React.SetStateAction<ConnectedGithubRepo | null>>
+  setLastTicketCreationResult: React.Dispatch<React.SetStateAction<TicketCreationResult | null>>
+  setLastCreateTicketAvailable: React.Dispatch<React.SetStateAction<boolean | null>>
   setSupabaseUrl: (url: string | null) => void
   setSupabaseAnonKey: (key: string | null) => void
   setUnreadByTarget: (unread: Record<string, number>) => void
   setImplAgentTicketId: (id: string | null) => void
   setQaAgentTicketId: (id: string | null) => void
   setAutoMoveDiagnostics: (diagnostics: Array<{ timestamp: Date; message: string; type: 'error' | 'info' }>) => void
-  setCursorRunAgentType: (type: string | null) => void
+  setCursorRunAgentType: React.Dispatch<React.SetStateAction<Agent | null>>
   setOrphanedCompletionSummary: (summary: string | null) => void
   setPmWorkingMemoryOpen: (open: boolean) => void
 }
