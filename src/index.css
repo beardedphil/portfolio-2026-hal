@@ -1776,6 +1776,32 @@ div.kanban-frame-container #root,
   color: var(--hal-text-muted);
 }
 
+/* LCARS theme adjustments for message bubbles */
+[data-theme="lcars"] .message-user {
+  background: linear-gradient(135deg, #FF6600 0%, #FF9900 100%); /* LCARS orange gradient */
+  border-color: #FF9900; /* LCARS orange */
+  color: #000000; /* Black text on orange background for contrast */
+}
+[data-theme="lcars"] .message-user .message-author {
+  color: #000000; /* Black text */
+}
+[data-theme="lcars"] .message-user .message-time {
+  color: rgba(0, 0, 0, 0.7); /* Darker black for time */
+}
+[data-theme="lcars"] .message-user .message-content {
+  color: #000000; /* Black text */
+}
+[data-theme="lcars"] .message-user .message-json {
+  background: rgba(0, 0, 0, 0.2);
+  border-color: rgba(0, 0, 0, 0.4);
+  color: #000000; /* Black text */
+}
+
+[data-theme="lcars"] .message-project-manager .message-author,
+[data-theme="lcars"] .message-implementation-agent .message-author {
+  color: #FF9900; /* LCARS orange for author names */
+}
+
 /* Prompt view for PM assistant messages */
 .message-prompt-toggle {
   margin-left: auto;
