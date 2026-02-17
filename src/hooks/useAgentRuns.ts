@@ -156,72 +156,76 @@ export function useAgentRuns(params: UseAgentRunsParams) {
               }
             }
 
-            if (!connectedGithubRepo?.fullName) {
-              setAgentTypingTarget(null)
-              addMessage(convId, 'project-manager', '[PM] Connect a GitHub repo first (Connect GitHub Repo) so the PM agent can use the codebase.')
-              return
-            }
-
-            addPmSystemMessage('[Status] Launching PM agent (Cursor)...')
-            const launchRes = await fetch('/api/pm-agent/launch', {
+            // PM agent uses OpenAI Responses API (not Cursor Cloud Agents)
+            addPmSystemMessage('[Status] Sending message to PM agent (OpenAI)...')
+            const respondRes = await fetch('/api/pm/respond', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               credentials: 'include',
               body: JSON.stringify({
                 message: content,
-                repoFullName: connectedGithubRepo.fullName,
-                defaultBranch: connectedGithubRepo.defaultBranch || 'main',
+                conversationId: convId,
+                projectId: connectedProject,
+                supabaseUrl: url,
+                supabaseAnonKey: key,
+                repoFullName: connectedGithubRepo?.fullName,
+                defaultBranch: connectedGithubRepo?.defaultBranch || 'main',
+                images: imageAttachments?.map((img) => ({
+                  dataUrl: img.dataUrl,
+                  filename: img.filename,
+                  mimeType: img.file.type,
+                })),
               }),
             })
-            const launchData = (await launchRes.json()) as { runId?: string; status?: string; error?: string }
-            if (!launchData.runId || launchData.status === 'failed') {
-              setAgentTypingTarget(null)
-              const errMsg = launchData.error ?? 'Launch failed'
+
+            const respondData = (await respondRes.json()) as {
+              reply?: string
+              error?: string
+              toolCalls?: unknown[]
+              outboundRequest?: object
+            }
+
+            setAgentTypingTarget(null)
+
+            if (!respondRes.ok || respondData.error) {
+              const errMsg = respondData.error ?? `Request failed with status ${respondRes.status}`
               setOpenaiLastError(errMsg)
               setLastAgentError(errMsg)
-              addMessage(convId, 'project-manager', `[PM] Error: ${errMsg}`)
+              
+              // Check if it's a configuration error (503)
+              if (respondRes.status === 503) {
+                addMessage(
+                  convId,
+                  'project-manager',
+                  `[PM] Configuration Error: ${errMsg}\n\nTo enable the Project Manager chat, set OPENAI_API_KEY and OPENAI_MODEL in your .env file.`
+                )
+              } else {
+                addMessage(convId, 'project-manager', `[PM] Error: ${errMsg}`)
+              }
               return
             }
 
-            const runId = launchData.runId
-            addPmSystemMessage('[Progress] PM agent running. Polling status...')
-            const poll = async (): Promise<{ done: boolean; reply?: string; error?: string }> => {
-              const r = await fetch(`/api/agent-runs/status?runId=${encodeURIComponent(runId)}`, { credentials: 'include' })
-              const data = await r.json() as { status?: string; summary?: string; error?: string }
-              const s = String(data.status ?? '')
-              if (s === 'failed') return { done: true, error: data.error ?? 'Unknown error' }
-              if (s === 'finished') return { done: true, reply: data.summary ?? 'Done.' }
-              return { done: false }
-            }
-            for (;;) {
-              const result = await poll()
-              if (!result.done) {
-                await new Promise((r) => setTimeout(r, 4000))
-                continue
-              }
-              setAgentTypingTarget(null)
-              setOpenaiLastError(null)
-              setLastAgentError(null)
-              const reply = result.error ? `[PM] Error: ${result.error}` : (result.reply ?? '')
-              if (useDb && url && key && connectedProject) {
-                const currentMaxSeq = agentSequenceRefs.current.get(convId) ?? 0
-                const nextSeq = currentMaxSeq + 1
-                const supabase = getSupabaseClient(url, key)
-                await supabase.from('hal_conversation_messages').insert({
-                  project_id: connectedProject,
-                  agent: convId,
-                  role: 'assistant',
-                  content: reply,
-                  sequence: nextSeq,
-                })
-                agentSequenceRefs.current.set(convId, nextSeq)
-                const parsed = parseConversationId(convId)
-                if (parsed?.agentRole === 'project-manager' && parsed.instanceNumber === 1) pmMaxSequenceRef.current = nextSeq
-                addMessage(convId, 'project-manager', reply, nextSeq)
-              } else {
-                addMessage(convId, 'project-manager', reply)
-              }
-              break
+            setOpenaiLastError(null)
+            setLastAgentError(null)
+
+            const reply = respondData.reply ?? ''
+            if (useDb && url && key && connectedProject) {
+              const currentMaxSeq = agentSequenceRefs.current.get(convId) ?? 0
+              const nextSeq = currentMaxSeq + 1
+              const supabase = getSupabaseClient(url, key)
+              await supabase.from('hal_conversation_messages').insert({
+                project_id: connectedProject,
+                agent: convId,
+                role: 'assistant',
+                content: reply,
+                sequence: nextSeq,
+              })
+              agentSequenceRefs.current.set(convId, nextSeq)
+              const parsed = parseConversationId(convId)
+              if (parsed?.agentRole === 'project-manager' && parsed.instanceNumber === 1) pmMaxSequenceRef.current = nextSeq
+              addMessage(convId, 'project-manager', reply, nextSeq)
+            } else {
+              addMessage(convId, 'project-manager', reply)
             }
           } catch (err) {
             setAgentTypingTarget(null)

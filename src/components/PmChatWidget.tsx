@@ -59,7 +59,10 @@ export function PmChatWidget({
   return (
     <div className={`pm-chat-widget ${isFullscreen ? 'pm-chat-widget-fullscreen' : 'pm-chat-widget-small'}`}>
       <div className="pm-chat-widget-header">
-        <div className="pm-chat-widget-title">Project Manager</div>
+        <div className="pm-chat-widget-title">
+          Project Manager
+          <span className="pm-chat-widget-provider-badge" title="Powered by OpenAI Responses API">OpenAI</span>
+        </div>
         <div className="pm-chat-widget-actions">
           <button
             type="button"

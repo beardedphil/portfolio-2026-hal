@@ -3318,6 +3318,20 @@ div.kanban-frame-container #root,
   font-weight: 600;
   font-size: 1rem;
   color: var(--hal-text);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pm-chat-widget-provider-badge {
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 0.2rem 0.5rem;
+  background: rgba(0, 0, 0, 0.1);
+  border: 1px solid var(--hal-border);
+  border-radius: 0.25rem;
+  color: var(--hal-text-muted);
+  opacity: 0.9;
 }
 
 .pm-chat-widget-actions {
