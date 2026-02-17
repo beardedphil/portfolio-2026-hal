@@ -2,6 +2,7 @@ import React from 'react'
 import { CoverageBadge } from './CoverageBadge'
 import { SimplicityBadge } from './SimplicityBadge'
 import type { GithubAuthMe, ConnectedGithubRepo } from '../types/app'
+import type { Theme } from '../types/hal'
 
 interface HalHeaderProps {
   connectedProject: string | null
@@ -14,6 +15,8 @@ interface HalHeaderProps {
   onAgentInstructionsClick: () => void
   onCoverageReportClick: () => void
   onSimplicityReportClick: () => void
+  theme: Theme
+  onThemeChange: (theme: Theme) => void
 }
 
 export function HalHeader({
@@ -27,6 +30,8 @@ export function HalHeader({
   onAgentInstructionsClick,
   onCoverageReportClick,
   onSimplicityReportClick,
+  theme,
+  onThemeChange,
 }: HalHeaderProps) {
   return (
     <header className="hal-header">
@@ -84,6 +89,21 @@ export function HalHeader({
         )}
       </div>
       <div className="hal-header-actions">
+        <div className="theme-selector">
+          <label htmlFor="theme-select" className="theme-select-label">
+            Theme:
+          </label>
+          <select
+            id="theme-select"
+            className="theme-select"
+            value={theme}
+            onChange={(e) => onThemeChange(e.target.value as Theme)}
+            aria-label="Select theme"
+          >
+            <option value="dark">Dark</option>
+            <option value="lcars">LCARS</option>
+          </select>
+        </div>
         <button
           type="button"
           className="agent-instructions-btn btn-standard"

@@ -43,6 +43,28 @@
   --kanban-error: #f44336;
 }
 
+/* LCARS theme (Star Trek inspired) */
+[data-theme="lcars"] {
+  --kanban-bg: #000000;
+  --kanban-text: #ffffff;
+  --kanban-text-muted: #cccccc;
+  --kanban-text-subtle: #999999;
+  --kanban-surface: #1a1a1a;
+  --kanban-surface-alt: #2a2a2a;
+  --kanban-border: #3a3a3a;
+  --kanban-border-muted: #2a2a2a;
+  --kanban-primary: #ff9900;
+  --kanban-primary-hover: #cc7700;
+  --kanban-success: #00ff00;
+  --kanban-success-bg: #003300;
+  --kanban-success-border: #00cc00;
+  --kanban-success-text: #00ff00;
+  --kanban-warning-bg: #332200;
+  --kanban-warning-border: #ff9900;
+  --kanban-warning-text: #ffcc00;
+  --kanban-error: #ff4444;
+}
+
 * {
   box-sizing: border-box;
 }
