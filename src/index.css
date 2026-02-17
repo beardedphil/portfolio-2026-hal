@@ -70,6 +70,38 @@
   --hal-status-error: #f44336;
 }
 
+/* LCARS theme (HAL-0745) */
+[data-theme="lcars"] {
+  /* LCARS color palette - inspired by Star Trek TNG */
+  --lcars-orange: #ff9900;
+  --lcars-red: #cc6699;
+  --lcars-blue: #99ccff;
+  --lcars-yellow: #ffcc99;
+  --lcars-black: #000000;
+  --lcars-gray: #333333;
+  --lcars-light-gray: #666666;
+  
+  /* Use LCARS colors for semantic variables */
+  --hal-primary: var(--lcars-orange);
+  --hal-primary-hover: var(--lcars-yellow);
+  --hal-accent: var(--lcars-blue);
+  --hal-bg: var(--lcars-black);
+  --hal-surface: var(--lcars-gray);
+  --hal-surface-alt: var(--lcars-light-gray);
+  --hal-border: var(--lcars-orange);
+  --hal-border-muted: var(--lcars-light-gray);
+  --hal-text: #ffffff;
+  --hal-text-muted: var(--lcars-yellow);
+  --hal-header-bg: var(--lcars-black);
+  --hal-header-text: #ffffff;
+  --hal-header-subtitle: var(--lcars-yellow);
+  --hal-chat-bg: var(--lcars-gray);
+  --hal-typing-bg: var(--lcars-light-gray);
+  --hal-typing-border: var(--lcars-orange);
+  --hal-status-ok: #4caf50;
+  --hal-status-error: #f44336;
+}
+
 /* Base button classes - canonical styles for all buttons (0739) */
 /* Standard button style (matches column-work-button) */
 .btn-standard {
@@ -146,6 +178,51 @@
 }
 [data-theme="dark"] .btn-standard:focus-visible {
   outline-color: #b8a9f0;
+}
+
+/* LCARS theme button and focus styles (HAL-0745) */
+[data-theme="lcars"] .btn-standard {
+  background: rgba(255, 153, 0, 0.15);
+  border-color: var(--lcars-orange);
+  color: var(--lcars-yellow);
+}
+
+[data-theme="lcars"] .btn-standard:hover:not(:disabled) {
+  background: rgba(255, 153, 0, 0.25);
+  border-color: var(--lcars-yellow);
+}
+
+[data-theme="lcars"] .btn-standard:disabled {
+  background: var(--hal-surface-alt);
+  color: var(--hal-text-muted);
+  border-color: var(--hal-border);
+}
+
+[data-theme="lcars"] .btn-standard:focus-visible,
+[data-theme="lcars"] .btn-destructive:focus-visible,
+[data-theme="lcars"] button:focus-visible,
+[data-theme="lcars"] select:focus-visible,
+[data-theme="lcars"] input:focus-visible,
+[data-theme="lcars"] textarea:focus-visible {
+  outline: 3px solid var(--lcars-blue);
+  outline-offset: 2px;
+}
+
+[data-theme="lcars"] .btn-destructive {
+  background: rgba(204, 102, 153, 0.15);
+  border-color: var(--lcars-red);
+  color: #ff99cc;
+}
+
+[data-theme="lcars"] .btn-destructive:hover:not(:disabled) {
+  background: rgba(204, 102, 153, 0.25);
+  border-color: #ff99cc;
+}
+
+[data-theme="lcars"] .btn-destructive:disabled {
+  background: var(--hal-surface-alt);
+  color: var(--hal-text-muted);
+  border-color: var(--hal-border);
 }
 
 [data-theme="dark"] .btn-destructive {
@@ -267,6 +344,73 @@ body {
   align-items: center;
   gap: 1rem;
   justify-content: flex-end;
+  position: relative;
+}
+
+/* LCARS header accents (HAL-0745) */
+.hal-header-lcars-pill {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 60px;
+  height: 60px;
+  background: var(--lcars-orange);
+  border-radius: 0 0 100% 0;
+  z-index: 1;
+}
+
+.hal-header-lcars-bar {
+  display: none;
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: 120px;
+  background: linear-gradient(
+    to right,
+    var(--lcars-orange) 0%,
+    var(--lcars-orange) 25%,
+    var(--lcars-red) 25%,
+    var(--lcars-red) 50%,
+    var(--lcars-blue) 50%,
+    var(--lcars-blue) 75%,
+    var(--lcars-yellow) 75%,
+    var(--lcars-yellow) 100%
+  );
+  z-index: 1;
+}
+
+[data-theme="lcars"] .hal-header-lcars-pill,
+[data-theme="lcars"] .hal-header-lcars-bar {
+  display: block;
+}
+
+/* Theme selector (HAL-0745) */
+.hal-header-theme-selector {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.theme-select-label {
+  font-size: 0.9rem;
+  color: var(--hal-header-text);
+}
+
+.theme-select {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.9rem;
+  border: 1px solid var(--hal-border);
+  border-radius: 6px;
+  background: var(--hal-surface);
+  color: var(--hal-text);
+  cursor: pointer;
+}
+
+.theme-select:focus-visible {
+  outline: 2px solid var(--hal-primary);
+  outline-offset: 2px;
 }
 
 .hal-main {
@@ -290,6 +434,25 @@ body {
   background: var(--hal-surface);
   overflow: visible;
   overflow-x: hidden;
+  position: relative;
+}
+
+/* LCARS panel treatment for Kanban (HAL-0745) */
+[data-theme="lcars"] .hal-kanban-region {
+  border: 3px solid var(--lcars-orange);
+  border-radius: 0 20px 20px 0;
+  border-left: 8px solid var(--lcars-orange);
+}
+
+[data-theme="lcars"] .hal-kanban-region::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 8px;
+  height: 100%;
+  background: var(--lcars-orange);
+  z-index: 1;
 }
 
 .kanban-header {
@@ -3121,6 +3284,13 @@ div.kanban-frame-container #root,
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
   z-index: 1000;
   overflow: hidden;
+}
+
+/* LCARS panel treatment for PM chat widget (HAL-0745) */
+[data-theme="lcars"] .pm-chat-widget {
+  border: 3px solid var(--lcars-orange);
+  border-radius: 20px 0 20px 20px;
+  border-right: 8px solid var(--lcars-orange);
 }
 
 .pm-chat-widget-small {
