@@ -35,6 +35,14 @@ export function HalHeader({
 }: HalHeaderProps) {
   return (
     <header className="hal-header">
+      {/* LCARS accent: segmented color bar */}
+      {theme === 'lcars' && (
+        <div className="hal-header-lcars-bar" aria-hidden="true">
+          <div className="hal-header-lcars-segment hal-header-lcars-segment-orange"></div>
+          <div className="hal-header-lcars-segment hal-header-lcars-segment-yellow"></div>
+          <div className="hal-header-lcars-segment hal-header-lcars-segment-orange"></div>
+        </div>
+      )}
       <div className="hal-header-left">
         <h1>HAL</h1>
         <span className="hal-subtitle">Agent Workspace</span>
