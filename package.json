@@ -29,6 +29,11 @@
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage && node scripts/update-metrics-from-coverage.js",
+    "dev:e2e": "vite --config vite.e2e.config.ts --port 4173 --strictPort",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed --project=chromium",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:install": "playwright install --with-deps chromium",
     "report:lines": "node scripts/report-lines.js",
     "report:simplicity": "node scripts/report-simplicity.js",
     "check:lines": "node scripts/check-lines.js"
@@ -49,6 +54,7 @@
     "zod": "^3.24.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/react": "^18.3.12",

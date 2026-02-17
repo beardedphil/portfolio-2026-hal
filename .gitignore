@@ -7,6 +7,9 @@ projects/kanban/dist-kanban-lib
 *.tsbuildinfo
 nul
 .env
+# Playwright artifacts
+test-results
+playwright-report
 # Isolated worktree used by repo-write-runner (0022)
 .hal-agent-write*/
 # Tool call executions log (0107)
