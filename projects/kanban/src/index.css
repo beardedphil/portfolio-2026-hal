@@ -43,6 +43,28 @@
   --kanban-error: #f44336;
 }
 
+/* LCARS theme (Star Trek inspired) */
+[data-theme="lcars"] {
+  --kanban-bg: #000000; /* Pure black background */
+  --kanban-text: #FFCC00; /* LCARS yellow/amber text */
+  --kanban-text-muted: #CC9900; /* Muted yellow for secondary text */
+  --kanban-text-subtle: #996600; /* Subtle yellow */
+  --kanban-surface: #0a0a0a; /* Very dark gray for surfaces */
+  --kanban-surface-alt: #151515; /* Slightly lighter for alt surfaces */
+  --kanban-border: #FF6600; /* Orange border */
+  --kanban-border-muted: #663300; /* Muted orange border */
+  --kanban-primary: #FF9900; /* Classic LCARS orange */
+  --kanban-primary-hover: #FFAA33; /* Lighter orange for hover */
+  --kanban-success: #00FF00; /* Bright green for success */
+  --kanban-success-bg: #003300; /* Dark green background */
+  --kanban-success-border: #00CC00; /* Green border */
+  --kanban-success-text: #00FF00; /* Green text */
+  --kanban-warning-bg: #663300; /* Dark orange background */
+  --kanban-warning-border: #FF6600; /* Orange border */
+  --kanban-warning-text: #FFCC00; /* Yellow text */
+  --kanban-error: #FF3300; /* LCARS red */
+}
+
 * {
   box-sizing: border-box;
 }
@@ -1785,6 +1807,41 @@ h1 {
   outline-color: #f88;
 }
 
+/* LCARS theme adjustments for column header buttons */
+[data-theme="lcars"] .column-work-button {
+  background: rgba(255, 153, 0, 0.2); /* LCARS orange with transparency */
+  border-color: #FF9900; /* LCARS orange */
+  color: #FFCC00; /* LCARS yellow text */
+}
+[data-theme="lcars"] .column-work-button:hover:not(:disabled) {
+  background: rgba(255, 153, 0, 0.35);
+  border-color: #FFAA33; /* Lighter orange on hover */
+}
+[data-theme="lcars"] .column-work-button:disabled {
+  background: var(--kanban-surface-alt);
+  color: var(--kanban-text-muted);
+  border-color: var(--kanban-border-muted);
+  opacity: 0.6;
+}
+[data-theme="lcars"] .column-work-button:focus-visible {
+  outline-color: #FFCC00; /* LCARS yellow outline */
+  outline-width: 2px;
+}
+
+[data-theme="lcars"] .column-remove {
+  background: rgba(255, 51, 0, 0.2); /* LCARS red with transparency */
+  border-color: #FF3300; /* LCARS red */
+  color: #FFCC00; /* LCARS yellow text */
+}
+[data-theme="lcars"] .column-remove:hover {
+  background: rgba(255, 51, 0, 0.35);
+  border-color: #FF5533; /* Lighter red on hover */
+}
+[data-theme="lcars"] .column-remove:focus-visible {
+  outline-color: #FF3300; /* LCARS red outline */
+  outline-width: 2px;
+}
+
 /* Base button classes - canonical styles for all buttons (0739) */
 /* Standard button style (matches column-work-button) */
 .btn-standard {
@@ -1879,6 +1936,47 @@ h1 {
 }
 [data-theme="dark"] .btn-destructive:focus-visible {
   outline-color: #f88;
+}
+
+/* LCARS theme adjustments for base button classes */
+[data-theme="lcars"] .btn-standard {
+  background: rgba(255, 153, 0, 0.2); /* LCARS orange with transparency */
+  border-color: #FF9900; /* LCARS orange */
+  color: #FFCC00; /* LCARS yellow text */
+}
+[data-theme="lcars"] .btn-standard:hover:not(:disabled) {
+  background: rgba(255, 153, 0, 0.35);
+  border-color: #FFAA33; /* Lighter orange on hover */
+}
+[data-theme="lcars"] .btn-standard:disabled {
+  background: var(--kanban-surface-alt);
+  color: var(--kanban-text-muted);
+  border-color: var(--kanban-border-muted);
+  opacity: 0.6;
+}
+[data-theme="lcars"] .btn-standard:focus-visible {
+  outline-color: #FFCC00; /* LCARS yellow outline */
+  outline-width: 2px;
+}
+
+[data-theme="lcars"] .btn-destructive {
+  background: rgba(255, 51, 0, 0.2); /* LCARS red with transparency */
+  border-color: #FF3300; /* LCARS red */
+  color: #FFCC00; /* LCARS yellow text */
+}
+[data-theme="lcars"] .btn-destructive:hover:not(:disabled) {
+  background: rgba(255, 51, 0, 0.35);
+  border-color: #FF5533; /* Lighter red on hover */
+}
+[data-theme="lcars"] .btn-destructive:disabled {
+  background: var(--kanban-surface-alt);
+  color: var(--kanban-text-muted);
+  border-color: var(--kanban-border-muted);
+  opacity: 0.6;
+}
+[data-theme="lcars"] .btn-destructive:focus-visible {
+  outline-color: #FF3300; /* LCARS red outline */
+  outline-width: 2px;
 }
 
 /* Dark theme adjustments for modal-close (uses btn-destructive) */
