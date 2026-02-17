@@ -73,12 +73,12 @@ function App() {
   // Diagnostics panel no longer visible - floating widget replaces sidebar (0698)
   // const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const [connectedProject, setConnectedProject] = useState<string | null>(null)
-  // Theme state with localStorage persistence
+  // Theme state with localStorage persistence (HAL-0745: added LCARS theme option)
   const [theme, setTheme] = useState<Theme>(() => {
     try {
       const stored = localStorage.getItem('hal-theme')
-      if (stored === 'dark' || stored === 'lcars') {
-        return stored
+      if (stored === 'lcars' || stored === 'dark' || stored === 'light') {
+        return stored as Theme
       }
       return 'dark'
     } catch {
@@ -300,6 +300,12 @@ function App() {
     } catch {
       // Ignore localStorage errors
     }
+=======
+  // Apply theme to document root on mount and when theme changes (HAL-0745: added LCARS theme)
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    localStorage.setItem('hal-theme', theme)
+>>>>>>> origin/ticket/0745-implementation
   }, [theme])
 
   // Restore connected GitHub repo from localStorage on load (0119: fix repo display after refresh)

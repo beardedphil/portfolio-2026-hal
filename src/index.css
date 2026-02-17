@@ -72,34 +72,43 @@
 
 /* LCARS theme (Star Trek inspired) */
 [data-theme="lcars"] {
-  /* LCARS color palette - black backgrounds with orange/yellow accents */
-  --hal-lcars-orange: #ff9900;
-  --hal-lcars-orange-dark: #cc7700;
-  --hal-lcars-yellow: #ffcc00;
-  --hal-lcars-red: #ff4444;
-  --hal-lcars-black: #000000;
-  --hal-lcars-dark-gray: #1a1a1a;
-  --hal-lcars-gray: #2a2a2a;
-  --hal-lcars-light-gray: #3a3a3a;
+  /* LCARS color palette - dark backgrounds with orange/red accents */
+  --hal-lcars-bg: #000000; /* Pure black background */
+  --hal-lcars-surface: #0a0a0a; /* Very dark gray for surfaces */
+  --hal-lcars-surface-alt: #151515; /* Slightly lighter for alt surfaces */
+  --hal-lcars-orange: #FF9900; /* Classic LCARS orange */
+  --hal-lcars-orange-hover: #FFAA33; /* Lighter orange for hover */
+  --hal-lcars-red: #FF3300; /* LCARS red accent */
+  --hal-lcars-yellow: #FFCC00; /* LCARS yellow/amber text */
+  --hal-lcars-yellow-muted: #CC9900; /* Muted yellow for secondary text */
+  --hal-lcars-border: #FF6600; /* Orange border */
+  --hal-lcars-border-muted: #663300; /* Muted orange border */
   
-  /* Semantic colors for LCARS theme */
+  /* Additional LCARS color variables for compatibility */
+  --hal-lcars-black: var(--hal-lcars-bg);
+  --hal-lcars-dark-gray: var(--hal-lcars-surface-alt);
+  --hal-lcars-gray: var(--hal-lcars-surface);
+  --hal-lcars-light-gray: var(--hal-lcars-border-muted);
+  --hal-lcars-orange-dark: #cc7700;
+  
+  /* Semantic colors using LCARS palette */
   --hal-primary: var(--hal-lcars-orange);
-  --hal-primary-hover: var(--hal-lcars-orange-dark);
-  --hal-accent: var(--hal-lcars-yellow);
-  --hal-bg: var(--hal-lcars-black);
-  --hal-surface: var(--hal-lcars-dark-gray);
-  --hal-surface-alt: var(--hal-lcars-gray);
-  --hal-border: var(--hal-lcars-light-gray);
-  --hal-border-muted: var(--hal-lcars-gray);
-  --hal-text: #ffffff;
-  --hal-text-muted: #cccccc;
-  --hal-header-bg: var(--hal-lcars-dark-gray);
-  --hal-header-text: #ffffff;
-  --hal-header-subtitle: var(--hal-lcars-orange);
-  --hal-chat-bg: var(--hal-lcars-dark-gray);
-  --hal-typing-bg: var(--hal-lcars-gray);
-  --hal-typing-border: var(--hal-lcars-light-gray);
-  --hal-status-ok: #00ff00;
+  --hal-primary-hover: var(--hal-lcars-orange-hover);
+  --hal-accent: var(--hal-lcars-red);
+  --hal-bg: var(--hal-lcars-bg);
+  --hal-surface: var(--hal-lcars-surface);
+  --hal-surface-alt: var(--hal-lcars-surface-alt);
+  --hal-border: var(--hal-lcars-border);
+  --hal-border-muted: var(--hal-lcars-border-muted);
+  --hal-text: var(--hal-lcars-yellow);
+  --hal-text-muted: var(--hal-lcars-yellow-muted);
+  --hal-header-bg: var(--hal-lcars-surface-alt);
+  --hal-header-text: var(--hal-lcars-yellow);
+  --hal-header-subtitle: var(--hal-lcars-yellow-muted);
+  --hal-chat-bg: var(--hal-lcars-surface);
+  --hal-typing-bg: var(--hal-lcars-surface-alt);
+  --hal-typing-border: var(--hal-lcars-border);
+  --hal-status-ok: #00FF00; /* Bright green for OK status */
   --hal-status-error: var(--hal-lcars-red);
 }
 
@@ -179,6 +188,51 @@
 }
 [data-theme="dark"] .btn-standard:focus-visible {
   outline-color: #b8a9f0;
+}
+
+/* LCARS theme button and focus styles (HAL-0745) */
+[data-theme="lcars"] .btn-standard {
+  background: rgba(255, 153, 0, 0.15);
+  border-color: var(--lcars-orange);
+  color: var(--lcars-yellow);
+}
+
+[data-theme="lcars"] .btn-standard:hover:not(:disabled) {
+  background: rgba(255, 153, 0, 0.25);
+  border-color: var(--lcars-yellow);
+}
+
+[data-theme="lcars"] .btn-standard:disabled {
+  background: var(--hal-surface-alt);
+  color: var(--hal-text-muted);
+  border-color: var(--hal-border);
+}
+
+[data-theme="lcars"] .btn-standard:focus-visible,
+[data-theme="lcars"] .btn-destructive:focus-visible,
+[data-theme="lcars"] button:focus-visible,
+[data-theme="lcars"] select:focus-visible,
+[data-theme="lcars"] input:focus-visible,
+[data-theme="lcars"] textarea:focus-visible {
+  outline: 3px solid var(--lcars-blue);
+  outline-offset: 2px;
+}
+
+[data-theme="lcars"] .btn-destructive {
+  background: rgba(204, 102, 153, 0.15);
+  border-color: var(--lcars-red);
+  color: #ff99cc;
+}
+
+[data-theme="lcars"] .btn-destructive:hover:not(:disabled) {
+  background: rgba(204, 102, 153, 0.25);
+  border-color: #ff99cc;
+}
+
+[data-theme="lcars"] .btn-destructive:disabled {
+  background: var(--hal-surface-alt);
+  color: var(--hal-text-muted);
+  border-color: var(--hal-border);
 }
 
 [data-theme="dark"] .btn-destructive {
@@ -371,6 +425,80 @@ body {
   align-items: center;
   gap: 1rem;
   justify-content: flex-end;
+  position: relative;
+}
+
+/* LCARS header accents (HAL-0745) */
+.hal-header-lcars-pill {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 60px;
+  height: 60px;
+  background: var(--hal-lcars-orange);
+  border-radius: 0 0 100% 0;
+  z-index: 1;
+}
+
+/* LCARS segmented color bar accent (HAL-0745) */
+.hal-header-lcars-bar {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 8px;
+  z-index: 1;
+}
+
+.hal-header-lcars-segment {
+  flex: 1;
+  height: 100%;
+}
+
+.hal-header-lcars-segment-orange {
+  background: var(--hal-lcars-orange);
+}
+
+.hal-header-lcars-segment-yellow {
+  background: var(--hal-lcars-yellow);
+}
+
+[data-theme="lcars"] .hal-header-lcars-pill,
+[data-theme="lcars"] .hal-header-lcars-bar {
+  display: block;
+}
+
+[data-theme="lcars"] .hal-header-lcars-bar {
+  display: flex;
+}
+
+/* Theme selector (HAL-0745) */
+.hal-header-theme-selector {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.theme-select-label {
+  font-size: 0.9rem;
+  color: var(--hal-header-text);
+}
+
+.theme-select {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.9rem;
+  border: 1px solid var(--hal-border);
+  border-radius: 6px;
+  background: var(--hal-surface);
+  color: var(--hal-text);
+  cursor: pointer;
+}
+
+.theme-select:focus-visible {
+  outline: 2px solid var(--hal-primary);
+  outline-offset: 2px;
 }
 
 /* Theme selector styling */
@@ -408,36 +536,13 @@ body {
 
 /* LCARS theme adjustments for header and theme selector */
 [data-theme="lcars"] .hal-header {
-  background: var(--hal-lcars-dark-gray);
+  background: var(--hal-lcars-surface-alt);
   border-bottom: 3px solid var(--hal-lcars-orange);
   position: relative;
+  padding-top: calc(1rem + 8px); /* Add space for LCARS bar */
 }
 
-/* LCARS header accent: segmented color bar */
-.hal-header-lcars-bar {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 8px;
-  display: flex;
-  z-index: 1;
-}
-
-.hal-header-lcars-segment {
-  flex: 1;
-  height: 100%;
-}
-
-.hal-header-lcars-segment-orange {
-  background: var(--hal-lcars-orange);
-}
-
-.hal-header-lcars-segment-yellow {
-  background: var(--hal-lcars-yellow);
-}
-
-/* LCARS corner pill accent (alternative) */
+/* LCARS corner pill accent */
 [data-theme="lcars"] .hal-header::before {
   content: '';
   position: absolute;
@@ -512,6 +617,25 @@ body {
   background: var(--hal-surface);
   overflow: visible;
   overflow-x: hidden;
+  position: relative;
+}
+
+/* LCARS panel treatment for Kanban (HAL-0745) */
+[data-theme="lcars"] .hal-kanban-region {
+  border: 3px solid var(--lcars-orange);
+  border-radius: 0 20px 20px 0;
+  border-left: 8px solid var(--lcars-orange);
+}
+
+[data-theme="lcars"] .hal-kanban-region::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 8px;
+  height: 100%;
+  background: var(--lcars-orange);
+  z-index: 1;
 }
 
 /* LCARS panel treatment for Kanban region */
@@ -3366,11 +3490,11 @@ div.kanban-frame-container #root,
   overflow: hidden;
 }
 
-/* LCARS panel treatment for PM chat widget */
+/* LCARS panel treatment for PM chat widget (HAL-0745) */
 [data-theme="lcars"] .pm-chat-widget {
   border: 4px solid var(--hal-lcars-orange);
   border-radius: 0 20px 0 20px;
-  background: var(--hal-lcars-dark-gray);
+  background: var(--hal-lcars-surface);
   position: relative;
 }
 
