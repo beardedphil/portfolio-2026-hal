@@ -6,12 +6,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>HAL - Portfolio 2026</title>
     <script>
-      // Always apply dark theme before React renders to prevent flash (0707: removed theme toggle)
+      // Apply saved theme before React renders to prevent flash
       (function() {
         try {
-          document.documentElement.setAttribute('data-theme', 'dark');
+          const stored = localStorage.getItem('hal-theme');
+          const theme = stored === 'lcars' ? 'lcars' : 'dark';
+          document.documentElement.setAttribute('data-theme', theme);
         } catch (e) {
           // ignore errors
+          document.documentElement.setAttribute('data-theme', 'dark');
         }
       })();
     </script>

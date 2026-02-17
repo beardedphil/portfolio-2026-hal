@@ -20,7 +20,7 @@ export interface HalKanbanContextValue {
   /** Connected repo full name (e.g. owner/repo). */
   repoFullName: string | null
   /** Theme for styling. */
-  theme: 'light' | 'dark'
+  theme: 'light' | 'dark' | 'lcars'
   /** Called when user moves a ticket to another column. HAL updates Supabase and passes new data. */
   onMoveTicket: (ticketPk: string, columnId: string, position?: number) => void | Promise<void>
   /** Called when user reorders tickets within a column. HAL updates Supabase and passes new data. */

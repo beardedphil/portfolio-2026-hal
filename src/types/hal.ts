@@ -75,7 +75,7 @@ export type PmAgentResponse = {
   promptText?: string
 }
 
-export type Theme = 'light' | 'dark'
+export type Theme = 'light' | 'dark' | 'lcars'
 
 export type DiagnosticsInfo = {
   kanbanRenderMode: string

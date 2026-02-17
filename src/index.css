@@ -72,36 +72,34 @@
 
 /* LCARS theme (Star Trek inspired) */
 [data-theme="lcars"] {
-  /* LCARS color palette - dark backgrounds with orange/red accents */
-  --hal-lcars-bg: #000000; /* Pure black background */
-  --hal-lcars-surface: #0a0a0a; /* Very dark gray for surfaces */
-  --hal-lcars-surface-alt: #151515; /* Slightly lighter for alt surfaces */
-  --hal-lcars-orange: #FF9900; /* Classic LCARS orange */
-  --hal-lcars-orange-hover: #FFAA33; /* Lighter orange for hover */
-  --hal-lcars-red: #FF3300; /* LCARS red accent */
-  --hal-lcars-yellow: #FFCC00; /* LCARS yellow/amber text */
-  --hal-lcars-yellow-muted: #CC9900; /* Muted yellow for secondary text */
-  --hal-lcars-border: #FF6600; /* Orange border */
-  --hal-lcars-border-muted: #663300; /* Muted orange border */
+  /* LCARS color palette - black backgrounds with orange/yellow accents */
+  --hal-lcars-orange: #ff9900;
+  --hal-lcars-orange-dark: #cc7700;
+  --hal-lcars-yellow: #ffcc00;
+  --hal-lcars-red: #ff4444;
+  --hal-lcars-black: #000000;
+  --hal-lcars-dark-gray: #1a1a1a;
+  --hal-lcars-gray: #2a2a2a;
+  --hal-lcars-light-gray: #3a3a3a;
   
-  /* Semantic colors using LCARS palette */
+  /* Semantic colors for LCARS theme */
   --hal-primary: var(--hal-lcars-orange);
-  --hal-primary-hover: var(--hal-lcars-orange-hover);
-  --hal-accent: var(--hal-lcars-red);
-  --hal-bg: var(--hal-lcars-bg);
-  --hal-surface: var(--hal-lcars-surface);
-  --hal-surface-alt: var(--hal-lcars-surface-alt);
-  --hal-border: var(--hal-lcars-border);
-  --hal-border-muted: var(--hal-lcars-border-muted);
-  --hal-text: var(--hal-lcars-yellow);
-  --hal-text-muted: var(--hal-lcars-yellow-muted);
-  --hal-header-bg: var(--hal-lcars-surface-alt);
-  --hal-header-text: var(--hal-lcars-yellow);
-  --hal-header-subtitle: var(--hal-lcars-yellow-muted);
-  --hal-chat-bg: var(--hal-lcars-surface);
-  --hal-typing-bg: var(--hal-lcars-surface-alt);
-  --hal-typing-border: var(--hal-lcars-border);
-  --hal-status-ok: #00FF00; /* Bright green for OK status */
+  --hal-primary-hover: var(--hal-lcars-orange-dark);
+  --hal-accent: var(--hal-lcars-yellow);
+  --hal-bg: var(--hal-lcars-black);
+  --hal-surface: var(--hal-lcars-dark-gray);
+  --hal-surface-alt: var(--hal-lcars-gray);
+  --hal-border: var(--hal-lcars-light-gray);
+  --hal-border-muted: var(--hal-lcars-gray);
+  --hal-text: #ffffff;
+  --hal-text-muted: #cccccc;
+  --hal-header-bg: var(--hal-lcars-dark-gray);
+  --hal-header-text: #ffffff;
+  --hal-header-subtitle: var(--hal-lcars-orange);
+  --hal-chat-bg: var(--hal-lcars-dark-gray);
+  --hal-typing-bg: var(--hal-lcars-gray);
+  --hal-typing-border: var(--hal-lcars-light-gray);
+  --hal-status-ok: #00ff00;
   --hal-status-error: var(--hal-lcars-red);
 }
 
@@ -203,43 +201,53 @@
 
 /* LCARS theme adjustments for base button classes */
 [data-theme="lcars"] .btn-standard {
-  background: rgba(255, 153, 0, 0.2); /* LCARS orange with transparency */
-  border-color: #FF9900; /* LCARS orange */
-  color: #FFCC00; /* LCARS yellow text */
+  background: var(--hal-lcars-dark-gray);
+  border: 2px solid var(--hal-lcars-orange);
+  border-radius: 0;
+  color: var(--hal-lcars-orange);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 [data-theme="lcars"] .btn-standard:hover:not(:disabled) {
-  background: rgba(255, 153, 0, 0.35);
-  border-color: #FFAA33; /* Lighter orange on hover */
+  background: var(--hal-lcars-orange);
+  color: var(--hal-lcars-black);
+  border-color: var(--hal-lcars-orange);
 }
 [data-theme="lcars"] .btn-standard:disabled {
-  background: var(--hal-surface-alt);
-  color: var(--hal-text-muted);
-  border-color: var(--hal-border-muted);
-  opacity: 0.6;
+  background: var(--hal-lcars-dark-gray);
+  color: var(--hal-lcars-gray);
+  border-color: var(--hal-lcars-gray);
+  opacity: 0.5;
 }
 [data-theme="lcars"] .btn-standard:focus-visible {
-  outline-color: #FFCC00; /* LCARS yellow outline */
-  outline-width: 2px;
+  outline: 2px solid var(--hal-lcars-yellow);
+  outline-offset: 2px;
 }
 
 [data-theme="lcars"] .btn-destructive {
-  background: rgba(255, 51, 0, 0.2); /* LCARS red with transparency */
-  border-color: #FF3300; /* LCARS red */
-  color: #FFCC00; /* LCARS yellow text */
+  background: var(--hal-lcars-dark-gray);
+  border: 2px solid var(--hal-lcars-red);
+  border-radius: 0;
+  color: var(--hal-lcars-red);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 [data-theme="lcars"] .btn-destructive:hover:not(:disabled) {
-  background: rgba(255, 51, 0, 0.35);
-  border-color: #FF5533; /* Lighter red on hover */
+  background: var(--hal-lcars-red);
+  color: #ffffff;
+  border-color: var(--hal-lcars-red);
 }
 [data-theme="lcars"] .btn-destructive:disabled {
-  background: var(--hal-surface-alt);
-  color: var(--hal-text-muted);
-  border-color: var(--hal-border-muted);
-  opacity: 0.6;
+  background: var(--hal-lcars-dark-gray);
+  color: var(--hal-lcars-gray);
+  border-color: var(--hal-lcars-gray);
+  opacity: 0.5;
 }
 [data-theme="lcars"] .btn-destructive:focus-visible {
-  outline-color: #FF3300; /* LCARS red outline */
-  outline-width: 2px;
+  outline: 2px solid var(--hal-lcars-yellow);
+  outline-offset: 2px;
 }
 
 * {
@@ -343,6 +351,85 @@ body {
   align-items: center;
   gap: 1rem;
   justify-content: flex-end;
+}
+
+/* Theme selector styling */
+.theme-selector {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.theme-select-label {
+  font-size: 0.9rem;
+  color: var(--hal-text-muted);
+  white-space: nowrap;
+}
+
+.theme-select {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.9rem;
+  border: 1px solid var(--hal-border);
+  border-radius: 6px;
+  background: var(--hal-surface);
+  color: var(--hal-text);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.theme-select:hover {
+  border-color: var(--hal-primary);
+}
+
+.theme-select:focus {
+  outline: 2px solid var(--hal-primary);
+  outline-offset: 2px;
+}
+
+/* LCARS theme adjustments for header and theme selector */
+[data-theme="lcars"] .hal-header {
+  background: var(--hal-lcars-dark-gray);
+  border-bottom: 3px solid var(--hal-lcars-orange);
+}
+
+[data-theme="lcars"] .hal-header h1 {
+  color: var(--hal-lcars-orange);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+[data-theme="lcars"] .hal-subtitle {
+  color: var(--hal-lcars-yellow);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+[data-theme="lcars"] .theme-select {
+  background: var(--hal-lcars-dark-gray);
+  border: 2px solid var(--hal-lcars-orange);
+  border-radius: 0;
+  color: var(--hal-lcars-orange);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+[data-theme="lcars"] .theme-select:hover {
+  background: var(--hal-lcars-orange);
+  color: var(--hal-lcars-black);
+  border-color: var(--hal-lcars-orange);
+}
+
+[data-theme="lcars"] .theme-select:focus {
+  outline: 2px solid var(--hal-lcars-yellow);
+  outline-offset: 2px;
+}
+
+[data-theme="lcars"] .theme-select-label {
+  color: var(--hal-lcars-orange);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
 }
 
 .hal-main {
@@ -1774,32 +1861,6 @@ div.kanban-frame-container #root,
 .typing-label {
   font-size: 0.9rem;
   color: var(--hal-text-muted);
-}
-
-/* LCARS theme adjustments for message bubbles */
-[data-theme="lcars"] .message-user {
-  background: linear-gradient(135deg, #FF6600 0%, #FF9900 100%); /* LCARS orange gradient */
-  border-color: #FF9900; /* LCARS orange */
-  color: #000000; /* Black text on orange background for contrast */
-}
-[data-theme="lcars"] .message-user .message-author {
-  color: #000000; /* Black text */
-}
-[data-theme="lcars"] .message-user .message-time {
-  color: rgba(0, 0, 0, 0.7); /* Darker black for time */
-}
-[data-theme="lcars"] .message-user .message-content {
-  color: #000000; /* Black text */
-}
-[data-theme="lcars"] .message-user .message-json {
-  background: rgba(0, 0, 0, 0.2);
-  border-color: rgba(0, 0, 0, 0.4);
-  color: #000000; /* Black text */
-}
-
-[data-theme="lcars"] .message-project-manager .message-author,
-[data-theme="lcars"] .message-implementation-agent .message-author {
-  color: #FF9900; /* LCARS orange for author names */
 }
 
 /* Prompt view for PM assistant messages */
