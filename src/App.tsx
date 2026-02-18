@@ -77,7 +77,7 @@ function App() {
   const [theme, setTheme] = useState<Theme>(() => {
     try {
       const stored = localStorage.getItem('hal-theme')
-      if (stored === 'dark' || stored === 'lcars') {
+      if (stored === 'dark' || stored === 'lcars' || stored === 'arrested') {
         return stored
       }
       return 'dark'
