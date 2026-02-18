@@ -12,7 +12,7 @@ export function SortableCard({
   card: Card
   columnId: string
   onOpenDetail?: (cardId: string) => void
-  activeWorkAgentType?: 'Implementation' | 'QA' | null
+  activeWorkAgentType?: 'Implementation' | 'QA' | 'Process Review' | null
   isSaving?: boolean
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({

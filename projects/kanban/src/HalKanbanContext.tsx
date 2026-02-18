@@ -20,7 +20,7 @@ export interface HalKanbanContextValue {
   /** Connected repo full name (e.g. owner/repo). */
   repoFullName: string | null
   /** Theme for styling. */
-  theme: 'light' | 'dark'
+  theme: 'light' | 'dark' | 'lcars' | 'arrested'
   /** Called when user moves a ticket to another column. HAL updates Supabase and passes new data. */
   onMoveTicket: (ticketPk: string, columnId: string, position?: number) => void | Promise<void>
   /** Called when user reorders tickets within a column. HAL updates Supabase and passes new data. */
@@ -44,6 +44,10 @@ export interface HalKanbanContextValue {
   supabaseAnonKey?: string | null
   /** Called when a ticket is created (e.g. via Process Review). HAL should refresh its Kanban data. */
   onTicketCreated?: () => void | Promise<void>
+  /** Sync status: 'realtime' when Supabase realtime is connected, 'polling' when using polling fallback. */
+  syncStatus?: 'realtime' | 'polling'
+  /** Timestamp of last successful sync (realtime event or polling fetch). */
+  lastSync?: Date | null
 }
 
 export const HalKanbanContext = createContext<HalKanbanContextValue | null>(null)

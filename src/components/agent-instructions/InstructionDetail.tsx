@@ -32,7 +32,7 @@ export function InstructionDetail({
         {!isEditing ? (
           <button
             type="button"
-            className="instruction-edit-btn"
+            className="instruction-edit-btn btn-standard"
             onClick={onEditClick}
             title="Edit this instruction"
           >
@@ -42,7 +42,7 @@ export function InstructionDetail({
           <div className="instruction-edit-actions">
             <button
               type="button"
-              className="instruction-save-btn"
+              className="instruction-save-btn btn-standard"
               onClick={onSaveEdit}
               disabled={saveStatus === 'saving'}
             >
@@ -50,7 +50,7 @@ export function InstructionDetail({
             </button>
             <button
               type="button"
-              className="instruction-cancel-btn"
+              className="instruction-cancel-btn btn-destructive"
               onClick={onCancelEdit}
               disabled={saveStatus === 'saving'}
             >

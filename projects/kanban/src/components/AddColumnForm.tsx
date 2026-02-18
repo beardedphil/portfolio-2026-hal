@@ -33,10 +33,10 @@ export function AddColumnForm({
         </p>
       )}
       <div className="form-actions">
-        <button type="button" onClick={onCreate}>
+        <button type="button" className="btn-standard" onClick={onCreate}>
           Create
         </button>
-        <button type="button" onClick={onCancel}>
+        <button type="button" className="btn-destructive" onClick={onCancel}>
           Cancel
         </button>
       </div>

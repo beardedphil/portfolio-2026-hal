@@ -12,7 +12,7 @@ export function DroppableActiveWorkRow({
   pendingMoves,
 }: {
   doingTickets: SupabaseTicketRow[]
-  activeWorkAgentTypes: Record<string, 'Implementation' | 'QA'>
+  activeWorkAgentTypes: Record<string, 'Implementation' | 'QA' | 'Process Review'>
   agentRunsByTicketPk: Record<string, SupabaseAgentRunRow>
   onOpenDetail: (ticketPk: string) => void
   pendingMoves: Set<string>

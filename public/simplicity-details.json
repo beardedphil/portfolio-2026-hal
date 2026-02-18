@@ -1,7 +1,15 @@
 {
   "topOffenders": [
     {
-      "file": "src/App.tsx",
+      "file": "src/hooks/useAgentRuns.ts",
+      "maintainability": 0
+    },
+    {
+      "file": "src/hooks/useKanban.ts",
+      "maintainability": 0
+    },
+    {
+      "file": "api/agent-runs/status.ts",
       "maintainability": 0
     },
     {
@@ -25,12 +33,12 @@
       "maintainability": 0
     },
     {
-      "file": "api/implementation-agent/run.ts",
-      "maintainability": 12.23
+      "file": "src/App.tsx",
+      "maintainability": 10.72
     },
     {
-      "file": "api/agent-runs/status.ts",
-      "maintainability": 12.61
+      "file": "api/implementation-agent/run.ts",
+      "maintainability": 12.23
     },
     {
       "file": "api/agent-runs/launch.ts",
@@ -61,24 +69,16 @@
       "maintainability": 30.65
     },
     {
+      "file": "src/hooks/useProcessReview.ts",
+      "maintainability": 31.61
+    },
+    {
       "file": "api/artifacts/get.ts",
       "maintainability": 32.38
     },
     {
       "file": "api/agent-runs/_shared.ts",
       "maintainability": 32.99
-    },
-    {
-      "file": "api/tickets/create-from-suggestion.ts",
-      "maintainability": 33.81
-    },
-    {
-      "file": "api/pm-agent/launch.ts",
-      "maintainability": 34.04
-    },
-    {
-      "file": "api/pm/working-memory.ts",
-      "maintainability": 35.13
     }
   ],
   "mostRecentImprovements": [
@@ -86,18 +86,6 @@
       "file": "api/artifacts/get.ts",
       "before": 32.38,
       "after": 32.38,
-      "delta": 0
-    },
-    {
-      "file": "api/pm/working-memory.ts",
-      "before": 35.13,
-      "after": 35.13,
-      "delta": 0
-    },
-    {
-      "file": "api/tickets/create-from-suggestion.ts",
-      "before": 33.81,
-      "after": 33.81,
       "delta": 0
     },
     {
@@ -119,7 +107,7 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-16T20:29:30.414Z",
-  "filesAnalyzed": 246,
-  "unroundedSimplicity": 40.9
+  "generatedAt": "2026-02-18T20:03:38.550Z",
+  "filesAnalyzed": 279,
+  "unroundedSimplicity": 40.4
 }

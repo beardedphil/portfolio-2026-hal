@@ -119,6 +119,11 @@ export function pmAgentLaunchPlugin(): Plugin {
   return createHandlerPlugin('pm-agent-launch-endpoint', '/api/pm-agent/launch', 'POST')
 }
 
+/** PM respond endpoint (OpenAI Responses API) */
+export function pmRespondPlugin(): Plugin {
+  return createHandlerPlugin('pm-respond-endpoint', '/api/pm/respond', 'POST')
+}
+
 /** Process review launch endpoint */
 export function processReviewLaunchPlugin(): Plugin {
   return createHandlerPlugin('process-review-launch-endpoint', '/api/process-review/launch', 'POST')

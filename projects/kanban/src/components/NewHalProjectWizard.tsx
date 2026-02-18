@@ -55,7 +55,7 @@ export function NewHalProjectWizard({
       <div className="modal">
         <div className="modal-header">
           <h2 className="modal-title">New HAL project (wizard v0)</h2>
-          <button type="button" className="modal-close" onClick={onClose}>
+          <button type="button" className="modal-close btn-destructive" onClick={onClose}>
             Close
           </button>
         </div>
@@ -122,10 +122,10 @@ export function NewHalProjectWizard({
         </div>
 
         <div className="modal-actions">
-          <button type="button" className="primary" onClick={onGenerateReport}>
+          <button type="button" className="primary btn-standard" onClick={onGenerateReport}>
             Generate bootstrap report
           </button>
-          <button type="button" onClick={onReset}>
+          <button type="button" className="btn-standard" onClick={onReset}>
             Reset
           </button>
         </div>
@@ -136,13 +136,13 @@ export function NewHalProjectWizard({
             Select the scaffold folder (recommended: this repo's <code>hal-template/</code>) and a destination folder for your new project, then copy.
           </p>
           <div className="wizard-actions">
-            <button type="button" onClick={onSelectTemplateRoot}>
+            <button type="button" className="btn-standard" onClick={onSelectTemplateRoot}>
               Select scaffold folder
             </button>
-            <button type="button" onClick={onSelectTargetRoot}>
+            <button type="button" className="btn-standard" onClick={onSelectTargetRoot}>
               Select destination folder
             </button>
-            <button type="button" className="primary" onClick={onRunBootstrap}>
+            <button type="button" className="primary btn-standard" onClick={onRunBootstrap}>
               Copy scaffold
             </button>
           </div>
