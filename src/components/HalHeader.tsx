@@ -102,6 +102,7 @@ export function HalHeader({
           >
             <option value="dark">Dark</option>
             <option value="lcars">LCARS</option>
+            <option value="arrested">Arrested</option>
           </select>
         </div>
         <button

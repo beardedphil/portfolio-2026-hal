@@ -103,6 +103,131 @@
   --hal-status-error: var(--hal-lcars-red);
 }
 
+/* Arrested Development theme (Banana Stand edition) */
+[data-theme="arrested"] {
+  /* Banana Stand color palette - red/cream awning stripes and warm yellow */
+  --hal-arrested-red: #c41e3a; /* Deep red for awning stripes */
+  --hal-arrested-cream: #fff8dc; /* Cream for awning stripes */
+  --hal-arrested-yellow: #ffd700; /* Warm banana yellow */
+  --hal-arrested-yellow-dark: #e6c200; /* Darker yellow for hover */
+  --hal-arrested-yellow-light: #fff9c4; /* Light yellow for backgrounds */
+  --hal-arrested-brown: #8b4513; /* Brown accents */
+  --hal-arrested-tan: #f5deb3; /* Tan for surfaces */
+  
+  /* Semantic colors for Arrested theme */
+  --hal-primary: var(--hal-arrested-yellow);
+  --hal-primary-hover: var(--hal-arrested-yellow-dark);
+  --hal-accent: var(--hal-arrested-yellow);
+  --hal-bg: var(--hal-arrested-tan);
+  --hal-surface: #ffffff;
+  --hal-surface-alt: var(--hal-arrested-yellow-light);
+  --hal-border: #d4a574; /* Tan border */
+  --hal-border-muted: #e8d4b8;
+  --hal-text: #2d1b0e; /* Dark brown text */
+  --hal-text-muted: #6b4e3d;
+  --hal-header-bg: var(--hal-arrested-red);
+  --hal-header-text: #ffffff;
+  --hal-header-subtitle: var(--hal-arrested-yellow);
+  --hal-chat-bg: var(--hal-arrested-yellow-light);
+  --hal-typing-bg: var(--hal-arrested-tan);
+  --hal-typing-border: var(--hal-border);
+  --hal-status-ok: #2e7d32;
+  --hal-status-error: #c62828;
+}
+
+/* Arrested theme header with awning stripes */
+[data-theme="arrested"] .hal-header {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--hal-arrested-red) 0px,
+    var(--hal-arrested-red) 20px,
+    var(--hal-arrested-cream) 20px,
+    var(--hal-arrested-cream) 40px
+  );
+  border-bottom: 3px solid var(--hal-arrested-yellow);
+}
+
+[data-theme="arrested"] .hal-header h1 {
+  color: var(--hal-arrested-yellow);
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="arrested"] .hal-subtitle {
+  color: var(--hal-arrested-yellow);
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="arrested"] .theme-select {
+  background: var(--hal-surface);
+  border: 2px solid var(--hal-arrested-yellow);
+  border-radius: 6px;
+  color: var(--hal-text);
+  font-weight: 500;
+}
+
+[data-theme="arrested"] .theme-select:hover {
+  background: var(--hal-arrested-yellow-light);
+  border-color: var(--hal-arrested-yellow-dark);
+}
+
+[data-theme="arrested"] .theme-select:focus {
+  outline: 2px solid var(--hal-arrested-yellow);
+  outline-offset: 2px;
+}
+
+[data-theme="arrested"] .theme-select-label {
+  color: var(--hal-arrested-yellow);
+  font-weight: 500;
+}
+
+/* Arrested theme button styles - banana yellow primary */
+[data-theme="arrested"] .btn-standard {
+  background: var(--hal-arrested-yellow);
+  border-color: var(--hal-arrested-yellow-dark);
+  color: var(--hal-text);
+  font-weight: 600;
+}
+
+[data-theme="arrested"] .btn-standard:hover:not(:disabled) {
+  background: var(--hal-arrested-yellow-dark);
+  border-color: var(--hal-arrested-yellow-dark);
+  color: var(--hal-text);
+}
+
+[data-theme="arrested"] .btn-standard:disabled {
+  background: var(--hal-surface-alt);
+  color: var(--hal-text-muted);
+  border-color: var(--hal-border);
+  opacity: 0.6;
+}
+
+[data-theme="arrested"] .btn-standard:focus-visible {
+  outline-color: var(--hal-arrested-yellow-dark);
+}
+
+[data-theme="arrested"] .btn-destructive {
+  background: rgba(196, 30, 58, 0.15); /* Arrested red with transparency */
+  border-color: var(--hal-arrested-red);
+  color: var(--hal-arrested-red);
+}
+
+[data-theme="arrested"] .btn-destructive:hover:not(:disabled) {
+  background: rgba(196, 30, 58, 0.25);
+  border-color: var(--hal-arrested-red);
+  color: var(--hal-arrested-red);
+}
+
+[data-theme="arrested"] .btn-destructive:disabled {
+  background: var(--hal-surface-alt);
+  color: var(--hal-text-muted);
+  border-color: var(--hal-border);
+  opacity: 0.6;
+}
+
+[data-theme="arrested"] .btn-destructive:focus-visible {
+  outline-color: var(--hal-arrested-red);
+}
+
 /* Base button classes - canonical styles for all buttons (0739) */
 /* Standard button style (matches column-work-button) */
 .btn-standard {

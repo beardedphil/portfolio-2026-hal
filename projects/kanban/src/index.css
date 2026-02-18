@@ -65,6 +65,38 @@
   --kanban-error: #ff4444;
 }
 
+/* Arrested Development theme (Banana Stand edition) */
+[data-theme="arrested"] {
+  /* Banana Stand color palette - red/cream awning stripes and warm yellow */
+  --kanban-arrested-red: #c41e3a; /* Deep red for awning stripes */
+  --kanban-arrested-cream: #fff8dc; /* Cream for awning stripes */
+  --kanban-arrested-yellow: #ffd700; /* Warm banana yellow */
+  --kanban-arrested-yellow-dark: #e6c200; /* Darker yellow for hover */
+  --kanban-arrested-yellow-light: #fff9c4; /* Light yellow for backgrounds */
+  --kanban-arrested-brown: #8b4513; /* Brown accents */
+  --kanban-arrested-tan: #f5deb3; /* Tan for surfaces */
+  
+  /* Semantic colors for Arrested theme */
+  --kanban-bg: var(--kanban-arrested-tan);
+  --kanban-text: #2d1b0e; /* Dark brown text */
+  --kanban-text-muted: #6b4e3d;
+  --kanban-text-subtle: #8b6f5e;
+  --kanban-surface: #ffffff;
+  --kanban-surface-alt: var(--kanban-arrested-yellow-light);
+  --kanban-border: #d4a574; /* Tan border */
+  --kanban-border-muted: #e8d4b8;
+  --kanban-primary: var(--kanban-arrested-yellow);
+  --kanban-primary-hover: var(--kanban-arrested-yellow-dark);
+  --kanban-success: #2e7d32;
+  --kanban-success-bg: #d4edda;
+  --kanban-success-border: #c3e6cb;
+  --kanban-success-text: #155724;
+  --kanban-warning-bg: #fff3cd;
+  --kanban-warning-border: #e0c040;
+  --kanban-warning-text: #856404;
+  --kanban-error: #c62828;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -2039,6 +2071,95 @@ h1 {
 }
 [data-theme="dark"] .human-validation-button-fail:focus-visible {
   outline-color: #f88;
+}
+
+/* Arrested theme adjustments for base button classes */
+[data-theme="arrested"] .btn-standard {
+  background: var(--kanban-arrested-yellow);
+  border-color: var(--kanban-arrested-yellow-dark);
+  color: var(--kanban-text);
+  font-weight: 600;
+}
+
+[data-theme="arrested"] .btn-standard:hover:not(:disabled) {
+  background: var(--kanban-arrested-yellow-dark);
+  border-color: var(--kanban-arrested-yellow-dark);
+  color: var(--kanban-text);
+}
+
+[data-theme="arrested"] .btn-standard:disabled {
+  background: var(--kanban-surface-alt);
+  color: var(--kanban-text-muted);
+  border-color: var(--kanban-border);
+  opacity: 0.6;
+}
+
+[data-theme="arrested"] .btn-standard:focus-visible {
+  outline-color: var(--kanban-arrested-yellow-dark);
+}
+
+[data-theme="arrested"] .btn-destructive {
+  background: rgba(196, 30, 58, 0.15); /* Arrested red with transparency */
+  border-color: var(--kanban-arrested-red);
+  color: var(--kanban-arrested-red);
+}
+
+[data-theme="arrested"] .btn-destructive:hover:not(:disabled) {
+  background: rgba(196, 30, 58, 0.25);
+  border-color: var(--kanban-arrested-red);
+  color: var(--kanban-arrested-red);
+}
+
+[data-theme="arrested"] .btn-destructive:disabled {
+  background: var(--kanban-surface-alt);
+  color: var(--kanban-text-muted);
+  border-color: var(--kanban-border);
+  opacity: 0.6;
+}
+
+[data-theme="arrested"] .btn-destructive:focus-visible {
+  outline-color: var(--kanban-arrested-red);
+}
+
+/* Arrested theme adjustments for column header buttons */
+[data-theme="arrested"] .column-work-button {
+  background: var(--kanban-arrested-yellow);
+  border-color: var(--kanban-arrested-yellow-dark);
+  color: var(--kanban-text);
+  font-weight: 600;
+}
+
+[data-theme="arrested"] .column-work-button:hover:not(:disabled) {
+  background: var(--kanban-arrested-yellow-dark);
+  border-color: var(--kanban-arrested-yellow-dark);
+  color: var(--kanban-text);
+}
+
+[data-theme="arrested"] .column-work-button:disabled {
+  background: var(--kanban-surface-alt);
+  color: var(--kanban-text-muted);
+  border-color: var(--kanban-border);
+  opacity: 0.6;
+}
+
+[data-theme="arrested"] .column-work-button:focus-visible {
+  outline-color: var(--kanban-arrested-yellow-dark);
+}
+
+[data-theme="arrested"] .column-remove {
+  background: rgba(196, 30, 58, 0.15); /* Arrested red with transparency */
+  border-color: var(--kanban-arrested-red);
+  color: var(--kanban-arrested-red);
+}
+
+[data-theme="arrested"] .column-remove:hover {
+  background: rgba(196, 30, 58, 0.25);
+  border-color: var(--kanban-arrested-red);
+  color: var(--kanban-arrested-red);
+}
+
+[data-theme="arrested"] .column-remove:focus-visible {
+  outline-color: var(--kanban-arrested-red);
 }
 
 .debug-toggle {
