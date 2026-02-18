@@ -570,64 +570,16 @@ function addTicketTemplateAndChecklist(
   }
 }
 
-export async function buildContextPack(config: PmAgentConfig, userMessage: string): Promise<string> {
-  const rulesDir = config.rulesDir ?? '.cursor/rules'
-  const rulesPath = path.resolve(config.repoRoot, rulesDir)
+async function loadInstructionsFromRemote(
+  sections: string[],
+  config: PmAgentConfig,
+  rulesPath: string,
+  repoFullName: string
+): Promise<{ ticketTemplate: string | null; checklist: string | null }> {
+  let ticketTemplateContent: string | null = null
+  let checklistContent: string | null = null
 
-  const sections: string[] = []
-
-  // Always include a compact list of HAL-provided inputs and enabled tools (helps debugging while keeping context small).
-  sections.push(formatPmInputsSummary(config))
-
-  // Local-first: try loading rules from repo
-  const localRulesResult = await loadLocalRules(config.repoRoot, rulesPath)
-  const localLoaded = localRulesResult.success
-  let ticketTemplateContent = localRulesResult.ticketTemplate
-  let checklistContent = localRulesResult.checklist
-  const localRulesContent = localRulesResult.rulesContent
-
-  if (localLoaded) {
-    sections.push(
-      '## Instructions\n\n' +
-        '**Your instructions are in the "Repo rules (local)" section below.** Use them directly; no need to load from Supabase.\n'
-    )
-  } else {
-    sections.push(
-      '## MANDATORY: Load Your Instructions First\n\n' +
-        '**BEFORE responding to the user, you MUST load your basic instructions from Supabase using the `get_instruction_set` tool.**\n\n' +
-        '**Use the tool:** `get_instruction_set({ topicId: "project-manager-basic" })` or load all basic instructions for project-manager agent type.\n\n' +
-        '**The instructions from Supabase contain:**\n' +
-        '- Required workflows and procedures\n' +
-        '- How to evaluate ticket readiness\n' +
-        '- Code citation requirements\n' +
-        '- All other mandatory PM agent workflows\n\n' +
-        '**DO NOT proceed with responding until you have loaded and read your instructions from Supabase.**\n'
-    )
-  }
-
-  // Working Memory (0173: PM working memory) - include before conversation context
-  if (config.workingMemoryText && config.workingMemoryText.trim() !== '') {
-    sections.push(config.workingMemoryText.trim())
-  }
-
-  // Conversation so far: pre-built context pack (e.g. summary + recent from DB) or bounded history
-  const { hasConversation } = addConversationContext(sections, config)
-
-  if (hasConversation) {
-    sections.push('## User message (latest reply in the conversation above)\n\n' + userMessage)
-  } else {
-    sections.push('## User message\n\n' + userMessage)
-  }
-
-  if (localLoaded) {
-    sections.push('## Repo rules (local)\n\n' + localRulesContent)
-  } else {
-    sections.push('## Repo rules (from Supabase)')
-  }
-
-  if (!localLoaded) {
   try {
-    const repoFullName = config.repoFullName || config.projectId || 'beardedphil/portfolio-2026-hal'
     let bootstrapLoaded = false
 
     // HAL API is the primary path.
@@ -707,6 +659,70 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
   } catch (err) {
     sections.push(`(error loading rules: ${err instanceof Error ? err.message : String(err)})`)
   }
+
+  return { ticketTemplate: ticketTemplateContent, checklist: checklistContent }
+}
+
+export async function buildContextPack(config: PmAgentConfig, userMessage: string): Promise<string> {
+  const rulesDir = config.rulesDir ?? '.cursor/rules'
+  const rulesPath = path.resolve(config.repoRoot, rulesDir)
+
+  const sections: string[] = []
+
+  // Always include a compact list of HAL-provided inputs and enabled tools (helps debugging while keeping context small).
+  sections.push(formatPmInputsSummary(config))
+
+  // Local-first: try loading rules from repo
+  const localRulesResult = await loadLocalRules(config.repoRoot, rulesPath)
+  const localLoaded = localRulesResult.success
+  let ticketTemplateContent = localRulesResult.ticketTemplate
+  let checklistContent = localRulesResult.checklist
+  const localRulesContent = localRulesResult.rulesContent
+
+  if (localLoaded) {
+    sections.push(
+      '## Instructions\n\n' +
+        '**Your instructions are in the "Repo rules (local)" section below.** Use them directly; no need to load from Supabase.\n'
+    )
+  } else {
+    sections.push(
+      '## MANDATORY: Load Your Instructions First\n\n' +
+        '**BEFORE responding to the user, you MUST load your basic instructions from Supabase using the `get_instruction_set` tool.**\n\n' +
+        '**Use the tool:** `get_instruction_set({ topicId: "project-manager-basic" })` or load all basic instructions for project-manager agent type.\n\n' +
+        '**The instructions from Supabase contain:**\n' +
+        '- Required workflows and procedures\n' +
+        '- How to evaluate ticket readiness\n' +
+        '- Code citation requirements\n' +
+        '- All other mandatory PM agent workflows\n\n' +
+        '**DO NOT proceed with responding until you have loaded and read your instructions from Supabase.**\n'
+    )
+  }
+
+  // Working Memory (0173: PM working memory) - include before conversation context
+  if (config.workingMemoryText && config.workingMemoryText.trim() !== '') {
+    sections.push(config.workingMemoryText.trim())
+  }
+
+  // Conversation so far: pre-built context pack (e.g. summary + recent from DB) or bounded history
+  const { hasConversation } = addConversationContext(sections, config)
+
+  if (hasConversation) {
+    sections.push('## User message (latest reply in the conversation above)\n\n' + userMessage)
+  } else {
+    sections.push('## User message\n\n' + userMessage)
+  }
+
+  if (localLoaded) {
+    sections.push('## Repo rules (local)\n\n' + localRulesContent)
+  } else {
+    sections.push('## Repo rules (from Supabase)')
+  }
+
+  if (!localLoaded) {
+    const repoFullName = config.repoFullName || config.projectId || 'beardedphil/portfolio-2026-hal'
+    const remoteResult = await loadInstructionsFromRemote(sections, config, rulesPath, repoFullName)
+    if (remoteResult.ticketTemplate) ticketTemplateContent = remoteResult.ticketTemplate
+    if (remoteResult.checklist) checklistContent = remoteResult.checklist
   }
 
   addTicketTemplateAndChecklist(sections, localLoaded, ticketTemplateContent, checklistContent)
