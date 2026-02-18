@@ -529,23 +529,6 @@ body {
   position: relative;
 }
 
-[data-theme="arrested"] .hal-header::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: repeating-linear-gradient(
-    45deg,
-    var(--hal-arrested-red) 0px,
-    var(--hal-arrested-red) 20px,
-    var(--hal-arrested-cream) 20px,
-    var(--hal-arrested-cream) 40px
-  );
-  z-index: 0;
-}
-
 [data-theme="arrested"] .hal-header > * {
   position: relative;
   z-index: 1;
