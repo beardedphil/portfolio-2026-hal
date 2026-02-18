@@ -65,6 +65,28 @@
   --kanban-error: #ff4444;
 }
 
+/* Arrested Development theme (Banana Stand inspired) */
+[data-theme="arrested"] {
+  --kanban-bg: #fffef5; /* Warm off-white background */
+  --kanban-text: #2d1b0e; /* Dark brown text */
+  --kanban-text-muted: #6b4e3d; /* Muted brown text */
+  --kanban-text-subtle: #8b6f5e; /* Subtle brown text */
+  --kanban-surface: #fffef0; /* Slightly warmer surface */
+  --kanban-surface-alt: #fff8e7; /* Cream surface alt */
+  --kanban-border: #e6d5a8; /* Warm beige border */
+  --kanban-border-muted: #f5e6d3; /* Muted warm border */
+  --kanban-primary: #ffd700; /* Warm banana yellow */
+  --kanban-primary-hover: #e6c200; /* Darker yellow for hover */
+  --kanban-success: #2e7d32;
+  --kanban-success-bg: #c8e6c9;
+  --kanban-success-border: #4caf50;
+  --kanban-success-text: #1b5e20;
+  --kanban-warning-bg: #fff9c4; /* Light yellow warning background */
+  --kanban-warning-border: #ffd700;
+  --kanban-warning-text: #f57f17;
+  --kanban-error: #c62828;
+}
+
 * {
   box-sizing: border-box;
 }
