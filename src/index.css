@@ -498,25 +498,9 @@ body {
   position: relative;
 }
 
-[data-theme="arrested"] .hal-header::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: repeating-linear-gradient(
-    135deg,
-    var(--hal-arrested-red) 0px,
-    var(--hal-arrested-red) 20px,
-    var(--hal-arrested-cream) 20px,
-    var(--hal-arrested-cream) 40px
-  );
-  opacity: 0.95;
-  z-index: 0;
-}
-
-[data-theme="arrested"] .hal-header > * {
+[data-theme="arrested"] .hal-header-left,
+[data-theme="arrested"] .hal-header-center,
+[data-theme="arrested"] .hal-header-actions {
   position: relative;
   z-index: 1;
 }
