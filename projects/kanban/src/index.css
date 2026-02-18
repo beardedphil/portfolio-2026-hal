@@ -65,6 +65,28 @@
   --kanban-error: #ff4444;
 }
 
+/* Arrested Development theme (Banana Stand inspired) */
+[data-theme="arrested"] {
+  --kanban-bg: #fff5e6;
+  --kanban-text: #2d1b0e;
+  --kanban-text-muted: #6b5f4a;
+  --kanban-text-subtle: #8b7d6a;
+  --kanban-surface: #ffffff;
+  --kanban-surface-alt: #fff8dc;
+  --kanban-border: #e0c040;
+  --kanban-border-muted: #f0d080;
+  --kanban-primary: #ffd700;
+  --kanban-primary-hover: #e6c200;
+  --kanban-success: #2e7d32;
+  --kanban-success-bg: #d4edda;
+  --kanban-success-border: #c3e6cb;
+  --kanban-success-text: #155724;
+  --kanban-warning-bg: #fef3cd;
+  --kanban-warning-border: #e0c040;
+  --kanban-warning-text: #856404;
+  --kanban-error: #c62828;
+}
+
 * {
   box-sizing: border-box;
 }
