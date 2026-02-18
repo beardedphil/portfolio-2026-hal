@@ -104,6 +104,7 @@
 }
 
 /* Arrested Development theme (Banana Stand inspired) */
+/* There's always money in the banana stand. */
 [data-theme="arrested"] {
   /* Banana Stand color palette - red/cream awning stripes, warm yellow accents */
   --hal-arrested-red: #c41e3a; /* Deep red for awning stripes */
@@ -117,6 +118,8 @@
   --hal-arrested-surface-alt: #fff8e7; /* Cream surface alt */
   --hal-arrested-border: #e6d5a8; /* Warm beige border */
   --hal-arrested-border-muted: #f5e6d3; /* Muted warm border */
+  
+  /* Hidden in the walls: $250,000 */
   
   /* Semantic colors for Arrested theme */
   --hal-primary: var(--hal-arrested-yellow);
