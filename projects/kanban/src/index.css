@@ -65,6 +65,38 @@
   --kanban-error: #ff4444;
 }
 
+/* Arrested Development theme (Banana Stand edition) */
+[data-theme="arrested"] {
+  /* Banana Stand color palette - matches HAL app */
+  --kanban-arrested-red: #c41e3a; /* Deep red for accents */
+  --kanban-arrested-cream: #fff8dc; /* Cream for backgrounds */
+  --kanban-arrested-yellow: #ffd700; /* Warm banana-yellow */
+  --kanban-arrested-yellow-dark: #ffb300; /* Darker yellow for hover */
+  --kanban-arrested-yellow-light: #fff9c4; /* Light yellow for backgrounds */
+  --kanban-arrested-brown: #8b4513; /* Brown accents */
+  --kanban-arrested-warm-bg: #fffef5; /* Warm off-white background */
+  
+  /* Semantic colors for Arrested theme */
+  --kanban-bg: var(--kanban-arrested-warm-bg);
+  --kanban-text: #3e2723; /* Dark brown text */
+  --kanban-text-muted: #6d4c41; /* Muted brown text */
+  --kanban-text-subtle: #8d6e63; /* Subtle brown text */
+  --kanban-surface: #ffffff;
+  --kanban-surface-alt: #fff8e1; /* Light warm surface */
+  --kanban-border: #ffd54f; /* Yellow border */
+  --kanban-border-muted: #ffe082; /* Muted yellow border */
+  --kanban-primary: var(--kanban-arrested-yellow);
+  --kanban-primary-hover: var(--kanban-arrested-yellow-dark);
+  --kanban-success: #2e7d32;
+  --kanban-success-bg: #c8e6c9;
+  --kanban-success-border: #81c784;
+  --kanban-success-text: #1b5e20;
+  --kanban-warning-bg: #fff3cd;
+  --kanban-warning-border: #ffc107;
+  --kanban-warning-text: #856404;
+  --kanban-error: #c62828;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -1901,6 +1933,52 @@ h1 {
 }
 [data-theme="dark"] .btn-destructive:focus-visible {
   outline-color: #f88;
+}
+
+/* Arrested theme adjustments for base button classes */
+[data-theme="arrested"] .btn-standard {
+  background: var(--kanban-arrested-yellow);
+  border-color: var(--kanban-arrested-yellow-dark);
+  color: var(--kanban-text);
+  font-weight: 600;
+}
+
+[data-theme="arrested"] .btn-standard:hover:not(:disabled) {
+  background: var(--kanban-arrested-yellow-dark);
+  border-color: var(--kanban-arrested-yellow-dark);
+  color: var(--kanban-text);
+}
+
+[data-theme="arrested"] .btn-standard:disabled {
+  background: var(--kanban-surface-alt);
+  color: var(--kanban-text-muted);
+  border-color: var(--kanban-border-muted);
+}
+
+[data-theme="arrested"] .btn-standard:focus-visible {
+  outline-color: var(--kanban-arrested-yellow-dark);
+}
+
+[data-theme="arrested"] .btn-destructive {
+  background: rgba(198, 40, 40, 0.1);
+  border-color: #c62828;
+  color: #c62828;
+}
+
+[data-theme="arrested"] .btn-destructive:hover:not(:disabled) {
+  background: rgba(198, 40, 40, 0.2);
+  border-color: #b71c1c;
+  color: #b71c1c;
+}
+
+[data-theme="arrested"] .btn-destructive:disabled {
+  background: var(--kanban-surface-alt);
+  color: var(--kanban-text-muted);
+  border-color: var(--kanban-border-muted);
+}
+
+[data-theme="arrested"] .btn-destructive:focus-visible {
+  outline-color: #c62828;
 }
 
 /* Dark theme adjustments for modal-close (uses btn-destructive) */
