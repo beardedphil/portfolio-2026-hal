@@ -19,7 +19,7 @@ export interface KanbanBoardProps {
   columns: KanbanColumnRow[]
   agentRunsByTicketPk?: Record<string, KanbanAgentRunRow>
   repoFullName: string | null
-  theme: 'light' | 'dark' | 'lcars'
+  theme: 'light' | 'dark' | 'lcars' | 'arrested'
   onMoveTicket: (ticketPk: string, columnId: string, position?: number) => void | Promise<void>
   onReorderColumn?: (columnId: string, orderedTicketPks: string[]) => void | Promise<void>
   onUpdateTicketBody?: (ticketPk: string, bodyMd: string) => void | Promise<void>
