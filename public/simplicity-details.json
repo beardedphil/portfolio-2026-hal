@@ -34,7 +34,7 @@
     },
     {
       "file": "src/App.tsx",
-      "maintainability": 10.95
+      "maintainability": 10.72
     },
     {
       "file": "api/implementation-agent/run.ts",
@@ -107,7 +107,7 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-18T18:33:37.674Z",
+  "generatedAt": "2026-02-18T18:43:47.822Z",
   "filesAnalyzed": 279,
   "unroundedSimplicity": 40.4
 }
