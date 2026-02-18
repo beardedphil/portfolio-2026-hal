@@ -103,6 +103,38 @@
   --hal-status-error: var(--hal-lcars-red);
 }
 
+/* Arrested Development theme (Banana Stand inspired) */
+[data-theme="arrested"] {
+  /* Banana Stand color palette - red/cream awning stripes, warm yellow accents */
+  --hal-arrested-red: #c41e3a; /* Deep red for awning stripes */
+  --hal-arrested-cream: #fff8dc; /* Cream for awning stripes */
+  --hal-arrested-yellow: #ffd700; /* Warm banana yellow */
+  --hal-arrested-yellow-dark: #e6c200; /* Darker yellow for hover */
+  --hal-arrested-yellow-light: #fff9c4; /* Light yellow for backgrounds */
+  --hal-arrested-brown: #8b4513; /* Brown for text accents */
+  --hal-arrested-tan: #f5deb3; /* Tan for surfaces */
+  
+  /* Semantic colors for Arrested theme */
+  --hal-primary: var(--hal-arrested-yellow);
+  --hal-primary-hover: var(--hal-arrested-yellow-dark);
+  --hal-accent: var(--hal-arrested-yellow);
+  --hal-bg: var(--hal-arrested-tan);
+  --hal-surface: #ffffff;
+  --hal-surface-alt: var(--hal-arrested-yellow-light);
+  --hal-border: #d4a574; /* Warm brown border */
+  --hal-border-muted: #e6d5b8;
+  --hal-text: #3d2817; /* Dark brown text */
+  --hal-text-muted: #6b4e3d;
+  --hal-header-bg: var(--hal-arrested-red); /* Red header background */
+  --hal-header-text: #ffffff;
+  --hal-header-subtitle: var(--hal-arrested-cream);
+  --hal-chat-bg: var(--hal-arrested-yellow-light);
+  --hal-typing-bg: var(--hal-arrested-tan);
+  --hal-typing-border: var(--hal-border);
+  --hal-status-ok: #2e7d32;
+  --hal-status-error: #c62828;
+}
+
 /* Base button classes - canonical styles for all buttons (0739) */
 /* Standard button style (matches column-work-button) */
 .btn-standard {
@@ -247,6 +279,56 @@
 }
 [data-theme="lcars"] .btn-destructive:focus-visible {
   outline: 2px solid var(--hal-lcars-yellow);
+  outline-offset: 2px;
+}
+
+/* Arrested theme adjustments for base button classes */
+[data-theme="arrested"] .btn-standard {
+  background: var(--hal-arrested-yellow);
+  border: 2px solid var(--hal-arrested-yellow-dark);
+  border-radius: 6px;
+  color: var(--hal-text);
+  font-weight: 600;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+[data-theme="arrested"] .btn-standard:hover:not(:disabled) {
+  background: var(--hal-arrested-yellow-dark);
+  border-color: var(--hal-arrested-yellow-dark);
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.15);
+}
+[data-theme="arrested"] .btn-standard:disabled {
+  background: var(--hal-arrested-yellow-light);
+  color: var(--hal-text-muted);
+  border-color: var(--hal-border-muted);
+  opacity: 0.6;
+}
+[data-theme="arrested"] .btn-standard:focus-visible {
+  outline: 2px solid var(--hal-arrested-yellow-dark);
+  outline-offset: 2px;
+}
+
+[data-theme="arrested"] .btn-destructive {
+  background: #fff;
+  border: 2px solid var(--hal-status-error);
+  border-radius: 6px;
+  color: var(--hal-status-error);
+  font-weight: 600;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+[data-theme="arrested"] .btn-destructive:hover:not(:disabled) {
+  background: var(--hal-status-error);
+  color: #fff;
+  border-color: var(--hal-status-error);
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.15);
+}
+[data-theme="arrested"] .btn-destructive:disabled {
+  background: var(--hal-arrested-yellow-light);
+  color: var(--hal-text-muted);
+  border-color: var(--hal-border-muted);
+  opacity: 0.6;
+}
+[data-theme="arrested"] .btn-destructive:focus-visible {
+  outline: 2px solid var(--hal-status-error);
   outline-offset: 2px;
 }
 
@@ -429,6 +511,72 @@ body {
   color: var(--hal-lcars-orange);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+/* Arrested theme adjustments for header and theme selector */
+[data-theme="arrested"] .hal-header {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--hal-arrested-red) 0px,
+    var(--hal-arrested-red) 20px,
+    var(--hal-arrested-cream) 20px,
+    var(--hal-arrested-cream) 40px
+  );
+  border-bottom: 3px solid var(--hal-arrested-yellow);
+  position: relative;
+}
+
+[data-theme="arrested"] .hal-header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    135deg,
+    transparent 0px,
+    transparent 20px,
+    rgba(255, 255, 255, 0.1) 20px,
+    rgba(255, 255, 255, 0.1) 40px
+  );
+  pointer-events: none;
+}
+
+[data-theme="arrested"] .hal-header h1 {
+  color: var(--hal-arrested-yellow);
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+  font-weight: 700;
+}
+
+[data-theme="arrested"] .hal-subtitle {
+  color: var(--hal-arrested-cream);
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="arrested"] .theme-select {
+  background: var(--hal-arrested-yellow-light);
+  border: 2px solid var(--hal-arrested-yellow);
+  border-radius: 6px;
+  color: var(--hal-text);
+  font-weight: 500;
+}
+
+[data-theme="arrested"] .theme-select:hover {
+  background: var(--hal-arrested-yellow);
+  border-color: var(--hal-arrested-yellow-dark);
+  color: var(--hal-text);
+}
+
+[data-theme="arrested"] .theme-select:focus {
+  outline: 2px solid var(--hal-arrested-yellow);
+  outline-offset: 2px;
+}
+
+[data-theme="arrested"] .theme-select-label {
+  color: var(--hal-arrested-yellow);
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
   font-weight: 600;
 }
 
