@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo, useContext } from 'react'
+import { flushSync } from 'react-dom'
 import { HalKanbanContext } from './HalKanbanContext'
 import {
   DndContext,
@@ -2368,24 +2369,31 @@ function App() {
           const ticketPk = String(active.id)
           const moveStartTime = Date.now()
           // Optimistic update (0047) - ticket appears immediately in new position (0790)
-          setPendingMoves((prev) => new Set(prev).add(ticketPk))
-          // Track move start time to prevent premature rollback on slow API responses (0790)
-          setPendingMoveTimestamps((prev) => {
-            const next = new Map(prev)
-            next.set(ticketPk, moveStartTime)
-            return next
-          })
-          setSupabaseTickets((prev) =>
-            prev.map((t) => {
-              const i = newOrder.indexOf(t.pk)
-              if (i < 0) return t
-              return {
-                ...t,
-                kanban_position: i,
-                ...(t.pk === ticketPk ? { kanban_moved_at: movedAt } : {}),
-              }
+          // Pre-compute position map for O(1) lookup instead of O(n) indexOf in map
+          const positionMap = new Map<string, number>()
+          newOrder.forEach((pk, i) => positionMap.set(pk, i))
+          
+          // Use flushSync to force React to render immediately, bypassing batching
+          flushSync(() => {
+            setPendingMoves((prev) => new Set(prev).add(ticketPk))
+            // Track move start time to prevent premature rollback on slow API responses (0790)
+            setPendingMoveTimestamps((prev) => {
+              const next = new Map(prev)
+              next.set(ticketPk, moveStartTime)
+              return next
             })
-          )
+            setSupabaseTickets((prev) =>
+              prev.map((t) => {
+                const newPos = positionMap.get(t.pk)
+                if (newPos === undefined) return t
+                return {
+                  ...t,
+                  kanban_position: newPos,
+                  ...(t.pk === ticketPk ? { kanban_moved_at: movedAt } : {}),
+                }
+              })
+            )
+          })
           // Fire off all API calls in parallel WITHOUT awaiting - let them complete in background
           // This allows React to render the optimistic update immediately (fixes 5-10s delay)
           const updatePromises = newOrder.map((pk, i) =>
