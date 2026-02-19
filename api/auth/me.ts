@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { getSession } from '../_lib/github/session.js'
+import { getViewer } from '../_lib/github/githubApi.js'
 
 const AUTH_SECRET_MIN = 32
 
@@ -46,11 +47,31 @@ async function handleWebRequest(request: Request): Promise<Response> {
 
   const session = await getSession(req as IncomingMessage, res as ServerResponse)
   const github = session.github
-  return Response.json({
-    authenticated: !!github?.accessToken,
-    login: github?.login ?? null,
-    scope: github?.scope ?? null,
-  })
+  // If token exists but login is missing, fetch it lazily and persist.
+  if (github?.accessToken && (!github.login || typeof github.login !== 'string' || github.login.trim() === '')) {
+    try {
+      const viewer = await getViewer(github.accessToken)
+      session.github = { ...github, login: viewer.login }
+      await session.save()
+    } catch {
+      // Non-fatal; continue returning authenticated=true without login.
+    }
+  }
+
+  const headers = new Headers({ 'Cache-Control': 'no-store' })
+  const setCookie = outHeaders['set-cookie']
+  if (setCookie) {
+    for (const v of Array.isArray(setCookie) ? setCookie : [setCookie]) headers.append('Set-Cookie', v)
+  }
+
+  return Response.json(
+    {
+      authenticated: !!session.github?.accessToken,
+      login: session.github?.login ?? null,
+      scope: session.github?.scope ?? null,
+    },
+    { headers }
+  )
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -89,10 +110,19 @@ export default async function handler(req: IncomingMessage | Request, res?: Serv
 
     const session = await getSession(req as IncomingMessage, nodeRes)
     const github = session.github
+    if (github?.accessToken && (!github.login || typeof github.login !== 'string' || github.login.trim() === '')) {
+      try {
+        const viewer = await getViewer(github.accessToken)
+        session.github = { ...github, login: viewer.login }
+        await session.save()
+      } catch {
+        // Non-fatal
+      }
+    }
     sendJson(nodeRes, 200, {
-      authenticated: !!github?.accessToken,
-      login: github?.login ?? null,
-      scope: github?.scope ?? null,
+      authenticated: !!session.github?.accessToken,
+      login: session.github?.login ?? null,
+      scope: session.github?.scope ?? null,
     })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)

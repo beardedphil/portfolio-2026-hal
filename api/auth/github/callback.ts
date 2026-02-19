@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { getOrigin } from '../../_lib/github/config.js'
-import { exchangeCodeForToken, getViewer } from '../../_lib/github/githubApi.js'
+import { exchangeCodeForToken } from '../../_lib/github/githubApi.js'
 import { getSession } from '../../_lib/github/session.js'
 
 const AUTH_SECRET_MIN = 32
@@ -144,13 +144,11 @@ async function handleWebRequest(request: Request): Promise<Response> {
     await session.save()
 
     const token = await exchangeCodeForToken({ code, redirectUri })
-    const viewer = await getViewer(token.access_token)
 
     session.github = {
       accessToken: token.access_token,
       scope: token.scope,
       tokenType: token.token_type,
-      login: viewer.login,
     }
     await session.save()
 
@@ -273,13 +271,11 @@ export default async function handler(req: IncomingMessage | Request, res?: Serv
     await session.save()
 
     const token = await exchangeCodeForToken({ code, redirectUri })
-    const viewer = await getViewer(token.access_token)
 
     session.github = {
       accessToken: token.access_token,
       scope: token.scope,
       tokenType: token.token_type,
-      login: viewer.login,
     }
     await session.save()
 
