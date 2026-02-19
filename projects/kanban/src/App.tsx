@@ -210,8 +210,8 @@ function App() {
   const supabaseTicketsRef = useRef<SupabaseTicketRow[]>([])
   // Ref to track optimistic ticket positions for same-column reorder (prevents @dnd-kit revert)
   const optimisticTicketPositionsRef = useRef<Map<string, number>>(new Map())
-  // Ref to store optimistic items array for immediate @dnd-kit update (bypasses useMemo delay)
-  const optimisticItemsRef = useRef<Map<string, string[]>>(new Map())
+  // State to store optimistic items arrays - using state ensures React re-renders when it changes
+  const [optimisticItems, setOptimisticItems] = useState<Map<string, string[]>>(new Map())
   // Version counter to force SortableContext to remount with new items when optimistic update happens
   const [sortableContextVersion, setSortableContextVersion] = useState(0)
   const [supabaseColumnsRows, setSupabaseColumnsRows] = useState<SupabaseKanbanColumnRow[]>([])
@@ -2390,10 +2390,14 @@ function App() {
           const ticketPk = String(active.id)
           const moveStartTime = Date.now()
           
-          // CRITICAL FIX: Update optimistic items ref IMMEDIATELY (synchronously)
-          // @dnd-kit checks items at drag end - we must update the ref before it checks
-          // This ref will be used by SortableContext to get items, bypassing useMemo delay
-          optimisticItemsRef.current.set(sourceColumn.id, [...newOrder]) // New array reference
+          // CRITICAL FIX: Update optimistic items state IMMEDIATELY (synchronously)
+          // @dnd-kit checks items at drag end - we must update state before it checks
+          // This state will be used by SortableContext to get items, bypassing useMemo delay
+          setOptimisticItems((prev) => {
+            const next = new Map(prev)
+            next.set(sourceColumn.id, [...newOrder]) // New array reference
+            return next
+          })
           
           // Also update optimistic positions ref for useMemo fallback
           const positionMap = new Map<string, number>()
@@ -2489,7 +2493,11 @@ function App() {
                     })
                     // Clear optimistic positions and items for this column since backend confirmed
                     optimisticTicketPositionsRef.current.clear()
-                    optimisticItemsRef.current.delete(sourceColumn.id)
+                    setOptimisticItems((prev) => {
+                      const next = new Map(prev)
+                      next.delete(sourceColumn.id)
+                      return next
+                    })
                   }
                   // If backend hasn't confirmed yet, keep in pendingMoves (will be checked on next poll)
                   return currentTickets
@@ -2542,7 +2550,11 @@ function App() {
                 })
                 // Clear optimistic positions and items on rollback
                 optimisticTicketPositionsRef.current.clear()
-                optimisticItemsRef.current.delete(sourceColumn.id)
+                setOptimisticItems((prev) => {
+                  const next = new Map(prev)
+                  next.delete(sourceColumn.id)
+                  return next
+                })
               }, remainingDelay)
             }
           })
@@ -3306,7 +3318,7 @@ ${notes || '(none provided)'}
                   hideRemove={supabaseBoardActive}
                   onOpenDetail={handleOpenTicketDetail}
                   sortableContextVersion={sortableContextVersion}
-                  optimisticItemsRef={optimisticItemsRef}
+                  optimisticItems={optimisticItems}
                   supabaseBoardActive={supabaseBoardActive}
                   supabaseColumns={supabaseColumns}
                   supabaseTickets={supabaseTickets}

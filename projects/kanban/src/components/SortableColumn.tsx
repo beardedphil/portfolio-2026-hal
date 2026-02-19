@@ -42,7 +42,7 @@ export interface SortableColumnProps {
   >
   activeWorkAgentTypes?: Record<string, 'Implementation' | 'QA' | 'Process Review'>
   sortableContextVersion?: number
-  optimisticItemsRef?: React.MutableRefObject<Map<string, string[]>>
+  optimisticItems?: Map<string, string[]>
 }
 
 export function SortableColumn({
@@ -61,7 +61,7 @@ export function SortableColumn({
   setActiveWorkAgentTypes,
   activeWorkAgentTypes = {},
   sortableContextVersion = 0,
-  optimisticItemsRef,
+  optimisticItems,
 }: SortableColumnProps) {
   const halCtx = useContext(HalKanbanContext)
   const { attributes, listeners, setNodeRef, transform, transition } =
@@ -170,7 +170,7 @@ export function SortableColumn({
         <SortableContext 
           key={`${col.id}-${sortableContextVersion}`}
           // Use optimistic items if available (for immediate @dnd-kit update), otherwise use computed items
-          items={optimisticItemsRef?.current?.get(col.id) ?? col.cardIds}
+          items={optimisticItems?.get(col.id) ?? col.cardIds}
           strategy={verticalListSortingStrategy}
         >
           {col.cardIds.map((cardId) => {
