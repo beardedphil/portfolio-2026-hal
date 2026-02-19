@@ -1346,6 +1346,60 @@ function App() {
     [supabaseProjectUrl, supabaseAnonKey]
   )
 
+  /** Move ticket via HAL API endpoint (for moves beyond To Do to enforce drift gating). Returns { ok: true } or { ok: false, error: string, actionableSteps?: string }. */
+  const moveTicketViaHalApi = useCallback(
+    async (
+      ticketPk: string,
+      columnId: string,
+      position?: number
+    ): Promise<{ ok: true } | { ok: false; error: string; actionableSteps?: string; missingArtifacts?: string[] }> => {
+      try {
+        // Get API base URL from environment or use current origin
+        const apiBaseUrl = import.meta.env.VITE_HAL_API_BASE_URL || window.location.origin
+        const response = await fetch(`${apiBaseUrl}/api/tickets/move`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ticketPk,
+            columnId,
+            position,
+          }),
+        })
+
+        const result = await response.json()
+
+        if (!result.success) {
+          // Build actionable error message from API response
+          let errorMessage = result.error || 'Unknown error'
+          let actionableSteps: string | undefined
+          
+          // If drift gating failed, include actionable steps
+          if (result.missingArtifacts && Array.isArray(result.missingArtifacts) && result.missingArtifacts.length > 0) {
+            const missingList = result.missingArtifacts.join(', ')
+            actionableSteps = result.remedy || `Missing required artifacts: ${missingList}. Please add the missing artifacts and try again.`
+            errorMessage = `${errorMessage} ${actionableSteps}`
+          } else if (result.remedy) {
+            actionableSteps = result.remedy
+            errorMessage = `${errorMessage} ${actionableSteps}`
+          }
+
+          return { 
+            ok: false, 
+            error: errorMessage,
+            actionableSteps,
+            missingArtifacts: result.missingArtifacts
+          }
+        }
+
+        return { ok: true }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        return { ok: false, error: `Failed to move ticket via HAL API: ${msg}` }
+      }
+    },
+    []
+  )
+
   // Listen for postMessage from HAL parent (when embedded in iframe). Skip when library mode (halCtx).
   useEffect(() => {
     if (halCtx || !isEmbedded) return
@@ -1966,11 +2020,16 @@ function App() {
               : t
           )
         )
-        const result = await updateSupabaseTicketKanban(ticketPk, {
-          kanban_column_id: overColumn.id,
-          kanban_position: overIndex,
-          kanban_moved_at: movedAt,
-        })
+        // Use HAL API for moves beyond To Do to enforce drift gating (0770)
+        // Moves to col-todo or col-unassigned can use direct Supabase write (no drift gating required)
+        const isMovingToTodoOrUnassigned = overColumn.id === 'col-todo' || overColumn.id === 'col-unassigned'
+        const result = isMovingToTodoOrUnassigned
+          ? await updateSupabaseTicketKanban(ticketPk, {
+              kanban_column_id: overColumn.id,
+              kanban_position: overIndex,
+              kanban_moved_at: movedAt,
+            })
+          : await moveTicketViaHalApi(ticketPk, overColumn.id, overIndex)
           if (result.ok) {
             // Notify other tabs via BroadcastChannel (0703)
             if (typeof BroadcastChannel !== 'undefined') {
@@ -1983,7 +2042,7 @@ function App() {
               }
             }
             setLastMovePersisted({ success: true, timestamp: new Date(), ticketId: ticketPk })
-            addLog(`Supabase ticket dropped into ${overColumn.title}`)
+            addLog(`Move succeeded: Ticket moved to ${overColumn.title}`)
             // Store expected optimistic position to verify backend confirmation (0144)
             const expectedColumnId = overColumn.id
             const expectedPosition = overIndex
@@ -2035,7 +2094,11 @@ function App() {
             }, REFETCH_AFTER_MOVE_MS)
         } else {
           // Revert optimistic update on failure (0047)
-          setLastMovePersisted({ success: false, timestamp: new Date(), ticketId: ticketPk, error: result.error })
+          // Include actionable steps in error message if provided (0770)
+          const errorMessage = result.actionableSteps 
+            ? `${result.error}\n\nNext steps: ${result.actionableSteps}`
+            : result.error
+          setLastMovePersisted({ success: false, timestamp: new Date(), ticketId: ticketPk, error: errorMessage })
           setPendingMoves((prev) => {
             const next = new Set(prev)
             next.delete(ticketPk)
@@ -2053,7 +2116,7 @@ function App() {
               }
             }
           }) // Full refetch to restore correct state
-          addLog(`Supabase update failed: ${result.error}`)
+          addLog(`Move failed: ${errorMessage}`)
         }
         return
       }
@@ -2095,11 +2158,8 @@ function App() {
           )
         )
         
-        const result = await updateSupabaseTicketKanban(ticketPk, {
-          kanban_column_id: 'col-doing',
-          kanban_position: overIndex,
-          kanban_moved_at: movedAt,
-        })
+        // Use HAL API for moves to Doing (beyond To Do) to enforce drift gating (0770)
+        const result = await moveTicketViaHalApi(ticketPk, 'col-doing', overIndex)
         
         if (result.ok) {
           // Notify other tabs via BroadcastChannel (0703)
@@ -2113,7 +2173,7 @@ function App() {
             }
           }
           setLastMovePersisted({ success: true, timestamp: new Date(), ticketId: ticketPk })
-          addLog(`Supabase ticket moved to Active Work`)
+          addLog(`Move succeeded: Ticket moved to Active Work`)
           const expectedColumnId = 'col-doing'
           const expectedPosition = overIndex
           setTimeout(() => {
@@ -2146,7 +2206,11 @@ function App() {
             })
           }, REFETCH_AFTER_MOVE_MS)
         } else {
-          setLastMovePersisted({ success: false, timestamp: new Date(), ticketId: ticketPk, error: result.error })
+          // Include actionable steps in error message if provided (0770)
+          const errorMessage = result.actionableSteps 
+            ? `${result.error}\n\nNext steps: ${result.actionableSteps}`
+            : result.error
+          setLastMovePersisted({ success: false, timestamp: new Date(), ticketId: ticketPk, error: errorMessage })
           setPendingMoves((prev) => {
             const next = new Set(prev)
             next.delete(ticketPk)
@@ -2159,7 +2223,7 @@ function App() {
               fetchActiveAgentRuns()
             }
           })
-          addLog(`Supabase update failed: ${result.error}`)
+          addLog(`Move failed: ${errorMessage}`)
         }
         return
       }
@@ -2367,14 +2431,19 @@ function App() {
                 : t
             )
           )
-          const result = await updateSupabaseTicketKanban(ticketPk, {
-            kanban_column_id: overColumn.id,
-            kanban_position: overIndex,
-            kanban_moved_at: movedAt,
-          })
+          // Use HAL API for moves beyond To Do to enforce drift gating (0770)
+          // Moves to col-todo or col-unassigned can use direct Supabase write (no drift gating required)
+          const isMovingToTodoOrUnassigned = overColumn.id === 'col-todo' || overColumn.id === 'col-unassigned'
+          const result = isMovingToTodoOrUnassigned
+            ? await updateSupabaseTicketKanban(ticketPk, {
+                kanban_column_id: overColumn.id,
+                kanban_position: overIndex,
+                kanban_moved_at: movedAt,
+              })
+            : await moveTicketViaHalApi(ticketPk, overColumn.id, overIndex)
           if (result.ok) {
             setLastMovePersisted({ success: true, timestamp: new Date(), ticketId: ticketPk })
-            addLog(`Supabase ticket moved to ${overColumn.title}`)
+            addLog(`Move succeeded: Ticket moved to ${overColumn.title}`)
             // Store expected optimistic position to verify backend confirmation (0144)
             const expectedColumnId = overColumn.id
             const expectedPosition = overIndex
@@ -2427,7 +2496,11 @@ function App() {
             }, REFETCH_AFTER_MOVE_MS)
           } else {
             // Revert optimistic update on failure (0047)
-            setLastMovePersisted({ success: false, timestamp: new Date(), ticketId: ticketPk, error: result.error })
+            // Include actionable steps in error message if provided (0770)
+            const errorMessage = result.actionableSteps 
+              ? `${result.error}\n\nNext steps: ${result.actionableSteps}`
+              : result.error
+            setLastMovePersisted({ success: false, timestamp: new Date(), ticketId: ticketPk, error: errorMessage })
             setPendingMoves((prev) => {
               const next = new Set(prev)
               next.delete(ticketPk)
@@ -2446,7 +2519,7 @@ function App() {
                 }
               }
             }) // Full refetch to restore correct state
-            addLog(`Supabase ticket move failed: ${result.error}`)
+            addLog(`Move failed: ${errorMessage}`)
           }
         }
         return
@@ -2468,6 +2541,7 @@ function App() {
       supabaseAnonKey,
       supabaseTickets,
       updateSupabaseTicketKanban,
+      moveTicketViaHalApi,
       refetchSupabaseTickets,
       findColumnByCardId,
       findColumnById,
@@ -2557,10 +2631,12 @@ function App() {
           role={lastMovePersisted.success ? 'status' : 'alert'}
         >
           {lastMovePersisted.success ? (
-            <>✓ Move persisted: ticket {lastMovePersisted.ticketId} at {lastMovePersisted.timestamp.toLocaleTimeString()}</>
+            <>✓ Move succeeded: Ticket moved successfully at {lastMovePersisted.timestamp.toLocaleTimeString()}</>
           ) : (
             <>
-              ✗ Move failed: ticket {lastMovePersisted.ticketId} - {lastMovePersisted.error ?? 'Unknown error'}
+              <div style={{ whiteSpace: 'pre-line' }}>
+                ✗ Move blocked: {lastMovePersisted.error ?? 'Unknown error'}
+              </div>
               <button
                 type="button"
                 className="move-status-dismiss"
