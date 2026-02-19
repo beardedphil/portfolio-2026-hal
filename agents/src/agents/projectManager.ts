@@ -780,34 +780,23 @@ export async function runPmAgent(
           description: 'Ticket id (e.g. "HAL-0012", "0012", or "12").',
         },
         red_json: {
-          anyOf: [
-            {
-              type: 'object',
-              description:
-                'RED document content as a JSON object (shallow map of scalar values only: string/number/boolean/null). For full nested JSON, pass red_json_content instead.',
-              additionalProperties: {
-                anyOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }, { type: 'null' }],
-              },
-            },
-            { type: 'null' },
-          ],
+          type: ['object', 'null'],
+          description:
+            'RED document content as a JSON object (shallow map of scalar values only: string/number/boolean/null). For full nested JSON, pass red_json_content instead.',
+          additionalProperties: { type: ['string', 'number', 'boolean', 'null'] },
         },
         red_json_content: {
-          anyOf: [
-            {
-              type: 'string',
-              description:
-                'RED document content as a JSON string. Should contain expanded requirements, use cases, edge cases, and other detailed information. Will be parsed as JSON.',
-            },
-            { type: 'null' },
-          ],
+          type: ['string', 'null'],
+          description:
+            'RED document content as a JSON string. Should contain expanded requirements, use cases, edge cases, and other detailed information. Will be parsed as JSON.',
         },
         validation_status: {
-          anyOf: [{ type: 'string', enum: ['valid', 'invalid', 'pending'] }, { type: 'null' }],
+          type: ['string', 'null'],
+          enum: ['valid', 'invalid', 'pending', null],
           description: 'Validation status for the RED document. Defaults to "pending".',
         },
         created_by: {
-          anyOf: [{ type: 'string' }, { type: 'null' }],
+          type: ['string', 'null'],
           description: 'Identifier for who created the RED document (e.g. "pm-agent", "user-name").',
         },
       },
