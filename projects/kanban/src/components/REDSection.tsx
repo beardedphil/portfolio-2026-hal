@@ -153,6 +153,7 @@ export function REDSection({
 
     try {
       // First, save the RED document
+      // Note: insert endpoint uses server-side service role credentials, so we don't pass supabaseAnonKey
       const insertResponse = await fetch('/api/red/insert', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -164,7 +165,7 @@ export function REDSection({
           redJson,
           validationStatus: 'pending', // Default to pending, can be validated later
           supabaseUrl,
-          supabaseAnonKey,
+          // Note: supabaseAnonKey not needed - endpoint uses server-side service role key
         }),
       })
 
