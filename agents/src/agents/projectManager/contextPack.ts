@@ -319,8 +319,7 @@ async function loadLocalRules(
 }
 
 function formatConversationSection(
-  config: PmAgentConfig,
-  userMessage: string
+  config: PmAgentConfig
 ): { section: string; hasConversation: boolean } {
   if (config.conversationContextPack && config.conversationContextPack.trim() !== '') {
     return {
@@ -396,7 +395,7 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
   }
 
   // Conversation so far: pre-built context pack (e.g. summary + recent from DB) or bounded history
-  const { section: conversationSection, hasConversation } = formatConversationSection(config, userMessage)
+  const { section: conversationSection, hasConversation } = formatConversationSection(config)
   if (conversationSection) {
     sections.push(conversationSection)
   }
@@ -413,7 +412,14 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
     sections.push('## Repo rules (from Supabase)')
   }
 
-  if (!localLoaded) {
+async function loadInstructionsFromSupabase(
+  config: PmAgentConfig,
+  sections: string[],
+  rulesPath: string
+): Promise<{ ticketTemplateContent: string | null; checklistContent: string | null }> {
+  let ticketTemplateContent: string | null = null
+  let checklistContent: string | null = null
+
   try {
     const repoFullName = config.repoFullName || config.projectId || 'beardedphil/portfolio-2026-hal'
 
@@ -683,6 +689,14 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
   } catch (err) {
     sections.push(`(error loading rules: ${err instanceof Error ? err.message : String(err)})`)
   }
+
+  return { ticketTemplateContent, checklistContent }
+}
+
+  if (!localLoaded) {
+    const supabaseResult = await loadInstructionsFromSupabase(config, sections, rulesPath)
+    if (supabaseResult.ticketTemplateContent) ticketTemplateContent = supabaseResult.ticketTemplateContent
+    if (supabaseResult.checklistContent) checklistContent = supabaseResult.checklistContent
   }
 
   if (!localLoaded && USE_MINIMAL_BOOTSTRAP) {
