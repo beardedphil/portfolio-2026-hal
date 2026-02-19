@@ -290,10 +290,10 @@ function App() {
       byColumn[colId].push({ id: t.pk, position: pos })
     }
     // If optimisticItems has a new order for a column, use that order instead of sorting by position
-    for (const [colId, optimisticOrder] of optimisticItems.entries()) {
-      if (byColumn[colId] && optimisticOrder.length === byColumn[colId].length) {
+    for (const [colId, optimisticOrder] of Object.entries(optimisticItems)) {
+      if (byColumn[colId] && optimisticOrder && optimisticOrder.length === byColumn[colId].length) {
         // Reorder byColumn[colId] to match optimisticOrder
-        const orderMap = new Map(optimisticOrder.map((id, idx) => [id, idx]))
+        const orderMap = new Map<string, number>(optimisticOrder.map((id: string, idx: number) => [id, idx]))
         byColumn[colId].sort((a, b) => {
           const aIdx = orderMap.get(a.id) ?? Infinity
           const bIdx = orderMap.get(b.id) ?? Infinity
@@ -315,9 +315,9 @@ function App() {
     }
     // If optimisticItems has a new order for a column, use that order instead of sorting by position
     for (const [colId, optimisticOrder] of Object.entries(optimisticItems)) {
-      if (byColumn[colId] && optimisticOrder.length === byColumn[colId].length) {
+      if (byColumn[colId] && optimisticOrder && optimisticOrder.length === byColumn[colId].length) {
         // Reorder byColumn[colId] to match optimisticOrder
-        const orderMap = new Map(optimisticOrder.map((id, idx) => [id, idx]))
+        const orderMap = new Map<string, number>(optimisticOrder.map((id: string, idx: number) => [id, idx]))
         byColumn[colId].sort((a, b) => {
           const aIdx = orderMap.get(a.id) ?? Infinity
           const bIdx = orderMap.get(b.id) ?? Infinity
