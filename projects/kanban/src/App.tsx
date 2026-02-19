@@ -1871,7 +1871,8 @@ function App() {
 
   const handleDragEnd = useCallback(
     async (event: DragEndEvent) => {
-      setIsDragging(false) // Allow refresh after drag (0703)
+      // Don't set isDragging to false until AFTER optimistic update renders
+      // This prevents polling from interfering with the optimistic update
       setActiveCardId(null)
       const { active, over } = event
       const effectiveOverId = over?.id ?? lastOverId.current
@@ -2034,6 +2035,8 @@ function App() {
             )
           )
         })
+        // Set isDragging to false AFTER optimistic update to prevent polling from interfering
+        setIsDragging(false)
         // Use HAL API for moves beyond To Do to enforce drift gating (0770)
         // Moves to col-todo or col-unassigned can use direct Supabase write (no drift gating required)
         const isMovingToTodoOrUnassigned = overColumn.id === 'col-todo' || overColumn.id === 'col-unassigned'
@@ -2221,6 +2224,8 @@ function App() {
             )
           )
         })
+        // Set isDragging to false AFTER optimistic update to prevent polling from interfering
+        setIsDragging(false)
         
         // Use HAL API for moves to Doing (beyond To Do) to enforce drift gating (0770)
         const result = await moveTicketViaHalApi(ticketPk, 'col-doing', overIndex)
@@ -2514,6 +2519,8 @@ function App() {
               }, remainingDelay)
             }
           })
+          // Set isDragging to false AFTER optimistic update to prevent polling from interfering
+          setIsDragging(false)
           // Handler returns immediately - React can render optimistic update while API calls complete in background
           return
         } else {
@@ -2608,6 +2615,8 @@ function App() {
               )
             )
           })
+          // Set isDragging to false AFTER optimistic update to prevent polling from interfering
+          setIsDragging(false)
           // Use HAL API for moves beyond To Do to enforce drift gating (0770)
           // Moves to col-todo or col-unassigned can use direct Supabase write (no drift gating required)
           const isMovingToTodoOrUnassigned = overColumn.id === 'col-todo' || overColumn.id === 'col-unassigned'
