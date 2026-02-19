@@ -6,6 +6,9 @@ import type { ArtifactRow } from '../types/app'
 
 const KANBAN_POLL_MS = 10_000
 const KANBAN_SAFETY_POLL_MS = 15_000
+// Delay before reverting optimistic update on move failure (HAL-0790)
+// Gives slow HAL API moves time to succeed and prevents premature "move back" behavior
+const ROLLBACK_AFTER_FAILURE_MS = 10_000 // 10 seconds - configurable delay before reverting failed moves
 
 export function useKanban(
   supabaseUrl: string | null,
@@ -23,6 +26,12 @@ export function useKanban(
   const [kanbanLastSync, setKanbanLastSync] = useState<Date | null>(null)
   const [kanbanMoveError, setKanbanMoveError] = useState<string | null>(null)
   const [noPrModalTicket, setNoPrModalTicket] = useState<{ pk: string; displayId?: string; ticketId?: string } | null>(null)
+  // Track pending moves to prevent flickering and premature rollback (HAL-0790)
+  const [pendingMoves, setPendingMoves] = useState<Set<string>>(new Set())
+  // Ref to access current pending moves in callbacks without stale closures (HAL-0790)
+  const pendingMovesRef = useRef<Set<string>>(new Set())
+  // Track when each move was initiated to prevent premature rollback on slow API responses (HAL-0790)
+  const pendingMoveTimestamps = useRef<Map<string, number>>(new Map())
   const lastRealtimeUpdateRef = useRef<number>(0)
   const realtimeSubscriptionsRef = useRef<{ tickets: boolean; agentRuns: boolean }>({ tickets: false, agentRuns: false })
 
@@ -60,7 +69,58 @@ export function useKanban(
         .eq('repo_full_name', connectedProject)
         .order('created_at', { ascending: false })
 
-      setKanbanTickets((ticketRows ?? []) as KanbanTicketRow[])
+      // Preserve optimistic positions for tickets in pendingMoves (HAL-0790)
+      // This prevents flickering when polling refetches arrive before API response
+      setKanbanTickets((prev) => {
+        const fetched = (ticketRows ?? []) as KanbanTicketRow[]
+        if (pendingMovesRef.current.size === 0) {
+          // No pending moves - use fetched data as-is
+          return fetched
+        }
+        // Merge fetched data with optimistic positions for pending moves
+        const result: KanbanTicketRow[] = []
+        const fetchedMap = new Map(fetched.map((t) => [t.pk, t]))
+        // First, add all fetched tickets, but preserve optimistic position for pending moves
+        for (const fetchedTicket of fetched) {
+          if (pendingMovesRef.current.has(fetchedTicket.pk)) {
+            // Ticket is pending - check if we have optimistic position
+            const optimisticTicket = prev.find((t) => t.pk === fetchedTicket.pk)
+            if (optimisticTicket) {
+              // Check if backend position exactly matches optimistic position
+              if (
+                fetchedTicket.kanban_column_id === optimisticTicket.kanban_column_id &&
+                fetchedTicket.kanban_position === optimisticTicket.kanban_position
+              ) {
+                // Backend confirmed - use fetched data and remove from pending
+                setPendingMoves((currentPending) => {
+                  const next = new Set(currentPending)
+                  next.delete(fetchedTicket.pk)
+                  pendingMovesRef.current = next
+                  return next
+                })
+                pendingMoveTimestamps.current.delete(fetchedTicket.pk)
+                result.push(fetchedTicket)
+              } else {
+                // Backend position doesn't match yet - keep optimistic position
+                result.push(optimisticTicket)
+              }
+            } else {
+              // No optimistic ticket found - use fetched data
+              result.push(fetchedTicket)
+            }
+          } else {
+            // Not pending - use fetched data
+            result.push(fetchedTicket)
+          }
+        }
+        // Add any optimistic tickets that weren't in fetched data (shouldn't happen, but be safe)
+        for (const optimisticTicket of prev) {
+          if (pendingMovesRef.current.has(optimisticTicket.pk) && !fetchedMap.has(optimisticTicket.pk)) {
+            result.push(optimisticTicket)
+          }
+        }
+        return result.sort((a, b) => (a.ticket_number ?? 0) - (b.ticket_number ?? 0))
+      })
       const canonicalColumnOrder = [
         'col-unassigned',
         'col-todo',
@@ -193,7 +253,35 @@ export function useKanban(
           } else if (payload.eventType === 'UPDATE' && payload.new) {
             const updatedTicket = payload.new as KanbanTicketRow
             setKanbanTickets((prev) => {
-              // Replace ticket by pk to prevent duplicates
+              // For tickets in pendingMoves, preserve optimistic position unless backend exactly matches (HAL-0790)
+              // This prevents flickering when realtime updates arrive before API response
+              const isPending = pendingMovesRef.current.has(updatedTicket.pk)
+              if (isPending) {
+                const optimisticTicket = prev.find((t) => t.pk === updatedTicket.pk)
+                if (optimisticTicket) {
+                  // Check if backend position exactly matches optimistic position
+                  if (
+                    updatedTicket.kanban_column_id === optimisticTicket.kanban_column_id &&
+                    updatedTicket.kanban_position === optimisticTicket.kanban_position
+                  ) {
+                    // Backend confirmed - update with DB data and remove from pending
+                    setPendingMoves((currentPending) => {
+                      const next = new Set(currentPending)
+                      next.delete(updatedTicket.pk)
+                      pendingMovesRef.current = next
+                      return next
+                    })
+                    pendingMoveTimestamps.current.delete(updatedTicket.pk)
+                    // Use backend data now that it's confirmed
+                    const filtered = prev.filter((t) => t.pk !== updatedTicket.pk)
+                    return [...filtered, updatedTicket].sort((a, b) => (a.ticket_number ?? 0) - (b.ticket_number ?? 0))
+                  } else {
+                    // Backend position doesn't match yet - keep optimistic position
+                    return prev
+                  }
+                }
+              }
+              // Not pending or no optimistic ticket found - use backend data
               const filtered = prev.filter((t) => t.pk !== updatedTicket.pk)
               return [...filtered, updatedTicket].sort((a, b) => (a.ticket_number ?? 0) - (b.ticket_number ?? 0))
             })
@@ -309,8 +397,17 @@ export function useKanban(
       const originalColumnId = ticket.kanban_column_id
       const originalPosition = ticket.kanban_position
       const movedAt = new Date().toISOString()
+      const moveStartTime = Date.now()
 
-      // Optimistically update UI immediately (0155)
+      // Track pending move to prevent flickering and premature rollback (HAL-0790)
+      setPendingMoves((prev) => {
+        const next = new Set(prev).add(ticketPk)
+        pendingMovesRef.current = next
+        return next
+      })
+      pendingMoveTimestamps.current.set(ticketPk, moveStartTime)
+
+      // Optimistically update UI immediately (HAL-0790: make moves feel instantaneous)
       setKanbanTickets((prev) => {
         const updated = prev.map((t) =>
           t.pk === ticketPk
@@ -353,6 +450,14 @@ export function useKanban(
               ticketId: ticket.id,
             })
             setKanbanMoveError(null) // Don't show generic error for PR blocking
+            // Remove from pending moves and clear timestamp
+            setPendingMoves((prev) => {
+              const next = new Set(prev)
+              next.delete(ticketPk)
+              pendingMovesRef.current = next
+              return next
+            })
+            pendingMoveTimestamps.current.delete(ticketPk)
             return // Exit early, don't throw
           }
           // Check if this is an RLS error (direct write blocked)
@@ -361,6 +466,15 @@ export function useKanban(
           }
           throw new Error(errorMsg)
         }
+
+        // Move succeeded - remove from pending moves (HAL-0790)
+        setPendingMoves((prev) => {
+          const next = new Set(prev)
+          next.delete(ticketPk)
+          pendingMovesRef.current = next
+          return next
+        })
+        pendingMoveTimestamps.current.delete(ticketPk)
 
         // Clear Process Review status when moving a ticket to Process Review column
         // (unless it's the ticket currently being reviewed)
@@ -372,22 +486,7 @@ export function useKanban(
         // Use skipIfRecentRealtime to avoid overwriting realtime updates (0140)
         await fetchKanbanData(true)
       } catch (err) {
-        // Revert optimistic update on error (0155)
-        setKanbanTickets((prev) => {
-          const reverted = prev.map((t) =>
-            t.pk === ticketPk
-              ? {
-                  ...t,
-                  kanban_column_id: originalColumnId,
-                  kanban_position: originalPosition,
-                  kanban_moved_at: ticket.kanban_moved_at,
-                }
-              : t
-          )
-          return reverted.sort((a, b) => (a.ticket_number ?? 0) - (b.ticket_number ?? 0))
-        })
-
-        // Show user-visible error with clear message (HAL-0769)
+        // Move failed - show error message immediately but wait for rollback delay before reverting (HAL-0790)
         const errorMsg = err instanceof Error ? err.message : String(err)
         let userFriendlyError = errorMsg
         if (errorMsg.includes('Direct writes') || errorMsg.includes('blocked')) {
@@ -395,8 +494,51 @@ export function useKanban(
         } else if (errorMsg.includes('row-level security') || errorMsg.includes('policy') || errorMsg.includes('permission denied')) {
           userFriendlyError = 'Unable to move ticket directly. Please use the standard move action in the UI.'
         }
-        setKanbanMoveError(`Failed to move ticket: ${userFriendlyError}`)
-        setTimeout(() => setKanbanMoveError(null), 8000) // Auto-clear after 8 seconds
+        // Show error message immediately (HAL-0790: clear on-screen error message)
+        setKanbanMoveError(`Move failed: ${userFriendlyError}`)
+        // Auto-clear error message after 15 seconds
+        setTimeout(() => setKanbanMoveError(null), 15000)
+
+        // Wait for rollback delay before reverting to give slow HAL API moves time to succeed (HAL-0790)
+        const moveStartTimeFromMap = pendingMoveTimestamps.current.get(ticketPk) || moveStartTime
+        const timeSinceMoveStart = Date.now() - moveStartTimeFromMap
+        const remainingDelay = Math.max(0, ROLLBACK_AFTER_FAILURE_MS - timeSinceMoveStart)
+
+        setTimeout(() => {
+          // Double-check that move still failed (it might have succeeded in the meantime via realtime)
+          // Only revert if ticket is still in pendingMoves (hasn't been confirmed as successful)
+          setPendingMoves((currentPending) => {
+            if (!currentPending.has(ticketPk)) {
+              // Move was already confirmed successful (e.g., via realtime update), don't revert
+              return currentPending
+            }
+
+            // Move still pending after delay - revert optimistic update
+            const next = new Set(currentPending)
+            next.delete(ticketPk)
+            pendingMovesRef.current = next
+
+            // Revert ticket position
+            setKanbanTickets((prev) => {
+              const reverted = prev.map((t) =>
+                t.pk === ticketPk
+                  ? {
+                      ...t,
+                      kanban_column_id: originalColumnId,
+                      kanban_position: originalPosition,
+                      kanban_moved_at: ticket.kanban_moved_at,
+                    }
+                  : t
+              )
+              return reverted.sort((a, b) => (a.ticket_number ?? 0) - (b.ticket_number ?? 0))
+            })
+
+            return next
+          })
+
+          // Clear move timestamp after rollback
+          pendingMoveTimestamps.current.delete(ticketPk)
+        }, remainingDelay)
       }
     },
     [fetchKanbanData, kanbanTickets, options]
