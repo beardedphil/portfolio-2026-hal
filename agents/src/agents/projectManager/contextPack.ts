@@ -17,7 +17,37 @@ const CONVERSATION_RECENT_MAX_CHARS = 12_000
 /** Use minimal bootstrap to avoid context overflow: do not inline full instruction bodies or long topic index. Agent loads instructions on demand via get_instruction_set. */
 const USE_MINIMAL_BOOTSTRAP = true
 
-function recentTurnsWithinCharBudget(
+/** Types for instruction handling */
+type TopicMeta = {
+  title?: string
+  description?: string
+  agentTypes?: string[]
+  keywords?: string[]
+}
+
+type InstructionRecord = {
+  topicId: string
+  filename: string
+  title: string
+  description: string
+  contentMd: string
+  alwaysApply: boolean
+  agentTypes: string[]
+  isBasic: boolean
+  isSituational: boolean
+  topicMetadata?: TopicMeta
+}
+
+const AGENT_TYPES = [
+  'project-manager',
+  'implementation-agent',
+  'qa-agent',
+  'process-review-agent',
+] as const
+
+type AgentType = (typeof AGENT_TYPES)[number]
+
+export function recentTurnsWithinCharBudget(
   turns: ConversationTurn[],
   maxChars: number
 ): { recent: ConversationTurn[]; omitted: number } {
@@ -41,6 +71,115 @@ const PM_LOCAL_RULES = [
   'code-citation-requirements.mdc',
   'qa-audit-report.mdc',
 ] as const
+
+/** Helper functions for instruction processing */
+function labelForAgentType(agentType: AgentType): string {
+  if (agentType === 'project-manager') return 'Project Manager'
+  if (agentType === 'implementation-agent') return 'Implementation Agent'
+  if (agentType === 'qa-agent') return 'QA Agent'
+  return 'Process Review Agent'
+}
+
+function appliesToAllAgents(inst: InstructionRecord): boolean {
+  return inst.alwaysApply || inst.agentTypes.includes('all')
+}
+
+function appliesToAgent(inst: InstructionRecord, agentType: string): boolean {
+  return appliesToAllAgents(inst) || inst.agentTypes.includes(agentType)
+}
+
+function extractStringField(raw: Record<string, unknown>, key: string, altKey?: string): string {
+  const value = raw[key] ?? (altKey ? raw[altKey] : undefined)
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function extractContentMd(raw: Record<string, unknown>): string {
+  if (typeof raw.contentMd === 'string') return raw.contentMd
+  if (typeof raw.contentBody === 'string') return raw.contentBody
+  if (typeof raw.content_md === 'string') return raw.content_md
+  if (typeof raw.content_body === 'string') return raw.content_body
+  return ''
+}
+
+function extractAgentTypes(raw: Record<string, unknown>, key: string): string[] {
+  const value = raw[key]
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : []
+}
+
+function normalizeTopicId(topicId: string, filename: string): string {
+  return topicId || filename.replace(/\.mdc$/i, '')
+}
+
+function normalizeFilename(topicId: string, filename: string): string {
+  return filename || `${topicId || 'unknown'}.mdc`
+}
+
+function normalizeTitle(title: string, filename: string): string {
+  return title || filename.replace(/\.mdc$/i, '').replace(/-/g, ' ')
+}
+
+function mapHalInstruction(raw: Record<string, unknown>): InstructionRecord {
+  const topicIdRaw = extractStringField(raw, 'topicId')
+  const filenameRaw = extractStringField(raw, 'filename')
+  const titleRaw = extractStringField(raw, 'title')
+  const descriptionRaw = extractStringField(raw, 'description')
+  const contentMdRaw = extractContentMd(raw)
+  const topicMeta = raw.topicMetadata as TopicMeta | undefined
+  const agentTypesRaw = extractAgentTypes(raw, 'agentTypes')
+
+  const topicId = normalizeTopicId(topicIdRaw, filenameRaw)
+  const filename = normalizeFilename(topicId, filenameRaw)
+  return {
+    topicId,
+    filename,
+    title: normalizeTitle(titleRaw, filename),
+    description: descriptionRaw || topicMeta?.description || 'No description',
+    contentMd: contentMdRaw,
+    alwaysApply: raw.alwaysApply === true,
+    agentTypes: agentTypesRaw,
+    isBasic: raw.isBasic === true,
+    isSituational: raw.isSituational === true,
+    topicMetadata: topicMeta,
+  }
+}
+
+function mapSupabaseInstruction(raw: Record<string, unknown>): InstructionRecord {
+  const topicIdRaw = extractStringField(raw, 'topic_id')
+  const filenameRaw = extractStringField(raw, 'filename')
+  const titleRaw = extractStringField(raw, 'title')
+  const descriptionRaw = extractStringField(raw, 'description')
+  const contentMdRaw = extractContentMd(raw)
+  const topicMeta = raw.topic_metadata as TopicMeta | undefined
+  const agentTypesRaw = extractAgentTypes(raw, 'agent_types')
+
+  const topicId = normalizeTopicId(topicIdRaw, filenameRaw)
+  const filename = normalizeFilename(topicId, filenameRaw)
+  return {
+    topicId,
+    filename,
+    title: normalizeTitle(titleRaw, filename),
+    description: descriptionRaw || topicMeta?.description || 'No description',
+    contentMd: contentMdRaw,
+    alwaysApply: raw.always_apply === true,
+    agentTypes: agentTypesRaw,
+    isBasic: raw.is_basic === true,
+    isSituational: raw.is_situational === true,
+    topicMetadata: topicMeta,
+  }
+}
+
+function dedupeTopicSummaries(
+  entries: Array<{ id: string; title: string; description: string }>
+): Array<{ id: string; title: string; description: string }> {
+  const seen = new Set<string>()
+  const unique: Array<{ id: string; title: string; description: string }> = []
+  for (const entry of entries) {
+    if (!entry.id || seen.has(entry.id)) continue
+    seen.add(entry.id)
+    unique.push(entry)
+  }
+  return unique.sort((a, b) => a.id.localeCompare(b.id))
+}
 
 function formatPmInputsSummary(config: PmAgentConfig): string {
   const hasSupabase =
@@ -122,28 +261,23 @@ function formatPmInputsSummary(config: PmAgentConfig): string {
   return lines.join('\n')
 }
 
-export async function buildContextPack(config: PmAgentConfig, userMessage: string): Promise<string> {
-  const rulesDir = config.rulesDir ?? '.cursor/rules'
-  const rulesPath = path.resolve(config.repoRoot, rulesDir)
-
-  const sections: string[] = []
-
-  // Always include a compact list of HAL-provided inputs and enabled tools (helps debugging while keeping context small).
-  sections.push(formatPmInputsSummary(config))
-
-  // Local-first: try loading rules from repo
-  let localLoaded = false
+async function loadLocalRules(
+  repoRoot: string,
+  rulesPath: string
+): Promise<{
+  localLoaded: boolean
+  ticketTemplateContent: string | null
+  checklistContent: string | null
+  localRulesContent: string
+}> {
   let ticketTemplateContent: string | null = null
   let checklistContent: string | null = null
   let localRulesContent = ''
 
   try {
-    const templatePath =
-      path.join(config.repoRoot, 'docs/templates/ticket.template.md')
-    const templateAltPath =
-      path.join(config.repoRoot, 'projects/kanban/docs/templates/ticket.template.md')
-    const checklistPath =
-      path.join(config.repoRoot, 'docs/process/ready-to-start-checklist.md')
+    const templatePath = path.join(repoRoot, 'docs/templates/ticket.template.md')
+    const templateAltPath = path.join(repoRoot, 'projects/kanban/docs/templates/ticket.template.md')
+    const checklistPath = path.join(repoRoot, 'docs/process/ready-to-start-checklist.md')
 
     let templateContent: string | null = null
     try {
@@ -171,15 +305,71 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
           .catch(() => '')
         if (content) ruleParts.push(content)
       }
-      const halContractPath = path.join(config.repoRoot, 'docs/process/hal-tool-call-contract.mdc')
+      const halContractPath = path.join(repoRoot, 'docs/process/hal-tool-call-contract.mdc')
       const halContract = await fs.readFile(halContractPath, 'utf8').catch(() => '')
       if (halContract) ruleParts.push(halContract)
       localRulesContent = ruleParts.join('\n\n---\n\n')
-      localLoaded = true
+      return { localLoaded: true, ticketTemplateContent, checklistContent, localRulesContent }
     }
   } catch {
     // local load failed, will use HAL/Supabase fallback
   }
+
+  return { localLoaded: false, ticketTemplateContent, checklistContent, localRulesContent }
+}
+
+function formatConversationSection(
+  config: PmAgentConfig,
+  userMessage: string
+): { section: string; hasConversation: boolean } {
+  if (config.conversationContextPack && config.conversationContextPack.trim() !== '') {
+    return {
+      section: '## Conversation so far\n\n' + config.conversationContextPack.trim(),
+      hasConversation: true,
+    }
+  }
+
+  const history = config.conversationHistory
+  if (history && history.length > 0) {
+    const { recent, omitted } = recentTurnsWithinCharBudget(history, CONVERSATION_RECENT_MAX_CHARS)
+    const truncNote =
+      omitted > 0
+        ? `\n(older messages omitted; showing recent conversation within ${CONVERSATION_RECENT_MAX_CHARS.toLocaleString()} characters)\n\n`
+        : '\n\n'
+    const lines = recent.map((t) => `**${t.role}**: ${t.content}`)
+    return {
+      section: '## Conversation so far' + truncNote + lines.join('\n\n'),
+      hasConversation: true,
+    }
+  }
+
+  return { section: '', hasConversation: false }
+}
+
+async function getGitStatus(repoRoot: string): Promise<string> {
+  try {
+    const { stdout } = await execAsync('git status -sb', {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    })
+    return '```\n' + stdout.trim() + '\n```'
+  } catch {
+    return '(git status failed)'
+  }
+}
+
+export async function buildContextPack(config: PmAgentConfig, userMessage: string): Promise<string> {
+  const rulesDir = config.rulesDir ?? '.cursor/rules'
+  const rulesPath = path.resolve(config.repoRoot, rulesDir)
+
+  const sections: string[] = []
+
+  // Always include a compact list of HAL-provided inputs and enabled tools (helps debugging while keeping context small).
+  sections.push(formatPmInputsSummary(config))
+
+  // Local-first: try loading rules from repo
+  let { localLoaded, ticketTemplateContent, checklistContent, localRulesContent } =
+    await loadLocalRules(config.repoRoot, rulesPath)
 
   if (localLoaded) {
     sections.push(
@@ -206,22 +396,9 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
   }
 
   // Conversation so far: pre-built context pack (e.g. summary + recent from DB) or bounded history
-  let hasConversation = false
-  if (config.conversationContextPack && config.conversationContextPack.trim() !== '') {
-    sections.push('## Conversation so far\n\n' + config.conversationContextPack.trim())
-    hasConversation = true
-  } else {
-    const history = config.conversationHistory
-    if (history && history.length > 0) {
-      const { recent, omitted } = recentTurnsWithinCharBudget(history, CONVERSATION_RECENT_MAX_CHARS)
-      const truncNote =
-        omitted > 0
-          ? `\n(older messages omitted; showing recent conversation within ${CONVERSATION_RECENT_MAX_CHARS.toLocaleString()} characters)\n\n`
-          : '\n\n'
-      const lines = recent.map((t) => `**${t.role}**: ${t.content}`)
-      sections.push('## Conversation so far' + truncNote + lines.join('\n\n'))
-      hasConversation = true
-    }
+  const { section: conversationSection, hasConversation } = formatConversationSection(config, userMessage)
+  if (conversationSection) {
+    sections.push(conversationSection)
   }
 
   if (hasConversation) {
@@ -238,151 +415,24 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
 
   if (!localLoaded) {
   try {
-    type TopicMeta = {
-      title?: string
-      description?: string
-      agentTypes?: string[]
-      keywords?: string[]
-    }
-
-    type InstructionRecord = {
-      topicId: string
-      filename: string
-      title: string
-      description: string
-      contentMd: string
-      alwaysApply: boolean
-      agentTypes: string[]
-      isBasic: boolean
-      isSituational: boolean
-      topicMetadata?: TopicMeta
-    }
-
     const repoFullName = config.repoFullName || config.projectId || 'beardedphil/portfolio-2026-hal'
-    const agentTypes = [
-      'project-manager',
-      'implementation-agent',
-      'qa-agent',
-      'process-review-agent',
-    ] as const
 
-    const labelForAgentType = (agentType: (typeof agentTypes)[number]): string => {
-      if (agentType === 'project-manager') return 'Project Manager'
-      if (agentType === 'implementation-agent') return 'Implementation Agent'
-      if (agentType === 'qa-agent') return 'QA Agent'
-      return 'Process Review Agent'
+    function appendMinimalBootstrap(sections: string[]): void {
+      sections.push(
+        'Instructions are stored in Supabase. **Load your full PM instructions first:** `get_instruction_set({ agentType: "project-manager" })`. '
+      )
+      sections.push(
+        'For ticket creation or readiness checks, load `get_instruction_set({ topicId: "ticket-template" })` and `get_instruction_set({ topicId: "ready-to-start-checklist" })`.\n'
+      )
+      sections.push(
+        '**Request a topic by ID:** `get_instruction_set({ topicId: "<topic-id>" })`.'
+      )
     }
 
-    const mapHalInstruction = (raw: Record<string, unknown>): InstructionRecord => {
-      const topicIdRaw = typeof raw.topicId === 'string' ? raw.topicId.trim() : ''
-      const filenameRaw = typeof raw.filename === 'string' ? raw.filename.trim() : ''
-      const titleRaw = typeof raw.title === 'string' ? raw.title.trim() : ''
-      const descriptionRaw = typeof raw.description === 'string' ? raw.description.trim() : ''
-      const contentMdRaw =
-        typeof raw.contentMd === 'string'
-          ? raw.contentMd
-          : typeof raw.contentBody === 'string'
-            ? raw.contentBody
-            : ''
-      const topicMeta = raw.topicMetadata as TopicMeta | undefined
-      const agentTypesRaw = Array.isArray(raw.agentTypes)
-        ? raw.agentTypes.filter((v): v is string => typeof v === 'string')
-        : []
-
-      const topicId = topicIdRaw || filenameRaw.replace(/\.mdc$/i, '')
-      const filename = filenameRaw || `${topicId || 'unknown'}.mdc`
-      return {
-        topicId,
-        filename,
-        title: titleRaw || filename.replace(/\.mdc$/i, '').replace(/-/g, ' '),
-        description: descriptionRaw || topicMeta?.description || 'No description',
-        contentMd: contentMdRaw,
-        alwaysApply: raw.alwaysApply === true,
-        agentTypes: agentTypesRaw,
-        isBasic: raw.isBasic === true,
-        isSituational: raw.isSituational === true,
-        topicMetadata: topicMeta,
-      }
-    }
-
-    const mapSupabaseInstruction = (raw: Record<string, unknown>): InstructionRecord => {
-      const topicIdRaw = typeof raw.topic_id === 'string' ? raw.topic_id.trim() : ''
-      const filenameRaw = typeof raw.filename === 'string' ? raw.filename.trim() : ''
-      const titleRaw = typeof raw.title === 'string' ? raw.title.trim() : ''
-      const descriptionRaw = typeof raw.description === 'string' ? raw.description.trim() : ''
-      const contentMdRaw =
-        typeof raw.content_md === 'string'
-          ? raw.content_md
-          : typeof raw.content_body === 'string'
-            ? raw.content_body
-            : ''
-      const topicMeta = raw.topic_metadata as TopicMeta | undefined
-      const agentTypesRaw = Array.isArray(raw.agent_types)
-        ? raw.agent_types.filter((v): v is string => typeof v === 'string')
-        : []
-
-      const topicId = topicIdRaw || filenameRaw.replace(/\.mdc$/i, '')
-      const filename = filenameRaw || `${topicId || 'unknown'}.mdc`
-      return {
-        topicId,
-        filename,
-        title: titleRaw || filename.replace(/\.mdc$/i, '').replace(/-/g, ' '),
-        description: descriptionRaw || topicMeta?.description || 'No description',
-        contentMd: contentMdRaw,
-        alwaysApply: raw.always_apply === true,
-        agentTypes: agentTypesRaw,
-        isBasic: raw.is_basic === true,
-        isSituational: raw.is_situational === true,
-        topicMetadata: topicMeta,
-      }
-    }
-
-    const appliesToAllAgents = (inst: InstructionRecord): boolean =>
-      inst.alwaysApply || inst.agentTypes.includes('all')
-
-    const appliesToAgent = (inst: InstructionRecord, agentType: string): boolean =>
-      appliesToAllAgents(inst) || inst.agentTypes.includes(agentType)
-
-    const dedupeTopicSummaries = (
-      entries: Array<{ id: string; title: string; description: string }>
-    ): Array<{ id: string; title: string; description: string }> => {
-      const seen = new Set<string>()
-      const unique: Array<{ id: string; title: string; description: string }> = []
-      for (const entry of entries) {
-        if (!entry.id || seen.has(entry.id)) continue
-        seen.add(entry.id)
-        unique.push(entry)
-      }
-      return unique.sort((a, b) => a.id.localeCompare(b.id))
-    }
-
-    const appendInstructionBootstrap = (
-      sourceLabel: string,
-      basicInstructions: InstructionRecord[],
-      situationalInstructions: InstructionRecord[],
-      minimalBootstrap: boolean
-    ): boolean => {
-      const globalBasic = basicInstructions.filter(appliesToAllAgents)
-
-      if (basicInstructions.length === 0 && situationalInstructions.length === 0) {
-        return false
-      }
-
-      sections.push(`### Global bootstrap instructions (${sourceLabel})\n`)
-
-      if (minimalBootstrap) {
-        sections.push(
-          'Instructions are stored in Supabase. **Load your full PM instructions first:** `get_instruction_set({ agentType: "project-manager" })`. '
-        )
-        sections.push(
-          'For ticket creation or readiness checks, load `get_instruction_set({ topicId: "ticket-template" })` and `get_instruction_set({ topicId: "ready-to-start-checklist" })`.\n'
-        )
-        sections.push(
-          '**Request a topic by ID:** `get_instruction_set({ topicId: "<topic-id>" })`.'
-        )
-        return true
-      }
-
+    function appendGlobalBasicInstructions(
+      sections: string[],
+      globalBasic: InstructionRecord[]
+    ): void {
       if (globalBasic.length === 0) {
         sections.push('_No global bootstrap instruction bodies were found._')
       } else {
@@ -390,24 +440,21 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
           sections.push(`#### ${inst.filename}\n\n${inst.contentMd}\n`)
         }
       }
+    }
 
-      const sharedSituational = dedupeTopicSummaries(
-        situationalInstructions
-          .filter(appliesToAllAgents)
-          .map((inst) => ({
-            id: inst.topicId,
-            title: inst.topicMetadata?.title || inst.title,
-            description: inst.topicMetadata?.description || inst.description,
-          }))
-      )
-
+    function appendInstructionWorkflow(sections: string[]): void {
       sections.push('### Instruction loading workflow\n')
       sections.push('1. Start with the global bootstrap instructions (all agents).')
       sections.push('2. Request the full instruction set for the active agent type.')
       sections.push('3. Request additional topic-specific instructions only when needed.\n')
+    }
 
+    function appendAgentTypeInstructions(
+      sections: string[],
+      basicInstructions: InstructionRecord[]
+    ): void {
       sections.push('**Request full instruction set by agent type:**')
-      for (const agentType of agentTypes) {
+      for (const agentType of AGENT_TYPES) {
         const agentBasicCount = basicInstructions.filter(
           (inst) => inst.agentTypes.includes(agentType) && !inst.agentTypes.includes('all')
         ).length
@@ -415,7 +462,12 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
           `- \`${agentType}\` (${agentBasicCount} basic instruction${agentBasicCount === 1 ? '' : 's'}): \`get_instruction_set({ agentType: "${agentType}" })\``
         )
       }
+    }
 
+    function appendSharedSituationalTopics(
+      sections: string[],
+      sharedSituational: Array<{ id: string; title: string; description: string }>
+    ): void {
       if (sharedSituational.length > 0) {
         sections.push('\n**Less-common shared topics (all agents):**')
         for (const topic of sharedSituational) {
@@ -424,8 +476,13 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
           )
         }
       }
+    }
 
-      for (const agentType of agentTypes) {
+    function appendAgentSpecificTopics(
+      sections: string[],
+      situationalInstructions: InstructionRecord[]
+    ): void {
+      for (const agentType of AGENT_TYPES) {
         const agentTopics = dedupeTopicSummaries(
           situationalInstructions
             .filter((inst) => appliesToAgent(inst, agentType))
@@ -444,6 +501,43 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
           )
         }
       }
+    }
+
+    function appendInstructionBootstrap(
+      sourceLabel: string,
+      basicInstructions: InstructionRecord[],
+      situationalInstructions: InstructionRecord[],
+      minimalBootstrap: boolean
+    ): boolean {
+      const globalBasic = basicInstructions.filter(appliesToAllAgents)
+
+      if (basicInstructions.length === 0 && situationalInstructions.length === 0) {
+        return false
+      }
+
+      sections.push(`### Global bootstrap instructions (${sourceLabel})\n`)
+
+      if (minimalBootstrap) {
+        appendMinimalBootstrap(sections)
+        return true
+      }
+
+      appendGlobalBasicInstructions(sections, globalBasic)
+
+      const sharedSituational = dedupeTopicSummaries(
+        situationalInstructions
+          .filter(appliesToAllAgents)
+          .map((inst) => ({
+            id: inst.topicId,
+            title: inst.topicMetadata?.title || inst.title,
+            description: inst.topicMetadata?.description || inst.description,
+          }))
+      )
+
+      appendInstructionWorkflow(sections)
+      appendAgentTypeInstructions(sections, basicInstructions)
+      appendSharedSituationalTopics(sections, sharedSituational)
+      appendAgentSpecificTopics(sections, situationalInstructions)
 
       sections.push(
         '\n**Request a specific topic directly:** `get_instruction_set({ topicId: "<topic-id>" })`.'
@@ -619,15 +713,7 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
   }
 
   sections.push('## Git status (git status -sb)')
-  try {
-    const { stdout } = await execAsync('git status -sb', {
-      cwd: config.repoRoot,
-      encoding: 'utf8',
-    })
-    sections.push('```\n' + stdout.trim() + '\n```')
-  } catch {
-    sections.push('(git status failed)')
-  }
+  sections.push(await getGitStatus(config.repoRoot))
 
   return sections.join('\n\n')
 }
