@@ -32,7 +32,10 @@ export async function exchangeCodeForToken(args: {
     | null
 
   if (!res.ok || !json || !('access_token' in json)) {
-    const msg = json?.error_description || json?.error || `GitHub token exchange failed (${res.status})`
+    const msg =
+      json?.error && json?.error_description
+        ? `${json.error}: ${json.error_description}`
+        : json?.error_description || json?.error || `GitHub token exchange failed (${res.status})`
     throw new Error(msg)
   }
   return json
