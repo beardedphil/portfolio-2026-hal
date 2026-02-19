@@ -210,6 +210,8 @@ function App() {
   const supabaseTicketsRef = useRef<SupabaseTicketRow[]>([])
   // Ref to track optimistic ticket positions for same-column reorder (prevents @dnd-kit revert)
   const optimisticTicketPositionsRef = useRef<Map<string, number>>(new Map())
+  // Version counter to force SortableContext to remount with new items when optimistic update happens
+  const [sortableContextVersion, setSortableContextVersion] = useState(0)
   const [supabaseColumnsRows, setSupabaseColumnsRows] = useState<SupabaseKanbanColumnRow[]>([])
   const [supabaseLastRefresh, setSupabaseLastRefresh] = useState<Date | null>(null)
   const [supabaseColumnsLastRefresh, setSupabaseColumnsLastRefresh] = useState<Date | null>(null)
@@ -2418,8 +2420,10 @@ function App() {
           })
           setSupabaseTickets(updatedTickets)
           
-          // Force immediate render so columns recompute with optimistic positions
+          // Force immediate render and increment version to force SortableContext remount
           flushSync(() => {
+            // Increment version to force SortableContext to remount with new items
+            setSortableContextVersion((v) => v + 1)
             // Trigger re-render to ensure columns useMemo runs with new optimistic positions
             setPendingMoves((prev) => prev)
           })
@@ -3300,6 +3304,7 @@ ${notes || '(none provided)'}
                   onRemove={handleRemoveColumn}
                   hideRemove={supabaseBoardActive}
                   onOpenDetail={handleOpenTicketDetail}
+                  sortableContextVersion={sortableContextVersion}
                   supabaseBoardActive={supabaseBoardActive}
                   supabaseColumns={supabaseColumns}
                   supabaseTickets={supabaseTickets}

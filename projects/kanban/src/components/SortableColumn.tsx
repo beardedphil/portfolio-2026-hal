@@ -41,6 +41,7 @@ export interface SortableColumnProps {
     React.SetStateAction<Record<string, 'Implementation' | 'QA' | 'Process Review'>>
   >
   activeWorkAgentTypes?: Record<string, 'Implementation' | 'QA' | 'Process Review'>
+  sortableContextVersion?: number
 }
 
 export function SortableColumn({
@@ -58,6 +59,7 @@ export function SortableColumn({
   fetchActiveAgentRuns,
   setActiveWorkAgentTypes,
   activeWorkAgentTypes = {},
+  sortableContextVersion = 0,
 }: SortableColumnProps) {
   const halCtx = useContext(HalKanbanContext)
   const { attributes, listeners, setNodeRef, transform, transition } =
@@ -163,7 +165,11 @@ export function SortableColumn({
         ref={setDroppableRef}
         className={`column-cards ${isOver ? 'column-cards-over' : ''}`}
       >
-        <SortableContext items={col.cardIds} strategy={verticalListSortingStrategy}>
+        <SortableContext 
+          key={`${col.id}-${sortableContextVersion}`}
+          items={col.cardIds} 
+          strategy={verticalListSortingStrategy}
+        >
           {col.cardIds.map((cardId) => {
             const card = cards[cardId]
             if (!card) return null
