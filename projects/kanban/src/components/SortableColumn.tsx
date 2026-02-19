@@ -168,7 +168,7 @@ export function SortableColumn({
         className={`column-cards ${isOver ? 'column-cards-over' : ''}`}
       >
         <SortableContext 
-          key={`${col.id}-${sortableContextVersion}`}
+          key={`${col.id}-${sortableContextVersion}-${optimisticItems?.get(col.id)?.join(',') ?? col.cardIds.join(',')}`}
           // Use optimistic items if available (for immediate @dnd-kit update), otherwise use computed items
           items={optimisticItems?.get(col.id) ?? col.cardIds}
           strategy={verticalListSortingStrategy}
