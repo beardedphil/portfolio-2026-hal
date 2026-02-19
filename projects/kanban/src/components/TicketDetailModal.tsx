@@ -10,6 +10,7 @@ import { ProcessReviewSection } from './ProcessReviewSection'
 import { HumanValidationSection } from './HumanValidationSection'
 import { AutoDismissMessage } from './AutoDismissMessage'
 import { PullRequestSection } from './PullRequestSection'
+import { RedViewer, type ValidationFailure } from './RedViewer'
 
 /** Ticket detail modal (0033): title, metadata, markdown body, close/escape/backdrop, scroll lock, focus trap */
 export function TicketDetailModal({
@@ -36,6 +37,10 @@ export function TicketDetailModal({
   attachmentsLoading,
   failureCounts,
   repoFullName,
+  red,
+  redLoading,
+  redError,
+  baseUrl,
 }: {
   open: boolean
   onClose: () => void
@@ -60,6 +65,10 @@ export function TicketDetailModal({
   attachmentsLoading: boolean
   failureCounts?: { qa: number; hitl: number } | null
   repoFullName?: string | null
+  red?: { version: number; redJson: unknown; validationStatus?: string; validationResult?: { pass: boolean; failures: unknown[]; validatedAt: string } | null } | null
+  redLoading?: boolean
+  redError?: string | null
+  baseUrl?: string
 }) {
   const [validationSteps, setValidationSteps] = useState('')
   const [validationNotes, setValidationNotes] = useState('')
@@ -68,6 +77,9 @@ export function TicketDetailModal({
   const [validationSuccess, setValidationSuccess] = useState<string | null>(null)
   const modalRef = useRef<HTMLDivElement>(null)
   const closeBtnRef = useRef<HTMLButtonElement>(null)
+  
+  // Get base URL for API calls (default to current origin)
+  const apiBaseUrl = baseUrl || (typeof window !== 'undefined' ? window.location.origin : '')
 
   // Scroll lock when open
   useEffect(() => {
@@ -294,6 +306,34 @@ export function TicketDetailModal({
                 supabaseKey={supabaseKey}
                 onRefresh={_onTicketUpdate}
               />
+              {red && red.version === 0 && (
+                <RedViewer
+                  ticketPk={ticketId}
+                  ticketId={ticketId}
+                  repoFullName={repoFullName || ''}
+                  version={red.version}
+                  redJson={red.redJson}
+                  supabaseUrl={supabaseUrl}
+                  supabaseAnonKey={supabaseKey}
+                  baseUrl={apiBaseUrl}
+                  initialValidationResult={red.validationResult ? {
+                    success: true,
+                    pass: red.validationResult.pass,
+                    failures: red.validationResult.failures as ValidationFailure[],
+                    validatedAt: red.validationResult.validatedAt,
+                  } : null}
+                />
+              )}
+              {redLoading && (
+                <div style={{ marginTop: '1rem', padding: '1rem', textAlign: 'center' }}>
+                  <p>Loading RED document...</p>
+                </div>
+              )}
+              {redError && !redLoading && (
+                <div style={{ marginTop: '1rem', padding: '1rem', backgroundColor: '#ffebee', border: '1px solid #f44336', borderRadius: '4px' }}>
+                  <p style={{ color: '#c62828', margin: 0 }}>Error loading RED document: {redError}</p>
+                </div>
+              )}
               {showValidationSection && (
                 <>
                   {validationError && (

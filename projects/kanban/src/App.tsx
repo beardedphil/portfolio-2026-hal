@@ -251,6 +251,11 @@ function App() {
   const [detailModalAttachmentsLoading, setDetailModalAttachmentsLoading] = useState(false)
   const [detailModalFailureCounts, setDetailModalFailureCounts] = useState<{ qa: number; hitl: number } | null>(null)
   
+  // RED documents (0758)
+  const [detailModalRed, setDetailModalRed] = useState<{ version: number; redJson: unknown; validationStatus?: string; validationResult?: { pass: boolean; failures: unknown[]; validatedAt: string } | null } | null>(null)
+  const [detailModalRedLoading, setDetailModalRedLoading] = useState(false)
+  const [detailModalRedError, setDetailModalRedError] = useState<string | null>(null)
+  
   // Board data: library mode (halCtx) = HAL passes data down; else = we fetch from Supabase (iframe/standalone)
   const sourceTickets = halCtx?.tickets ?? supabaseTickets
   const sourceColumnsRows = halCtx?.columns ?? supabaseColumnsRows
@@ -788,6 +793,53 @@ function App() {
             })
             .finally(() => setDetailModalArtifactsLoading(false))
         }
+        
+        // Fetch RED document version 0 in library mode (0758)
+        if (shouldFetchArtifacts) {
+          const row = sourceTickets.find((t) => t.pk === ticketId)
+          const repoFullName = row?.repo_full_name
+          const url = halCtx.supabaseUrl?.trim()
+          const key = halCtx.supabaseAnonKey?.trim()
+          if (url && key && repoFullName) {
+            setDetailModalRedLoading(true)
+            setDetailModalRedError(null)
+            fetch('/api/red/get', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({
+                ticketPk: ticketId,
+                repoFullName,
+                version: 0,
+                supabaseUrl: url,
+                supabaseAnonKey: key,
+              }),
+            })
+              .then((r) => r.json())
+              .then((result: { success?: boolean; red_document?: { version: number; red_json: unknown; validation_status?: string }; validation_result?: { pass: boolean; failures: unknown[]; validatedAt: string } | null }) => {
+                if (result.success && result.red_document) {
+                  setDetailModalRed({
+                    version: result.red_document.version,
+                    redJson: result.red_document.red_json,
+                    validationStatus: result.red_document.validation_status,
+                    validationResult: result.validation_result || null,
+                  })
+                } else {
+                  setDetailModalRed(null)
+                }
+                setDetailModalRedLoading(false)
+              })
+              .catch((e) => {
+                // Silently fail - RED documents are optional
+                setDetailModalRed(null)
+                setDetailModalRedError(e instanceof Error ? e.message : String(e))
+                setDetailModalRedLoading(false)
+              })
+          } else {
+            setDetailModalRed(null)
+            setDetailModalRedLoading(false)
+          }
+        }
       } else {
         // Ticket ID hasn't changed - don't refetch artifacts, but still update body if it changed
         // (body updates are handled above)
@@ -910,6 +962,51 @@ function App() {
               })
           }
         }
+        
+        // Fetch RED document version 0 (0758) - only on ticket change
+        if (shouldFetchArtifacts) {
+          const url = supabaseProjectUrl.trim()
+          const key = supabaseAnonKey.trim()
+          const repoFullName = row.repo_full_name
+          if (url && key && repoFullName) {
+            setDetailModalRedLoading(true)
+            setDetailModalRedError(null)
+            fetch('/api/red/get', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                ticketPk: ticketId,
+                repoFullName,
+                version: 0,
+                supabaseUrl: url,
+                supabaseAnonKey: key,
+              }),
+            })
+              .then((r) => r.json())
+              .then((result: { success?: boolean; red_document?: { version: number; red_json: unknown; validation_status?: string }; validation_result?: { pass: boolean; failures: unknown[]; validatedAt: string } | null }) => {
+                if (result.success && result.red_document) {
+                  setDetailModalRed({
+                    version: result.red_document.version,
+                    redJson: result.red_document.red_json,
+                    validationStatus: result.red_document.validation_status,
+                    validationResult: result.validation_result || null,
+                  })
+                } else {
+                  setDetailModalRed(null)
+                }
+                setDetailModalRedLoading(false)
+              })
+              .catch((e) => {
+                // Silently fail - RED documents are optional
+                setDetailModalRed(null)
+                setDetailModalRedError(e instanceof Error ? e.message : String(e))
+                setDetailModalRedLoading(false)
+              })
+          } else {
+            setDetailModalRed(null)
+            setDetailModalRedLoading(false)
+          }
+        }
       } else {
         setDetailModalBody('')
         setDetailModalArtifacts([])
@@ -918,6 +1015,9 @@ function App() {
       setDetailModalAttachments([])
       setDetailModalAttachmentsLoading(false)
       setDetailModalFailureCounts(null)
+      setDetailModalRed(null)
+      setDetailModalRedLoading(false)
+      setDetailModalRedError(null)
     }
     setDetailModalError(null)
     setDetailModalLoading(false)
@@ -931,6 +1031,9 @@ function App() {
       setDetailModalArtifactsStatus(null)
       setDetailModalAttachments([])
       setDetailModalAttachmentsLoading(false)
+      setDetailModalRed(null)
+      setDetailModalRedLoading(false)
+      setDetailModalRedError(null)
     }
   }, [detailModal, halCtx, sourceTickets, supabaseBoardActive, supabaseTickets, supabaseProjectUrl, supabaseAnonKey, detailModalRetryTrigger, addLog, fetchTicketArtifacts, fetchTicketAttachments])
   // Note: supabaseTickets and sourceTickets are in dependencies to read ticket data,
@@ -3027,6 +3130,10 @@ function App() {
               ? supabaseTickets.find((t) => t.pk === detailModal.ticketId)?.repo_full_name || null
               : sourceTickets.find((t) => t.pk === detailModal.ticketId)?.repo_full_name || null
           }
+          red={detailModalRed}
+          redLoading={detailModalRedLoading}
+          redError={detailModalRedError}
+          baseUrl={typeof window !== 'undefined' ? window.location.origin : ''}
           onValidationPass={async (ticketPk: string) => {
             // Always use HAL's callbacks - HAL handles all database operations
             if (!halCtx) {
