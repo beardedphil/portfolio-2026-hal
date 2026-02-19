@@ -208,6 +208,8 @@ function App() {
   const [supabaseTickets, setSupabaseTickets] = useState<SupabaseTicketRow[]>([])
   // Ref to always get latest tickets in fetchActiveAgentRuns (0135) - prevents stale closure values
   const supabaseTicketsRef = useRef<SupabaseTicketRow[]>([])
+  // Ref to track optimistic ticket positions for same-column reorder (prevents @dnd-kit revert)
+  const optimisticTicketPositionsRef = useRef<Map<string, number>>(new Map())
   const [supabaseColumnsRows, setSupabaseColumnsRows] = useState<SupabaseKanbanColumnRow[]>([])
   const [supabaseLastRefresh, setSupabaseLastRefresh] = useState<Date | null>(null)
   const [supabaseColumnsLastRefresh, setSupabaseColumnsLastRefresh] = useState<Date | null>(null)
@@ -277,7 +279,9 @@ function App() {
           : columnIds.has(t.kanban_column_id)
             ? t.kanban_column_id
             : (unknownIds.push(t.pk), firstColumnId)
-      const pos = typeof t.kanban_position === 'number' ? t.kanban_position : 0
+      // Use optimistic position if available (for same-column reorder to prevent @dnd-kit revert)
+      const optimisticPos = optimisticTicketPositionsRef.current.get(t.pk)
+      const pos = optimisticPos !== undefined ? optimisticPos : (typeof t.kanban_position === 'number' ? t.kanban_position : 0)
       byColumn[colId].push({ id: t.pk, position: pos })
     }
     for (const id of Object.keys(byColumn)) {
@@ -2384,9 +2388,14 @@ function App() {
           const positionMap = new Map<string, number>()
           newOrder.forEach((pk, i) => positionMap.set(pk, i))
           
-          // CRITICAL FIX: Update state BEFORE @dnd-kit checks items at drag end
-          // @dnd-kit compares items at drag end to drag start - if unchanged, it reverts visual position
-          // We must update supabaseTickets synchronously so columns useMemo recomputes and SortableContext gets new items
+          // CRITICAL FIX: Update optimistic positions ref IMMEDIATELY so columns useMemo sees new positions
+          // @dnd-kit checks items at drag end - if unchanged, it reverts visual position
+          // By updating the ref synchronously, the columns useMemo will compute new cardIds immediately
+          for (let i = 0; i < newOrder.length; i++) {
+            optimisticTicketPositionsRef.current.set(newOrder[i], i)
+          }
+          
+          // Update state - this will trigger columns useMemo to recompute with optimistic positions
           const updatedTickets = (() => {
             const prev = supabaseTickets
             return prev.map((t) => {
@@ -2400,8 +2409,7 @@ function App() {
             })
           })()
           
-          // Update state synchronously - this must happen in the same synchronous call stack
-          // as the drag end handler so @dnd-kit sees the new items when it checks
+          // Update state synchronously
           setPendingMoves((prev) => new Set(prev).add(ticketPk))
           setPendingMoveTimestamps((prev) => {
             const next = new Map(prev)
@@ -2410,11 +2418,9 @@ function App() {
           })
           setSupabaseTickets(updatedTickets)
           
-          // Use flushSync to force React to render immediately after state updates
-          // This ensures columns recompute and SortableContext receives new items before @dnd-kit reverts
+          // Force immediate render so columns recompute with optimistic positions
           flushSync(() => {
-            // Force a render to ensure columns useMemo runs and components re-render with new items
-            // This is a no-op state update that forces React to process the previous updates
+            // Trigger re-render to ensure columns useMemo runs with new optimistic positions
             setPendingMoves((prev) => prev)
           })
           // Fire off all API calls in parallel WITHOUT awaiting - let them complete in background
@@ -2478,6 +2484,8 @@ function App() {
                       next.delete(ticketPk)
                       return next
                     })
+                    // Clear optimistic positions for this column since backend confirmed
+                    optimisticTicketPositionsRef.current.clear()
                   }
                   // If backend hasn't confirmed yet, keep in pendingMoves (will be checked on next poll)
                   return currentTickets
@@ -2528,6 +2536,8 @@ function App() {
                   next.delete(ticketPk)
                   return next
                 })
+                // Clear optimistic positions on rollback
+                optimisticTicketPositionsRef.current.clear()
               }, remainingDelay)
             }
           })
