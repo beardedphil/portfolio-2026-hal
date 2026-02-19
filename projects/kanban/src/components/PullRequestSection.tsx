@@ -1,14 +1,12 @@
 import React, { useState, useCallback } from 'react'
 
 export function PullRequestSection({
-  ticketId,
   ticketPk,
   repoFullName,
   supabaseUrl,
   supabaseKey,
   onRefresh,
 }: {
-  ticketId: string
   ticketPk: string
   repoFullName: string | null
   supabaseUrl: string

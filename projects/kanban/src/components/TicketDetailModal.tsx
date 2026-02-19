@@ -288,7 +288,6 @@ export function TicketDetailModal({
                 loading={attachmentsLoading}
               />
               <PullRequestSection
-                ticketId={ticketId}
                 ticketPk={ticketId}
                 repoFullName={repoFullName || null}
                 supabaseUrl={supabaseUrl}
