@@ -37,6 +37,10 @@
       "maintainability": 12.43
     },
     {
+      "file": "api/auth/github/callback.ts",
+      "maintainability": 24.45
+    },
+    {
       "file": "projects/kanban/src/components/ArtifactReportViewer.tsx",
       "maintainability": 24.62
     },
@@ -55,10 +59,6 @@
     {
       "file": "api/conversations/working-memory/update.ts",
       "maintainability": 27.95
-    },
-    {
-      "file": "api/auth/github/callback.ts",
-      "maintainability": 28.05
     },
     {
       "file": "api/process-review/create-tickets.ts",
@@ -82,12 +82,6 @@
     }
   ],
   "mostRecentImprovements": [
-    {
-      "file": "api/auth/github/callback.ts",
-      "before": 27.72,
-      "after": 28.05,
-      "delta": 0.33
-    },
     {
       "file": "api/tickets/create-pr.ts",
       "before": 25.54,
@@ -125,7 +119,7 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-19T21:57:59.590Z",
+  "generatedAt": "2026-02-19T22:07:36.205Z",
   "filesAnalyzed": 291,
   "unroundedMaintainability": 40.6,
   "unroundedSimplicity": 40.6
