@@ -17,10 +17,6 @@
       "maintainability": 0
     },
     {
-      "file": "agents/src/agents/projectManager/contextPack.ts",
-      "maintainability": 0
-    },
-    {
       "file": "agents/src/agents/projectManager/runPmAgent.ts",
       "maintainability": 0
     },
@@ -45,6 +41,10 @@
       "maintainability": 15.68
     },
     {
+      "file": "agents/src/agents/projectManager/instructionLoader.ts",
+      "maintainability": 21.52
+    },
+    {
       "file": "projects/kanban/src/components/ArtifactReportViewer.tsx",
       "maintainability": 24.62
     },
@@ -65,6 +65,10 @@
       "maintainability": 29.07
     },
     {
+      "file": "agents/src/agents/projectManager/contextPack.ts",
+      "maintainability": 30.42
+    },
+    {
       "file": "projects/kanban/src/components/TicketDetailModal.tsx",
       "maintainability": 30.65
     },
@@ -75,10 +79,6 @@
     {
       "file": "api/artifacts/get.ts",
       "maintainability": 32.38
-    },
-    {
-      "file": "api/agent-runs/_shared.ts",
-      "maintainability": 32.99
     }
   ],
   "mostRecentImprovements": [
@@ -107,13 +107,19 @@
       "delta": 0
     },
     {
+      "file": "agents/src/agents/projectManager/contextPack.ts",
+      "before": 30.42,
+      "after": 30.42,
+      "delta": 0
+    },
+    {
       "file": "api/instructions/migrate-process-docs.ts",
       "before": 26.39,
       "after": 26.39,
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-19T16:13:39.514Z",
-  "filesAnalyzed": 281,
+  "generatedAt": "2026-02-19T16:18:50.213Z",
+  "filesAnalyzed": 282,
   "unroundedSimplicity": 40.3
 }
