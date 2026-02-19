@@ -26,7 +26,11 @@ export { listDirectoryContents, fetchFileContents } from './files.js'
 export {
   fetchPullRequestFiles,
   fetchPullRequestDiff,
+  getRefSha,
+  createBranch,
+  createDraftPullRequest,
   type PrFile,
+  type CreatePullRequestResponse,
 } from './pullRequests.js'
 
 // Artifacts

@@ -250,6 +250,21 @@ function App() {
   const [detailModalAttachments, setDetailModalAttachments] = useState<TicketAttachment[]>([])
   const [detailModalAttachmentsLoading, setDetailModalAttachmentsLoading] = useState(false)
   const [detailModalFailureCounts, setDetailModalFailureCounts] = useState<{ qa: number; hitl: number } | null>(null)
+  const [detailModalPrData, setDetailModalPrData] = useState<{
+    prUrl: string | null
+    prNumber: number | null
+    branchName: string | null
+    baseCommitSha: string | null
+    headCommitSha: string | null
+    repoFullName: string | null
+  }>({
+    prUrl: null,
+    prNumber: null,
+    branchName: null,
+    baseCommitSha: null,
+    headCommitSha: null,
+    repoFullName: null,
+  })
   
   // Board data: library mode (halCtx) = HAL passes data down; else = we fetch from Supabase (iframe/standalone)
   const sourceTickets = halCtx?.tickets ?? supabaseTickets
@@ -714,8 +729,25 @@ function App() {
       const row = sourceTickets.find((t) => t.pk === ticketId)
       if (row) {
         setDetailModalBody(row.body_md ?? '')
+        // Store PR data for PullRequestSection
+        setDetailModalPrData({
+          prUrl: (row as any).pr_url ?? null,
+          prNumber: (row as any).pr_number ?? null,
+          branchName: (row as any).branch_name ?? null,
+          baseCommitSha: (row as any).base_commit_sha ?? null,
+          headCommitSha: (row as any).head_commit_sha ?? null,
+          repoFullName: row.repo_full_name ?? null,
+        })
       } else {
         setDetailModalBody('')
+        setDetailModalPrData({
+          prUrl: null,
+          prNumber: null,
+          branchName: null,
+          baseCommitSha: null,
+          headCommitSha: null,
+          repoFullName: null,
+        })
       }
       setDetailModalLoading(false)
       setDetailModalError(null)
@@ -852,6 +884,15 @@ function App() {
           }
         }
         setDetailModalBody(normalized)
+        // Store PR data for PullRequestSection
+        setDetailModalPrData({
+          prUrl: row.pr_url ?? null,
+          prNumber: row.pr_number ?? null,
+          branchName: row.branch_name ?? null,
+          baseCommitSha: row.base_commit_sha ?? null,
+          headCommitSha: row.head_commit_sha ?? null,
+          repoFullName: row.repo_full_name ?? null,
+        })
         
         // Only fetch artifacts if ticket ID changed or retry was triggered
         if (shouldFetchArtifacts) {
@@ -918,6 +959,14 @@ function App() {
       setDetailModalAttachments([])
       setDetailModalAttachmentsLoading(false)
       setDetailModalFailureCounts(null)
+      setDetailModalPrData({
+        prUrl: null,
+        prNumber: null,
+        branchName: null,
+        baseCommitSha: null,
+        headCommitSha: null,
+        repoFullName: null,
+      })
     }
     setDetailModalError(null)
     setDetailModalLoading(false)
@@ -931,6 +980,14 @@ function App() {
       setDetailModalArtifactsStatus(null)
       setDetailModalAttachments([])
       setDetailModalAttachmentsLoading(false)
+      setDetailModalPrData({
+        prUrl: null,
+        prNumber: null,
+        branchName: null,
+        baseCommitSha: null,
+        headCommitSha: null,
+        repoFullName: null,
+      })
     }
   }, [detailModal, halCtx, sourceTickets, supabaseBoardActive, supabaseTickets, supabaseProjectUrl, supabaseAnonKey, detailModalRetryTrigger, addLog, fetchTicketArtifacts, fetchTicketAttachments])
   // Note: supabaseTickets and sourceTickets are in dependencies to read ticket data,
@@ -3020,6 +3077,23 @@ function App() {
           attachments={detailModalAttachments}
           attachmentsLoading={detailModalAttachmentsLoading}
           failureCounts={detailModalFailureCounts}
+          prUrl={detailModalPrData.prUrl}
+          prNumber={detailModalPrData.prNumber}
+          branchName={detailModalPrData.branchName}
+          baseCommitSha={detailModalPrData.baseCommitSha}
+          headCommitSha={detailModalPrData.headCommitSha}
+          repoFullName={detailModalPrData.repoFullName}
+          onPrCreated={async () => {
+            // Refresh ticket data after PR creation
+            if (halCtx && halCtx.onTicketCreated) {
+              await halCtx.onTicketCreated()
+            } else if (supabaseBoardActive) {
+              // Refetch tickets from Supabase
+              await refetchSupabaseTickets()
+            }
+            // Trigger detail modal refresh
+            setDetailModalRetryTrigger((n) => n + 1)
+          }}
           onValidationPass={async (ticketPk: string) => {
             // Always use HAL's callbacks - HAL handles all database operations
             if (!halCtx) {

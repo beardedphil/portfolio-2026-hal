@@ -9,6 +9,7 @@ import { AttachmentsSection } from './AttachmentsSection'
 import { ProcessReviewSection } from './ProcessReviewSection'
 import { HumanValidationSection } from './HumanValidationSection'
 import { AutoDismissMessage } from './AutoDismissMessage'
+import { PullRequestSection } from './PullRequestSection'
 
 /** Ticket detail modal (0033): title, metadata, markdown body, close/escape/backdrop, scroll lock, focus trap */
 export function TicketDetailModal({
@@ -34,6 +35,13 @@ export function TicketDetailModal({
   attachments,
   attachmentsLoading,
   failureCounts,
+  prUrl,
+  prNumber,
+  branchName,
+  baseCommitSha,
+  headCommitSha,
+  repoFullName,
+  onPrCreated,
 }: {
   open: boolean
   onClose: () => void
@@ -57,7 +65,15 @@ export function TicketDetailModal({
   attachments: TicketAttachment[]
   attachmentsLoading: boolean
   failureCounts?: { qa: number; hitl: number } | null
+  prUrl?: string | null
+  prNumber?: number | null
+  branchName?: string | null
+  baseCommitSha?: string | null
+  headCommitSha?: string | null
+  repoFullName?: string | null
+  onPrCreated: (() => void | Promise<void>) | undefined
 }) {
+  // onPrCreated is passed to PullRequestSection component below {
   const [validationSteps, setValidationSteps] = useState('')
   const [validationNotes, setValidationNotes] = useState('')
   const [isProcessing, setIsProcessing] = useState(false)
@@ -283,6 +299,19 @@ export function TicketDetailModal({
               <AttachmentsSection
                 attachments={attachments}
                 loading={attachmentsLoading}
+              />
+              <PullRequestSection
+                ticketPk={ticketId}
+                ticketId={ticketId}
+                prUrl={prUrl}
+                prNumber={prNumber}
+                branchName={branchName}
+                baseCommitSha={baseCommitSha}
+                headCommitSha={headCommitSha}
+                repoFullName={repoFullName}
+                supabaseUrl={supabaseUrl}
+                supabaseAnonKey={supabaseKey}
+                onPrCreated={onPrCreated || _onTicketUpdate}
               />
               {showValidationSection && (
                 <>
