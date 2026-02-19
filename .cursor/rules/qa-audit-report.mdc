@@ -30,7 +30,7 @@ When you **QA a ticket** (verify, check a ticket that is allegedly complete), st
 4. Code review — PASS/FAIL with evidence
 5. Build verification — **MANDATORY:** `npm run build:hal`; TypeScript errors = FAIL
 6. Coverage — **MANDATORY:** Whole-repo test coverage with 4-metric table and command used; see "Coverage section" below
-7. Simplicity — **MANDATORY:** Whole-repo simplicity (maintainability) metric; see "Simplicity section" below
+7. Maintainability — **MANDATORY:** Whole-repo maintainability metric; see "Maintainability section" below
 8. UI verification — automated and/or manual steps
 9. AC Confirmation Checklist — enumerate each AC, Met/Not met with evidence; see `ac-confirmation-checklist.mdc`
 10. Verdict — PASS or FAIL
@@ -74,11 +74,11 @@ This runs vitest with coverage over the entire codebase and outputs a text summa
 
 **Note:** Coverage numbers must reflect the current commit under test (not hardcoded). Run the command on the branch/commit being verified.
 
-## Simplicity section
+## Maintainability section
 
-**MANDATORY:** Every QA report **MUST** include a **Simplicity** section with a single whole-repo percentage.
+**MANDATORY:** Every QA report **MUST** include a **Maintainability** section with a single whole-repo percentage and concrete guidance.
 
-**How to generate simplicity:**
+**How to generate maintainability:**
 
 Run the repo’s simplicity report (uses a maintainability library over the whole codebase):
 
@@ -86,14 +86,20 @@ Run the repo’s simplicity report (uses a maintainability library over the whol
 npm run report:simplicity
 ```
 
-The script prints a single line: `Simplicity: XX%`. Include that line in your QA report so the dashboard can display it.
+The script prints a single line: `Simplicity: XX%`. Extract the percentage value and include it in your QA report under the **Maintainability** section.
 
-**Simplicity section format:**
+**Maintainability section format:**
 
 ```markdown
-## Simplicity
+## Maintainability
 
-Simplicity: XX%
+Maintainability: XX%
+
+The maintainability metric measures code quality across the entire repository. Higher scores indicate:
+
+- **Readability:** Code is clear, well-structured, and easy to understand for developers
+- **Testability:** Code is designed to be easily tested with clear separation of concerns
+- **Change safety:** Code can be modified safely without introducing unexpected side effects
 ```
 
 **Note:** Run this on the branch/commit being verified. The number is for the whole repo, not just the ticket’s changes.
