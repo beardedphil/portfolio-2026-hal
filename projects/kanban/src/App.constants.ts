@@ -12,8 +12,19 @@ export const SUPABASE_POLL_INTERVAL_MS = 10_000
 export const SUPABASE_SAFETY_POLL_INTERVAL_MS = 60_000
 /** Delay before refetch after a move so DB write is visible; avoids stale read overwriting last moves (0144) */
 export const REFETCH_AFTER_MOVE_MS = 2000 // Increased from 1500ms to give backend more time to persist
-/** Delay before reverting optimistic update on move failure (0790); gives slow HAL API moves time to succeed */
-export const ROLLBACK_AFTER_FAILURE_MS = 15000 // 15 seconds - longer delay to prevent premature rollback on slow API responses
+/** Delay before reverting optimistic update on move failure (0790); gives slow HAL API moves time to succeed.
+ * Configurable via VITE_ROLLBACK_AFTER_FAILURE_MS environment variable (default: 15000ms / 15 seconds).
+ */
+export const ROLLBACK_AFTER_FAILURE_MS = (() => {
+  const envValue = import.meta.env.VITE_ROLLBACK_AFTER_FAILURE_MS
+  if (envValue) {
+    const parsed = parseInt(envValue, 10)
+    if (!isNaN(parsed) && parsed > 0) {
+      return parsed
+    }
+  }
+  return 15000 // Default: 15 seconds - longer delay to prevent premature rollback on slow API responses
+})()
 /** BroadcastChannel name for cross-tab communication (0703) */
 export const KANBAN_BROADCAST_CHANNEL = 'hal-kanban-sync'
 

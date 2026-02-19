@@ -3,6 +3,7 @@
 interface ImportMetaEnv {
   readonly VITE_SUPABASE_URL?: string
   readonly VITE_SUPABASE_ANON_KEY?: string
+  readonly VITE_ROLLBACK_AFTER_FAILURE_MS?: string
 }
 
 /** File System Access API (minimal for docs/tickets read + write) */
