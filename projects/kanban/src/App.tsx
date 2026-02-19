@@ -3020,6 +3020,11 @@ function App() {
           attachments={detailModalAttachments}
           attachmentsLoading={detailModalAttachmentsLoading}
           failureCounts={detailModalFailureCounts}
+          repoFullName={
+            supabaseBoardActive
+              ? supabaseTickets.find((t) => t.pk === detailModal.ticketId)?.repo_full_name || null
+              : sourceTickets.find((t) => t.pk === detailModal.ticketId)?.repo_full_name || null
+          }
           onValidationPass={async (ticketPk: string) => {
             // Always use HAL's callbacks - HAL handles all database operations
             if (!halCtx) {

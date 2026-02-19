@@ -9,6 +9,7 @@ import { AttachmentsSection } from './AttachmentsSection'
 import { ProcessReviewSection } from './ProcessReviewSection'
 import { HumanValidationSection } from './HumanValidationSection'
 import { AutoDismissMessage } from './AutoDismissMessage'
+import { PullRequestSection } from './PullRequestSection'
 
 /** Ticket detail modal (0033): title, metadata, markdown body, close/escape/backdrop, scroll lock, focus trap */
 export function TicketDetailModal({
@@ -34,6 +35,7 @@ export function TicketDetailModal({
   attachments,
   attachmentsLoading,
   failureCounts,
+  repoFullName,
 }: {
   open: boolean
   onClose: () => void
@@ -57,6 +59,7 @@ export function TicketDetailModal({
   attachments: TicketAttachment[]
   attachmentsLoading: boolean
   failureCounts?: { qa: number; hitl: number } | null
+  repoFullName?: string | null
 }) {
   const [validationSteps, setValidationSteps] = useState('')
   const [validationNotes, setValidationNotes] = useState('')
@@ -283,6 +286,14 @@ export function TicketDetailModal({
               <AttachmentsSection
                 attachments={attachments}
                 loading={attachmentsLoading}
+              />
+              <PullRequestSection
+                ticketId={ticketId}
+                ticketPk={ticketId}
+                repoFullName={repoFullName || null}
+                supabaseUrl={supabaseUrl}
+                supabaseKey={supabaseKey}
+                onRefresh={_onTicketUpdate}
               />
               {showValidationSection && (
                 <>

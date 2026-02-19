@@ -73,3 +73,61 @@ export async function ensureInitialCommit(
     return { error: err instanceof Error ? err.message : String(err) }
   }
 }
+
+/** Get the default branch for a repository. */
+export async function getDefaultBranch(
+  token: string,
+  repoFullName: string
+): Promise<{ branch: string } | { error: string }> {
+  try {
+    const [owner, repo] = repoFullName.split('/')
+    if (!owner || !repo) return { error: 'Invalid repo: expected owner/repo' }
+    const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`
+    const data = await githubFetch<{ default_branch: string }>(token, url, { method: 'GET' })
+    return { branch: data.default_branch }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/** Get the SHA of a branch or commit. */
+export async function getBranchSha(
+  token: string,
+  repoFullName: string,
+  branch: string
+): Promise<{ sha: string } | { error: string }> {
+  try {
+    const [owner, repo] = repoFullName.split('/')
+    if (!owner || !repo) return { error: 'Invalid repo: expected owner/repo' }
+    const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/ref/heads/${encodeURIComponent(branch)}`
+    const data = await githubFetch<{ object: { sha: string } }>(token, url, { method: 'GET' })
+    return { sha: data.object.sha }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/** Create a new branch from a base branch SHA. */
+export async function createBranch(
+  token: string,
+  repoFullName: string,
+  branchName: string,
+  baseSha: string
+): Promise<{ ok: true; sha: string } | { error: string }> {
+  try {
+    const [owner, repo] = repoFullName.split('/')
+    if (!owner || !repo) return { error: 'Invalid repo: expected owner/repo' }
+    const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/refs`
+    const data = await githubFetch<{ ref: string; object: { sha: string } }>(token, url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ref: `refs/heads/${branchName}`,
+        sha: baseSha,
+      }),
+    })
+    return { ok: true, sha: data.object.sha }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) }
+  }
+}

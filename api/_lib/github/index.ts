@@ -15,6 +15,9 @@ export {
   listRepos,
   listBranches,
   ensureInitialCommit,
+  getDefaultBranch,
+  getBranchSha,
+  createBranch,
   type GithubRepo,
   type GithubBranch,
 } from './repos.js'
@@ -26,7 +29,9 @@ export { listDirectoryContents, fetchFileContents } from './files.js'
 export {
   fetchPullRequestFiles,
   fetchPullRequestDiff,
+  createDraftPullRequest,
   type PrFile,
+  type CreatePrResponse,
 } from './pullRequests.js'
 
 // Artifacts
