@@ -1006,39 +1006,6 @@ export async function runPmAgent(
       })
     })()
 
-  const syncTicketsTool =
-    hasSupabase &&
-    (() => {
-      const scriptPath = path.resolve(config.repoRoot, 'scripts', 'sync-tickets.js')
-      const env = {
-        ...process.env,
-        SUPABASE_URL: config.supabaseUrl!.trim(),
-        SUPABASE_ANON_KEY: config.supabaseAnonKey!.trim(),
-      }
-      return tool({
-        description:
-          'Run the sync-tickets script so docs/tickets/*.md match Supabase (DB → docs). Use after update_ticket_body or create_ticket so the repo files reflect the database. Supabase is the source of truth.',
-        parameters: z.object({}),
-        execute: async () => {
-          type SyncResult = { success: true; message?: string } | { success: false; error: string }
-          let out: SyncResult
-          try {
-            const { stdout, stderr } = await execAsync(`node ${JSON.stringify(scriptPath)}`, {
-              cwd: config.repoRoot,
-              env,
-              maxBuffer: 100 * 1024,
-            })
-            const combined = [stdout, stderr].filter(Boolean).join('\n').trim()
-            out = { success: true, ...(combined && { message: combined.slice(0, 500) }) }
-          } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : String(err)
-            out = { success: false, error: msg.slice(0, 500) }
-          }
-          toolCalls.push({ name: 'sync_tickets', input: {}, output: out })
-          return out
-        },
-      })
-    })()
 
   const kanbanMoveTicketToTodoTool =
     hasSupabase &&
@@ -2222,7 +2189,6 @@ export async function runPmAgent(
     ...(attachImageToTicketTool ? { attach_image_to_ticket: attachImageToTicketTool } : {}),
     evaluate_ticket_ready: evaluateTicketReadyTool,
     ...(updateTicketBodyTool ? { update_ticket_body: updateTicketBodyTool } : {}),
-    ...(syncTicketsTool ? { sync_tickets: syncTicketsTool } : {}),
     ...(kanbanMoveTicketToTodoTool ? { kanban_move_ticket_to_todo: kanbanMoveTicketToTodoTool } : {}),
     ...(listTicketsByColumnTool ? { list_tickets_by_column: listTicketsByColumnTool } : {}),
     ...(moveTicketToColumnTool ? { move_ticket_to_column: moveTicketToColumnTool } : {}),
@@ -2378,18 +2344,7 @@ export async function runPmAgent(
                   reply += ` Note: the ticket may still not pass readiness: ${out.missingItems.join('; ')}.`
                 }
               } else {
-                const syncTicketsCall = toolCalls.find(
-                  (c) =>
-                    c.name === 'sync_tickets' &&
-                    typeof c.output === 'object' &&
-                    c.output !== null &&
-                    (c.output as { success?: boolean }).success === true
-                )
-                if (syncTicketsCall) {
-                  reply =
-                    'I ran sync-tickets. docs/tickets/*.md now match Supabase (Supabase is the source of truth).'
-                } else {
-                  const listTicketsCall = toolCalls.find(
+                const listTicketsCall = toolCalls.find(
                     (c) =>
                       c.name === 'list_tickets_by_column' &&
                       typeof c.output === 'object' &&

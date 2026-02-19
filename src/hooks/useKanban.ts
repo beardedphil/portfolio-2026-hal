@@ -392,6 +392,7 @@ export function useKanban(
 
   const handleKanbanReorderColumn = useCallback(
     async (columnId: string, orderedTicketPks: string[]) => {
+      const errors: string[] = []
       try {
         // Call server API instead of direct Supabase write (HAL-0769)
         // Server API uses service role key to bypass RLS
@@ -411,13 +412,22 @@ export function useKanban(
 
           const result = await response.json()
           if (!result.success) {
-            console.error(`Failed to reorder ticket ${ticketPk}:`, result.error)
+            const errorMsg = result.error || 'Unknown error'
+            console.error(`Failed to reorder ticket ${ticketPk}:`, errorMsg)
+            errors.push(`Ticket ${ticketPk}: ${errorMsg}`)
             // Continue with other tickets even if one fails
           }
         }
+        if (errors.length > 0) {
+          setKanbanMoveError(`Failed to reorder some tickets: ${errors.join('; ')}`)
+          setTimeout(() => setKanbanMoveError(null), 10000) // Show error for 10 seconds
+        }
         await fetchKanbanData()
       } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err)
         console.error('Failed to reorder tickets:', err)
+        setKanbanMoveError(`Failed to reorder tickets: ${errorMsg}`)
+        setTimeout(() => setKanbanMoveError(null), 10000) // Show error for 10 seconds
         // Refresh data anyway to show current state
         await fetchKanbanData()
       }
