@@ -77,8 +77,8 @@
       "maintainability": 32.44
     },
     {
-      "file": "api/tickets/create-from-suggestion.ts",
-      "maintainability": 33.81
+      "file": "api/tickets/move.ts",
+      "maintainability": 33.14
     }
   ],
   "mostRecentImprovements": [
@@ -125,7 +125,7 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-19T19:32:53.407Z",
+  "generatedAt": "2026-02-19T19:54:51.717Z",
   "filesAnalyzed": 290,
   "unroundedMaintainability": 40.8,
   "unroundedSimplicity": 40.8
