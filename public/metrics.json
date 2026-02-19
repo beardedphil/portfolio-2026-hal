@@ -1,6 +1,8 @@
 {
   "coverage": 12.4,
+  "maintainability": 41,
+  "updatedAt": "2026-02-19T18:38:52.540Z",
   "simplicity": 41,
-  "updatedAt": "2026-02-19T18:30:43.123Z",
-  "unroundedSimplicity": 40.9
+  "unroundedSimplicity": 40.9,
+  "unroundedMaintainability": 40.9
 }
