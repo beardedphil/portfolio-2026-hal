@@ -73,7 +73,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     // Resolve column name to column ID if needed
     if (!columnId && columnName) {
-      const resolved = await resolveColumnId(supabase, columnId, columnName)
+      const resolved = await resolveColumnId(supabase, undefined, columnName)
       if (!resolved) {
         const { data: columns } = await supabase.from('kanban_columns').select('title')
         json(res, 200, {
@@ -191,15 +191,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     console.error('[api/tickets/move] Error:', err)
     const errorMessage = err instanceof Error ? err.message : String(err)
     const errorStack = err instanceof Error ? err.stack : undefined
-    json(res, 500, { 
-      success: false, 
-      error: errorMessage,
-      stack: errorStack,
-      details: err instanceof Error ? {
-        name: err.name,
-        message: err.message,
-      } : undefined
-    })
     if (!res.headersSent) {
       json(res, 500, { 
         success: false, 
