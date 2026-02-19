@@ -1,6 +1,10 @@
 {
   "topOffenders": [
     {
+      "file": "src/App.tsx",
+      "maintainability": 0
+    },
+    {
       "file": "src/hooks/useAgentRuns.ts",
       "maintainability": 0
     },
@@ -25,16 +29,12 @@
       "maintainability": 1.99
     },
     {
-      "file": "src/App.tsx",
-      "maintainability": 8.82
-    },
-    {
       "file": "api/implementation-agent/run.ts",
       "maintainability": 12.23
     },
     {
       "file": "api/agent-runs/launch.ts",
-      "maintainability": 15.68
+      "maintainability": 12.43
     },
     {
       "file": "projects/kanban/src/components/ArtifactReportViewer.tsx",
@@ -43,6 +43,10 @@
     {
       "file": "api/qa-agent/run.ts",
       "maintainability": 24.9
+    },
+    {
+      "file": "api/tickets/create-pr.ts",
+      "maintainability": 25.54
     },
     {
       "file": "api/instructions/migrate-process-docs.ts",
@@ -75,10 +79,6 @@
     {
       "file": "api/tickets/create-from-suggestion.ts",
       "maintainability": 33.81
-    },
-    {
-      "file": "api/pm-agent/launch.ts",
-      "maintainability": 34.04
     }
   ],
   "mostRecentImprovements": [
@@ -119,7 +119,7 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-19T17:40:12.688Z",
-  "filesAnalyzed": 288,
-  "unroundedSimplicity": 41
+  "generatedAt": "2026-02-19T17:51:22.396Z",
+  "filesAnalyzed": 289,
+  "unroundedSimplicity": 40.9
 }
