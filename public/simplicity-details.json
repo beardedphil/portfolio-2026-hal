@@ -95,6 +95,12 @@
       "delta": 0
     },
     {
+      "file": "api/auth/github/callback.ts",
+      "before": 24.45,
+      "after": 24.45,
+      "delta": 0
+    },
+    {
       "file": "api/qa-agent/run.ts",
       "before": 24.9,
       "after": 24.9,
@@ -119,7 +125,7 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-19T22:07:36.205Z",
+  "generatedAt": "2026-02-19T22:10:54.842Z",
   "filesAnalyzed": 291,
   "unroundedMaintainability": 40.6,
   "unroundedSimplicity": 40.6
