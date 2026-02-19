@@ -1,0 +1,29 @@
+name: Trigger Vercel Deploy Hook
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: {}
+
+concurrency:
+  group: vercel-deploy-main
+  cancel-in-progress: true
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Vercel deploy hook
+        env:
+          VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$VERCEL_DEPLOY_HOOK_URL" ]; then
+            echo "Missing secrets.VERCEL_DEPLOY_HOOK_URL"
+            exit 1
+          fi
+          echo "Triggering Vercel deploy hook..."
+          curl -fsS -X POST "$VERCEL_DEPLOY_HOOK_URL"
+          echo ""
+          echo "Deploy hook triggered."
+
