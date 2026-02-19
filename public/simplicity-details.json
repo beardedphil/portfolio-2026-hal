@@ -89,9 +89,9 @@
       "delta": 0
     },
     {
-      "file": "api/artifacts/get.ts",
-      "before": 32.38,
-      "after": 32.38,
+      "file": "api/instructions/get-index.ts",
+      "before": 7.63,
+      "after": 7.63,
       "delta": 0
     },
     {
@@ -107,12 +107,6 @@
       "delta": 0
     },
     {
-      "file": "api/agent-runs/_shared.ts",
-      "before": 32.44,
-      "after": 32.44,
-      "delta": 0
-    },
-    {
       "file": "api/instructions/migrate-process-docs.ts",
       "before": 26.39,
       "after": 26.39,
@@ -125,7 +119,7 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-19T23:05:57.384Z",
+  "generatedAt": "2026-02-19T23:20:51.211Z",
   "filesAnalyzed": 291,
   "unroundedMaintainability": 40.5,
   "unroundedSimplicity": 40.5
