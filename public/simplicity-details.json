@@ -62,7 +62,7 @@
     },
     {
       "file": "projects/kanban/src/components/TicketDetailModal.tsx",
-      "maintainability": 29.15
+      "maintainability": 29.74
     },
     {
       "file": "src/hooks/useProcessReview.ts",
@@ -113,6 +113,12 @@
       "delta": 0
     },
     {
+      "file": "projects/kanban/src/components/TicketDetailModal.tsx",
+      "before": 29.74,
+      "after": 29.74,
+      "delta": 0
+    },
+    {
       "file": "api/instructions/migrate-process-docs.ts",
       "before": 26.39,
       "after": 26.39,
@@ -125,8 +131,7 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-19T18:46:38.153Z",
-  "filesAnalyzed": 290,
-  "unroundedMaintainability": 40.8,
-  "unroundedSimplicity": 40.8
+  "generatedAt": "2026-02-19T18:36:00.931Z",
+  "filesAnalyzed": 289,
+  "unroundedSimplicity": 40.9
 }

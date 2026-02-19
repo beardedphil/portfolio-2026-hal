@@ -2386,34 +2386,37 @@ function App() {
               }
             })
           )
-          // Fire off all API calls in parallel to avoid blocking UI (fixes 5-10s delay on same-column reorder)
+          // Fire off all API calls in parallel WITHOUT awaiting - let them complete in background
+          // This allows React to render the optimistic update immediately (fixes 5-10s delay)
           const updatePromises = newOrder.map((pk, i) =>
             updateSupabaseTicketKanban(pk, {
               kanban_position: i,
               ...(pk === ticketPk ? { kanban_moved_at: movedAt } : {}),
             })
           )
-          const results = await Promise.allSettled(updatePromises)
-          let allSucceeded = true
-          let firstError: string | undefined
-          for (let i = 0; i < results.length; i++) {
-            const result = results[i]
-            if (result.status === 'rejected') {
-              allSucceeded = false
-              if (!firstError) firstError = result.reason?.message || String(result.reason)
-              addLog(`Supabase reorder failed: ${result.reason}`)
-            } else if (result.value && !result.value.ok) {
-              allSucceeded = false
-              if (!firstError) firstError = result.value.error
-              addLog(`Supabase reorder failed: ${result.value.error}`)
+          // Store expected optimistic position to verify backend confirmation (0144)
+          const expectedColumnId = sourceColumn.id
+          const expectedPosition = overIndex
+          
+          // Handle API results asynchronously without blocking the handler return
+          Promise.allSettled(updatePromises).then((results) => {
+            let allSucceeded = true
+            let firstError: string | undefined
+            for (let i = 0; i < results.length; i++) {
+              const result = results[i]
+              if (result.status === 'rejected') {
+                allSucceeded = false
+                if (!firstError) firstError = result.reason?.message || String(result.reason)
+                addLog(`Supabase reorder failed: ${result.reason}`)
+              } else if (result.value && !result.value.ok) {
+                allSucceeded = false
+                if (!firstError) firstError = result.value.error
+                addLog(`Supabase reorder failed: ${result.value.error}`)
+              }
             }
-          }
-          if (allSucceeded) {
-            setLastMovePersisted({ success: true, timestamp: new Date(), ticketId: ticketPk })
-            addLog(`Supabase ticket reordered in ${sourceColumn.title}`)
-            // Store expected optimistic position to verify backend confirmation (0144)
-            const expectedColumnId = sourceColumn.id
-            const expectedPosition = overIndex
+            if (allSucceeded) {
+              setLastMovePersisted({ success: true, timestamp: new Date(), ticketId: ticketPk })
+              addLog(`Supabase ticket reordered in ${sourceColumn.title}`)
             // Remove from pending after delay - refetch preserves optimistic position until backend matches (0144)
             // CRITICAL: Only remove from pendingMoves when backend position actually matches optimistic position
             // This prevents snap-back when polling refetch happens before backend confirms
@@ -2461,41 +2464,44 @@ function App() {
                   return next
                 })
               })
-            }, REFETCH_AFTER_MOVE_MS)
-          } else {
-            // Same-column reorder failed - wait for rollback delay before reverting (0790)
-            // Show error message immediately
-            setLastMovePersisted({ success: false, timestamp: new Date(), ticketId: ticketPk, error: firstError })
-            addLog(`Supabase reorder failed: ${firstError}`)
-            
-            // Wait for rollback delay before reverting optimistic update (0790)
-            const moveStartTimeFromMap = pendingMoveTimestamps.get(ticketPk) || moveStartTime
-            const timeSinceMoveStart = Date.now() - moveStartTimeFromMap
-            const remainingDelay = Math.max(0, ROLLBACK_AFTER_FAILURE_MS - timeSinceMoveStart)
-            
-            setTimeout(() => {
-              // Double-check that move still failed
-              setPendingMoves((currentPending) => {
-                if (!currentPending.has(ticketPk)) {
-                  // Move was already confirmed successful, don't revert
-                  return currentPending
-                }
-                
-                // Move still pending after delay - revert optimistic update
-                const next = new Set(currentPending)
-                next.delete(ticketPk)
-                refetchSupabaseTickets(false) // Full refetch to restore correct state
-                return next
-              })
+              }, REFETCH_AFTER_MOVE_MS)
+            } else {
+              // Same-column reorder failed - wait for rollback delay before reverting (0790)
+              // Show error message immediately
+              setLastMovePersisted({ success: false, timestamp: new Date(), ticketId: ticketPk, error: firstError })
+              addLog(`Supabase reorder failed: ${firstError}`)
               
-              // Clear move timestamp after rollback (0790)
-              setPendingMoveTimestamps((prev) => {
-                const next = new Map(prev)
-                next.delete(ticketPk)
-                return next
-              })
-            }, remainingDelay)
-          }
+              // Wait for rollback delay before reverting optimistic update (0790)
+              const moveStartTimeFromMap = pendingMoveTimestamps.get(ticketPk) || moveStartTime
+              const timeSinceMoveStart = Date.now() - moveStartTimeFromMap
+              const remainingDelay = Math.max(0, ROLLBACK_AFTER_FAILURE_MS - timeSinceMoveStart)
+              
+              setTimeout(() => {
+                // Double-check that move still failed
+                setPendingMoves((currentPending) => {
+                  if (!currentPending.has(ticketPk)) {
+                    // Move was already confirmed successful, don't revert
+                    return currentPending
+                  }
+                  
+                  // Move still pending after delay - revert optimistic update
+                  const next = new Set(currentPending)
+                  next.delete(ticketPk)
+                  refetchSupabaseTickets(false) // Full refetch to restore correct state
+                  return next
+                })
+                
+                // Clear move timestamp after rollback (0790)
+                setPendingMoveTimestamps((prev) => {
+                  const next = new Map(prev)
+                  next.delete(ticketPk)
+                  return next
+                })
+              }, remainingDelay)
+            }
+          })
+          // Handler returns immediately - React can render optimistic update while API calls complete in background
+          return
         } else {
           // Validation: prevent QA → Human in the Loop unless merge confirmed (0113)
           if (sourceColumn.id === 'col-qa' && overColumn.id === 'col-human-in-the-loop') {
