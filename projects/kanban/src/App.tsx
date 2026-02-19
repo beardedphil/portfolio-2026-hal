@@ -289,10 +289,12 @@ function App() {
     for (const id of Object.keys(byColumn)) {
       byColumn[id].sort((a, b) => a.position - b.position)
     }
+    // CRITICAL: Always create new array references to ensure @dnd-kit sees items as changed
     const columns: Column[] = sourceColumnsRows.map((c) => ({
       id: c.id,
       title: c.title,
-      cardIds: byColumn[c.id]?.map((x) => x.id) ?? [],
+      // Use Array.from() to ensure new array reference every time
+      cardIds: Array.from(byColumn[c.id]?.map((x) => x.id) ?? []),
     }))
     return { columns, unknownColumnTicketIds: unknownIds }
   }, [supabaseBoardActive, sourceColumnsRows, sourceTickets])
@@ -2417,13 +2419,11 @@ function App() {
           })
           setSupabaseTickets(updatedTickets)
           
-          // Use requestAnimationFrame to ensure render happens after @dnd-kit's initial check
-          // but we still update state synchronously so it's ready
-          requestAnimationFrame(() => {
-            flushSync(() => {
-              // Increment version to force SortableContext remount with new items
-              setSortableContextVersion((v) => v + 1)
-            })
+          // CRITICAL: Force immediate synchronous render with flushSync
+          // This must happen synchronously so @dnd-kit sees new items before it checks
+          flushSync(() => {
+            // Increment version to force SortableContext remount with new items
+            setSortableContextVersion((v) => v + 1)
           })
           // Fire off all API calls in parallel WITHOUT awaiting - let them complete in background
           // This allows React to render the optimistic update immediately (fixes 5-10s delay)
