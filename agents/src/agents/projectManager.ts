@@ -750,9 +750,7 @@ export async function runPmAgent(
       'Create a Requirement Expansion Document (RED) for a ticket via the HAL API. RED documents are required before a ticket can be moved to To Do. The redJson should be a structured JSON object containing the expanded requirements.',
     parameters: z.object({
       ticket_id: z.string().describe('Ticket id (e.g. "HAL-0012", "0012", or "12").'),
-      red_json: z
-        .record(z.string(), z.string())
-        .describe('RED document content as a JSON object. Should contain expanded requirements, use cases, edge cases, and other detailed information.'),
+      red_json: z.object({}).passthrough().describe('RED document content as a JSON object. Should contain expanded requirements, use cases, edge cases, and other detailed information.'),
       validation_status: z
         .enum(['valid', 'invalid', 'pending'])
         .optional()
@@ -761,7 +759,7 @@ export async function runPmAgent(
     }),
     execute: async (input: {
       ticket_id: string
-      red_json: Record<string, string>
+      red_json: Record<string, any>
       validation_status?: 'valid' | 'invalid' | 'pending'
       created_by?: string
     }) => {
