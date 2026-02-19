@@ -63,11 +63,12 @@ export function getQueryParam(req: IncomingMessage, name: string): string | null
 export function getServerSupabase() {
   const url = process.env.SUPABASE_URL?.trim() || process.env.VITE_SUPABASE_URL?.trim()
   const key =
+    process.env.SUPABASE_SECRET_KEY?.trim() ||
     process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
     process.env.SUPABASE_ANON_KEY?.trim() ||
     process.env.VITE_SUPABASE_ANON_KEY?.trim()
   if (!url || !key) {
-    throw new Error('Supabase server env is missing (SUPABASE_URL and SUPABASE_ANON_KEY or SUPABASE_SERVICE_ROLE_KEY).')
+    throw new Error('Supabase server env is missing (SUPABASE_URL and SUPABASE_SECRET_KEY/SUPABASE_SERVICE_ROLE_KEY).')
   }
   return createClient(url, key)
 }

@@ -6,7 +6,6 @@ import fs from 'fs/promises'
 import path from 'path'
 import { exec } from 'child_process'
 import { promisify } from 'util'
-import { createClient } from '@supabase/supabase-js'
 
 export type ConversationTurn = { role: 'user' | 'assistant'; content: string }
 
@@ -23,9 +22,6 @@ export interface PmAgentConfig {
   workingMemoryText?: string
   /** OpenAI Responses API: continue from this response for continuity. */
   previousResponseId?: string
-  /** When set with supabaseAnonKey, enables create_ticket tool (store ticket to Supabase, then sync writes to repo). */
-  supabaseUrl?: string
-  supabaseAnonKey?: string
   /** Project identifier (e.g. repo full_name when connected via GitHub). */
   projectId?: string
   /** Repo full_name (owner/repo) when connected via GitHub. Enables read_file/search_files via GitHub API. */
@@ -77,12 +73,6 @@ export const PM_LOCAL_RULES = [
 ] as const
 
 export function formatPmInputsSummary(config: PmAgentConfig): string {
-  const hasSupabase =
-    typeof config.supabaseUrl === 'string' &&
-    config.supabaseUrl.trim() !== '' &&
-    typeof config.supabaseAnonKey === 'string' &&
-    config.supabaseAnonKey.trim() !== ''
-
   const hasGitHubRepo =
     typeof config.repoFullName === 'string' && config.repoFullName.trim() !== ''
 
@@ -106,14 +96,18 @@ export function formatPmInputsSummary(config: PmAgentConfig): string {
     { name: 'read_file', available: true },
     { name: 'search_files', available: true },
     { name: 'evaluate_ticket_ready', available: true },
-    { name: 'create_ticket', available: hasSupabase },
-    { name: 'fetch_ticket_content', available: hasSupabase },
-    { name: 'update_ticket_body', available: hasSupabase },
-    { name: 'list_tickets_by_column', available: hasSupabase },
-    { name: 'move_ticket_to_column', available: hasSupabase },
-    { name: 'list_available_repos', available: hasSupabase },
-    { name: 'kanban_move_ticket_to_other_repo_todo', available: hasSupabase },
-    { name: 'attach_image_to_ticket', available: hasSupabase && imageCount > 0 },
+    // Ticket tools are always available; they call HAL API endpoints.
+    { name: 'create_ticket', available: true },
+    { name: 'fetch_ticket_content', available: true },
+    { name: 'update_ticket_body', available: true },
+    { name: 'kanban_move_ticket_to_todo', available: true },
+    { name: 'list_tickets_by_column', available: true },
+    { name: 'move_ticket_to_column', available: true },
+    { name: 'list_available_repos', available: true },
+    // Tools currently present but intentionally disabled (require missing HAL endpoints).
+    { name: 'sync_tickets', available: false },
+    { name: 'kanban_move_ticket_to_other_repo_todo', available: false },
+    { name: 'attach_image_to_ticket', available: false },
   ]
 
   const enabledTools = availableTools.filter((t) => t.available).map((t) => `- ${t.name}`)
@@ -134,7 +128,7 @@ export function formatPmInputsSummary(config: PmAgentConfig): string {
     `- **repoRoot**: ${String(config.repoRoot ?? '').trim() || '(not provided)'}`,
     `- **openaiModel**: ${openaiModel || '(not provided)'}`,
     `- **previousResponseId**: ${String(config.previousResponseId ?? '').trim() ? 'present' : 'absent'}`,
-    `- **supabase**: ${hasSupabase ? 'available (ticket tools enabled)' : 'not provided (ticket tools disabled)'}`,
+    `- **ticket operations**: HAL API only (no direct DB access from agents)`,
     `- **conversation context**: ${conversationSource}`,
     `- **working memory**: ${hasWorkingMemoryText ? 'present' : 'absent'}`,
     `- **images**: ${imageCount} (${imageCount > 0 ? (isVisionModel ? 'included' : 'ignored by model') : 'none'})`,
@@ -338,37 +332,7 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
       }
     }
 
-    const mapSupabaseInstruction = (raw: Record<string, unknown>): InstructionRecord => {
-      const topicIdRaw = typeof raw.topic_id === 'string' ? raw.topic_id.trim() : ''
-      const filenameRaw = typeof raw.filename === 'string' ? raw.filename.trim() : ''
-      const titleRaw = typeof raw.title === 'string' ? raw.title.trim() : ''
-      const descriptionRaw = typeof raw.description === 'string' ? raw.description.trim() : ''
-      const contentMdRaw =
-        typeof raw.content_md === 'string'
-          ? raw.content_md
-          : typeof raw.content_body === 'string'
-            ? raw.content_body
-            : ''
-      const topicMeta = raw.topic_metadata as TopicMeta | undefined
-      const agentTypesRaw = Array.isArray(raw.agent_types)
-        ? raw.agent_types.filter((v): v is string => typeof v === 'string')
-        : []
-
-      const topicId = topicIdRaw || filenameRaw.replace(/\.mdc$/i, '')
-      const filename = filenameRaw || `${topicId || 'unknown'}.mdc`
-      return {
-        topicId,
-        filename,
-        title: titleRaw || filename.replace(/\.mdc$/i, '').replace(/-/g, ' '),
-        description: descriptionRaw || topicMeta?.description || 'No description',
-        contentMd: contentMdRaw,
-        alwaysApply: raw.always_apply === true,
-        agentTypes: agentTypesRaw,
-        isBasic: raw.is_basic === true,
-        isSituational: raw.is_situational === true,
-        topicMetadata: topicMeta,
-      }
-    }
+    // mapSupabaseInstruction removed: agents must be API-only (no Supabase instruction fallback).
 
     const appliesToAllAgents = (inst: InstructionRecord): boolean =>
       inst.alwaysApply || inst.agentTypes.includes('all')
@@ -557,46 +521,7 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
       }
     }
 
-    // Direct Supabase fallback if HAL bootstrap loading failed.
-    if (!bootstrapLoaded && config.supabaseUrl && config.supabaseAnonKey) {
-      const supabase = createClient(config.supabaseUrl.trim(), config.supabaseAnonKey.trim())
-      const [basicQuery, situationalQuery] = await Promise.all([
-        supabase
-          .from('agent_instructions')
-          .select('*')
-          .eq('repo_full_name', repoFullName)
-          .eq('is_basic', true)
-          .order('filename'),
-        supabase
-          .from('agent_instructions')
-          .select('*')
-          .eq('repo_full_name', repoFullName)
-          .eq('is_situational', true)
-          .order('filename'),
-      ])
-
-      const basicInstructions: InstructionRecord[] =
-        !basicQuery.error && Array.isArray(basicQuery.data)
-          ? basicQuery.data.map((row) => mapSupabaseInstruction(row as Record<string, unknown>))
-          : []
-      const situationalInstructions: InstructionRecord[] =
-        !situationalQuery.error && Array.isArray(situationalQuery.data)
-          ? situationalQuery.data.map((row) =>
-              mapSupabaseInstruction(row as Record<string, unknown>)
-            )
-          : []
-
-      bootstrapLoaded = appendInstructionBootstrap(
-        'Direct Supabase fallback',
-        basicInstructions,
-        situationalInstructions,
-        USE_MINIMAL_BOOTSTRAP
-      )
-      const templateInst = basicInstructions.find((i) => i.topicId === 'ticket-template')
-      const checklistInst = basicInstructions.find((i) => i.topicId === 'ready-to-start-checklist')
-      if (templateInst?.contentMd) ticketTemplateContent = templateInst.contentMd
-      if (checklistInst?.contentMd) checklistContent = checklistInst.contentMd
-    }
+    // No direct Supabase fallback: agents must be API-only.
 
     // Last resort: local entry point only (no topic content from filesystem).
     if (!bootstrapLoaded) {

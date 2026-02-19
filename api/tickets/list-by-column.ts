@@ -73,6 +73,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       undefined
     const supabaseKey =
       (typeof body.supabaseAnonKey === 'string' ? body.supabaseAnonKey.trim() : undefined) ||
+      process.env.SUPABASE_SECRET_KEY?.trim() ||
       process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
       process.env.SUPABASE_SECRET_KEY?.trim() ||
       process.env.SUPABASE_ANON_KEY?.trim() ||
@@ -83,7 +84,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       json(res, 400, {
         success: false,
         error:
-          'Supabase credentials required (provide in request body or set SUPABASE_URL and SUPABASE_ANON_KEY/SUPABASE_SERVICE_ROLE_KEY in server environment).',
+          'Supabase credentials required (provide in request body or set SUPABASE_URL and SUPABASE_SECRET_KEY/SUPABASE_SERVICE_ROLE_KEY in server environment).',
       })
       return
     }

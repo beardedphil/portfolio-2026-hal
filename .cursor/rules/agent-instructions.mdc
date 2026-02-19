@@ -7,6 +7,14 @@ alwaysApply: true
 
 Instructions are loaded from `.cursor/rules` and `docs/`. See `docs/process/hal-tool-call-contract.mdc` for HAL API endpoints.
 
+## API-only Data Access (ALL Agents)
+
+**MANDATORY:** Agents must **never** call the database directly (no direct Supabase client usage, no `@supabase/supabase-js`, no `SUPABASE_*` env vars in agent runtime).
+
+- **All ticket operations** (create/update/move/list/get) must go through HAL endpoints under `/api/tickets/*`.
+- **All artifact operations** must go through HAL endpoints under `/api/artifacts/*`.
+- HAL server endpoints use **server-side privileged Supabase credentials** (e.g. `SUPABASE_SECRET_KEY` / service role) to bypass RLS safely.
+
 ## Pre-Commit Build Verification
 
 **MANDATORY:** Before committing ANY code changes, ALL agents **MUST** verify the build succeeds:

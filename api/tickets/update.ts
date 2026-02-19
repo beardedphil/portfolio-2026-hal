@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { createClient } from '@supabase/supabase-js'
 import { stripQABlocksFromTicketBody } from '../_lib/strip-qa-from-ticket-body.js'
+import { parseSupabaseCredentials } from './_shared.js'
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []
@@ -48,17 +49,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const ticketId = typeof body.ticketId === 'string' ? body.ticketId.trim() || undefined : undefined
     const ticketPk = typeof body.ticketPk === 'string' ? body.ticketPk.trim() || undefined : undefined
     const body_md = typeof body.body_md === 'string' ? body.body_md : undefined
-    // Use credentials from request body if provided, otherwise fall back to server environment variables
-    const supabaseUrl =
-      (typeof body.supabaseUrl === 'string' ? body.supabaseUrl.trim() : undefined) ||
-      process.env.SUPABASE_URL?.trim() ||
-      process.env.VITE_SUPABASE_URL?.trim() ||
-      undefined
-    const supabaseAnonKey =
-      (typeof body.supabaseAnonKey === 'string' ? body.supabaseAnonKey.trim() : undefined) ||
-      process.env.SUPABASE_ANON_KEY?.trim() ||
-      process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
-      undefined
+    // Use credentials from request body if provided, otherwise fall back to server environment variables.
+    // Prefer privileged server keys (SUPABASE_SECRET_KEY / SUPABASE_SERVICE_ROLE_KEY) to bypass RLS.
+    const { supabaseUrl, supabaseAnonKey } = parseSupabaseCredentials(body)
 
     if ((!ticketId && !ticketPk) || !body_md) {
       json(res, 400, {

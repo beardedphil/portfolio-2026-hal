@@ -259,6 +259,13 @@ describe('parseSupabaseCredentials', () => {
 
   beforeEach(() => {
     process.env = { ...originalEnv }
+    // Ensure tests are deterministic even if developer env sets Supabase variables.
+    delete (process.env as any).SUPABASE_URL
+    delete (process.env as any).SUPABASE_ANON_KEY
+    delete (process.env as any).SUPABASE_SECRET_KEY
+    delete (process.env as any).SUPABASE_SERVICE_ROLE_KEY
+    delete (process.env as any).VITE_SUPABASE_URL
+    delete (process.env as any).VITE_SUPABASE_ANON_KEY
   })
 
   afterEach(() => {

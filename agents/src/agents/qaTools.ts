@@ -10,9 +10,6 @@ import { z } from 'zod'
 export interface QaToolsConfig {
   /** HAL API base URL (e.g. http://localhost:5173 or https://your-domain.com) */
   halApiUrl?: string
-  /** Optional Supabase credentials (if provided, tools can use direct Supabase access as fallback) */
-  supabaseUrl?: string
-  supabaseAnonKey?: string
 }
 
 /**
@@ -38,14 +35,11 @@ export function createQaTools(config: QaToolsConfig): Record<string, any> {
     }),
     execute: async (input) => {
       try {
-        const requestBody: any = {
+        const requestBody = {
           ticketId: input.ticket_id,
           title: input.title,
           body_md: input.body_md,
         }
-        // Include credentials in body if available (for backward compatibility)
-        if (config.supabaseUrl) requestBody.supabaseUrl = config.supabaseUrl
-        if (config.supabaseAnonKey) requestBody.supabaseAnonKey = config.supabaseAnonKey
 
         const response = await fetch(`${apiUrl}/api/artifacts/insert-qa`, {
           method: 'POST',
@@ -87,15 +81,12 @@ export function createQaTools(config: QaToolsConfig): Record<string, any> {
     }),
     execute: async (input) => {
       try {
-        const requestBody: any = {
+        const requestBody = {
           ticketId: input.ticket_id,
           artifactType: input.artifact_type,
           title: input.title,
           body_md: input.body_md,
         }
-        // Include credentials in body if available (for backward compatibility)
-        if (config.supabaseUrl) requestBody.supabaseUrl = config.supabaseUrl
-        if (config.supabaseAnonKey) requestBody.supabaseAnonKey = config.supabaseAnonKey
 
         const response = await fetch(`${apiUrl}/api/artifacts/insert-implementation`, {
           method: 'POST',
@@ -137,13 +128,10 @@ export function createQaTools(config: QaToolsConfig): Record<string, any> {
     }),
     execute: async (input) => {
       try {
-        const requestBody: any = {
+        const requestBody = {
           ticketId: input.ticket_id,
           columnId: input.column_id,
         }
-        // Include credentials in body if available (for backward compatibility)
-        if (config.supabaseUrl) requestBody.supabaseUrl = config.supabaseUrl
-        if (config.supabaseAnonKey) requestBody.supabaseAnonKey = config.supabaseAnonKey
 
         const response = await fetch(`${apiUrl}/api/tickets/move`, {
           method: 'POST',
@@ -182,13 +170,10 @@ export function createQaTools(config: QaToolsConfig): Record<string, any> {
     }),
     execute: async (input) => {
       try {
-        const requestBody: any = {
+        const requestBody = {
           ticketId: input.ticket_id,
           body_md: input.body_md,
         }
-        // Include credentials in body if available (for backward compatibility)
-        if (config.supabaseUrl) requestBody.supabaseUrl = config.supabaseUrl
-        if (config.supabaseAnonKey) requestBody.supabaseAnonKey = config.supabaseAnonKey
 
         const response = await fetch(`${apiUrl}/api/tickets/update`, {
           method: 'POST',
@@ -222,12 +207,9 @@ export function createQaTools(config: QaToolsConfig): Record<string, any> {
     }),
     execute: async (input) => {
       try {
-        const requestBody: any = {
+        const requestBody = {
           ticketId: input.ticket_id,
         }
-        // Include credentials in body if available (for backward compatibility)
-        if (config.supabaseUrl) requestBody.supabaseUrl = config.supabaseUrl
-        if (config.supabaseAnonKey) requestBody.supabaseAnonKey = config.supabaseAnonKey
 
         const response = await fetch(`${apiUrl}/api/tickets/get`, {
           method: 'POST',

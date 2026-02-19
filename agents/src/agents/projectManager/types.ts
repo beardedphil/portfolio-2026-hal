@@ -17,9 +17,6 @@ export interface PmAgentConfig {
   workingMemoryText?: string
   /** OpenAI Responses API: continue from this response for continuity. */
   previousResponseId?: string
-  /** When set with supabaseAnonKey, enables create_ticket tool (store ticket to Supabase, then sync writes to repo). */
-  supabaseUrl?: string
-  supabaseAnonKey?: string
   /** Project identifier (e.g. repo full_name when connected via GitHub). */
   projectId?: string
   /** Repo full_name (owner/repo) when connected via GitHub. Enables read_file/search_files via GitHub API. */

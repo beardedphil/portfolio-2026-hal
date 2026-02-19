@@ -92,8 +92,12 @@ export function parseSupabaseCredentials(body: {
     process.env.SUPABASE_URL?.trim() ||
     process.env.VITE_SUPABASE_URL?.trim() ||
     undefined
+  // Prefer privileged server keys when present so endpoints can bypass RLS.
+  // Body-provided keys are still supported for local/dev callers.
   const supabaseAnonKey =
     (typeof body.supabaseAnonKey === 'string' ? body.supabaseAnonKey.trim() : undefined) ||
+    process.env.SUPABASE_SECRET_KEY?.trim() ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
     process.env.SUPABASE_ANON_KEY?.trim() ||
     process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
     undefined
