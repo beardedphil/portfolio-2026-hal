@@ -194,9 +194,28 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
+    // Fetch validation results if available
+    let validationResult: any = null
+    if (redDocument) {
+      const { data: validation, error: validationError } = await supabase
+        .from('hal_red_validation_results')
+        .select('pass, failures, validated_at')
+        .eq('red_id', redDocument.red_id)
+        .maybeSingle()
+
+      if (!validationError && validation) {
+        validationResult = {
+          pass: validation.pass,
+          failures: validation.failures,
+          validatedAt: validation.validated_at,
+        }
+      }
+    }
+
     json(res, 200, {
       success: true,
       red_document: redDocument,
+      validation_result: validationResult,
       ticket_pk: resolvedTicketPk,
       repo_full_name: resolvedRepoFullName,
     })
