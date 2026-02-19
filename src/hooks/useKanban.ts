@@ -22,6 +22,7 @@ export function useKanban(
   const [kanbanRealtimeStatus, setKanbanRealtimeStatus] = useState<'connected' | 'disconnected' | 'polling'>('disconnected')
   const [kanbanLastSync, setKanbanLastSync] = useState<Date | null>(null)
   const [kanbanMoveError, setKanbanMoveError] = useState<string | null>(null)
+  const [noPrModalTicket, setNoPrModalTicket] = useState<{ pk: string; displayId?: string; ticketId?: string } | null>(null)
   const lastRealtimeUpdateRef = useRef<number>(0)
   const realtimeSubscriptionsRef = useRef<{ tickets: boolean; agentRuns: boolean }>({ tickets: false, agentRuns: false })
 
@@ -342,8 +343,19 @@ export function useKanban(
         const result = await response.json()
 
         if (!result.success) {
-          // Check if this is an RLS error (direct write blocked)
+          // Check if this is a PR blocking error (HAL-0772)
           const errorMsg = result.error || 'Unknown error'
+          if (errorMsg === 'No PR associated' || result.errorCode === 'NO_PR_ASSOCIATED') {
+            // Show PR blocking modal instead of generic error
+            setNoPrModalTicket({
+              pk: ticketPk,
+              displayId: ticket.display_id,
+              ticketId: ticket.id,
+            })
+            setKanbanMoveError(null) // Don't show generic error for PR blocking
+            return // Exit early, don't throw
+          }
+          // Check if this is an RLS error (direct write blocked)
           if (errorMsg.includes('row-level security') || errorMsg.includes('policy') || errorMsg.includes('permission denied')) {
             throw new Error('Direct writes to tickets are blocked. Please use the standard move action in the UI.')
           }
@@ -512,6 +524,8 @@ export function useKanban(
     kanbanLastSync,
     kanbanMoveError,
     setKanbanMoveError,
+    noPrModalTicket,
+    setNoPrModalTicket,
     fetchKanbanData,
     handleKanbanMoveTicket,
     handleKanbanReorderColumn,

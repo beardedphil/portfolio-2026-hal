@@ -15,6 +15,7 @@ import { KanbanErrorBanner } from './components/KanbanErrorBanner'
 import { PmChatWidgetButton } from './components/PmChatWidgetButton'
 import { CoverageReportModal } from './components/CoverageReportModal'
 import { SimplicityReportModal } from './components/SimplicityReportModal'
+import { NoPrModal } from './components/NoPrModal'
 import type { ChatTarget, ToolCallRecord, TicketCreationResult } from './types/app'
 import { CHAT_OPTIONS } from './types/app'
 import { useGithub } from './hooks/useGithub'
@@ -191,6 +192,8 @@ function App() {
     kanbanLastSync,
     kanbanMoveError,
     setKanbanMoveError,
+    noPrModalTicket,
+    setNoPrModalTicket,
     fetchKanbanData,
     handleKanbanMoveTicket,
     handleKanbanReorderColumn,
@@ -706,6 +709,32 @@ function App() {
         onConfirm={handleDisconnectConfirm}
         onCancel={handleDisconnectCancel}
         confirmButtonRef={disconnectConfirmButtonRef}
+      />
+
+      <NoPrModal
+        isOpen={!!noPrModalTicket}
+        ticketId={noPrModalTicket?.ticketId}
+        ticketDisplayId={noPrModalTicket?.displayId}
+        onClose={() => setNoPrModalTicket(null)}
+        onCreatePr={() => {
+          // Open GitHub to create a PR if repo is connected
+          if (connectedGithubRepo) {
+            const repoUrl = `https://github.com/${connectedGithubRepo.fullName}`
+            window.open(repoUrl, '_blank')
+          } else {
+            alert('Please connect a GitHub repository first to create a Pull Request.')
+          }
+        }}
+        onLinkPr={() => {
+          // For now, show instructions. In the future, this could open a form to link a PR URL
+          alert(
+            'To link an existing PR:\n\n' +
+            '1. Create or find the PR on GitHub\n' +
+            '2. The PR will be automatically linked when the Implementation Agent runs\n' +
+            '3. Or manually update the agent run with the PR URL in Supabase\n\n' +
+            'Future: A UI form to link PRs will be available in a follow-up ticket.'
+          )
+        }}
       />
 
       <main className="hal-main">
