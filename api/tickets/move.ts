@@ -151,6 +151,32 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       }
     }
 
+    // Gate: moving to To Do requires a RED document (HAL-0793)
+    if (columnId === 'col-todo' && resolvedTicketPk && repoFullName) {
+      // Check if ticket has a RED document using the database function
+      const { data: redData, error: redErr } = await supabase.rpc('get_latest_valid_red', {
+        p_repo_full_name: repoFullName,
+        p_ticket_pk: resolvedTicketPk,
+      })
+
+      if (redErr) {
+        json(res, 200, {
+          success: false,
+          error: `Cannot move to To Do: failed to check for RED document (${redErr.message}).`,
+        })
+        return
+      }
+
+      // If no valid RED document found, block the move
+      if (!redData || redData.length === 0) {
+        json(res, 200, {
+          success: false,
+          error: 'Cannot move to To Do: RED document is required. Create a RED document first.',
+        })
+        return
+      }
+    }
+
     // Gate: moving to Ready for QA requires all 8 implementation artifacts (substantive)
     // OR a "Missing Artifact Explanation" artifact if artifacts are missing (0200)
     if (columnId === 'col-qa' && resolvedTicketPk) {

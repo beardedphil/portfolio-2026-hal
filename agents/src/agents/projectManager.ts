@@ -106,9 +106,9 @@ You have access to read-only tools to explore the repository. Use them to answer
 
 **Server-side ticket operations (no direct Supabase):** For creating, updating, or moving tickets, you MUST use the HAL API endpoints exposed by your tools (the server uses privileged Supabase credentials). Do NOT attempt direct Supabase writes from the PM agent and do NOT require SUPABASE_* environment variables in the PM agent process.
 
-**Moving a ticket to To Do:** When the user asks to move a ticket to To Do (e.g. "move this to To Do", "move ticket 0012 to To Do"), you MUST (1) fetch the ticket content with fetch_ticket_content (by ticket id), (2) evaluate readiness with evaluate_ticket_ready (pass the body_md from the fetch result). If the ticket is NOT ready, do NOT call kanban_move_ticket_to_todo; instead reply with a clear list of what is missing (use the missingItems from the evaluate_ticket_ready result). If the ticket IS ready, call kanban_move_ticket_to_todo with the ticket id. Then confirm in chat that the ticket was moved. The readiness checklist is in your instructions (topic: ready-to-start-checklist): Goal, Human-verifiable deliverable, Acceptance criteria checkboxes, Constraints, Non-goals, no unresolved placeholders.
+**Moving a ticket to To Do:** When the user asks to move a ticket to To Do (e.g. "move this to To Do", "move ticket 0012 to To Do"), you MUST (1) fetch the ticket content with fetch_ticket_content (by ticket id), (2) evaluate readiness with evaluate_ticket_ready (pass the body_md from the fetch result). If the ticket is NOT ready, do NOT call kanban_move_ticket_to_todo; instead reply with a clear list of what is missing (use the missingItems from the evaluate_ticket_ready result). (3) If the ticket IS ready, call kanban_move_ticket_to_todo with the ticket id. If the move fails with "RED document is required", create a RED document using create_red_document, then retry the move. Then confirm in chat that the ticket was moved. The readiness checklist is in your instructions (topic: ready-to-start-checklist): Goal, Human-verifiable deliverable, Acceptance criteria checkboxes, Constraints, Non-goals, no unresolved placeholders, RED document.
 
-**Preparing a ticket (Definition of Ready):** When the user asks to "prepare ticket X" or "get ticket X ready" (e.g. from "Prepare top ticket" button), you MUST (1) fetch the ticket content with fetch_ticket_content, (2) evaluate readiness with evaluate_ticket_ready. If the ticket is NOT ready, use update_ticket_body to fix formatting issues (normalize headings, convert bullets to checkboxes in Acceptance criteria if needed, ensure all required sections exist). After updating, re-evaluate with evaluate_ticket_ready. If the ticket IS ready (after fixes if needed), automatically call kanban_move_ticket_to_todo to move it to To Do. Then confirm in chat that the ticket is Ready-to-start and has been moved to To Do. If the ticket cannot be made ready (e.g. missing required content that cannot be auto-generated), clearly explain what is missing and that the ticket remains in Unassigned.
+**Preparing a ticket (Definition of Ready):** When the user asks to "prepare ticket X" or "get ticket X ready" (e.g. from "Prepare top ticket" button), you MUST (1) fetch the ticket content with fetch_ticket_content, (2) evaluate readiness with evaluate_ticket_ready. If the ticket is NOT ready, use update_ticket_body to fix formatting issues (normalize headings, convert bullets to checkboxes in Acceptance criteria if needed, ensure all required sections exist). After updating, re-evaluate with evaluate_ticket_ready. (3) Check if a RED document exists for the ticket (if moving to To Do fails with "RED document is required", create one using create_red_document). (4) If the ticket IS ready (after fixes if needed) and has a RED document, automatically call kanban_move_ticket_to_todo to move it to To Do. Then confirm in chat that the ticket is Ready-to-start and has been moved to To Do. If the ticket cannot be made ready (e.g. missing required content that cannot be auto-generated), clearly explain what is missing and that the ticket remains in Unassigned.
 
 **Listing tickets by column:** When the user asks to see tickets in a specific Kanban column (e.g. "list tickets in QA column", "what tickets are in QA", "show me tickets in the QA column"), use list_tickets_by_column with the appropriate column_id (e.g. "col-qa" for QA, "col-todo" for To Do, "col-unassigned" for Unassigned, "col-human-in-the-loop" for Human in the Loop). Format the results clearly in your reply, showing ticket ID and title for each ticket. This helps you see which tickets are currently in a given column so you can update other tickets without asking the user for IDs.
 
@@ -745,6 +745,98 @@ export async function runPmAgent(
     },
   })
 
+  const createRedDocumentTool = tool({
+    description:
+      'Create a Requirement Expansion Document (RED) for a ticket via the HAL API. RED documents are required before a ticket can be moved to To Do. The redJson should be a structured JSON object containing the expanded requirements.',
+    parameters: z.object({
+      ticket_id: z.string().describe('Ticket id (e.g. "HAL-0012", "0012", or "12").'),
+      red_json: z.record(z.unknown()).describe('RED document content as a JSON object. Should contain expanded requirements, use cases, edge cases, and other detailed information.'),
+      validation_status: z
+        .enum(['valid', 'invalid', 'pending'])
+        .optional()
+        .describe('Validation status for the RED document. Defaults to "pending".'),
+      created_by: z.string().optional().describe('Identifier for who created the RED document (e.g. "pm-agent", "user-name").'),
+    }),
+    execute: async (input: {
+      ticket_id: string
+      red_json: Record<string, unknown>
+      validation_status?: 'valid' | 'invalid' | 'pending'
+      created_by?: string
+    }) => {
+      type CreateRedResult =
+        | {
+            success: true
+            red_document: {
+              red_id: string
+              version: number
+              ticket_pk: string
+              repo_full_name: string
+            }
+          }
+        | { success: false; error: string }
+      let out: CreateRedResult
+      try {
+        // Fetch ticket to get ticketPk and repoFullName
+        const fetchRes = await fetch(`${halBaseUrl}/api/tickets/get`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ticketId: input.ticket_id }),
+        })
+        const fetched = (await fetchRes.json()) as any
+        if (!fetched?.success || !fetched?.ticket) {
+          out = { success: false, error: fetched?.error || `Ticket ${input.ticket_id} not found.` }
+          toolCalls.push({ name: 'create_red_document', input, output: out })
+          return out
+        }
+
+        const ticket = fetched.ticket as any
+        const ticketPk = typeof ticket.pk === 'string' ? ticket.pk : undefined
+        const repoFullName = typeof ticket.repo_full_name === 'string' ? ticket.repo_full_name : undefined
+
+        if (!ticketPk || !repoFullName) {
+          out = {
+            success: false,
+            error: `Could not determine ticket_pk or repo_full_name for ticket ${input.ticket_id}.`,
+          }
+          toolCalls.push({ name: 'create_red_document', input, output: out })
+          return out
+        }
+
+        // Create RED document via HAL API
+        const createRes = await fetch(`${halBaseUrl}/api/red/insert`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ticketPk,
+            repoFullName,
+            redJson: input.red_json,
+            validationStatus: input.validation_status || 'pending',
+            createdBy: input.created_by || 'pm-agent',
+          }),
+        })
+
+        const created = (await createRes.json()) as any
+        if (!created?.success || !created?.red_document) {
+          out = { success: false, error: created?.error || 'Failed to create RED document' }
+        } else {
+          out = {
+            success: true,
+            red_document: {
+              red_id: created.red_document.red_id,
+              version: created.red_document.version,
+              ticket_pk: ticketPk,
+              repo_full_name: repoFullName,
+            },
+          }
+        }
+      } catch (err) {
+        out = { success: false, error: err instanceof Error ? err.message : String(err) }
+      }
+      toolCalls.push({ name: 'create_red_document', input, output: out })
+      return out
+    },
+  })
+
   // Helper: use GitHub API when githubReadFile is provided (Connect GitHub Repo); otherwise use HAL repo (direct FS)
   const hasGitHubRepo =
     typeof config.repoFullName === 'string' &&
@@ -1157,6 +1249,7 @@ export async function runPmAgent(
     ...(kanbanMoveTicketToOtherRepoTodoTool
       ? { kanban_move_ticket_to_other_repo_todo: kanbanMoveTicketToOtherRepoTodoTool }
       : {}),
+    ...(createRedDocumentTool ? { create_red_document: createRedDocumentTool } : {}),
   }
 
   const promptBase = `${contextPack}\n\n---\n\nRespond to the user message above using the tools as needed.`
