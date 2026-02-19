@@ -4,6 +4,42 @@ import { exchangeCodeForToken } from '../../_lib/github/githubApi.js'
 import { getSession } from '../../_lib/github/session.js'
 
 const AUTH_SECRET_MIN = 32
+const CODE_DEDUPE_TTL_MS = 60_000
+
+type ExchangedToken = {
+  access_token: string
+  token_type: string
+  scope: string
+}
+
+// Best-effort in-memory de-dupe for parallel callback hits.
+// If the same one-time `code` arrives twice in the same runtime instance, we exchange it once
+// and reuse the token to set cookies for both responses.
+const inflightCodeExchanges = new Map<string, { startedAt: number; promise: Promise<ExchangedToken> }>()
+
+async function exchangeCodeOnce(code: string, redirectUri: string): Promise<ExchangedToken> {
+  const now = Date.now()
+  const existing = inflightCodeExchanges.get(code)
+  if (existing && now - existing.startedAt < CODE_DEDUPE_TTL_MS) {
+    return await existing.promise
+  }
+
+  const promise = (async () => {
+    const token = await exchangeCodeForToken({ code, redirectUri })
+    return token as ExchangedToken
+  })()
+
+  inflightCodeExchanges.set(code, { startedAt: now, promise })
+  try {
+    return await promise
+  } finally {
+    // Keep short-lived entry for TTL window to help late duplicates.
+    setTimeout(() => {
+      const cur = inflightCodeExchanges.get(code)
+      if (cur && cur.promise === promise) inflightCodeExchanges.delete(code)
+    }, CODE_DEDUPE_TTL_MS).unref?.()
+  }
+}
 
 function sendJson(res: ServerResponse, status: number, body: object) {
   res.statusCode = status
@@ -143,7 +179,7 @@ async function handleWebRequest(request: Request): Promise<Response> {
     session.oauthLastCodeAt = Date.now()
     await session.save()
 
-    const token = await exchangeCodeForToken({ code, redirectUri })
+    const token = await exchangeCodeOnce(code, redirectUri)
 
     session.github = {
       accessToken: token.access_token,
@@ -270,7 +306,7 @@ export default async function handler(req: IncomingMessage | Request, res?: Serv
     session.oauthLastCodeAt = Date.now()
     await session.save()
 
-    const token = await exchangeCodeForToken({ code, redirectUri })
+    const token = await exchangeCodeOnce(code, redirectUri)
 
     session.github = {
       accessToken: token.access_token,
