@@ -2024,13 +2024,16 @@ function App() {
           }
         }
         
-        setSupabaseTickets((prev) =>
-          prev.map((t) =>
-            t.pk === ticketPk
-              ? { ...t, kanban_column_id: overColumn.id, kanban_position: overIndex, kanban_moved_at: movedAt }
-              : t
+        // Use flushSync to force immediate rendering of optimistic update
+        flushSync(() => {
+          setSupabaseTickets((prev) =>
+            prev.map((t) =>
+              t.pk === ticketPk
+                ? { ...t, kanban_column_id: overColumn.id, kanban_position: overIndex, kanban_moved_at: movedAt }
+                : t
+            )
           )
-        )
+        })
         // Use HAL API for moves beyond To Do to enforce drift gating (0770)
         // Moves to col-todo or col-unassigned can use direct Supabase write (no drift gating required)
         const isMovingToTodoOrUnassigned = overColumn.id === 'col-todo' || overColumn.id === 'col-unassigned'
@@ -2208,13 +2211,16 @@ function App() {
           setActiveWorkAgentTypes((prev) => ({ ...prev, [ticketPk]: agentType! }))
         }
         
-        setSupabaseTickets((prev) =>
-          prev.map((t) =>
-            t.pk === ticketPk
-              ? { ...t, kanban_column_id: 'col-doing', kanban_position: overIndex, kanban_moved_at: movedAt }
-              : t
+        // Use flushSync to force immediate rendering of optimistic update
+        flushSync(() => {
+          setSupabaseTickets((prev) =>
+            prev.map((t) =>
+              t.pk === ticketPk
+                ? { ...t, kanban_column_id: 'col-doing', kanban_position: overIndex, kanban_moved_at: movedAt }
+                : t
+            )
           )
-        )
+        })
         
         // Use HAL API for moves to Doing (beyond To Do) to enforce drift gating (0770)
         const result = await moveTicketViaHalApi(ticketPk, 'col-doing', overIndex)
@@ -2585,20 +2591,23 @@ function App() {
           
           const moveStartTime = Date.now()
           // Optimistic update (0047) - ticket appears immediately in destination column (0790)
-          setPendingMoves((prev) => new Set(prev).add(ticketPk))
-          // Track move start time to prevent premature rollback on slow API responses (0790)
-          setPendingMoveTimestamps((prev) => {
-            const next = new Map(prev)
-            next.set(ticketPk, moveStartTime)
-            return next
-          })
-          setSupabaseTickets((prev) =>
-            prev.map((t) =>
-              t.pk === ticketPk
-                ? { ...t, kanban_column_id: overColumn.id, kanban_position: overIndex, kanban_moved_at: movedAt }
-                : t
+          // Use flushSync to force immediate rendering of optimistic update
+          flushSync(() => {
+            setPendingMoves((prev) => new Set(prev).add(ticketPk))
+            // Track move start time to prevent premature rollback on slow API responses (0790)
+            setPendingMoveTimestamps((prev) => {
+              const next = new Map(prev)
+              next.set(ticketPk, moveStartTime)
+              return next
+            })
+            setSupabaseTickets((prev) =>
+              prev.map((t) =>
+                t.pk === ticketPk
+                  ? { ...t, kanban_column_id: overColumn.id, kanban_position: overIndex, kanban_moved_at: movedAt }
+                  : t
+              )
             )
-          )
+          })
           // Use HAL API for moves beyond To Do to enforce drift gating (0770)
           // Moves to col-todo or col-unassigned can use direct Supabase write (no drift gating required)
           const isMovingToTodoOrUnassigned = overColumn.id === 'col-todo' || overColumn.id === 'col-unassigned'
