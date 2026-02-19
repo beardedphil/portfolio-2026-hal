@@ -64,7 +64,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     if (!supabaseUrl || !supabaseKey) {
       json(res, 400, {
         success: false,
-        error: 'Supabase credentials required (provide in request body or set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/SUPABASE_ANON_KEY in server environment).',
+        error: 'Supabase credentials required (provide in request body or set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/SUPABASE_SECRET_KEY/SUPABASE_ANON_KEY in server environment).',
       })
       return
     }

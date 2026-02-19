@@ -115,9 +115,12 @@ export function parseSupabaseCredentialsWithServiceRole(body: {
     undefined
   
   // Prefer service role key to bypass RLS, fall back to anon key if not available
+  // Check multiple common environment variable names for service role key
   const supabaseKey =
     process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
+    process.env.SUPABASE_SECRET_KEY?.trim() ||
     process.env.VITE_SUPABASE_SERVICE_ROLE_KEY?.trim() ||
+    process.env.VITE_SUPABASE_SECRET_KEY?.trim() ||
     (typeof body.supabaseAnonKey === 'string' ? body.supabaseAnonKey.trim() : undefined) ||
     process.env.SUPABASE_ANON_KEY?.trim() ||
     process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
