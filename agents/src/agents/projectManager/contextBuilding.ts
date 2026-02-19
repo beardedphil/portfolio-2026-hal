@@ -149,28 +149,31 @@ export function formatPmInputsSummary(config: PmAgentConfig): string {
   return lines.join('\n')
 }
 
-export async function buildContextPack(config: PmAgentConfig, userMessage: string): Promise<string> {
-  const rulesDir = config.rulesDir ?? '.cursor/rules'
-  const rulesPath = path.resolve(config.repoRoot, rulesDir)
+interface LocalFilesResult {
+  localLoaded: boolean
+  ticketTemplateContent: string | null
+  checklistContent: string | null
+  localRulesContent: string
+}
 
-  const sections: string[] = []
-
-  // Always include a compact list of HAL-provided inputs and enabled tools (helps debugging while keeping context small).
-  sections.push(formatPmInputsSummary(config))
-
-  // Local-first: try loading rules from repo
-  let localLoaded = false
-  let ticketTemplateContent: string | null = null
-  let checklistContent: string | null = null
-  let localRulesContent = ''
+async function loadLocalFiles(
+  repoRoot: string,
+  rulesPath: string
+): Promise<LocalFilesResult> {
+  const result: LocalFilesResult = {
+    localLoaded: false,
+    ticketTemplateContent: null,
+    checklistContent: null,
+    localRulesContent: '',
+  }
 
   try {
-    const templatePath =
-      path.join(config.repoRoot, 'docs/templates/ticket.template.md')
-    const templateAltPath =
-      path.join(config.repoRoot, 'projects/kanban/docs/templates/ticket.template.md')
-    const checklistPath =
-      path.join(config.repoRoot, 'docs/process/ready-to-start-checklist.md')
+    const templatePath = path.join(repoRoot, 'docs/templates/ticket.template.md')
+    const templateAltPath = path.join(
+      repoRoot,
+      'projects/kanban/docs/templates/ticket.template.md'
+    )
+    const checklistPath = path.join(repoRoot, 'docs/process/ready-to-start-checklist.md')
 
     let templateContent: string | null = null
     try {
@@ -182,15 +185,17 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
         templateContent = null
       }
     }
+
     const checklistRead = await fs.readFile(checklistPath, 'utf8').catch(() => null)
     const agentInstructions = await fs
       .readFile(path.join(rulesPath, 'agent-instructions.mdc'), 'utf8')
       .catch(() => null)
 
     if (templateContent && checklistRead && agentInstructions) {
-      ticketTemplateContent = templateContent
-      checklistContent = checklistRead
+      result.ticketTemplateContent = templateContent
+      result.checklistContent = checklistRead
       const ruleParts: string[] = [agentInstructions]
+
       for (const name of PM_LOCAL_RULES) {
         if (name === 'agent-instructions.mdc') continue
         const content = await fs
@@ -198,72 +203,46 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
           .catch(() => '')
         if (content) ruleParts.push(content)
       }
-      const halContractPath = path.join(config.repoRoot, 'docs/process/hal-tool-call-contract.mdc')
+
+      const halContractPath = path.join(repoRoot, 'docs/process/hal-tool-call-contract.mdc')
       const halContract = await fs.readFile(halContractPath, 'utf8').catch(() => '')
       if (halContract) ruleParts.push(halContract)
-      localRulesContent = ruleParts.join('\n\n---\n\n')
-      localLoaded = true
+
+      result.localRulesContent = ruleParts.join('\n\n---\n\n')
+      result.localLoaded = true
     }
   } catch {
     // local load failed, will use HAL/Supabase fallback
   }
 
-  if (localLoaded) {
-    sections.push(
-      '## Instructions\n\n' +
-        '**Your instructions are in the "Repo rules (local)" section below.** Use them directly; no need to load from Supabase.\n'
-    )
-  } else {
-    sections.push(
-      '## MANDATORY: Load Your Instructions First\n\n' +
-        '**BEFORE responding to the user, you MUST load your basic instructions from Supabase using the `get_instruction_set` tool.**\n\n' +
-        '**Use the tool:** `get_instruction_set({ topicId: "project-manager-basic" })` or load all basic instructions for project-manager agent type.\n\n' +
-        '**The instructions from Supabase contain:**\n' +
-        '- Required workflows and procedures\n' +
-        '- How to evaluate ticket readiness\n' +
-        '- Code citation requirements\n' +
-        '- All other mandatory PM agent workflows\n\n' +
-        '**DO NOT proceed with responding until you have loaded and read your instructions from Supabase.**\n'
-    )
-  }
+  return result
+}
 
-  // Working Memory (0173: PM working memory) - include before conversation context
-  if (config.workingMemoryText && config.workingMemoryText.trim() !== '') {
-    sections.push(config.workingMemoryText.trim())
-  }
-
-  // Conversation so far: pre-built context pack (e.g. summary + recent from DB) or bounded history
-  let hasConversation = false
+function formatConversationSection(config: PmAgentConfig): string | null {
   if (config.conversationContextPack && config.conversationContextPack.trim() !== '') {
-    sections.push('## Conversation so far\n\n' + config.conversationContextPack.trim())
-    hasConversation = true
-  } else {
-    const history = config.conversationHistory
-    if (history && history.length > 0) {
-      const { recent, omitted } = recentTurnsWithinCharBudget(history, CONVERSATION_RECENT_MAX_CHARS)
-      const truncNote =
-        omitted > 0
-          ? `\n(older messages omitted; showing recent conversation within ${CONVERSATION_RECENT_MAX_CHARS.toLocaleString()} characters)\n\n`
-          : '\n\n'
-      const lines = recent.map((t) => `**${t.role}**: ${t.content}`)
-      sections.push('## Conversation so far' + truncNote + lines.join('\n\n'))
-      hasConversation = true
-    }
+    return '## Conversation so far\n\n' + config.conversationContextPack.trim()
   }
 
-  if (hasConversation) {
-    sections.push('## User message (latest reply in the conversation above)\n\n' + userMessage)
-  } else {
-    sections.push('## User message\n\n' + userMessage)
+  const history = config.conversationHistory
+  if (!history || history.length === 0) {
+    return null
   }
 
-  if (localLoaded) {
-    sections.push('## Repo rules (local)\n\n' + localRulesContent)
-  } else {
-    sections.push('## Repo rules (from Supabase)')
-  }
+  const { recent, omitted } = recentTurnsWithinCharBudget(history, CONVERSATION_RECENT_MAX_CHARS)
+  const truncNote =
+    omitted > 0
+      ? `\n(older messages omitted; showing recent conversation within ${CONVERSATION_RECENT_MAX_CHARS.toLocaleString()} characters)\n\n`
+      : '\n\n'
+  const lines = recent.map((t) => `**${t.role}**: ${t.content}`)
+  return '## Conversation so far' + truncNote + lines.join('\n\n')
+}
 
-  if (!localLoaded) {
+async function loadInstructionBootstrap(
+  config: PmAgentConfig,
+  rulesPath: string,
+  sections: string[],
+  localFiles: LocalFilesResult
+): Promise<void> {
   try {
     type TopicMeta = {
       title?: string
@@ -331,8 +310,6 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
         topicMetadata: topicMeta,
       }
     }
-
-    // mapSupabaseInstruction removed: agents must be API-only (no Supabase instruction fallback).
 
     const appliesToAllAgents = (inst: InstructionRecord): boolean =>
       inst.alwaysApply || inst.agentTypes.includes('all')
@@ -514,8 +491,8 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
         )
         const templateInst = basicInstructions.find((i) => i.topicId === 'ticket-template')
         const checklistInst = basicInstructions.find((i) => i.topicId === 'ready-to-start-checklist')
-        if (templateInst?.contentMd) ticketTemplateContent = templateInst.contentMd
-        if (checklistInst?.contentMd) checklistContent = checklistInst.contentMd
+        if (templateInst?.contentMd) localFiles.ticketTemplateContent = templateInst.contentMd
+        if (checklistInst?.contentMd) localFiles.checklistContent = checklistInst.contentMd
       } catch (apiErr) {
         console.warn('[PM Agent] HAL API instruction bootstrap failed:', apiErr)
       }
@@ -547,17 +524,74 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
   } catch (err) {
     sections.push(`(error loading rules: ${err instanceof Error ? err.message : String(err)})`)
   }
+}
+
+export async function buildContextPack(config: PmAgentConfig, userMessage: string): Promise<string> {
+  const rulesDir = config.rulesDir ?? '.cursor/rules'
+  const rulesPath = path.resolve(config.repoRoot, rulesDir)
+
+  const sections: string[] = []
+
+  // Always include a compact list of HAL-provided inputs and enabled tools (helps debugging while keeping context small).
+  sections.push(formatPmInputsSummary(config))
+
+  // Local-first: try loading rules from repo
+  const localFiles = await loadLocalFiles(config.repoRoot, rulesPath)
+
+  if (localFiles.localLoaded) {
+    sections.push(
+      '## Instructions\n\n' +
+        '**Your instructions are in the "Repo rules (local)" section below.** Use them directly; no need to load from Supabase.\n'
+    )
+  } else {
+    sections.push(
+      '## MANDATORY: Load Your Instructions First\n\n' +
+        '**BEFORE responding to the user, you MUST load your basic instructions from Supabase using the `get_instruction_set` tool.**\n\n' +
+        '**Use the tool:** `get_instruction_set({ topicId: "project-manager-basic" })` or load all basic instructions for project-manager agent type.\n\n' +
+        '**The instructions from Supabase contain:**\n' +
+        '- Required workflows and procedures\n' +
+        '- How to evaluate ticket readiness\n' +
+        '- Code citation requirements\n' +
+        '- All other mandatory PM agent workflows\n\n' +
+        '**DO NOT proceed with responding until you have loaded and read your instructions from Supabase.**\n'
+    )
   }
 
-  if (!localLoaded && USE_MINIMAL_BOOTSTRAP) {
+  // Working Memory (0173: PM working memory) - include before conversation context
+  if (config.workingMemoryText && config.workingMemoryText.trim() !== '') {
+    sections.push(config.workingMemoryText.trim())
+  }
+
+  // Conversation so far: pre-built context pack (e.g. summary + recent from DB) or bounded history
+  const conversationSection = formatConversationSection(config)
+  const hasConversation = conversationSection !== null
+
+  if (hasConversation) {
+    sections.push(conversationSection!)
+    sections.push('## User message (latest reply in the conversation above)\n\n' + userMessage)
+  } else {
+    sections.push('## User message\n\n' + userMessage)
+  }
+
+  if (localFiles.localLoaded) {
+    sections.push('## Repo rules (local)\n\n' + localFiles.localRulesContent)
+  } else {
+    sections.push('## Repo rules (from Supabase)')
+  }
+
+  if (!localFiles.localLoaded) {
+    await loadInstructionBootstrap(config, rulesPath, sections, localFiles)
+  }
+
+  if (!localFiles.localLoaded && USE_MINIMAL_BOOTSTRAP) {
     sections.push(
       '## Ticket template and Ready-to-start checklist\n\nLoad when creating or evaluating tickets: `get_instruction_set({ topicId: "ticket-template" })` and `get_instruction_set({ topicId: "ready-to-start-checklist" })`.'
     )
   } else {
     sections.push('## Ticket template (required structure for create_ticket)')
-    if (ticketTemplateContent) {
+    if (localFiles.ticketTemplateContent) {
       sections.push(
-        ticketTemplateContent +
+        localFiles.ticketTemplateContent +
           '\n\nWhen creating a ticket, use this exact section structure. Replace every placeholder in angle brackets (e.g. `<what we want to achieve>`, `<AC 1>`) with concrete content—the resulting ticket must pass the Ready-to-start checklist (no unresolved placeholders, all required sections filled).'
       )
     } else {
@@ -567,8 +601,8 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
     }
 
     sections.push('## Ready-to-start checklist (Definition of Ready)')
-    if (checklistContent) {
-      sections.push(checklistContent)
+    if (localFiles.checklistContent) {
+      sections.push(localFiles.checklistContent)
     } else {
       sections.push(
         '(Ready-to-start checklist not found in instructions. Ensure migrate-docs has been run and instructions are loaded from Supabase.)'
