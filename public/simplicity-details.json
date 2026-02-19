@@ -83,6 +83,12 @@
   ],
   "mostRecentImprovements": [
     {
+      "file": "api/tickets/create-pr.ts",
+      "before": 25.54,
+      "after": 25.54,
+      "delta": 0
+    },
+    {
       "file": "api/artifacts/get.ts",
       "before": 32.38,
       "after": 32.38,
@@ -117,9 +123,15 @@
       "before": 26.39,
       "after": 26.39,
       "delta": 0
+    },
+    {
+      "file": "api/agent-runs/launch.ts",
+      "before": 12.43,
+      "after": 12.43,
+      "delta": 0
     }
   ],
-  "generatedAt": "2026-02-19T17:51:22.396Z",
-  "filesAnalyzed": 289,
+  "generatedAt": "2026-02-19T18:21:33.883Z",
+  "filesAnalyzed": 290,
   "unroundedSimplicity": 40.9
 }
