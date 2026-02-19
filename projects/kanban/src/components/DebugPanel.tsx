@@ -14,7 +14,7 @@ interface DebugPanelProps {
   supabaseBoardActive: boolean
   supabaseLastRefresh: Date | null
   supabaseLastError: string | null
-  lastMovePersisted: { success: boolean; timestamp: Date; ticketId: string; error?: string } | null
+  lastMovePersisted: { success: boolean; timestamp: Date; ticketId: string; error?: string; isValidationBlock?: boolean } | null
   pendingMoves: Set<string>
   supabaseBoardActiveForColumns: boolean
   supabaseColumnsRows: Array<{ id: string; title: string; position: number }>
