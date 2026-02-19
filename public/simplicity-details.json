@@ -107,13 +107,19 @@
       "delta": 0
     },
     {
+      "file": "projects/kanban/src/components/TicketDetailModal.tsx",
+      "before": 29.74,
+      "after": 29.74,
+      "delta": 0
+    },
+    {
       "file": "api/instructions/migrate-process-docs.ts",
       "before": 26.39,
       "after": 26.39,
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-19T17:00:32.815Z",
+  "generatedAt": "2026-02-19T17:17:28.962Z",
   "filesAnalyzed": 284,
   "unroundedSimplicity": 41.1
 }
