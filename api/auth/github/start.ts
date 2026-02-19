@@ -78,12 +78,14 @@ async function handleWebRequest(request: Request): Promise<Response> {
 
   const session = await getSession(req as unknown as IncomingMessage, res as ServerResponse)
   const state = crypto.randomBytes(16).toString('hex')
+  const redirectUri = `${origin}/api/auth/github/callback`
   session.oauthState = state
+  session.oauthRedirectUri = redirectUri
   await session.save()
 
   const url = new URL('https://github.com/login/oauth/authorize')
   url.searchParams.set('client_id', clientId)
-  url.searchParams.set('redirect_uri', `${origin}/api/auth/github/callback`)
+  url.searchParams.set('redirect_uri', redirectUri)
   url.searchParams.set('state', state)
   url.searchParams.set('scope', 'repo read:user')
 
@@ -149,6 +151,7 @@ export default async function handler(req: IncomingMessage | Request, res?: Serv
     const session = await getSession(req as IncomingMessage, nodeRes)
     const state = crypto.randomBytes(16).toString('hex')
     session.oauthState = state
+    session.oauthRedirectUri = redirectUri
     await session.save()
 
     const clientId = process.env.GITHUB_CLIENT_ID?.trim()

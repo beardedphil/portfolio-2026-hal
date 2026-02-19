@@ -12,6 +12,8 @@ export type GithubSession = {
 
 export type HalSessionData = {
   oauthState?: string
+  /** Exact redirectUri used during OAuth start; must match during token exchange. */
+  oauthRedirectUri?: string
   github?: GithubSession
 }
 

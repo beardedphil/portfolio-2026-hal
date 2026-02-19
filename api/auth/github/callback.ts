@@ -18,6 +18,7 @@ function redirect(res: ServerResponse, location: string) {
 }
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
+  let originForErrorRedirect: string | null = null
   try {
     if (req.method !== 'GET') {
       res.statusCode = 405
@@ -36,6 +37,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     let origin: string
     try {
       origin = getOrigin(req)
+      originForErrorRedirect = origin
     } catch (e) {
       sendJson(res, 503, { error: e instanceof Error ? e.message : 'Cannot determine origin.' })
       return
@@ -47,16 +49,26 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const session = await getSession(req, res)
     const expected = session.oauthState
 
+    // If the user somehow hits callback again after already connecting, just bounce back to the app.
+    // This prevents a second token-exchange attempt with the same one-time code.
+    if (session.github?.accessToken) {
+      redirect(res, `${origin}/?github=connected`)
+      return
+    }
+
     if (!code || !state || !expected || state !== expected) {
       sendJson(res, 400, { error: 'Invalid OAuth callback (missing or mismatched state).' })
       return
     }
 
-    const redirectUri = `${origin}/api/auth/github/callback`
+    // IMPORTANT: GitHub requires the redirect_uri used during the token exchange to match
+    // the redirect_uri used during the authorization request. Store it at /start and reuse it here.
+    const redirectUri = session.oauthRedirectUri || `${origin}/api/auth/github/callback`
     const token = await exchangeCodeForToken({ code, redirectUri })
     const viewer = await getViewer(token.access_token)
 
     session.oauthState = undefined
+    session.oauthRedirectUri = undefined
     session.github = {
       accessToken: token.access_token,
       scope: token.scope,
@@ -69,7 +81,20 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error('[api/auth/github/callback]', msg, err)
-    sendJson(res, 500, { error: msg })
+    // UX: this endpoint is a browser redirect target, so redirect back to the app with an error marker.
+    // Also clear oauth state so the user can retry cleanly.
+    try {
+      const origin = originForErrorRedirect || getOrigin(req)
+      const session = await getSession(req, res)
+      session.oauthState = undefined
+      session.oauthRedirectUri = undefined
+      await session.save()
+      redirect(res, `${origin}/?github=error&reason=${encodeURIComponent(msg.slice(0, 200))}`)
+      return
+    } catch {
+      // Fall back to JSON if we can't redirect.
+      sendJson(res, 500, { error: msg })
+    }
   }
 }
 
