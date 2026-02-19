@@ -29,8 +29,29 @@ export function useMessageManagement({
       imageAttachments?: ImageAttachment[],
       promptText?: string
     ) => {
-      const nextId = id ?? ++messageIdRef.current
-      if (id != null) messageIdRef.current = Math.max(messageIdRef.current, nextId)
+      // IMPORTANT:
+      // - Persisted messages use integer sequence IDs in Supabase.
+      // - Some ephemeral system messages intentionally use fractional IDs (e.g. baseSeq + 0.01)
+      //   to preserve ordering without colliding with the next integer sequence.
+      // Never allow fractional IDs to update the global integer message counter, or all future
+      // generated IDs will become fractional and DB inserts will fail.
+      if (!Number.isInteger(messageIdRef.current)) {
+        messageIdRef.current = Math.floor(messageIdRef.current)
+      }
+
+      const hasProvidedId = typeof id === 'number' && Number.isFinite(id)
+      const isProvidedIdInteger = hasProvidedId && Number.isInteger(id)
+      const isSystemMessage = agent === 'system'
+
+      const nextId =
+        hasProvidedId && (isSystemMessage || isProvidedIdInteger)
+          ? (id as number)
+          : ++messageIdRef.current
+
+      // Only update the counter for integer IDs (and never for fractional system IDs).
+      if (!isSystemMessage && Number.isInteger(nextId)) {
+        messageIdRef.current = Math.max(messageIdRef.current, nextId)
+      }
       setConversations((prev) => {
         const next = new Map(prev)
         let conv = next.get(conversationId)

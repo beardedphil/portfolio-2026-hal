@@ -47,7 +47,9 @@ export function useConversationPersistence({
 
             // Find messages that need to be saved (sequence > currentMaxSeq)
             // Filter out system messages - they are ephemeral and use fractional IDs that can't be stored as integers
-            const messagesToSave = conv.messages.filter((msg) => msg.id > currentMaxSeq && msg.agent !== 'system')
+            const messagesToSave = conv.messages.filter(
+              (msg) => msg.id > currentMaxSeq && msg.agent !== 'system' && Number.isInteger(msg.id)
+            )
 
             if (messagesToSave.length > 0) {
               // Insert new messages into Supabase
