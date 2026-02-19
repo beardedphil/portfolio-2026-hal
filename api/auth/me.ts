@@ -6,6 +6,7 @@ const AUTH_SECRET_MIN = 32
 
 function sendJson(res: ServerResponse, status: number, body: object) {
   res.statusCode = status
+  res.setHeader('Cache-Control', 'no-store')
   res.setHeader('Content-Type', 'application/json')
   res.end(JSON.stringify(body))
 }
