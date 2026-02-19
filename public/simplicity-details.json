@@ -53,6 +53,10 @@
       "maintainability": 26.39
     },
     {
+      "file": "api/auth/github/callback.ts",
+      "maintainability": 27.72
+    },
+    {
       "file": "api/conversations/working-memory/update.ts",
       "maintainability": 27.95
     },
@@ -75,10 +79,6 @@
     {
       "file": "api/agent-runs/_shared.ts",
       "maintainability": 32.44
-    },
-    {
-      "file": "api/tickets/move.ts",
-      "maintainability": 33.14
     }
   ],
   "mostRecentImprovements": [
@@ -119,8 +119,8 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-19T21:37:32.323Z",
+  "generatedAt": "2026-02-19T21:43:09.100Z",
   "filesAnalyzed": 290,
-  "unroundedMaintainability": 40.8,
-  "unroundedSimplicity": 40.8
+  "unroundedMaintainability": 40.7,
+  "unroundedSimplicity": 40.7
 }
