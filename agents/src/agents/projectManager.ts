@@ -750,7 +750,7 @@ export async function runPmAgent(
       'Create a Requirement Expansion Document (RED) for a ticket via the HAL API. RED documents are required before a ticket can be moved to To Do. The redJson should be a structured JSON object containing the expanded requirements.',
     parameters: z.object({
       ticket_id: z.string().describe('Ticket id (e.g. "HAL-0012", "0012", or "12").'),
-      red_json: z.string().describe('RED document content as a JSON string. Should contain expanded requirements, use cases, edge cases, and other detailed information. Will be parsed as JSON.'),
+      red_json_content: z.string().describe('RED document content as a JSON string. Should contain expanded requirements, use cases, edge cases, and other detailed information. Will be parsed as JSON.'),
       validation_status: z
         .enum(['valid', 'invalid', 'pending'])
         .optional()
@@ -759,7 +759,7 @@ export async function runPmAgent(
     }),
     execute: async (input: {
       ticket_id: string
-      red_json: string
+      red_json_content: string
       validation_status?: 'valid' | 'invalid' | 'pending'
       created_by?: string
     }) => {
@@ -802,14 +802,14 @@ export async function runPmAgent(
           return out
         }
 
-        // Parse red_json string to object
+        // Parse red_json_content string to object
         let redJsonParsed: unknown
         try {
-          redJsonParsed = JSON.parse(input.red_json)
+          redJsonParsed = JSON.parse(input.red_json_content)
         } catch (parseErr) {
           out = {
             success: false,
-            error: `Invalid JSON in red_json: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
+            error: `Invalid JSON in red_json_content: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
           }
           toolCalls.push({ name: 'create_red_document', input, output: out })
           return out
