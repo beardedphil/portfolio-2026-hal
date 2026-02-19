@@ -104,8 +104,8 @@ The maintainability metric measures code quality across the entire repository. H
 
 **CRITICAL:** 
 - Use the exact heading `## Maintainability` (not "Simplicity" or any variation)
-- Include all three bullets (Readability, Testability, Change safety) in your report
-- Do not mention "Simplicity" anywhere in the QA report body
+- Include all three bullets (Readability, Testability, Change safety) in your report - these bullets **MUST** appear in every QA report
+- Do not mention "Simplicity" anywhere in the QA report body - this includes headings, labels, and any descriptive text
 
 **Note:** Run this on the branch/commit being verified. The number is for the whole repo, not just the ticket’s changes.
 
