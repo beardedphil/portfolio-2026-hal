@@ -210,6 +210,8 @@ function App() {
   const supabaseTicketsRef = useRef<SupabaseTicketRow[]>([])
   // Ref to track optimistic ticket positions for same-column reorder (prevents @dnd-kit revert)
   const optimisticTicketPositionsRef = useRef<Map<string, number>>(new Map())
+  // Ref to store optimistic items array for immediate @dnd-kit update (bypasses useMemo delay)
+  const optimisticItemsRef = useRef<Map<string, string[]>>(new Map())
   // Version counter to force SortableContext to remount with new items when optimistic update happens
   const [sortableContextVersion, setSortableContextVersion] = useState(0)
   const [supabaseColumnsRows, setSupabaseColumnsRows] = useState<SupabaseKanbanColumnRow[]>([])
@@ -2388,16 +2390,17 @@ function App() {
           const ticketPk = String(active.id)
           const moveStartTime = Date.now()
           
-          // CRITICAL FIX: Update state and force render in requestAnimationFrame
-          // This ensures the render happens in the next frame, after @dnd-kit's internal checks
-          // but before the visual revert animation completes
-          const positionMap = new Map<string, number>()
-          newOrder.forEach((pk, i) => positionMap.set(pk, i))
+          // CRITICAL FIX: Update optimistic items ref IMMEDIATELY (synchronously)
+          // @dnd-kit checks items at drag end - we must update the ref before it checks
+          // This ref will be used by SortableContext to get items, bypassing useMemo delay
+          optimisticItemsRef.current.set(sourceColumn.id, [...newOrder]) // New array reference
           
-          // Update optimistic positions ref immediately
-          for (let i = 0; i < newOrder.length; i++) {
-            optimisticTicketPositionsRef.current.set(newOrder[i], i)
-          }
+          // Also update optimistic positions ref for useMemo fallback
+          const positionMap = new Map<string, number>()
+          newOrder.forEach((pk, i) => {
+            positionMap.set(pk, i)
+            optimisticTicketPositionsRef.current.set(pk, i)
+          })
           
           // Pre-compute updated tickets
           const updatedTickets = supabaseTickets.map((t) => {
@@ -2410,7 +2413,7 @@ function App() {
             }
           })
           
-          // Update state immediately
+          // Update state synchronously
           setPendingMoves((prev) => new Set(prev).add(ticketPk))
           setPendingMoveTimestamps((prev) => {
             const next = new Map(prev)
@@ -2419,10 +2422,8 @@ function App() {
           })
           setSupabaseTickets(updatedTickets)
           
-          // CRITICAL: Force immediate synchronous render with flushSync
-          // This must happen synchronously so @dnd-kit sees new items before it checks
+          // Force immediate render
           flushSync(() => {
-            // Increment version to force SortableContext remount with new items
             setSortableContextVersion((v) => v + 1)
           })
           // Fire off all API calls in parallel WITHOUT awaiting - let them complete in background
@@ -2486,8 +2487,9 @@ function App() {
                       next.delete(ticketPk)
                       return next
                     })
-                    // Clear optimistic positions for this column since backend confirmed
+                    // Clear optimistic positions and items for this column since backend confirmed
                     optimisticTicketPositionsRef.current.clear()
+                    optimisticItemsRef.current.delete(sourceColumn.id)
                   }
                   // If backend hasn't confirmed yet, keep in pendingMoves (will be checked on next poll)
                   return currentTickets
@@ -2538,8 +2540,9 @@ function App() {
                   next.delete(ticketPk)
                   return next
                 })
-                // Clear optimistic positions on rollback
+                // Clear optimistic positions and items on rollback
                 optimisticTicketPositionsRef.current.clear()
+                optimisticItemsRef.current.delete(sourceColumn.id)
               }, remainingDelay)
             }
           })
@@ -3303,6 +3306,7 @@ ${notes || '(none provided)'}
                   hideRemove={supabaseBoardActive}
                   onOpenDetail={handleOpenTicketDetail}
                   sortableContextVersion={sortableContextVersion}
+                  optimisticItemsRef={optimisticItemsRef}
                   supabaseBoardActive={supabaseBoardActive}
                   supabaseColumns={supabaseColumns}
                   supabaseTickets={supabaseTickets}
