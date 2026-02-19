@@ -45,6 +45,10 @@
       "maintainability": 15.68
     },
     {
+      "file": "agents/src/agents/projectManager/ticketTools.ts",
+      "maintainability": 16.46
+    },
+    {
       "file": "projects/kanban/src/components/ArtifactReportViewer.tsx",
       "maintainability": 24.62
     },
@@ -75,10 +79,6 @@
     {
       "file": "api/artifacts/get.ts",
       "maintainability": 32.38
-    },
-    {
-      "file": "api/agent-runs/_shared.ts",
-      "maintainability": 32.99
     }
   ],
   "mostRecentImprovements": [
@@ -92,6 +92,12 @@
       "file": "api/artifacts/get.ts",
       "before": 32.38,
       "after": 32.38,
+      "delta": 0
+    },
+    {
+      "file": "agents/src/agents/projectManager/ticketTools.ts",
+      "before": 16.46,
+      "after": 16.46,
       "delta": 0
     },
     {
@@ -113,7 +119,7 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-19T15:36:40.267Z",
-  "filesAnalyzed": 280,
-  "unroundedSimplicity": 40.3
+  "generatedAt": "2026-02-19T16:05:32.457Z",
+  "filesAnalyzed": 282,
+  "unroundedSimplicity": 40.2
 }
