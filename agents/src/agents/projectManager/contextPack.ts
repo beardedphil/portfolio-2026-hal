@@ -17,6 +17,36 @@ const CONVERSATION_RECENT_MAX_CHARS = 12_000
 /** Use minimal bootstrap to avoid context overflow: do not inline full instruction bodies or long topic index. Agent loads instructions on demand via get_instruction_set. */
 const USE_MINIMAL_BOOTSTRAP = true
 
+/** Agent types supported by the instruction system. */
+const AGENT_TYPES = [
+  'project-manager',
+  'implementation-agent',
+  'qa-agent',
+  'process-review-agent',
+] as const
+
+type AgentType = (typeof AGENT_TYPES)[number]
+
+interface TopicMeta {
+  title?: string
+  description?: string
+  agentTypes?: string[]
+  keywords?: string[]
+}
+
+interface InstructionRecord {
+  topicId: string
+  filename: string
+  title: string
+  description: string
+  contentMd: string
+  alwaysApply: boolean
+  agentTypes: string[]
+  isBasic: boolean
+  isSituational: boolean
+  topicMetadata?: TopicMeta
+}
+
 function recentTurnsWithinCharBudget(
   turns: ConversationTurn[],
   maxChars: number
@@ -238,64 +268,64 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
 
   if (!localLoaded) {
   try {
-    type TopicMeta = {
-      title?: string
-      description?: string
-      agentTypes?: string[]
-      keywords?: string[]
-    }
-
-    type InstructionRecord = {
-      topicId: string
-      filename: string
-      title: string
-      description: string
-      contentMd: string
-      alwaysApply: boolean
-      agentTypes: string[]
-      isBasic: boolean
-      isSituational: boolean
-      topicMetadata?: TopicMeta
-    }
-
     const repoFullName = config.repoFullName || config.projectId || 'beardedphil/portfolio-2026-hal'
-    const agentTypes = [
-      'project-manager',
-      'implementation-agent',
-      'qa-agent',
-      'process-review-agent',
-    ] as const
 
-    const labelForAgentType = (agentType: (typeof agentTypes)[number]): string => {
+    function labelForAgentType(agentType: AgentType): string {
       if (agentType === 'project-manager') return 'Project Manager'
       if (agentType === 'implementation-agent') return 'Implementation Agent'
       if (agentType === 'qa-agent') return 'QA Agent'
       return 'Process Review Agent'
     }
 
-    const mapHalInstruction = (raw: Record<string, unknown>): InstructionRecord => {
-      const topicIdRaw = typeof raw.topicId === 'string' ? raw.topicId.trim() : ''
-      const filenameRaw = typeof raw.filename === 'string' ? raw.filename.trim() : ''
-      const titleRaw = typeof raw.title === 'string' ? raw.title.trim() : ''
-      const descriptionRaw = typeof raw.description === 'string' ? raw.description.trim() : ''
-      const contentMdRaw =
-        typeof raw.contentMd === 'string'
-          ? raw.contentMd
-          : typeof raw.contentBody === 'string'
-            ? raw.contentBody
-            : ''
-      const topicMeta = raw.topicMetadata as TopicMeta | undefined
-      const agentTypesRaw = Array.isArray(raw.agentTypes)
-        ? raw.agentTypes.filter((v): v is string => typeof v === 'string')
-        : []
+    function extractStringField(raw: Record<string, unknown>, key: string, altKey?: string): string {
+      const value = raw[key] ?? (altKey ? raw[altKey] : undefined)
+      return typeof value === 'string' ? value.trim() : ''
+    }
 
-      const topicId = topicIdRaw || filenameRaw.replace(/\.mdc$/i, '')
-      const filename = filenameRaw || `${topicId || 'unknown'}.mdc`
+    function extractContentMd(raw: Record<string, unknown>, primaryKey: string, altKey: string): string {
+      const primary = raw[primaryKey]
+      if (typeof primary === 'string') return primary
+      const alt = raw[altKey]
+      return typeof alt === 'string' ? alt : ''
+    }
+
+    function extractAgentTypes(raw: Record<string, unknown>, key: string): string[] {
+      const value = raw[key]
+      return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : []
+    }
+
+    function normalizeTopicId(topicId: string, filename: string): string {
+      return topicId || filename.replace(/\.mdc$/i, '')
+    }
+
+    function normalizeFilename(topicId: string, filename: string): string {
+      return filename || `${topicId || 'unknown'}.mdc`
+    }
+
+    function createTitle(title: string, filename: string): string {
+      return title || filename.replace(/\.mdc$/i, '').replace(/-/g, ' ')
+    }
+
+    function createDescription(description: string, topicMeta: TopicMeta | undefined): string {
+      return description || topicMeta?.description || 'No description'
+    }
+
+    const mapHalInstruction = (raw: Record<string, unknown>): InstructionRecord => {
+      const topicIdRaw = extractStringField(raw, 'topicId')
+      const filenameRaw = extractStringField(raw, 'filename')
+      const titleRaw = extractStringField(raw, 'title')
+      const descriptionRaw = extractStringField(raw, 'description')
+      const contentMdRaw = extractContentMd(raw, 'contentMd', 'contentBody')
+      const topicMeta = raw.topicMetadata as TopicMeta | undefined
+      const agentTypesRaw = extractAgentTypes(raw, 'agentTypes')
+
+      const topicId = normalizeTopicId(topicIdRaw, filenameRaw)
+      const filename = normalizeFilename(topicId, filenameRaw)
       return {
         topicId,
         filename,
-        title: titleRaw || filename.replace(/\.mdc$/i, '').replace(/-/g, ' '),
-        description: descriptionRaw || topicMeta?.description || 'No description',
+        title: createTitle(titleRaw, filename),
+        description: createDescription(descriptionRaw, topicMeta),
         contentMd: contentMdRaw,
         alwaysApply: raw.alwaysApply === true,
         agentTypes: agentTypesRaw,
@@ -306,28 +336,21 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
     }
 
     const mapSupabaseInstruction = (raw: Record<string, unknown>): InstructionRecord => {
-      const topicIdRaw = typeof raw.topic_id === 'string' ? raw.topic_id.trim() : ''
-      const filenameRaw = typeof raw.filename === 'string' ? raw.filename.trim() : ''
-      const titleRaw = typeof raw.title === 'string' ? raw.title.trim() : ''
-      const descriptionRaw = typeof raw.description === 'string' ? raw.description.trim() : ''
-      const contentMdRaw =
-        typeof raw.content_md === 'string'
-          ? raw.content_md
-          : typeof raw.content_body === 'string'
-            ? raw.content_body
-            : ''
+      const topicIdRaw = extractStringField(raw, 'topic_id')
+      const filenameRaw = extractStringField(raw, 'filename')
+      const titleRaw = extractStringField(raw, 'title')
+      const descriptionRaw = extractStringField(raw, 'description')
+      const contentMdRaw = extractContentMd(raw, 'content_md', 'content_body')
       const topicMeta = raw.topic_metadata as TopicMeta | undefined
-      const agentTypesRaw = Array.isArray(raw.agent_types)
-        ? raw.agent_types.filter((v): v is string => typeof v === 'string')
-        : []
+      const agentTypesRaw = extractAgentTypes(raw, 'agent_types')
 
-      const topicId = topicIdRaw || filenameRaw.replace(/\.mdc$/i, '')
-      const filename = filenameRaw || `${topicId || 'unknown'}.mdc`
+      const topicId = normalizeTopicId(topicIdRaw, filenameRaw)
+      const filename = normalizeFilename(topicId, filenameRaw)
       return {
         topicId,
         filename,
-        title: titleRaw || filename.replace(/\.mdc$/i, '').replace(/-/g, ' '),
-        description: descriptionRaw || topicMeta?.description || 'No description',
+        title: createTitle(titleRaw, filename),
+        description: createDescription(descriptionRaw, topicMeta),
         contentMd: contentMdRaw,
         alwaysApply: raw.always_apply === true,
         agentTypes: agentTypesRaw,
@@ -407,7 +430,7 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
       sections.push('3. Request additional topic-specific instructions only when needed.\n')
 
       sections.push('**Request full instruction set by agent type:**')
-      for (const agentType of agentTypes) {
+      for (const agentType of AGENT_TYPES) {
         const agentBasicCount = basicInstructions.filter(
           (inst) => inst.agentTypes.includes(agentType) && !inst.agentTypes.includes('all')
         ).length
@@ -425,7 +448,7 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
         }
       }
 
-      for (const agentType of agentTypes) {
+      for (const agentType of AGENT_TYPES) {
         const agentTopics = dedupeTopicSummaries(
           situationalInstructions
             .filter((inst) => appliesToAgent(inst, agentType))
