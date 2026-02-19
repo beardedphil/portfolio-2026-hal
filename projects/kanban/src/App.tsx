@@ -2815,7 +2815,7 @@ function App() {
           ) : (
             <>
               <div style={{ whiteSpace: 'pre-line' }}>
-                ✗ Move blocked: {lastMovePersisted.error ?? 'Unknown error'}
+                ✗ Move failed: {lastMovePersisted.error ?? 'Unknown error'}
               </div>
               <button
                 type="button"
