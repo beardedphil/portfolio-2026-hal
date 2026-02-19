@@ -95,12 +95,6 @@
       "delta": 0
     },
     {
-      "file": "api/tickets/create-from-suggestion.ts",
-      "before": 33.81,
-      "after": 33.81,
-      "delta": 0
-    },
-    {
       "file": "api/qa-agent/run.ts",
       "before": 24.9,
       "after": 24.9,
@@ -125,7 +119,7 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-19T19:54:51.717Z",
+  "generatedAt": "2026-02-19T19:59:50.618Z",
   "filesAnalyzed": 290,
   "unroundedMaintainability": 40.8,
   "unroundedSimplicity": 40.8
