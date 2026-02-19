@@ -90,6 +90,8 @@ The script prints a single line: `Simplicity: XX%`. **IMPORTANT:** Even though t
 
 **Maintainability section format:**
 
+You **MUST** use this exact format in your QA report. Copy and paste this template, replacing `XX%` with the actual percentage:
+
 ```markdown
 ## Maintainability
 
@@ -102,10 +104,12 @@ The maintainability metric measures code quality across the entire repository. H
 - **Change safety:** Code changes are less likely to introduce bugs or break existing functionality
 ```
 
-**CRITICAL:** 
-- Use the exact heading `## Maintainability` (not "Simplicity" or any variation)
-- Include all three bullets (Readability, Testability, Change safety) in your report
-- Do not mention "Simplicity" anywhere in the QA report body
+**CRITICAL REQUIREMENTS:** 
+- **MANDATORY:** Use the exact heading `## Maintainability` (not "Simplicity" or any variation)
+- **MANDATORY:** Include all three bullets exactly as shown above (Readability, Testability, Change safety)
+- **MANDATORY:** Do not mention "Simplicity" anywhere in the QA report body - use "Maintainability" only
+- **MANDATORY:** Include the introductory sentence: "The maintainability metric measures code quality across the entire repository. Higher scores indicate:"
+- The three bullets must appear in the user-visible QA report rendered in the HAL UI
 
 **Note:** Run this on the branch/commit being verified. The number is for the whole repo, not just the ticket’s changes.
 
