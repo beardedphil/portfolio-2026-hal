@@ -6,7 +6,7 @@
  */
 
 import { createOpenAI } from '@ai-sdk/openai'
-import { generateText, tool } from 'ai'
+import { generateText, jsonSchema, tool } from 'ai'
 import { z } from 'zod'
 import path from 'path'
 import fs from 'fs/promises'
@@ -150,10 +150,9 @@ export async function runPmAgent(
   // In particular, any schema with `{ type: "array" }` must define `items`.
   // Define a proper recursive JSON value schema so we never emit array schemas
   // without `items` (a common pitfall of "unknown/any" conversions).
-  // NOTE: OpenAI tool schema validation rejects JSON Schema $ref in certain positions
-  // (e.g. additionalProperties/items must include an explicit `type`).
-  // Keep red_json shallow (no nested objects/arrays) and use red_json_content for full JSON.
-  const RedJsonScalar = z.union([z.string(), z.number(), z.boolean(), z.null()])
+  // OpenAI tool schema validation is stricter than generic JSON Schema.
+  // For create_red_document, we use an explicit JSON Schema (via jsonSchema())
+  // so we can control `required` and avoid `$ref` / recursive schemas under additionalProperties/items.
 
   let contextPack: string
   try {
@@ -761,39 +760,61 @@ export async function runPmAgent(
     },
   })
 
+  type CreateRedDocumentInput = {
+    ticket_id: string
+    red_json: Record<string, string | number | boolean | null> | null
+    red_json_content: string | null
+    validation_status: 'valid' | 'invalid' | 'pending' | null
+    created_by: string | null
+  }
+
   const createRedDocumentTool = tool({
     description:
       'Create a Requirement Expansion Document (RED) for a ticket via the HAL API. RED documents are required before a ticket can be moved to To Do. The redJson should be a structured JSON object containing the expanded requirements.',
-    parameters: z.object({
-      ticket_id: z.string().describe('Ticket id (e.g. "HAL-0012", "0012", or "12").'),
-      red_json: z
-        .record(RedJsonScalar)
-        .nullable()
-        .describe(
-          'RED document content as a JSON object (shallow map of scalar values only: string/number/boolean/null). For full nested JSON, pass red_json_content instead.'
-        ),
-      red_json_content: z
-        .string()
-        .nullable()
-        .describe(
-          'RED document content as a JSON string. Should contain expanded requirements, use cases, edge cases, and other detailed information. Will be parsed as JSON.'
-        ),
-      validation_status: z
-        .enum(['valid', 'invalid', 'pending'])
-        .nullable()
-        .describe('Validation status for the RED document. Defaults to "pending".'),
-      created_by: z
-        .string()
-        .nullable()
-        .describe('Identifier for who created the RED document (e.g. "pm-agent", "user-name").'),
+    parameters: jsonSchema<CreateRedDocumentInput>({
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        ticket_id: {
+          type: 'string',
+          description: 'Ticket id (e.g. "HAL-0012", "0012", or "12").',
+        },
+        red_json: {
+          anyOf: [
+            {
+              type: 'object',
+              description:
+                'RED document content as a JSON object (shallow map of scalar values only: string/number/boolean/null). For full nested JSON, pass red_json_content instead.',
+              additionalProperties: {
+                anyOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }, { type: 'null' }],
+              },
+            },
+            { type: 'null' },
+          ],
+        },
+        red_json_content: {
+          anyOf: [
+            {
+              type: 'string',
+              description:
+                'RED document content as a JSON string. Should contain expanded requirements, use cases, edge cases, and other detailed information. Will be parsed as JSON.',
+            },
+            { type: 'null' },
+          ],
+        },
+        validation_status: {
+          anyOf: [{ type: 'string', enum: ['valid', 'invalid', 'pending'] }, { type: 'null' }],
+          description: 'Validation status for the RED document. Defaults to "pending".',
+        },
+        created_by: {
+          anyOf: [{ type: 'string' }, { type: 'null' }],
+          description: 'Identifier for who created the RED document (e.g. "pm-agent", "user-name").',
+        },
+      },
+      // OpenAI tool schema validation requires `required` to include every key in `properties`
+      required: ['ticket_id', 'red_json', 'red_json_content', 'validation_status', 'created_by'],
     }),
-    execute: async (input: {
-      ticket_id: string
-      red_json: Record<string, unknown> | null
-      red_json_content: string | null
-      validation_status: 'valid' | 'invalid' | 'pending' | null
-      created_by: string | null
-    }) => {
+    execute: async (input: CreateRedDocumentInput) => {
       type CreateRedResult =
         | {
             success: true
