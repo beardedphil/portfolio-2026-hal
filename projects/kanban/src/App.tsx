@@ -301,30 +301,6 @@ function App() {
         })
       }
     }
-    for (const t of sourceTickets) {
-      const colId =
-        t.kanban_column_id == null || t.kanban_column_id === ''
-          ? firstColumnId
-          : columnIds.has(t.kanban_column_id)
-            ? t.kanban_column_id
-            : (unknownIds.push(t.pk), firstColumnId)
-      // Use optimistic position if available (for same-column reorder to prevent @dnd-kit revert)
-      const optimisticPos = optimisticTicketPositionsRef.current.get(t.pk)
-      const pos = optimisticPos !== undefined ? optimisticPos : (typeof t.kanban_position === 'number' ? t.kanban_position : 0)
-      byColumn[colId].push({ id: t.pk, position: pos })
-    }
-    // If optimisticItems has a new order for a column, use that order instead of sorting by position
-    for (const [colId, optimisticOrder] of Object.entries(optimisticItems)) {
-      if (byColumn[colId] && optimisticOrder && optimisticOrder.length === byColumn[colId].length) {
-        // Reorder byColumn[colId] to match optimisticOrder
-        const orderMap = new Map<string, number>(optimisticOrder.map((id: string, idx: number) => [id, idx]))
-        byColumn[colId].sort((a, b) => {
-          const aIdx = orderMap.get(a.id) ?? Infinity
-          const bIdx = orderMap.get(b.id) ?? Infinity
-          return aIdx - bIdx
-        })
-      }
-    }
     // Sort columns that don't have optimistic items
     for (const id of Object.keys(byColumn)) {
       if (!(id in optimisticItems)) {
