@@ -146,6 +146,21 @@ export async function runPmAgent(
 
   const ctx: ToolContext = { repoRoot: config.repoRoot }
 
+  // Tool schemas sent to OpenAI must be valid JSON Schema.
+  // In particular, any schema with `{ type: "array" }` must define `items`.
+  // Define a proper recursive JSON value schema so we never emit array schemas
+  // without `items` (a common pitfall of "unknown/any" conversions).
+  const JsonValue: z.ZodType<unknown> = z.lazy(() =>
+    z.union([
+      z.string(),
+      z.number(),
+      z.boolean(),
+      z.null(),
+      z.array(JsonValue),
+      z.record(JsonValue),
+    ])
+  )
+
   let contextPack: string
   try {
     contextPack = await buildContextPack(config, message)
@@ -751,7 +766,7 @@ export async function runPmAgent(
     parameters: z.object({
       ticket_id: z.string().describe('Ticket id (e.g. "HAL-0012", "0012", or "12").'),
       red_json: z
-        .record(z.unknown())
+        .record(JsonValue)
         .optional()
         .describe(
           'RED document content as a JSON object. Should contain expanded requirements, use cases, edge cases, and other detailed information.'
