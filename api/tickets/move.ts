@@ -180,10 +180,23 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
+    // HAL-0791: When a ticket fails QA or HITL, move it to the top of To-do column
+    // Detect failure-driven moves: from col-qa or col-human-in-the-loop to col-todo
+    let effectivePosition = position
+    const isFailureMove =
+      columnId === 'col-todo' &&
+      (currentColumnId === 'col-qa' || currentColumnId === 'col-human-in-the-loop') &&
+      (position === undefined || position === null || position === '' || position === 'bottom')
+    
+    if (isFailureMove) {
+      // Set position to 'top' to place failed ticket at position 0
+      effectivePosition = 'top'
+    }
+
     let targetPosition: number
     try {
       targetPosition = (
-        await calculateTargetPosition(supabase, columnId, repoFullName, resolvedTicketPk, currentColumnId, position)
+        await calculateTargetPosition(supabase, columnId, repoFullName, resolvedTicketPk, currentColumnId, effectivePosition)
       ).position
     } catch (err) {
       json(res, 400, { success: false, error: err instanceof Error ? err.message : String(err) })
