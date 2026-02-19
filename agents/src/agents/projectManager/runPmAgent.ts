@@ -61,9 +61,9 @@ You have access to read-only tools to explore the repository. Use them to answer
 
 **Creating tickets:** When the user **explicitly** asks to create a ticket (e.g. "create a ticket", "create ticket for that", "create a new ticket for X"), you MUST call the create_ticket tool if it is available. Do NOT call create_ticket for short, non-actionable messages such as: "test", "ok", "hi", "hello", "thanks", "cool", "checking", "asdf", or similar—these are usually the user testing the UI, acknowledging, or typing casually. Do not infer a ticket-creation request from context alone (e.g. if the user sends "Test" while testing the chat UI, that does NOT mean create the chat UI ticket). Calling the tool is what actually creates the ticket—do not only write the ticket content in your message. Use create_ticket with a short title (without the ID prefix—the tool assigns the next repo-scoped ID and normalizes the Title line to "PREFIX-NNNN — ..."). Provide a full markdown body following the repo ticket template. Do not invent an ID—the tool assigns it. Do not write secrets or API keys into the ticket body. If create_ticket is not in your tool list, tell the user: "I don't have the create-ticket tool for this request. In the HAL app, connect the project folder (with VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in its .env), then try again. Check Diagnostics to confirm 'Create ticket (this request): Available'." After creating a ticket via the tool, report the exact ticket display ID (e.g. HAL-0079) and the returned filePath (Supabase-only).
 
-**Moving a ticket to To Do:** When the user asks to move a ticket to To Do (e.g. "move this to To Do", "move ticket 0012 to To Do"), you MUST (1) fetch the ticket content with fetch_ticket_content (by ticket id), (2) evaluate readiness with evaluate_ticket_ready (pass the body_md from the fetch result). If the ticket is NOT ready, do NOT call kanban_move_ticket_to_todo; instead reply with a clear list of what is missing (use the missingItems from the evaluate_ticket_ready result). If the ticket IS ready, call kanban_move_ticket_to_todo with the ticket id. Then confirm in chat that the ticket was moved. The readiness checklist is in your instructions (topic: ready-to-start-checklist): Goal, Human-verifiable deliverable, Acceptance criteria checkboxes, Constraints, Non-goals, no unresolved placeholders.
+**Moving a ticket to To Do:** When the user asks to move a ticket to To Do (e.g. "move this to To Do", "move ticket 0012 to To Do"), you MUST (1) fetch the ticket content with fetch_ticket_content (by ticket id), (2) evaluate readiness with evaluate_ticket_ready (pass the body_md from the fetch result). If the ticket is NOT ready, do NOT call move_ticket_to_column; instead reply with a clear list of what is missing (use the missingItems from the evaluate_ticket_ready result). If the ticket IS ready, call move_ticket_to_column with ticket_id and column_id: "col-todo". Then confirm in chat that the ticket was moved. The readiness checklist is in your instructions (topic: ready-to-start-checklist): Goal, Human-verifiable deliverable, Acceptance criteria checkboxes, Constraints, Non-goals, no unresolved placeholders.
 
-**Preparing a ticket (Definition of Ready):** When the user asks to "prepare ticket X" or "get ticket X ready" (e.g. from "Prepare top ticket" button), you MUST (1) fetch the ticket content with fetch_ticket_content, (2) evaluate readiness with evaluate_ticket_ready. If the ticket is NOT ready, use update_ticket_body to fix formatting issues (normalize headings, convert bullets to checkboxes in Acceptance criteria if needed, ensure all required sections exist). After updating, re-evaluate with evaluate_ticket_ready. If the ticket IS ready (after fixes if needed), you MUST automatically call kanban_move_ticket_to_todo (this tool is available and uses Supabase directly - no HTTP/fetch needed) to move it to To Do. Then confirm in chat that the ticket is Ready-to-start and has been moved to To Do. If the ticket cannot be made ready (e.g. missing required content that cannot be auto-generated), clearly explain what is missing and that the ticket remains in Unassigned. IMPORTANT: The kanban_move_ticket_to_todo tool is always available when Supabase is connected - use it to move tickets, do not claim you cannot move tickets.
+**Preparing a ticket (Definition of Ready):** When the user asks to "prepare ticket X" or "get ticket X ready" (e.g. from "Prepare top ticket" button), you MUST (1) fetch the ticket content with fetch_ticket_content, (2) evaluate readiness with evaluate_ticket_ready. If the ticket is NOT ready, use update_ticket_body to fix formatting issues (normalize headings, convert bullets to checkboxes in Acceptance criteria if needed, ensure all required sections exist). After updating, re-evaluate with evaluate_ticket_ready. If the ticket IS ready (after fixes if needed), you MUST automatically call move_ticket_to_column with ticket_id and column_id: "col-todo" to move it to To Do. Then confirm in chat that the ticket is Ready-to-start and has been moved to To Do. If the ticket cannot be made ready (e.g. missing required content that cannot be auto-generated), clearly explain what is missing and that the ticket remains in Unassigned. IMPORTANT: The move_ticket_to_column tool is always available when Supabase is connected - use it to move tickets, do not claim you cannot move tickets.
 
 **Listing tickets by column:** When the user asks to see tickets in a specific Kanban column (e.g. "list tickets in QA column", "what tickets are in QA", "show me tickets in the QA column"), use list_tickets_by_column with the appropriate column_id (e.g. "col-qa" for QA, "col-todo" for To Do, "col-unassigned" for Unassigned, "col-human-in-the-loop" for Human in the Loop). Format the results clearly in your reply, showing ticket ID and title for each ticket. This helps you see which tickets are currently in a given column so you can update other tickets without asking the user for IDs.
 
@@ -868,7 +868,7 @@ export async function runPmAgent(
 
   const evaluateTicketReadyTool = tool({
     description:
-      'Evaluate ticket body against the Ready-to-start checklist (Definition of Ready). Pass body_md from fetch_ticket_content. Returns ready (boolean), missingItems (list), and checklistResults. Always call this before kanban_move_ticket_to_todo; do not move if not ready.',
+      'Evaluate ticket body against the Ready-to-start checklist (Definition of Ready). Pass body_md from fetch_ticket_content. Returns ready (boolean), missingItems (list), and checklistResults. Always call this before move_ticket_to_column; do not move if not ready.',
     parameters: z.object({
       body_md: z.string().describe('Full markdown body of the ticket (e.g. from fetch_ticket_content).'),
     }),
@@ -1003,170 +1003,6 @@ export async function runPmAgent(
       })
     })()
 
-
-  const kanbanMoveTicketToTodoTool =
-    hasSupabase &&
-    (() => {
-      const supabase: SupabaseClient = createClient(
-        config.supabaseUrl!.trim(),
-        config.supabaseAnonKey!.trim()
-      )
-      const COL_UNASSIGNED = 'col-unassigned'
-      const COL_TODO = 'col-todo'
-      return tool({
-        description:
-          'Move a ticket from Unassigned to To Do on the kanban board. This tool uses Supabase directly (no HTTP/fetch needed). Only call after evaluate_ticket_ready returns ready: true. Fails if the ticket is not in Unassigned. Use this tool when preparing tickets (e.g. "Prepare top ticket" workflow) - after fixing formatting and confirming readiness, automatically call this tool to move the ticket to To Do.',
-        parameters: z.object({
-          ticket_id: z.string().describe('Ticket id (e.g. "0012" or "HAL-0012").'),
-        }),
-        execute: async (input: { ticket_id: string }) => {
-          const ticketNumber = parseTicketNumber(input.ticket_id)
-          const normalizedId = String(ticketNumber ?? 0).padStart(4, '0')
-          const repoFullName =
-            typeof config.projectId === 'string' && config.projectId.trim() ? config.projectId.trim() : ''
-          type MoveResult =
-            | { success: true; ticketId: string; fromColumn: string; toColumn: string }
-            | { success: false; error: string }
-          let out: MoveResult
-          try {
-            if (!ticketNumber) {
-              out = { success: false, error: `Could not parse ticket number from "${input.ticket_id}".` }
-              toolCalls.push({ name: 'kanban_move_ticket_to_todo', input, output: out })
-              return out
-            }
-
-            let row: any = null
-            let fetchError: any = null
-            if (repoFullName) {
-              const r = await supabase
-                .from('tickets')
-                .select('pk, id, kanban_column_id, kanban_position')
-                .eq('repo_full_name', repoFullName)
-                .eq('ticket_number', ticketNumber)
-                .maybeSingle()
-              row = r.data
-              fetchError = r.error
-              if (fetchError && isUnknownColumnError(fetchError)) {
-                const legacy = await supabase
-                  .from('tickets')
-                  .select('id, kanban_column_id, kanban_position')
-                  .eq('id', normalizedId)
-                  .maybeSingle()
-                row = legacy.data
-                fetchError = legacy.error
-              }
-            } else {
-              const legacy = await supabase
-                .from('tickets')
-                .select('id, kanban_column_id, kanban_position')
-                .eq('id', normalizedId)
-                .maybeSingle()
-              row = legacy.data
-              fetchError = legacy.error
-            }
-
-            if (fetchError) {
-              out = { success: false, error: `Supabase fetch: ${fetchError.message}` }
-              toolCalls.push({ name: 'kanban_move_ticket_to_todo', input, output: out })
-              return out
-            }
-            if (!row) {
-              out = { success: false, error: `Ticket ${normalizedId} not found.` }
-              toolCalls.push({ name: 'kanban_move_ticket_to_todo', input, output: out })
-              return out
-            }
-            const currentCol = (row as { kanban_column_id?: string | null }).kanban_column_id ?? null
-            const inUnassigned =
-              currentCol === COL_UNASSIGNED || currentCol === null || currentCol === ''
-            if (!inUnassigned) {
-              out = {
-                success: false,
-                error: `Ticket is not in Unassigned (current column: ${currentCol ?? 'null'}). Only tickets in Unassigned can be moved to To Do.`,
-              }
-              toolCalls.push({ name: 'kanban_move_ticket_to_todo', input, output: out })
-              return out
-            }
-            let todoRows: any[] | null = null
-            if (repoFullName) {
-              const r = await supabase
-                .from('tickets')
-                .select('kanban_position')
-                .eq('kanban_column_id', COL_TODO)
-                .eq('repo_full_name', repoFullName)
-                .order('kanban_position', { ascending: false })
-                .limit(1)
-              if (r.error && isUnknownColumnError(r.error)) {
-                const legacy = await supabase
-                  .from('tickets')
-                  .select('kanban_position')
-                  .eq('kanban_column_id', COL_TODO)
-                  .order('kanban_position', { ascending: false })
-                  .limit(1)
-                if (legacy.error) {
-                  out = { success: false, error: `Supabase fetch: ${legacy.error.message}` }
-                  toolCalls.push({ name: 'kanban_move_ticket_to_todo', input, output: out })
-                  return out
-                }
-                todoRows = legacy.data as any[] | null
-              } else if (r.error) {
-                out = { success: false, error: `Supabase fetch: ${r.error.message}` }
-                toolCalls.push({ name: 'kanban_move_ticket_to_todo', input, output: out })
-                return out
-              } else {
-                todoRows = r.data as any[] | null
-              }
-            } else {
-              const legacy = await supabase
-                .from('tickets')
-                .select('kanban_position')
-                .eq('kanban_column_id', COL_TODO)
-                .order('kanban_position', { ascending: false })
-                .limit(1)
-              if (legacy.error) {
-                out = { success: false, error: `Supabase fetch: ${legacy.error.message}` }
-                toolCalls.push({ name: 'kanban_move_ticket_to_todo', input, output: out })
-                return out
-              }
-              todoRows = legacy.data as any[] | null
-            }
-
-            const maxPos = (todoRows ?? []).reduce(
-              (acc, r) => Math.max(acc, (r as { kanban_position?: number }).kanban_position ?? 0),
-              0
-            )
-            const newPosition = maxPos + 1
-            const now = new Date().toISOString()
-            const updateQ = supabase
-              .from('tickets')
-              .update({
-                kanban_column_id: COL_TODO,
-                kanban_position: newPosition,
-                kanban_moved_at: now,
-              })
-            const { error: updateError } = row.pk
-              ? await updateQ.eq('pk', row.pk)
-              : await updateQ.eq('id', normalizedId)
-            if (updateError) {
-              out = { success: false, error: `Supabase update: ${updateError.message}` }
-            } else {
-              out = {
-                success: true,
-                ticketId: normalizedId,
-                fromColumn: COL_UNASSIGNED,
-                toColumn: COL_TODO,
-              }
-            }
-          } catch (err) {
-            out = {
-              success: false,
-              error: err instanceof Error ? err.message : String(err),
-            }
-          }
-          toolCalls.push({ name: 'kanban_move_ticket_to_todo', input, output: out })
-          return out
-        },
-      })
-    })()
 
   const listTicketsByColumnTool =
     hasSupabase &&
@@ -2186,7 +2022,6 @@ export async function runPmAgent(
     ...(attachImageToTicketTool ? { attach_image_to_ticket: attachImageToTicketTool } : {}),
     evaluate_ticket_ready: evaluateTicketReadyTool,
     ...(updateTicketBodyTool ? { update_ticket_body: updateTicketBodyTool } : {}),
-    ...(kanbanMoveTicketToTodoTool ? { kanban_move_ticket_to_todo: kanbanMoveTicketToTodoTool } : {}),
     ...(listTicketsByColumnTool ? { list_tickets_by_column: listTicketsByColumnTool } : {}),
     ...(moveTicketToColumnTool ? { move_ticket_to_column: moveTicketToColumnTool } : {}),
     ...(listAvailableReposTool ? { list_available_repos: listAvailableReposTool } : {}),
@@ -2314,14 +2149,15 @@ export async function runPmAgent(
           } else {
             const moveCall = toolCalls.find(
               (c) =>
-                c.name === 'kanban_move_ticket_to_todo' &&
+                c.name === 'move_ticket_to_column' &&
                 typeof c.output === 'object' &&
                 c.output !== null &&
-                (c.output as { success?: boolean }).success === true
+                (c.output as { success?: boolean; column_id?: string }).success === true &&
+                (c.output as { column_id?: string }).column_id === 'col-todo'
             )
             if (moveCall) {
-              const out = moveCall.output as { ticketId: string; fromColumn: string; toColumn: string }
-              reply = `I moved ticket **${out.ticketId}** from ${out.fromColumn} to **${out.toColumn}**. It should now appear under To Do on the Kanban board.`
+              const out = moveCall.output as { ticket_id: string; column_id: string; column_name?: string }
+              reply = `I moved ticket **${out.ticket_id}** to **To Do**. It should now appear under To Do on the Kanban board.`
             } else {
               const updateBodyCall = toolCalls.find(
                 (c) =>
