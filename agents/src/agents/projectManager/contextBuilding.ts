@@ -109,7 +109,6 @@ export function formatPmInputsSummary(config: PmAgentConfig): string {
     { name: 'create_ticket', available: hasSupabase },
     { name: 'fetch_ticket_content', available: hasSupabase },
     { name: 'update_ticket_body', available: hasSupabase },
-    { name: 'sync_tickets', available: hasSupabase },
     { name: 'kanban_move_ticket_to_todo', available: hasSupabase },
     { name: 'list_tickets_by_column', available: hasSupabase },
     { name: 'move_ticket_to_column', available: hasSupabase },

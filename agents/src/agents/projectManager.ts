@@ -132,9 +132,9 @@ You have access to read-only tools to explore the repository. Use them to answer
 
 **Listing available repositories:** When the user asks "what repos can I move tickets to?" or similar questions about available target repositories, use list_available_repos to get a list of all repositories (repo_full_name) that have tickets in the database. Format the results clearly in your reply, showing the repository names.
 
-**Supabase is the source of truth for ticket content.** When the user asks to edit or fix a ticket, you must update the ticket in the database (do not suggest editing docs/tickets/*.md only). Use update_ticket_body to write the corrected body_md directly to Supabase. The change propagates out: the Kanban UI reflects it within ~10 seconds (poll interval). To propagate the same content to docs/tickets/*.md in the repo, use the sync_tickets tool (if available) after updating—sync writes from DB to docs so the repo files match Supabase.
+**Supabase is the source of truth for ticket content.** When the user asks to edit or fix a ticket, you must update the ticket in the database (do not suggest editing docs/tickets/*.md only). Use update_ticket_body to write the corrected body_md directly to Supabase. The change propagates out: the Kanban UI reflects it within ~10 seconds (poll interval). Supabase is the authoritative source; no sync steps are needed.
 
-**Editing ticket body in Supabase:** When a ticket in Unassigned fails the Definition of Ready (missing sections, placeholders, etc.) and the user asks to fix it or make it ready, use update_ticket_body to write the corrected body_md directly to Supabase. Provide the full markdown body with all required sections: Goal (one sentence), Human-verifiable deliverable (UI-only), Acceptance criteria (UI-only) with - [ ] checkboxes, Constraints, Non-goals. Replace every placeholder with concrete content. The Kanban UI reflects updates within ~10 seconds. Optionally call sync_tickets afterward so docs/tickets/*.md match the database.
+**Editing ticket body in Supabase:** When a ticket in Unassigned fails the Definition of Ready (missing sections, placeholders, etc.) and the user asks to fix it or make it ready, use update_ticket_body to write the corrected body_md directly to Supabase. Provide the full markdown body with all required sections: Goal (one sentence), Human-verifiable deliverable (UI-only), Acceptance criteria (UI-only) with - [ ] checkboxes, Constraints, Non-goals. Replace every placeholder with concrete content. The Kanban UI reflects updates within ~10 seconds. Supabase is the source of truth; no additional sync steps are required.
 
 **Attaching images to tickets:** When a user uploads an image in chat and asks to attach it to a ticket (e.g. "Add this image to ticket HAL-0143"), use attach_image_to_ticket with the ticket ID. Images are available from recent conversation messages (persisted to database) as well as the current request. The tool automatically accesses images from recent messages and the current conversation turn. If multiple images are available, you can specify image_index (0-based) to select which image to attach. The image will appear in the ticket's Artifacts section. The tool prevents duplicate attachments of the same image.
 
@@ -949,7 +949,7 @@ export async function runPmAgent(
       )
       return tool({
         description:
-          'Update a ticket\'s body_md in Supabase directly. Supabase is the source of truth—this is how you edit a ticket; the Kanban UI reflects the change within ~10 seconds. Use when a ticket fails Definition of Ready or the user asks to edit/fix a ticket. Provide the full markdown body with all required sections: Goal (one sentence), Human-verifiable deliverable (UI-only), Acceptance criteria (UI-only) with - [ ] checkboxes, Constraints, Non-goals. No angle-bracket placeholders. After updating, use sync_tickets (if available) to propagate the change to docs/tickets/*.md.',
+          'Update a ticket\'s body_md in Supabase directly. Supabase is the source of truth—this is how you edit a ticket; the Kanban UI reflects the change within ~10 seconds. Use when a ticket fails Definition of Ready or the user asks to edit/fix a ticket. Provide the full markdown body with all required sections: Goal (one sentence), Human-verifiable deliverable (UI-only), Acceptance criteria (UI-only) with - [ ] checkboxes, Constraints, Non-goals. No angle-bracket placeholders. Supabase is the authoritative source; no sync steps are needed.',
         parameters: z.object({
           ticket_id: z.string().describe('Ticket id (e.g. "0037").'),
           body_md: z
@@ -1059,40 +1059,6 @@ export async function runPmAgent(
             }
           }
           toolCalls.push({ name: 'update_ticket_body', input, output: out })
-          return out
-        },
-      })
-    })()
-
-  const syncTicketsTool =
-    hasSupabase &&
-    (() => {
-      const scriptPath = path.resolve(config.repoRoot, 'scripts', 'sync-tickets.js')
-      const env = {
-        ...process.env,
-        SUPABASE_URL: config.supabaseUrl!.trim(),
-        SUPABASE_ANON_KEY: config.supabaseAnonKey!.trim(),
-      }
-      return tool({
-        description:
-          'Run the sync-tickets script so docs/tickets/*.md match Supabase (DB → docs). Use after update_ticket_body or create_ticket so the repo files reflect the database. Supabase is the source of truth.',
-        parameters: z.object({}),
-        execute: async () => {
-          type SyncResult = { success: true; message?: string } | { success: false; error: string }
-          let out: SyncResult
-          try {
-            const { stdout, stderr } = await execAsync(`node ${JSON.stringify(scriptPath)}`, {
-              cwd: config.repoRoot,
-              env,
-              maxBuffer: 100 * 1024,
-            })
-            const combined = [stdout, stderr].filter(Boolean).join('\n').trim()
-            out = { success: true, ...(combined && { message: combined.slice(0, 500) }) }
-          } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : String(err)
-            out = { success: false, error: msg.slice(0, 500) }
-          }
-          toolCalls.push({ name: 'sync_tickets', input: {}, output: out })
           return out
         },
       })
@@ -2277,7 +2243,6 @@ export async function runPmAgent(
     ...(attachImageToTicketTool ? { attach_image_to_ticket: attachImageToTicketTool } : {}),
     evaluate_ticket_ready: evaluateTicketReadyTool,
     ...(updateTicketBodyTool ? { update_ticket_body: updateTicketBodyTool } : {}),
-    ...(syncTicketsTool ? { sync_tickets: syncTicketsTool } : {}),
     ...(kanbanMoveTicketToTodoTool ? { kanban_move_ticket_to_todo: kanbanMoveTicketToTodoTool } : {}),
     ...(listTicketsByColumnTool ? { list_tickets_by_column: listTicketsByColumnTool } : {}),
     ...(moveTicketToColumnTool ? { move_ticket_to_column: moveTicketToColumnTool } : {}),
@@ -2433,17 +2398,7 @@ export async function runPmAgent(
                   reply += ` Note: the ticket may still not pass readiness: ${out.missingItems.join('; ')}.`
                 }
               } else {
-                const syncTicketsCall = toolCalls.find(
-                  (c) =>
-                    c.name === 'sync_tickets' &&
-                    typeof c.output === 'object' &&
-                    c.output !== null &&
-                    (c.output as { success?: boolean }).success === true
-                )
-                if (syncTicketsCall) {
-                  reply =
-                    'I ran sync-tickets. docs/tickets/*.md now match Supabase (Supabase is the source of truth).'
-                } else {
+                {
                   const listTicketsCall = toolCalls.find(
                     (c) =>
                       c.name === 'list_tickets_by_column' &&
