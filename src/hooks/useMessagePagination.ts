@@ -81,7 +81,7 @@ export function useMessagePagination({
         const supabase = getSupabaseClient(supabaseUrl, supabaseAnonKey)
         const { data: rows, error } = await supabase
           .from('hal_conversation_messages')
-          .select('agent, role, content, sequence, created_at, images')
+          .select('agent, role, content, sequence, created_at')
           .eq('project_id', connectedProject)
           .eq('agent', conversationId)
           .lt('sequence', conv.oldestLoadedSequence!)

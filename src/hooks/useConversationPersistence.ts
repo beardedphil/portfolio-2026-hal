@@ -58,13 +58,15 @@ export function useConversationPersistence({
                 content: msg.content,
                 sequence: msg.id,
                 created_at: msg.timestamp.toISOString(),
-                images: msg.imageAttachments
-                  ? msg.imageAttachments.map((img) => ({
-                      dataUrl: img.dataUrl,
-                      filename: img.filename,
-                      mimeType: img.file?.type || 'image/png',
-                    }))
-                  : null,
+                  ...(msg.imageAttachments && msg.imageAttachments.length > 0
+                    ? {
+                        images: msg.imageAttachments.map((img) => ({
+                          dataUrl: img.dataUrl,
+                          filename: img.filename,
+                          mimeType: img.file?.type || 'image/png',
+                        })),
+                      }
+                    : {}),
               }))
 
               const { error } = await supabase.from('hal_conversation_messages').insert(inserts)

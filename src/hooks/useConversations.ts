@@ -78,11 +78,11 @@ export function useConversations(
           const uniqueAgents = [...new Set((agentRows || []).map(r => r.agent as string))]
           
           // For each agent, load only the most recent MESSAGES_PER_PAGE messages
-          const allRows: Array<{ agent: string; role: string; content: string; sequence: number; created_at: string; images?: unknown }> = []
+          const allRows: Array<{ agent: string; role: string; content: string; sequence: number; created_at: string }> = []
           for (const agentId of uniqueAgents) {
             const { data: agentMessages, error: agentError } = await supabase
               .from('hal_conversation_messages')
-              .select('agent, role, content, sequence, created_at, images')
+              .select('agent, role, content, sequence, created_at')
               .eq('project_id', projectName)
               .eq('agent', agentId)
               .order('sequence', { ascending: false })
