@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { isUnknownColumnError, isUniqueViolation } from './runPmAgent'
+import { parseTicketNumber } from '../../lib/projectManagerHelpers'
 
 describe('isUnknownColumnError', () => {
   it('returns true for Postgres error code 42703', () => {
@@ -76,5 +77,27 @@ describe('isUniqueViolation', () => {
   it('returns false for error with empty message', () => {
     const err = { message: '' }
     expect(isUniqueViolation(err)).toBe(false)
+  })
+})
+
+describe('parseTicketNumber integration', () => {
+  it('parses ticket ID with prefix (e.g. HAL-0012)', () => {
+    expect(parseTicketNumber('HAL-0012')).toBe(12)
+  })
+
+  it('parses ticket ID without prefix (e.g. 0012)', () => {
+    expect(parseTicketNumber('0012')).toBe(12)
+  })
+
+  it('parses ticket ID as number (e.g. 12)', () => {
+    expect(parseTicketNumber('12')).toBe(12)
+  })
+
+  it('returns null for invalid ticket ID', () => {
+    expect(parseTicketNumber('invalid')).toBeNull()
+  })
+
+  it('handles ticket ID with leading zeros', () => {
+    expect(parseTicketNumber('0001')).toBe(1)
   })
 })

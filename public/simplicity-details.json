@@ -95,6 +95,12 @@
       "delta": 0
     },
     {
+      "file": "agents/src/agents/projectManager/ticketTools.ts",
+      "before": 16.46,
+      "after": 16.46,
+      "delta": 0
+    },
+    {
       "file": "projects/kanban/src/components/TicketDetailModal.tsx",
       "before": 30.65,
       "after": 30.65,
@@ -113,7 +119,7 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-19T16:03:11.858Z",
+  "generatedAt": "2026-02-19T16:03:45.133Z",
   "filesAnalyzed": 282,
   "unroundedSimplicity": 40.2
 }
