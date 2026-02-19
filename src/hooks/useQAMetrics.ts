@@ -2,17 +2,30 @@ import { useState, useEffect } from 'react'
 
 export interface QAMetrics {
   coverage: number | null // 0-100 or null for N/A
-  simplicity: number | null // 0-100 or null for N/A
-  unroundedSimplicity?: number | null // Unrounded simplicity value (0-100) with 1 decimal place
+  maintainability: number | null // 0-100 or null for N/A
+  unroundedMaintainability?: number | null // Unrounded maintainability value (0-100) with 1 decimal place
+  // Legacy fields for backward compatibility during migration
+  simplicity?: number | null // Deprecated: use maintainability
+  unroundedSimplicity?: number | null // Deprecated: use unroundedMaintainability
 }
 
 function parseMetrics(data: unknown): QAMetrics | null {
   if (!data || typeof data !== 'object') return null
   const o = data as Record<string, unknown>
   const coverage = o.coverage != null ? Math.min(100, Math.max(0, Number(o.coverage))) : null
-  const simplicity = o.simplicity != null ? Math.min(100, Math.max(0, Number(o.simplicity))) : null
-  const unroundedSimplicity = o.unroundedSimplicity != null ? Math.min(100, Math.max(0, Number(o.unroundedSimplicity))) : null
-  return { coverage: coverage ?? null, simplicity: simplicity ?? null, unroundedSimplicity: unroundedSimplicity ?? null }
+  // Support both new (maintainability) and legacy (simplicity) field names for migration
+  const maintainability = o.maintainability != null ? Math.min(100, Math.max(0, Number(o.maintainability))) : 
+                         (o.simplicity != null ? Math.min(100, Math.max(0, Number(o.simplicity))) : null)
+  const unroundedMaintainability = o.unroundedMaintainability != null ? Math.min(100, Math.max(0, Number(o.unroundedMaintainability))) :
+                                   (o.unroundedSimplicity != null ? Math.min(100, Math.max(0, Number(o.unroundedSimplicity))) : null)
+  return { 
+    coverage: coverage ?? null, 
+    maintainability: maintainability ?? null, 
+    unroundedMaintainability: unroundedMaintainability ?? null,
+    // Include legacy fields for backward compatibility
+    simplicity: maintainability,
+    unroundedSimplicity: unroundedMaintainability
+  }
 }
 
 function fetchMetrics(cacheBust = false): Promise<QAMetrics | null> {
@@ -24,7 +37,7 @@ function fetchMetrics(cacheBust = false): Promise<QAMetrics | null> {
 }
 
 /**
- * Hook that fetches QA metrics (Coverage and Simplicity) from /metrics.json.
+ * Hook that fetches QA metrics (Coverage and Maintainability) from /metrics.json.
  * Handles missing metrics gracefully by returning null values.
  * Polls periodically so updates (e.g. from report:simplicity or CI) appear automatically.
  */

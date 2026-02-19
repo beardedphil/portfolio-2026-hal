@@ -1,6 +1,6 @@
 import React from 'react'
 import { CoverageBadge } from './CoverageBadge'
-import { SimplicityBadge } from './SimplicityBadge'
+import { MaintainabilityBadge } from './MaintainabilityBadge'
 import type { GithubAuthMe, ConnectedGithubRepo } from '../types/app'
 import type { Theme } from '../types/hal'
 
@@ -14,7 +14,7 @@ interface HalHeaderProps {
   disconnectButtonRef: React.RefObject<HTMLButtonElement>
   onAgentInstructionsClick: () => void
   onCoverageReportClick: () => void
-  onSimplicityReportClick: () => void
+  onMaintainabilityReportClick: () => void
   theme: Theme
   onThemeChange: (theme: Theme) => void
 }
@@ -29,7 +29,7 @@ export function HalHeader({
   disconnectButtonRef,
   onAgentInstructionsClick,
   onCoverageReportClick,
-  onSimplicityReportClick,
+  onMaintainabilityReportClick,
   theme,
   onThemeChange,
 }: HalHeaderProps) {
@@ -81,8 +81,8 @@ export function HalHeader({
                     </button>
                   </div>
                 </div>
-                {/* Simplicity badge on the right (0699) */}
-                <SimplicityBadge onClick={onSimplicityReportClick} />
+                {/* Maintainability badge on the right (0699) */}
+                <MaintainabilityBadge onClick={onMaintainabilityReportClick} />
               </>
             )}
           </>

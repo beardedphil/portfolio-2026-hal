@@ -3,8 +3,11 @@ import { getMetricColor } from '../lib/metricColor'
 
 export interface QAMetrics {
   coverage: number | null // 0-100 or null for N/A
-  simplicity: number | null // 0-100 or null for N/A
-  unroundedSimplicity?: number | null // Unrounded simplicity value (0-100) with 1 decimal place
+  maintainability: number | null // 0-100 or null for N/A
+  unroundedMaintainability?: number | null // Unrounded maintainability value (0-100) with 1 decimal place
+  // Legacy fields for backward compatibility
+  simplicity?: number | null // Deprecated: use maintainability
+  unroundedSimplicity?: number | null // Deprecated: use unroundedMaintainability
 }
 
 function formatPercentTenths(value: number) {
@@ -15,9 +18,19 @@ function parseMetrics(data: unknown): QAMetrics | null {
   if (!data || typeof data !== 'object') return null
   const o = data as Record<string, unknown>
   const coverage = o.coverage != null ? Math.min(100, Math.max(0, Number(o.coverage))) : null
-  const simplicity = o.simplicity != null ? Math.min(100, Math.max(0, Number(o.simplicity))) : null
-  const unroundedSimplicity = o.unroundedSimplicity != null ? Math.min(100, Math.max(0, Number(o.unroundedSimplicity))) : null
-  return { coverage: coverage ?? null, simplicity: simplicity ?? null, unroundedSimplicity: unroundedSimplicity ?? null }
+  // Support both new (maintainability) and legacy (simplicity) field names for migration
+  const maintainability = o.maintainability != null ? Math.min(100, Math.max(0, Number(o.maintainability))) : 
+                         (o.simplicity != null ? Math.min(100, Math.max(0, Number(o.simplicity))) : null)
+  const unroundedMaintainability = o.unroundedMaintainability != null ? Math.min(100, Math.max(0, Number(o.unroundedMaintainability))) :
+                                   (o.unroundedSimplicity != null ? Math.min(100, Math.max(0, Number(o.unroundedSimplicity))) : null)
+  return { 
+    coverage: coverage ?? null, 
+    maintainability: maintainability ?? null, 
+    unroundedMaintainability: unroundedMaintainability ?? null,
+    // Include legacy fields for backward compatibility
+    simplicity: maintainability,
+    unroundedSimplicity: unroundedMaintainability
+  }
 }
 
 function fetchMetrics(cacheBust = false): Promise<QAMetrics | null> {
@@ -30,7 +43,7 @@ function fetchMetrics(cacheBust = false): Promise<QAMetrics | null> {
 
 interface QAMetricsCardProps {
   onCoverageClick?: () => void
-  onSimplicityClick?: () => void
+  onMaintainabilityClick?: () => void
 }
 
 /**
@@ -62,7 +75,7 @@ export function useQAMetrics() {
 }
 
 /**
- * Individual metric badge component for Coverage or Simplicity.
+ * Individual metric badge component for Coverage or Maintainability.
  */
 function QAMetricBadge({ 
   label, 
@@ -95,21 +108,21 @@ export function CoverageBadge() {
 }
 
 /**
- * Simplicity metric badge component.
- * Fetches and displays Simplicity from /metrics.json. Handles missing metrics gracefully by showing "N/A".
+ * Maintainability metric badge component.
+ * Fetches and displays Maintainability from /metrics.json. Handles missing metrics gracefully by showing "N/A".
  */
-export function SimplicityBadge() {
+export function MaintainabilityBadge() {
   const qaMetrics = useQAMetrics()
-  const simplicity = qaMetrics?.simplicity ?? null
-  const unroundedSimplicity = qaMetrics?.unroundedSimplicity ?? null
-  const displayValue = unroundedSimplicity ?? simplicity
+  const maintainability = qaMetrics?.maintainability ?? null
+  const unroundedMaintainability = qaMetrics?.unroundedMaintainability ?? null
+  const displayValue = unroundedMaintainability ?? maintainability
 
   const getTooltip = () => {
-    if (displayValue === null) return 'Simplicity: N/A'
-    if (simplicity !== null && unroundedSimplicity !== null && unroundedSimplicity !== simplicity) {
-      return `Simplicity: ${formatPercentTenths(unroundedSimplicity)} (rounded: ${simplicity.toFixed(0)}%)`
+    if (displayValue === null) return 'Maintainability: N/A'
+    if (maintainability !== null && unroundedMaintainability !== null && unroundedMaintainability !== maintainability) {
+      return `Maintainability: ${formatPercentTenths(unroundedMaintainability)} (rounded: ${maintainability.toFixed(0)}%)`
     }
-    return `Simplicity: ${formatPercentTenths(displayValue)}`
+    return `Maintainability: ${formatPercentTenths(displayValue)}`
   }
 
   return (
@@ -118,7 +131,7 @@ export function SimplicityBadge() {
       style={{ backgroundColor: getMetricColor(displayValue) }}
       title={getTooltip()}
     >
-      <span className="qa-metric-label">Simplicity</span>
+      <span className="qa-metric-label">Maintainability</span>
       <span className="qa-metric-value">
         {displayValue !== null ? formatPercentTenths(displayValue) : 'N/A'}
       </span>
@@ -127,13 +140,13 @@ export function SimplicityBadge() {
 }
 
 /**
- * Component that fetches and displays QA metrics (Coverage and Simplicity)
+ * Component that fetches and displays QA metrics (Coverage and Maintainability)
  * from /metrics.json. Handles missing metrics gracefully by showing "N/A".
  * Polls periodically so updates (e.g. from report:simplicity or CI) appear automatically.
  * 
- * @deprecated Use CoverageBadge and SimplicityBadge separately instead.
+ * @deprecated Use CoverageBadge and MaintainabilityBadge separately instead.
  */
-export function QAMetricsCard({ onCoverageClick, onSimplicityClick }: QAMetricsCardProps = {}) {
+export function QAMetricsCard({ onCoverageClick, onMaintainabilityClick }: QAMetricsCardProps = {}) {
   const qaMetrics = useQAMetrics()
 
   return (
@@ -158,32 +171,32 @@ export function QAMetricsCard({ onCoverageClick, onSimplicityClick }: QAMetricsC
         </span>
       </div>
       <div
-        className={`qa-metric-box ${onSimplicityClick ? 'qa-metric-box-clickable' : ''}`}
-        style={{ backgroundColor: getMetricColor(qaMetrics?.unroundedSimplicity ?? qaMetrics?.simplicity ?? null) }}
+        className={`qa-metric-box ${onMaintainabilityClick ? 'qa-metric-box-clickable' : ''}`}
+        style={{ backgroundColor: getMetricColor(qaMetrics?.unroundedMaintainability ?? qaMetrics?.maintainability ?? null) }}
         title={(() => {
-          const simplicity = qaMetrics?.simplicity ?? null
-          const unrounded = qaMetrics?.unroundedSimplicity ?? null
-          const displayValue = unrounded ?? simplicity
-          if (displayValue === null) return 'Simplicity: N/A'
-          if (simplicity !== null && unrounded !== null && unrounded !== simplicity) {
-            return `Simplicity: ${formatPercentTenths(unrounded)} (rounded: ${simplicity.toFixed(0)}%)`
+          const maintainability = qaMetrics?.maintainability ?? null
+          const unrounded = qaMetrics?.unroundedMaintainability ?? null
+          const displayValue = unrounded ?? maintainability
+          if (displayValue === null) return 'Maintainability: N/A'
+          if (maintainability !== null && unrounded !== null && unrounded !== maintainability) {
+            return `Maintainability: ${formatPercentTenths(unrounded)} (rounded: ${maintainability.toFixed(0)}%)`
           }
-          return `Simplicity: ${formatPercentTenths(displayValue)}`
+          return `Maintainability: ${formatPercentTenths(displayValue)}`
         })()}
-        onClick={onSimplicityClick}
-        role={onSimplicityClick ? 'button' : undefined}
-        tabIndex={onSimplicityClick ? 0 : undefined}
-        onKeyDown={onSimplicityClick ? (e) => {
+        onClick={onMaintainabilityClick}
+        role={onMaintainabilityClick ? 'button' : undefined}
+        tabIndex={onMaintainabilityClick ? 0 : undefined}
+        onKeyDown={onMaintainabilityClick ? (e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault()
-            onSimplicityClick()
+            onMaintainabilityClick()
           }
         } : undefined}
       >
-        <span className="qa-metric-label">Simplicity</span>
+        <span className="qa-metric-label">Maintainability</span>
         <span className="qa-metric-value">
-          {qaMetrics !== null && (qaMetrics.unroundedSimplicity ?? qaMetrics.simplicity) !== null
-            ? formatPercentTenths((qaMetrics.unroundedSimplicity ?? qaMetrics.simplicity) as number)
+          {qaMetrics !== null && (qaMetrics.unroundedMaintainability ?? qaMetrics.maintainability) !== null
+            ? formatPercentTenths((qaMetrics.unroundedMaintainability ?? qaMetrics.maintainability) as number)
             : 'N/A'}
         </span>
       </div>

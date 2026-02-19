@@ -3,7 +3,7 @@
 /**
  * Reads coverage/coverage-summary.json (from vitest --coverage) and updates
  * public/metrics.json with the overall coverage percentage (lines). Merges with
- * existing metrics so simplicity and updatedAt are preserved or set.
+ * existing metrics so maintainability and updatedAt are preserved or set.
  * Also generates public/coverage-details.json with top offenders and improvements.
  */
 
@@ -58,7 +58,8 @@ if (summary?.total?.lines?.pct == null) {
 const linesPct = summary.total.lines.pct
 const coverage = Math.min(100, Math.max(0, Number(linesPct)))
 
-const metrics = readJson(METRICS_FILE, { coverage: null, simplicity: null, updatedAt: null })
+const metrics = readJson(METRICS_FILE, { coverage: null, maintainability: null, updatedAt: null })
+// Preserve maintainability (and legacy simplicity) fields if they exist
 metrics.coverage = Math.round(coverage * 10) / 10
 metrics.updatedAt = new Date().toISOString()
 writeJson(METRICS_FILE, metrics)

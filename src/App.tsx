@@ -14,7 +14,7 @@ import { HalHeader } from './components/HalHeader'
 import { KanbanErrorBanner } from './components/KanbanErrorBanner'
 import { PmChatWidgetButton } from './components/PmChatWidgetButton'
 import { CoverageReportModal } from './components/CoverageReportModal'
-import { SimplicityReportModal } from './components/SimplicityReportModal'
+import { MaintainabilityReportModal } from './components/MaintainabilityReportModal'
 import { NoPrModal } from './components/NoPrModal'
 import type { ChatTarget, ToolCallRecord, TicketCreationResult } from './types/app'
 import { CHAT_OPTIONS } from './types/app'
@@ -285,9 +285,9 @@ function App() {
   /** Floating PM chat widget state (0698). */
   const [pmChatWidgetOpen, setPmChatWidgetOpen] = useState<boolean>(false)
   const [pmChatWidgetFullscreen, setPmChatWidgetFullscreen] = useState<boolean>(false)
-  /** Coverage and Simplicity report modals (0693). */
+  /** Coverage and Maintainability report modals (0693). */
   const [coverageReportOpen, setCoverageReportOpen] = useState<boolean>(false)
-  const [simplicityReportOpen, setSimplicityReportOpen] = useState<boolean>(false)
+  const [maintainabilityReportOpen, setMaintainabilityReportOpen] = useState<boolean>(false)
 
   useEffect(() => {
     selectedChatTargetRef.current = selectedChatTarget
@@ -689,7 +689,7 @@ function App() {
         disconnectButtonRef={disconnectButtonRef}
         onAgentInstructionsClick={() => setAgentInstructionsOpen(true)}
         onCoverageReportClick={() => setCoverageReportOpen(true)}
-        onSimplicityReportClick={() => setSimplicityReportOpen(true)}
+        onMaintainabilityReportClick={() => setMaintainabilityReportOpen(true)}
         theme={theme}
         onThemeChange={setTheme}
       />
@@ -974,8 +974,8 @@ function App() {
       {/* Coverage Report Modal (0693) */}
       <CoverageReportModal isOpen={coverageReportOpen} onClose={() => setCoverageReportOpen(false)} />
 
-      {/* Simplicity Report Modal (0693) */}
-      <SimplicityReportModal isOpen={simplicityReportOpen} onClose={() => setSimplicityReportOpen(false)} />
+      {/* Maintainability Report Modal (0693) */}
+      <MaintainabilityReportModal isOpen={maintainabilityReportOpen} onClose={() => setMaintainabilityReportOpen(false)} />
     </div>
   )
 }

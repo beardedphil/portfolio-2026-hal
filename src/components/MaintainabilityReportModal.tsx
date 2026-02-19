@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 
-interface SimplicityDetails {
+interface MaintainabilityDetails {
   topOffenders: Array<{
     file: string
     maintainability: number
@@ -13,16 +13,18 @@ interface SimplicityDetails {
   }>
   generatedAt: string
   filesAnalyzed?: number
+  unroundedMaintainability?: number
+  // Legacy field for backward compatibility
   unroundedSimplicity?: number
 }
 
-interface SimplicityReportModalProps {
+interface MaintainabilityReportModalProps {
   isOpen: boolean
   onClose: () => void
 }
 
-export function SimplicityReportModal({ isOpen, onClose }: SimplicityReportModalProps) {
-  const [details, setDetails] = useState<SimplicityDetails | null>(null)
+export function MaintainabilityReportModal({ isOpen, onClose }: MaintainabilityReportModalProps) {
+  const [details, setDetails] = useState<MaintainabilityDetails | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -31,17 +33,17 @@ export function SimplicityReportModal({ isOpen, onClose }: SimplicityReportModal
 
     setLoading(true)
     setError(null)
-    fetch('/simplicity-details.json')
-      .then((res) => {
-        if (!res.ok) throw new Error(`Failed to load: ${res.statusText}`)
-        return res.json()
-      })
-      .then((data: SimplicityDetails) => {
+    // Try maintainability-details.json first, fall back to simplicity-details.json for backward compatibility
+    Promise.race([
+      fetch('/maintainability-details.json').then(res => res.ok ? res.json() : Promise.reject(new Error('Not found'))),
+      fetch('/simplicity-details.json').then(res => res.ok ? res.json() : Promise.reject(new Error('Not found')))
+    ])
+      .then((data: MaintainabilityDetails) => {
         setDetails(data)
         setLoading(false)
       })
       .catch((err) => {
-        setError(err.message || 'Failed to load simplicity details')
+        setError(err.message || 'Failed to load maintainability details')
         setLoading(false)
       })
   }, [isOpen])
@@ -51,22 +53,25 @@ export function SimplicityReportModal({ isOpen, onClose }: SimplicityReportModal
   // Convert maintainability index (0-171) to percentage (0-100)
   const maintainabilityToPercent = (mi: number) => Math.round((mi / 171) * 100 * 10) / 10
 
+  // Support both new and legacy field names
+  const unroundedMaintainability = details?.unroundedMaintainability ?? details?.unroundedSimplicity
+
   return (
     <div className="conversation-modal-overlay" onClick={onClose}>
       <div className="conversation-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '90vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
         <div className="conversation-modal-header">
-          <h3>Simplicity Report</h3>
+          <h3>Maintainability Report</h3>
           <button
             type="button"
             className="conversation-modal-close btn-destructive"
             onClick={onClose}
-            aria-label="Close simplicity report"
+            aria-label="Close maintainability report"
           >
             ×
           </button>
         </div>
         <div className="conversation-modal-content" style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
-          {loading && <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--hal-text-muted)' }}>Loading simplicity details...</div>}
+          {loading && <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--hal-text-muted)' }}>Loading maintainability details...</div>}
           {error && (
             <div style={{ padding: '1rem', background: 'rgba(198, 40, 40, 0.1)', border: '1px solid var(--hal-status-error)', borderRadius: '6px', color: 'var(--hal-status-error)' }}>
               {error}
@@ -89,15 +94,15 @@ export function SimplicityReportModal({ isOpen, onClose }: SimplicityReportModal
                       <span style={{ fontFamily: 'monospace', fontSize: '0.9rem' }}>{details.filesAnalyzed.toLocaleString()}</span>
                     </div>
                   )}
-                  {details.unroundedSimplicity !== undefined && (
+                  {unroundedMaintainability !== undefined && (
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontWeight: 600, color: 'var(--hal-text-muted)' }}>Unrounded simplicity:</span>
-                      <span style={{ fontFamily: 'monospace', fontSize: '0.9rem' }}>{details.unroundedSimplicity.toFixed(1)}%</span>
+                      <span style={{ fontWeight: 600, color: 'var(--hal-text-muted)' }}>Unrounded maintainability:</span>
+                      <span style={{ fontFamily: 'monospace', fontSize: '0.9rem' }}>{unroundedMaintainability.toFixed(1)}%</span>
                     </div>
                   )}
-                  {details.unroundedSimplicity !== undefined && (
+                  {unroundedMaintainability !== undefined && (
                     <div style={{ marginTop: '0.5rem', padding: '0.5rem', background: 'rgba(0, 0, 0, 0.05)', borderRadius: '4px', fontSize: '0.85rem', color: 'var(--hal-text-muted)' }}>
-                      <strong>Note:</strong> The displayed simplicity value ({Math.round(details.unroundedSimplicity)}%) is rounded from {details.unroundedSimplicity.toFixed(1)}%
+                      <strong>Note:</strong> The displayed maintainability value ({Math.round(unroundedMaintainability)}%) is rounded from {unroundedMaintainability.toFixed(1)}%
                     </div>
                   )}
                 </div>

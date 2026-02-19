@@ -1,28 +1,28 @@
 import { useQAMetrics } from '../hooks/useQAMetrics'
 import { getMetricColor } from '../lib/metricColor'
 
-interface SimplicityBadgeProps {
+interface MaintainabilityBadgeProps {
   onClick?: () => void
 }
 
 /**
- * Badge component that displays the Simplicity metric.
+ * Badge component that displays the Maintainability metric.
  * Handles missing metrics gracefully by showing "N/A".
  * Clickable if onClick handler is provided.
  */
-export function SimplicityBadge(props: SimplicityBadgeProps = {}) {
+export function MaintainabilityBadge(props: MaintainabilityBadgeProps = {}) {
   const { onClick } = props
   const qaMetrics = useQAMetrics()
-  const simplicity = qaMetrics?.simplicity ?? null
-  const unroundedSimplicity = qaMetrics?.unroundedSimplicity ?? null
-  const displayValue = unroundedSimplicity ?? simplicity
+  const maintainability = qaMetrics?.maintainability ?? null
+  const unroundedMaintainability = qaMetrics?.unroundedMaintainability ?? null
+  const displayValue = unroundedMaintainability ?? maintainability
 
   const getTooltip = () => {
-    if (displayValue === null) return 'Simplicity: N/A'
-    if (simplicity !== null && unroundedSimplicity !== null && unroundedSimplicity !== simplicity) {
-      return `Simplicity: ${unroundedSimplicity.toFixed(1)}% (rounded: ${simplicity.toFixed(0)}%)`
+    if (displayValue === null) return 'Maintainability: N/A'
+    if (maintainability !== null && unroundedMaintainability !== null && unroundedMaintainability !== maintainability) {
+      return `Maintainability: ${unroundedMaintainability.toFixed(1)}% (rounded: ${maintainability.toFixed(0)}%)`
     }
-    return `Simplicity: ${displayValue.toFixed(1)}%`
+    return `Maintainability: ${displayValue.toFixed(1)}%`
   }
 
   return (
@@ -40,7 +40,7 @@ export function SimplicityBadge(props: SimplicityBadgeProps = {}) {
         }
       } : undefined}
     >
-      <span className="qa-metric-label">Simplicity</span>
+      <span className="qa-metric-label">Maintainability</span>
       <span className="qa-metric-value">
         {displayValue !== null ? `${displayValue.toFixed(1)}%` : 'N/A'}
       </span>
