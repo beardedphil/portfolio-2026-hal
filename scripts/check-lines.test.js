@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { execSync } from 'child_process'
+import { execFileSync } from 'child_process'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -56,9 +56,10 @@ describe('check-lines.js', () => {
       )
       fs.writeFileSync(testScriptPath, scriptContent, 'utf-8')
       
-      const output = execSync(`node ${testScriptPath}`, { 
+      // Use execFileSync to avoid quoting issues on Windows paths with spaces.
+      const output = execFileSync(process.execPath, [testScriptPath], {
         encoding: 'utf-8',
-        cwd: testDir 
+        cwd: testDir,
       })
       return { output, exitCode: 0 }
     } catch (error) {

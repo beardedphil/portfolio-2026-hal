@@ -33,6 +33,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       columnId?: string
       columnName?: string
       position?: string | number
+      /**
+       * When true, allow moving from To-do -> Doing without a linked PR.
+       * This is intended for "start implementation" flows where the Implementation Agent
+       * is configured to auto-create the PR during the run.
+       */
+      allowWithoutPr?: boolean
       supabaseUrl?: string
       supabaseAnonKey?: string
     }
@@ -42,6 +48,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     let columnId = typeof body.columnId === 'string' ? body.columnId.trim() || undefined : undefined
     const columnName = typeof body.columnName === 'string' ? body.columnName.trim() || undefined : undefined
     const position = body.position
+    const allowWithoutPr = body.allowWithoutPr === true
     // Use service role key (preferred) to bypass RLS, fall back to anon key if not available
     const { supabaseUrl, supabaseKey } = parseSupabaseCredentialsWithServiceRole(body)
 
@@ -104,7 +111,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     // Gate: prevent moving tickets from To Do to beyond-To-Do columns without a linked PR (HAL-0772)
     const columnsBeyondTodo = ['col-doing', 'col-qa', 'col-human-in-the-loop', 'col-done']
-    if (currentColumnId === 'col-todo' && columnId && columnsBeyondTodo.includes(columnId) && resolvedTicketPk) {
+    const isTodoToDoingAllowlisted = allowWithoutPr && columnId === 'col-doing'
+    if (
+      currentColumnId === 'col-todo' &&
+      columnId &&
+      columnsBeyondTodo.includes(columnId) &&
+      resolvedTicketPk &&
+      !isTodoToDoingAllowlisted
+    ) {
       // Check if ticket has a linked PR via agent runs
       const { data: agentRuns, error: runsErr } = await supabase
         .from('hal_agent_runs')

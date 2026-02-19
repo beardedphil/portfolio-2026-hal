@@ -324,16 +324,35 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       agentType === 'implementation'
         ? `ticket/${String(ticketNumber).padStart(4, '0')}-implementation`
         : defaultBranch
+    // If a PR is already linked for this ticket, do not ask Cursor to create a new one.
+    let existingPrUrl: string | null = null
+    if (agentType === 'implementation' && ticketPk) {
+      const { data: linked } = await supabase
+        .from('hal_agent_runs')
+        .select('pr_url, created_at')
+        .eq('ticket_pk', ticketPk)
+        .not('pr_url', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+      const prUrl = Array.isArray(linked) && linked.length ? (linked[0] as any)?.pr_url : null
+      if (typeof prUrl === 'string' && prUrl.trim()) existingPrUrl = prUrl.trim()
+    }
     const target =
       agentType === 'implementation'
-        ? { autoCreatePr: true, branchName }
+        ? existingPrUrl
+          ? { branchName }
+          : { autoCreatePr: true, branchName }
         : { branchName: defaultBranch }
+    const promptTextForLaunch =
+      agentType === 'implementation' && existingPrUrl
+        ? `${promptText}\n\n## Existing PR linked\n\nA PR is already linked to this ticket:\n\n- ${existingPrUrl}\n\nDo NOT create a new PR. Push changes to the branch above so the existing PR updates.`
+        : promptText
 
     const launchRes = await fetch('https://api.cursor.com/v0/agents', {
       method: 'POST',
       headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        prompt: { text: promptText },
+        prompt: { text: promptTextForLaunch },
         source: { repository: repoUrl, ref: defaultBranch },
         target,
         ...(model ? { model } : {}),

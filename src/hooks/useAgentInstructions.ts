@@ -29,8 +29,15 @@ export function useAgentInstructions({
       setError(null)
 
       try {
-        const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
-        const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
+        // If the caller explicitly passes `null`, treat that as "Supabase not configured"
+        // even if env vars exist (tests and UI may want to force bundled fallback).
+        const forceBundledFallback = supabaseUrl === null || supabaseAnonKey === null
+        const url = forceBundledFallback
+          ? ''
+          : supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
+        const key = forceBundledFallback
+          ? ''
+          : supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
 
         if (!url || !key) {
           // Fallback to bundled JSON if Supabase not configured

@@ -9,6 +9,7 @@ interface UseKanbanWorkButtonParams {
   getDefaultConversationId: (agentRole: Agent) => string
   kanbanTickets: KanbanTicketRow[]
   handleKanbanMoveTicket: (ticketPk: string, columnId: string, position?: number) => Promise<void>
+  handleKanbanMoveTicketAllowWithoutPr?: (ticketPk: string, columnId: string, position?: number) => Promise<void>
   pmChatWidgetOpen: boolean
   setPmChatWidgetOpen: (open: boolean) => void
   setSelectedChatTarget: (target: ChatTarget) => void
@@ -26,6 +27,7 @@ export function useKanbanWorkButton({
   getDefaultConversationId,
   kanbanTickets,
   handleKanbanMoveTicket,
+  handleKanbanMoveTicketAllowWithoutPr,
   pmChatWidgetOpen,
   setPmChatWidgetOpen,
   setSelectedChatTarget,
@@ -55,7 +57,13 @@ export function useKanbanWorkButton({
         moveTicketToDoingIfNeeded: async ({ ticketPk, chatTarget }) => {
           if (chatTarget !== 'implementation-agent' && chatTarget !== 'qa-agent') return
           const doingCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-doing').length
-          await handleKanbanMoveTicket(ticketPk, 'col-doing', doingCount)
+          // Implement top ticket should not be blocked by "no PR linked" gating;
+          // the Implementation Agent run is configured to auto-create the PR.
+          if (chatTarget === 'implementation-agent' && handleKanbanMoveTicketAllowWithoutPr) {
+            await handleKanbanMoveTicketAllowWithoutPr(ticketPk, 'col-doing', doingCount)
+          } else {
+            await handleKanbanMoveTicket(ticketPk, 'col-doing', doingCount)
+          }
         },
       })
     },
@@ -64,6 +72,7 @@ export function useKanbanWorkButton({
       getDefaultConversationId,
       kanbanTickets,
       handleKanbanMoveTicket,
+      handleKanbanMoveTicketAllowWithoutPr,
       pmChatWidgetOpen,
       setPmChatWidgetOpen,
       setSelectedChatTarget,

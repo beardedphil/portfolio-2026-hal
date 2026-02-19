@@ -2,6 +2,7 @@ interface NoPrModalProps {
   isOpen: boolean
   ticketId?: string
   ticketDisplayId?: string
+  busy?: boolean
   onClose: () => void
   onCreatePr?: () => void
   onLinkPr?: () => void
@@ -11,6 +12,7 @@ export function NoPrModal({
   isOpen,
   ticketId,
   ticketDisplayId,
+  busy,
   onClose,
   onCreatePr,
   onLinkPr,
@@ -47,16 +49,17 @@ export function NoPrModal({
                   type="button"
                   onClick={() => {
                     onLinkPr()
-                    onClose()
                   }}
+                  disabled={busy}
                   style={{
                     padding: '10px 20px',
                     borderRadius: '6px',
                     border: '1px solid rgba(0,0,0,0.2)',
                     background: 'transparent',
-                    cursor: 'pointer',
+                    cursor: busy ? 'not-allowed' : 'pointer',
                     fontSize: '14px',
                     fontWeight: '500',
+                    opacity: busy ? 0.7 : 1,
                   }}
                 >
                   Link PR
@@ -67,20 +70,21 @@ export function NoPrModal({
                   type="button"
                   onClick={() => {
                     onCreatePr()
-                    onClose()
                   }}
+                  disabled={busy}
                   style={{
                     padding: '10px 20px',
                     borderRadius: '6px',
                     border: 'none',
                     background: '#2563eb',
                     color: 'white',
-                    cursor: 'pointer',
+                    cursor: busy ? 'not-allowed' : 'pointer',
                     fontSize: '14px',
                     fontWeight: '500',
+                    opacity: busy ? 0.7 : 1,
                   }}
                 >
-                  Create PR
+                  {busy ? 'Working…' : 'Create PR'}
                 </button>
               )}
               {!onCreatePr && !onLinkPr && (

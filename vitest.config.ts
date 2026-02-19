@@ -62,6 +62,7 @@ export default defineConfig(({ mode }) => {
       exclude: [
         '**/node_modules/**',
         '**/dist/**',
+        '**/e2e/**', // Playwright tests; run via `npm run test:e2e`
         '**/api/artifacts/insert-*.test.ts', // Integration tests requiring Supabase
         '**/.test-backup/**', // Backup test files that should not be run
       ],

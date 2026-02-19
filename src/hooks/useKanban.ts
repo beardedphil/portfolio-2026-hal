@@ -23,8 +23,14 @@ export function useKanban(
   const [kanbanLastSync, setKanbanLastSync] = useState<Date | null>(null)
   const [kanbanMoveError, setKanbanMoveError] = useState<string | null>(null)
   const [noPrModalTicket, setNoPrModalTicket] = useState<{ pk: string; displayId?: string; ticketId?: string } | null>(null)
+  const [noPrPendingMove, setNoPrPendingMove] = useState<{ ticketPk: string; columnId: string; position?: number } | null>(null)
   const lastRealtimeUpdateRef = useRef<number>(0)
   const realtimeSubscriptionsRef = useRef<{ tickets: boolean; agentRuns: boolean }>({ tickets: false, agentRuns: false })
+
+  // If modal is dismissed, drop the pending move so we don't retry stale intent later.
+  useEffect(() => {
+    if (!noPrModalTicket) setNoPrPendingMove(null)
+  }, [noPrModalTicket])
 
   /** Fetch tickets and columns from Supabase (HAL owns data; passes to KanbanBoard). */
   const fetchKanbanData = useCallback(async (skipIfRecentRealtime = false) => {
@@ -295,8 +301,13 @@ export function useKanban(
     }
   }, [connectedProject, supabaseUrl, supabaseAnonKey])
 
-  const handleKanbanMoveTicket = useCallback(
-    async (ticketPk: string, columnId: string, position?: number) => {
+  const moveTicket = useCallback(
+    async (
+      ticketPk: string,
+      columnId: string,
+      position?: number,
+      opts?: { allowWithoutPr?: boolean }
+    ) => {
       // Find the ticket to get its current state for optimistic update
       const ticket = kanbanTickets.find((t) => t.pk === ticketPk)
       if (!ticket) {
@@ -309,6 +320,22 @@ export function useKanban(
       const originalColumnId = ticket.kanban_column_id
       const originalPosition = ticket.kanban_position
       const movedAt = new Date().toISOString()
+
+      const revertOptimisticUpdate = () => {
+        setKanbanTickets((prev) => {
+          const reverted = prev.map((t) =>
+            t.pk === ticketPk
+              ? {
+                  ...t,
+                  kanban_column_id: originalColumnId,
+                  kanban_position: originalPosition,
+                  kanban_moved_at: ticket.kanban_moved_at,
+                }
+              : t
+          )
+          return reverted.sort((a, b) => (a.ticket_number ?? 0) - (b.ticket_number ?? 0))
+        })
+      }
 
       // Optimistically update UI immediately (0155)
       setKanbanTickets((prev) => {
@@ -337,6 +364,7 @@ export function useKanban(
             ticketPk,
             columnId,
             position,
+            allowWithoutPr: opts?.allowWithoutPr === true && columnId === 'col-doing',
           }),
         })
 
@@ -346,12 +374,16 @@ export function useKanban(
           // Check if this is a PR blocking error (HAL-0772)
           const errorMsg = result.error || 'Unknown error'
           if (errorMsg === 'No PR associated' || result.errorCode === 'NO_PR_ASSOCIATED') {
+            // Revert the optimistic move; server rejected it.
+            revertOptimisticUpdate()
             // Show PR blocking modal instead of generic error
             setNoPrModalTicket({
               pk: ticketPk,
               displayId: ticket.display_id,
               ticketId: ticket.id,
             })
+            // Remember what the user attempted so we can retry after PR is created/linked.
+            setNoPrPendingMove({ ticketPk, columnId, position })
             setKanbanMoveError(null) // Don't show generic error for PR blocking
             return // Exit early, don't throw
           }
@@ -373,19 +405,7 @@ export function useKanban(
         await fetchKanbanData(true)
       } catch (err) {
         // Revert optimistic update on error (0155)
-        setKanbanTickets((prev) => {
-          const reverted = prev.map((t) =>
-            t.pk === ticketPk
-              ? {
-                  ...t,
-                  kanban_column_id: originalColumnId,
-                  kanban_position: originalPosition,
-                  kanban_moved_at: ticket.kanban_moved_at,
-                }
-              : t
-          )
-          return reverted.sort((a, b) => (a.ticket_number ?? 0) - (b.ticket_number ?? 0))
-        })
+        revertOptimisticUpdate()
 
         // Show user-visible error with clear message (HAL-0769)
         const errorMsg = err instanceof Error ? err.message : String(err)
@@ -400,6 +420,28 @@ export function useKanban(
       }
     },
     [fetchKanbanData, kanbanTickets, options]
+  )
+
+  const retryNoPrPendingMove = useCallback(async () => {
+    if (!noPrPendingMove) return
+    const { ticketPk, columnId, position } = noPrPendingMove
+    setNoPrPendingMove(null)
+    await moveTicket(ticketPk, columnId, position)
+  }, [noPrPendingMove, moveTicket])
+
+  const handleKanbanMoveTicket = useCallback(
+    async (ticketPk: string, columnId: string, position?: number) => {
+      return moveTicket(ticketPk, columnId, position)
+    },
+    [moveTicket]
+  )
+
+  /** For work-button flows: allow To-do -> Doing even when no PR is linked yet. */
+  const handleKanbanMoveTicketAllowWithoutPr = useCallback(
+    async (ticketPk: string, columnId: string, position?: number) => {
+      return moveTicket(ticketPk, columnId, position, { allowWithoutPr: true })
+    },
+    [moveTicket]
   )
 
   const handleKanbanReorderColumn = useCallback(
@@ -526,8 +568,10 @@ export function useKanban(
     setKanbanMoveError,
     noPrModalTicket,
     setNoPrModalTicket,
+    retryNoPrPendingMove,
     fetchKanbanData,
     handleKanbanMoveTicket,
+    handleKanbanMoveTicketAllowWithoutPr,
     handleKanbanReorderColumn,
     handleKanbanUpdateTicketBody,
     fetchArtifactsForTicket,

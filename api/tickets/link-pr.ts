@@ -1,0 +1,116 @@
+import type { IncomingMessage, ServerResponse } from 'http'
+import { createClient } from '@supabase/supabase-js'
+import { getSession } from '../_lib/github/session.js'
+import { githubFetch } from '../_lib/github/client.js'
+import { readJsonBody, json, parseSupabaseCredentialsWithServiceRole } from './_shared.js'
+
+function parseGithubPrUrl(prUrl: string): { owner: string; repo: string; pullNumber: number } | null {
+  const m = prUrl.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/i)
+  if (!m) return null
+  const [, owner, repo, n] = m
+  const pullNumber = parseInt(n, 10)
+  if (!owner || !repo || !Number.isFinite(pullNumber)) return null
+  return { owner, repo, pullNumber }
+}
+
+export default async function handler(req: IncomingMessage, res: ServerResponse) {
+  if (req.method !== 'POST') {
+    res.statusCode = 405
+    res.end('Method Not Allowed')
+    return
+  }
+
+  try {
+    const body = (await readJsonBody(req)) as {
+      ticketPk?: string
+      repoFullName?: string
+      prUrl?: string
+      supabaseUrl?: string
+      supabaseAnonKey?: string
+    }
+
+    const ticketPk = typeof body.ticketPk === 'string' ? body.ticketPk.trim() : ''
+    const repoFullNameFromClient = typeof body.repoFullName === 'string' ? body.repoFullName.trim() : ''
+    const prUrl = typeof body.prUrl === 'string' ? body.prUrl.trim() : ''
+
+    if (!ticketPk) {
+      json(res, 400, { success: false, error: 'ticketPk is required.' })
+      return
+    }
+    if (!prUrl) {
+      json(res, 400, { success: false, error: 'prUrl is required.' })
+      return
+    }
+
+    const parsed = parseGithubPrUrl(prUrl)
+    if (!parsed) {
+      json(res, 400, { success: false, error: 'Invalid PR URL. Expected https://github.com/owner/repo/pull/123' })
+      return
+    }
+
+    const session = await getSession(req, res)
+    const ghToken = session.github?.accessToken
+    if (!ghToken) {
+      json(res, 401, { success: false, error: 'Not authenticated with GitHub.' })
+      return
+    }
+
+    // Validate the PR exists and is accessible.
+    const prApiUrl = `https://api.github.com/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.repo)}/pulls/${parsed.pullNumber}`
+    const pr = await githubFetch<{ html_url?: string }>(ghToken, prApiUrl, { method: 'GET' })
+    const canonicalPrUrl = typeof pr?.html_url === 'string' && pr.html_url.trim() ? pr.html_url.trim() : prUrl
+
+    const { supabaseUrl, supabaseKey } = parseSupabaseCredentialsWithServiceRole(body)
+    if (!supabaseUrl || !supabaseKey) {
+      json(res, 503, { success: false, error: 'Supabase server env is missing.' })
+      return
+    }
+    const supabase = createClient(supabaseUrl, supabaseKey)
+
+    const { data: ticket, error: ticketErr } = await supabase
+      .from('tickets')
+      .select('pk, repo_full_name, ticket_number, display_id')
+      .eq('pk', ticketPk)
+      .maybeSingle()
+    if (ticketErr || !ticket?.pk) {
+      json(res, 404, { success: false, error: 'Ticket not found.' })
+      return
+    }
+
+    const ticketRepo = String((ticket as any).repo_full_name ?? '')
+    const expectedRepo = repoFullNameFromClient || ticketRepo
+    const prRepoFullName = `${parsed.owner}/${parsed.repo}`
+    if (expectedRepo && prRepoFullName.toLowerCase() !== expectedRepo.toLowerCase()) {
+      json(res, 400, {
+        success: false,
+        error: `PR repo mismatch. Ticket repo is ${expectedRepo}, but PR is ${prRepoFullName}.`,
+      })
+      return
+    }
+
+    const displayId = String((ticket as any).display_id ?? '')
+    const ticketNumber = (ticket as any).ticket_number ?? null
+
+    // Insert a terminal run row that carries pr_url so ticket can pass the move gate.
+    const { error: insErr } = await supabase.from('hal_agent_runs').insert({
+      agent_type: 'pr-link',
+      repo_full_name: ticketRepo || expectedRepo || prRepoFullName,
+      ticket_pk: ticketPk,
+      ticket_number: ticketNumber,
+      display_id: displayId || null,
+      pr_url: canonicalPrUrl,
+      summary: `Linked PR manually: ${canonicalPrUrl}`,
+      status: 'finished',
+      current_stage: 'completed',
+    })
+    if (insErr) {
+      json(res, 500, { success: false, error: `Failed to link PR: ${insErr.message}` })
+      return
+    }
+
+    json(res, 200, { success: true, prUrl: canonicalPrUrl })
+  } catch (err) {
+    json(res, 500, { success: false, error: err instanceof Error ? err.message : String(err) })
+  }
+}
+

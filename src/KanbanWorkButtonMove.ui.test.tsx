@@ -87,6 +87,7 @@ function Harness() {
     getDefaultConversationId: () => 'project-manager-1',
     kanbanTickets: tickets,
     handleKanbanMoveTicket,
+    handleKanbanMoveTicketAllowWithoutPr: handleKanbanMoveTicket,
     pmChatWidgetOpen,
     setPmChatWidgetOpen,
     setSelectedChatTarget,

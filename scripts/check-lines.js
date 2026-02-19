@@ -21,11 +21,23 @@ const SOURCE_DIRS = ['src', 'api', 'agents', 'scripts', 'projects']
 const EXCLUDE_DIRS = ['node_modules', 'dist', 'dist-kanban-lib', 'build', '.git', '.cursor', 'public']
 const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']
 
+function normalizeRelativePath(p) {
+  return String(p).replace(/\\/g, '/')
+}
+
 function loadAllowlist() {
   try {
     if (fs.existsSync(ALLOWLIST_PATH)) {
       const content = fs.readFileSync(ALLOWLIST_PATH, 'utf-8')
-      return JSON.parse(content)
+      const raw = JSON.parse(content)
+      // Normalize keys so allowlist works on Windows and POSIX consistently.
+      const normalized = {}
+      if (raw && typeof raw === 'object') {
+        for (const [k, v] of Object.entries(raw)) {
+          normalized[normalizeRelativePath(k)] = v
+        }
+      }
+      return normalized
     }
   } catch (err) {
     // If allowlist file is malformed or unreadable, treat as empty
@@ -65,7 +77,7 @@ function findSourceFiles(dirPath, relativePath = '') {
         if (isInProjectsButNotInSrc && entry.name !== 'src') continue
         files.push(...findSourceFiles(fullPath, relPath))
       } else if (entry.isFile() && isSourceFile(entry.name)) {
-        files.push(relPath)
+        files.push(normalizeRelativePath(relPath))
       }
     }
   } catch (err) {

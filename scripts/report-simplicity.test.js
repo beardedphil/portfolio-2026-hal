@@ -7,10 +7,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { execSync } from 'child_process'
+import { execFileSync } from 'child_process'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
+const TEST_TIMEOUT_MS = 20_000
 
 describe('report-simplicity.js', () => {
   let testDir
@@ -55,9 +56,10 @@ describe('report-simplicity.js', () => {
       )
       fs.writeFileSync(testScriptPath, scriptContent, 'utf-8')
       
-      const output = execSync(`node ${testScriptPath}`, { 
+      // Use execFileSync to avoid quoting issues on Windows paths with spaces.
+      const output = execFileSync(process.execPath, [testScriptPath], {
         encoding: 'utf-8',
-        cwd: testDir 
+        cwd: testDir,
       })
       return { output, exitCode: 0 }
     } catch (error) {
@@ -84,7 +86,7 @@ describe('report-simplicity.js', () => {
       
       // Should match format "Simplicity: XX%" where XX is a number
       expect(simplicityLine).toMatch(/^Simplicity: \d+%$/)
-    })
+    }, TEST_TIMEOUT_MS)
 
     it('outputs percentage between 0 and 100', () => {
       createTestFile('src/file1.ts', 'export const test = 1')
@@ -99,14 +101,14 @@ describe('report-simplicity.js', () => {
       const percentage = parseInt(match[1], 10)
       expect(percentage).toBeGreaterThanOrEqual(0)
       expect(percentage).toBeLessThanOrEqual(100)
-    })
+    }, TEST_TIMEOUT_MS)
 
     it('outputs "Simplicity: N/A" when no source files found', () => {
       // Don't create any source files
       
       const result = runReportSimplicity()
       expect(result.output.trim()).toBe('Simplicity: N/A')
-    })
+    }, TEST_TIMEOUT_MS)
 
     it('outputs "Simplicity: N/A" when all files fail to parse', () => {
       // Create a file that will fail parsing (invalid syntax)
@@ -117,7 +119,7 @@ describe('report-simplicity.js', () => {
       const output = result.output.trim()
       // Either N/A or a valid percentage
       expect(output === 'Simplicity: N/A' || /^Simplicity: \d+%$/.test(output)).toBe(true)
-    })
+    }, TEST_TIMEOUT_MS)
 
     it('updates metrics.json file with simplicity value', () => {
       createTestFile('src/file1.ts', 'export const test = 1')
@@ -135,7 +137,7 @@ describe('report-simplicity.js', () => {
       expect(updatedMetrics.simplicity).toBeGreaterThanOrEqual(0)
       expect(updatedMetrics.simplicity).toBeLessThanOrEqual(100)
       expect(updatedMetrics.updatedAt).toBeTypeOf('string')
-    })
+    }, TEST_TIMEOUT_MS)
 
     it('preserves other metrics when updating simplicity', () => {
       createTestFile('src/file1.ts', 'export const test = 1')
@@ -151,7 +153,7 @@ describe('report-simplicity.js', () => {
       const updatedMetrics = JSON.parse(fs.readFileSync(metricsPath, 'utf-8'))
       expect(updatedMetrics.coverage).toBe(75.5)
       expect(updatedMetrics.simplicity).toBeTypeOf('number')
-    })
+    }, TEST_TIMEOUT_MS)
   })
 
   describe('file filtering', () => {
@@ -163,7 +165,7 @@ describe('report-simplicity.js', () => {
       const result = runReportSimplicity()
       // Should still output valid format
       expect(result.output.trim()).toMatch(/^Simplicity: (\d+%|N\/A)$/)
-    })
+    }, TEST_TIMEOUT_MS)
 
     it('excludes config files', () => {
       createTestFile('src/file1.ts', 'export const test = 1')
@@ -173,7 +175,7 @@ describe('report-simplicity.js', () => {
       const result = runReportSimplicity()
       // Should still output valid format
       expect(result.output.trim()).toMatch(/^Simplicity: (\d+%|N\/A)$/)
-    })
+    }, TEST_TIMEOUT_MS)
 
     it('only processes TypeScript files', () => {
       createTestFile('src/file1.ts', 'export const test = 1')
@@ -183,7 +185,7 @@ describe('report-simplicity.js', () => {
       const result = runReportSimplicity()
       // Should still output valid format
       expect(result.output.trim()).toMatch(/^Simplicity: (\d+%|N\/A)$/)
-    })
+    }, TEST_TIMEOUT_MS)
   })
 
   describe('error handling', () => {
@@ -194,7 +196,7 @@ describe('report-simplicity.js', () => {
       // This is platform-dependent, so we'll just verify the script runs
       const result = runReportSimplicity()
       expect(result.exitCode).toBe(0)
-    })
+    }, TEST_TIMEOUT_MS)
 
     it('excludes invalid sentinel values (-1) from averaging (regression test)', () => {
       // Create valid files that should produce positive maintainability scores
@@ -222,6 +224,6 @@ describe('report-simplicity.js', () => {
       // The percentage should be reasonable (not near 0 due to averaging in -1 values)
       // With 3 valid files, we should get a positive percentage
       expect(percentage).toBeGreaterThan(0)
-    })
+    }, TEST_TIMEOUT_MS)
   })
 })

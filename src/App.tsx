@@ -194,8 +194,10 @@ function App() {
     setKanbanMoveError,
     noPrModalTicket,
     setNoPrModalTicket,
+    retryNoPrPendingMove,
     fetchKanbanData,
     handleKanbanMoveTicket,
+    handleKanbanMoveTicketAllowWithoutPr,
     handleKanbanReorderColumn,
     handleKanbanUpdateTicketBody,
     fetchArtifactsForTicket,
@@ -529,12 +531,15 @@ function App() {
   // Track most recent work button click event for diagnostics (0072) - no longer displayed with floating widget (0698)
   const [_lastWorkButtonClick, setLastWorkButtonClick] = useState<{ eventId: string; timestamp: Date; chatTarget: ChatTarget; message: string } | null>(null)
 
+  const [noPrModalBusy, setNoPrModalBusy] = useState(false)
+
   // Kanban work button handler via custom hook
   const { handleKanbanOpenChatAndSend } = useKanbanWorkButton({
     triggerAgentRun: triggerAgentRunWrapper,
     getDefaultConversationId: getDefaultConversationIdForAgent,
     kanbanTickets,
     handleKanbanMoveTicket,
+    handleKanbanMoveTicketAllowWithoutPr,
     pmChatWidgetOpen,
     setPmChatWidgetOpen,
     setSelectedChatTarget,
@@ -715,25 +720,77 @@ function App() {
         isOpen={!!noPrModalTicket}
         ticketId={noPrModalTicket?.ticketId}
         ticketDisplayId={noPrModalTicket?.displayId}
+        busy={noPrModalBusy}
         onClose={() => setNoPrModalTicket(null)}
         onCreatePr={() => {
-          // Open GitHub to create a PR if repo is connected
-          if (connectedGithubRepo) {
-            const repoUrl = `https://github.com/${connectedGithubRepo.fullName}`
-            window.open(repoUrl, '_blank')
-          } else {
-            alert('Please connect a GitHub repository first to create a Pull Request.')
-          }
+          ;(async () => {
+            if (!noPrModalTicket?.pk) return
+            if (!connectedGithubRepo?.fullName) {
+              alert('Please connect a GitHub repository first to create a Pull Request.')
+              return
+            }
+            try {
+              setNoPrModalBusy(true)
+              const res = await fetch('/api/tickets/create-pr', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                  ticketPk: noPrModalTicket.pk,
+                  repoFullName: connectedGithubRepo.fullName,
+                  defaultBranch: connectedGithubRepo.defaultBranch || 'main',
+                }),
+              })
+              const data = (await res.json().catch(() => ({}))) as { success?: boolean; prUrl?: string; error?: string }
+              if (!res.ok || !data.success) {
+                throw new Error(data.error || `Create PR failed (HTTP ${res.status})`)
+              }
+              await retryNoPrPendingMove()
+              setNoPrModalTicket(null)
+              fetchKanbanData().catch(() => {})
+              if (data.prUrl) window.open(data.prUrl, '_blank')
+            } catch (e) {
+              alert(e instanceof Error ? e.message : String(e))
+            } finally {
+              setNoPrModalBusy(false)
+            }
+          })()
         }}
         onLinkPr={() => {
-          // For now, show instructions. In the future, this could open a form to link a PR URL
-          alert(
-            'To link an existing PR:\n\n' +
-            '1. Create or find the PR on GitHub\n' +
-            '2. The PR will be automatically linked when the Implementation Agent runs\n' +
-            '3. Or manually update the agent run with the PR URL in Supabase\n\n' +
-            'Future: A UI form to link PRs will be available in a follow-up ticket.'
-          )
+          ;(async () => {
+            if (!noPrModalTicket?.pk) return
+            if (!connectedGithubRepo?.fullName) {
+              alert('Please connect a GitHub repository first to link a Pull Request.')
+              return
+            }
+            const prUrl = window.prompt('Paste the GitHub Pull Request URL to link:', '')
+            if (!prUrl || !prUrl.trim()) return
+            try {
+              setNoPrModalBusy(true)
+              const res = await fetch('/api/tickets/link-pr', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                  ticketPk: noPrModalTicket.pk,
+                  repoFullName: connectedGithubRepo.fullName,
+                  prUrl: prUrl.trim(),
+                }),
+              })
+              const data = (await res.json().catch(() => ({}))) as { success?: boolean; prUrl?: string; error?: string }
+              if (!res.ok || !data.success) {
+                throw new Error(data.error || `Link PR failed (HTTP ${res.status})`)
+              }
+              await retryNoPrPendingMove()
+              setNoPrModalTicket(null)
+              fetchKanbanData().catch(() => {})
+              if (data.prUrl) window.open(data.prUrl, '_blank')
+            } catch (e) {
+              alert(e instanceof Error ? e.message : String(e))
+            } finally {
+              setNoPrModalBusy(false)
+            }
+          })()
         }}
       />
 
@@ -816,8 +873,8 @@ function App() {
       <AgentInstructionsViewer
         isOpen={agentInstructionsOpen}
         onClose={() => setAgentInstructionsOpen(false)}
-        supabaseUrl={supabaseUrl}
-        supabaseAnonKey={supabaseAnonKey}
+        supabaseUrl={supabaseUrl ?? undefined}
+        supabaseAnonKey={supabaseAnonKey ?? undefined}
         repoFullName={connectedGithubRepo?.fullName || 'beardedphil/portfolio-2026-hal'}
       />
 
