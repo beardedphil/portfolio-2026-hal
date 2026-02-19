@@ -2999,27 +2999,31 @@ function App() {
         </div>
       )}
 
-      {detailModal && (
-        <TicketDetailModal
-          open
-          onClose={handleCloseTicketDetail}
-          ticketId={detailModal.ticketId}
-          title={detailModal.title}
-          body={detailModalBody}
-          loading={detailModalLoading}
-          error={detailModalError}
-          onRetry={detailModalError ? handleRetryTicketDetail : undefined}
-          artifacts={detailModalArtifacts}
-          artifactsLoading={detailModalArtifactsLoading}
-          artifactsStatus={detailModalArtifactsStatus}
-          onRefreshArtifacts={refreshDetailModalArtifacts}
-          onOpenArtifact={handleOpenArtifact}
-          columnId={detailModal.columnId}
-          supabaseUrl={supabaseProjectUrl || ''}
-          supabaseKey={supabaseAnonKey || ''}
-          attachments={detailModalAttachments}
-          attachmentsLoading={detailModalAttachmentsLoading}
-          failureCounts={detailModalFailureCounts}
+      {detailModal && (() => {
+        const ticket = sourceTickets.find((t) => t.pk === detailModal.ticketId)
+        return (
+          <TicketDetailModal
+            open
+            onClose={handleCloseTicketDetail}
+            ticketId={detailModal.ticketId}
+            title={detailModal.title}
+            body={detailModalBody}
+            loading={detailModalLoading}
+            error={detailModalError}
+            onRetry={detailModalError ? handleRetryTicketDetail : undefined}
+            artifacts={detailModalArtifacts}
+            artifactsLoading={detailModalArtifactsLoading}
+            artifactsStatus={detailModalArtifactsStatus}
+            onRefreshArtifacts={refreshDetailModalArtifacts}
+            onOpenArtifact={handleOpenArtifact}
+            columnId={detailModal.columnId}
+            supabaseUrl={supabaseProjectUrl || ''}
+            supabaseKey={supabaseAnonKey || ''}
+            attachments={detailModalAttachments}
+            attachmentsLoading={detailModalAttachmentsLoading}
+            failureCounts={detailModalFailureCounts}
+            ticketPk={ticket?.pk}
+            prUrl={ticket?.pr_url || null}
           onValidationPass={async (ticketPk: string) => {
             // Always use HAL's callbacks - HAL handles all database operations
             if (!halCtx) {
@@ -3036,6 +3040,8 @@ function App() {
               handleCloseTicketDetail()
             }, 2000)
           }}
+          ticketPk={ticket?.pk}
+          prUrl={ticket?.pr_url || null}
           onValidationFail={async (ticketPk: string, steps: string, notes: string) => {
             // Get current ticket (use sourceTickets which works in both library and Supabase modes)
             const ticket = sourceTickets.find((t) => t.pk === ticketPk)
@@ -3163,7 +3169,8 @@ ${notes || '(none provided)'}
           }}
           onTicketUpdate={refetchSupabaseTickets}
         />
-      )}
+        )
+      })()}
 
       <ArtifactReportViewer
         open={artifactViewer !== null}

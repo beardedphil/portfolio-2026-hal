@@ -1641,6 +1641,83 @@ h1 {
   font-style: italic;
   font-size: 0.9rem;
 }
+
+/* Pull Request section (0771) */
+.pull-request-section {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--kanban-border);
+}
+.pull-request-section-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem 0;
+  color: var(--kanban-text);
+}
+.pull-request-empty {
+  margin: 0.5rem 0;
+}
+.pull-request-create-button {
+  margin-top: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: var(--kanban-primary);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+.pull-request-create-button:hover:not(:disabled) {
+  background: var(--kanban-primary-hover);
+}
+.pull-request-create-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.pull-request-info {
+  margin: 0.5rem 0;
+}
+.pull-request-field {
+  margin: 0.5rem 0;
+  font-size: 0.9rem;
+}
+.pull-request-link {
+  color: var(--kanban-primary);
+  text-decoration: none;
+}
+.pull-request-link:hover {
+  text-decoration: underline;
+}
+.pull-request-draft-badge {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.15rem 0.5rem;
+  background: var(--kanban-warning-bg);
+  color: var(--kanban-warning-text);
+  border: 1px solid var(--kanban-warning-border);
+  border-radius: 3px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+.pull-request-branch-name,
+.pull-request-base-branch,
+.pull-request-commit-sha {
+  font-family: 'Courier New', monospace;
+  background: var(--kanban-surface-alt);
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+  font-size: 0.85rem;
+}
+.pull-request-error {
+  margin: 0.5rem 0;
+  padding: 0.5rem;
+  background: var(--kanban-error);
+  color: white;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+}
 .attachments-list {
   list-style: none;
   padding: 0;
