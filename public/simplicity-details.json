@@ -29,6 +29,10 @@
       "maintainability": 1.99
     },
     {
+      "file": "api/instructions/get-index.ts",
+      "maintainability": 7.63
+    },
+    {
       "file": "api/implementation-agent/run.ts",
       "maintainability": 12.23
     },
@@ -53,6 +57,10 @@
       "maintainability": 25.54
     },
     {
+      "file": "api/instructions/get-topic.ts",
+      "maintainability": 25.79
+    },
+    {
       "file": "api/instructions/migrate-process-docs.ts",
       "maintainability": 26.39
     },
@@ -69,16 +77,8 @@
       "maintainability": 29.15
     },
     {
-      "file": "src/hooks/useProcessReview.ts",
-      "maintainability": 31.61
-    },
-    {
-      "file": "api/artifacts/get.ts",
-      "maintainability": 32.38
-    },
-    {
-      "file": "api/agent-runs/_shared.ts",
-      "maintainability": 32.44
+      "file": "api/instructions/get.ts",
+      "maintainability": 29.51
     }
   ],
   "mostRecentImprovements": [
@@ -125,8 +125,8 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-19T22:59:40.520Z",
+  "generatedAt": "2026-02-19T23:05:57.384Z",
   "filesAnalyzed": 291,
-  "unroundedMaintainability": 40.6,
-  "unroundedSimplicity": 40.6
+  "unroundedMaintainability": 40.5,
+  "unroundedSimplicity": 40.5
 }
