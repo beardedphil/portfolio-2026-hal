@@ -86,7 +86,7 @@ Run the repo’s maintainability report (uses a maintainability library over the
 npm run report:simplicity
 ```
 
-The script prints a single line: `Simplicity: XX%`. Include that percentage in your QA report, but label it as **Maintainability** (not Simplicity).
+The script prints a single line: `Simplicity: XX%`. **CRITICAL:** In your QA report, you **MUST** label this metric as **Maintainability** (not Simplicity). The word "Simplicity" must **NOT** appear anywhere in the user-visible QA report text—use "Maintainability" instead.
 
 **Maintainability section format:**
 
