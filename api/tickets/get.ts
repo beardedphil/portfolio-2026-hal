@@ -219,7 +219,31 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       }
     })
 
-    // Return full ticket record with artifacts
+    // If we have a ticket PK and repo_full_name, fetch RED versions
+    let redVersions: any[] = []
+    let redError: string | null = null
+    const repoFullName = ticket.repo_full_name
+    if (ticketPkValue && repoFullName) {
+      try {
+        const { data: redData, error: redErr } = await supabase
+          .from('hal_red_documents')
+          .select('red_id, version, content_checksum, validation_status, created_at, created_by, artifact_id')
+          .eq('repo_full_name', repoFullName)
+          .eq('ticket_pk', ticketPkValue)
+          .order('version', { ascending: false })
+          .order('created_at', { ascending: false })
+
+        if (redErr) {
+          redError = `Failed to fetch RED versions: ${redErr.message}`
+        } else {
+          redVersions = redData || []
+        }
+      } catch (err) {
+        redError = err instanceof Error ? err.message : String(err)
+      }
+    }
+
+    // Return full ticket record with artifacts and RED versions
     // Forward-compatible: return all ticket fields, not just specific ones
     json(res, 200, {
       success: true,
@@ -227,6 +251,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       artifacts: artifacts, // Array of artifacts (full)
       artifact_summary: artifactSummary, // Summarized artifacts for assistant
       ...(artifactsError ? { artifacts_error: artifactsError } : {}), // Include error if artifacts fetch failed
+      red_versions: redVersions, // Array of RED versions (version, status, checksum, timestamps)
+      ...(redError ? { red_error: redError } : {}), // Include error if RED fetch failed
       // Backward compatibility: also include body_md at top level
       body_md: ticket.body_md || '',
     })
