@@ -10,6 +10,8 @@ import { ProcessReviewSection } from './ProcessReviewSection'
 import { HumanValidationSection } from './HumanValidationSection'
 import { AutoDismissMessage } from './AutoDismissMessage'
 import { PullRequestSection } from './PullRequestSection'
+import { RedValidationSection } from './RedValidationSection'
+import { findRedDocument } from '../lib/redDocumentExtractor'
 
 /** Ticket detail modal (0033): title, metadata, markdown body, close/escape/backdrop, scroll lock, focus trap */
 export function TicketDetailModal({
@@ -66,6 +68,8 @@ export function TicketDetailModal({
   const [isProcessing, setIsProcessing] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
   const [validationSuccess, setValidationSuccess] = useState<string | null>(null)
+  const [redDocument, setRedDocument] = useState<unknown | null>(null)
+  const [redDocumentError, setRedDocumentError] = useState<string | null>(null)
   const modalRef = useRef<HTMLDivElement>(null)
   const closeBtnRef = useRef<HTMLButtonElement>(null)
 
@@ -184,6 +188,25 @@ export function TicketDetailModal({
     }
   }, [ticketId, validationSteps, validationNotes, isProcessing, onValidationFail, _onTicketUpdate, columnId])
 
+  // Extract RED document from attachments when modal opens or attachments change
+  useEffect(() => {
+    if (!open || attachmentsLoading || attachments.length === 0) {
+      setRedDocument(null)
+      setRedDocumentError(null)
+      return
+    }
+    
+    findRedDocument(attachments)
+      .then(({ red, error }) => {
+        setRedDocument(red)
+        setRedDocumentError(error)
+      })
+      .catch(err => {
+        setRedDocument(null)
+        setRedDocumentError(err instanceof Error ? err.message : 'Failed to load RED document')
+      })
+  }, [open, attachments, attachmentsLoading])
+
   // Reset validation fields when modal closes
   useEffect(() => {
     if (!open) {
@@ -192,6 +215,8 @@ export function TicketDetailModal({
       setIsProcessing(false)
       setValidationError(null)
       setValidationSuccess(null)
+      setRedDocument(null)
+      setRedDocumentError(null)
     }
   }, [open])
 
@@ -287,6 +312,24 @@ export function TicketDetailModal({
                 attachments={attachments}
                 loading={attachmentsLoading}
               />
+              {redDocument && (
+                <RedValidationSection
+                  ticketPk={ticketId}
+                  ticketId={ticketId}
+                  supabaseUrl={supabaseUrl}
+                  supabaseKey={supabaseKey}
+                  redDocument={redDocument}
+                  redVersion="v0"
+                />
+              )}
+              {redDocumentError && !redDocument && (
+                <div className="red-validation-section">
+                  <h3 className="red-validation-title">RED Validation</h3>
+                  <p className="red-validation-hint" style={{ color: '#666' }}>
+                    {redDocumentError}
+                  </p>
+                </div>
+              )}
               <PullRequestSection
                 ticketPk={ticketId}
                 repoFullName={repoFullName || null}

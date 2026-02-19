@@ -1629,6 +1629,119 @@ h1 {
   padding-top: 1.5rem;
   border-top: 1px solid var(--kanban-border);
 }
+.red-validation-section {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--kanban-border);
+}
+.red-validation-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 1rem 0;
+  color: var(--kanban-text);
+}
+.red-validation-loading {
+  color: var(--kanban-text-secondary);
+  font-size: 0.9rem;
+  margin: 0.5rem 0;
+}
+.red-validation-error {
+  background: #ffebee;
+  border: 1px solid #f44336;
+  border-radius: 6px;
+  padding: 0.75rem;
+  margin-bottom: 1rem;
+  color: #c62828;
+  font-size: 0.9rem;
+}
+.red-validation-error p {
+  margin: 0;
+}
+.red-validation-status {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+.red-validation-badge {
+  display: inline-block;
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.red-validation-pass {
+  background: #e8f5e9;
+  color: #2e7d32;
+  border: 1px solid #4caf50;
+}
+.red-validation-fail {
+  background: #ffebee;
+  color: #c62828;
+  border: 1px solid #f44336;
+}
+.red-validation-meta {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.85rem;
+  color: var(--kanban-text-secondary);
+  flex-wrap: wrap;
+}
+.red-validation-timestamp,
+.red-validation-version {
+  white-space: nowrap;
+}
+.red-validation-failures {
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+}
+.red-validation-failures-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem 0;
+  color: var(--kanban-text);
+}
+.red-validation-failures-list {
+  margin: 0;
+  padding-left: 1.5rem;
+  list-style: decimal;
+}
+.red-validation-failure-item {
+  margin-bottom: 0.75rem;
+  padding: 0.5rem;
+  background: #fff3e0;
+  border-left: 3px solid #ff9800;
+  border-radius: 4px;
+}
+.red-validation-failure-item:last-child {
+  margin-bottom: 0;
+}
+.red-validation-failure-message {
+  font-weight: 500;
+  color: #e65100;
+  margin-bottom: 0.25rem;
+}
+.red-validation-failure-detail {
+  font-size: 0.85rem;
+  color: var(--kanban-text-secondary);
+  margin-top: 0.25rem;
+  font-family: ui-monospace, monospace;
+}
+.red-validation-actions {
+  margin-top: 1rem;
+}
+.red-validation-button {
+  margin-right: 0.5rem;
+}
+.red-validation-hint {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--kanban-text-secondary);
+  font-style: italic;
+}
 .attachments-section-title {
   font-size: 1rem;
   font-weight: 600;
