@@ -95,6 +95,14 @@ export function PmChatWidget({
       <div className="pm-chat-widget-content">
         <div className="hal-chat-panel-inner" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
           {/* Agent stub banners and status panels */}
+          {displayTarget === 'project-manager' && (
+            <div className="agent-stub-banner" role="status">
+              <p className="agent-stub-title">Project Manager — OpenAI</p>
+              <p className="agent-stub-hint">
+                Send a message to the Project Manager to get help with planning, prioritization, ticket creation, and project decisions. Powered by OpenAI Responses API.
+              </p>
+            </div>
+          )}
           {displayTarget === 'implementation-agent' && (
             <>
               <div className="agent-stub-banner" role="status">

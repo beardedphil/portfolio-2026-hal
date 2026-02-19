@@ -166,8 +166,28 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       images,
     }
 
-    // Call runPmAgent
-    const result = (await pmModule.runPmAgent(message, config)) as {
+    // Call runPmAgent with timeout (50 seconds to stay under Vercel's 60s limit)
+    const timeoutMs = 50_000
+    const timeoutPromise = new Promise<{ error: string; errorPhase: string }>((resolve) => {
+      setTimeout(() => {
+        resolve({
+          error: 'PM agent request timed out. The request took longer than 50 seconds.',
+          errorPhase: 'timeout',
+        })
+      }, timeoutMs)
+    })
+
+    const runPmAgentPromise = pmModule.runPmAgent(message, config) as Promise<{
+      reply?: string
+      toolCalls?: unknown[]
+      outboundRequest?: object
+      responseId?: string
+      error?: string
+      errorPhase?: string
+      promptText?: string
+    }>
+
+    const result = (await Promise.race([runPmAgentPromise, timeoutPromise])) as {
       reply?: string
       toolCalls?: unknown[]
       outboundRequest?: object
