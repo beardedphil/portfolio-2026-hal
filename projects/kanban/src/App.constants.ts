@@ -12,6 +12,8 @@ export const SUPABASE_POLL_INTERVAL_MS = 10_000
 export const SUPABASE_SAFETY_POLL_INTERVAL_MS = 60_000
 /** Delay before refetch after a move so DB write is visible; avoids stale read overwriting last moves (0144) */
 export const REFETCH_AFTER_MOVE_MS = 2000 // Increased from 1500ms to give backend more time to persist
+/** Delay before reverting optimistic update on move failure (0790); gives slow HAL API moves time to succeed */
+export const ROLLBACK_AFTER_FAILURE_MS = 10000 // 10 seconds - configurable delay before reverting failed moves
 /** BroadcastChannel name for cross-tab communication (0703) */
 export const KANBAN_BROADCAST_CHANNEL = 'hal-kanban-sync'
 

@@ -46,7 +46,7 @@ import { AddColumnForm } from './components/AddColumnForm'
 import { DebugPanel } from './components/DebugPanel'
 import type { Card, Column } from './lib/columnTypes'
 import type { LogEntry, SupabaseTicketRow, SupabaseAgentArtifactRow, SupabaseAgentRunRow, TicketAttachment } from './App.types'
-import { SUPABASE_CONFIG_KEY, CONNECTED_REPO_KEY, SUPABASE_POLL_INTERVAL_MS, SUPABASE_SAFETY_POLL_INTERVAL_MS, REFETCH_AFTER_MOVE_MS, KANBAN_BROADCAST_CHANNEL, EMPTY_KANBAN_COLUMNS, DEFAULT_KANBAN_COLUMNS_SEED, _SUPABASE_KANBAN_COLUMNS_SETUP_SQL, DEFAULT_COLUMNS, INITIAL_CARDS, _SUPABASE_SETUP_SQL, _SUPABASE_TICKET_ATTACHMENTS_SETUP_SQL } from './App.constants'
+import { SUPABASE_CONFIG_KEY, CONNECTED_REPO_KEY, SUPABASE_POLL_INTERVAL_MS, SUPABASE_SAFETY_POLL_INTERVAL_MS, REFETCH_AFTER_MOVE_MS, ROLLBACK_AFTER_FAILURE_MS, KANBAN_BROADCAST_CHANNEL, EMPTY_KANBAN_COLUMNS, DEFAULT_KANBAN_COLUMNS_SEED, _SUPABASE_KANBAN_COLUMNS_SETUP_SQL, DEFAULT_COLUMNS, INITIAL_CARDS, _SUPABASE_SETUP_SQL, _SUPABASE_TICKET_ATTACHMENTS_SETUP_SQL } from './App.constants'
 import { formatTime, normalizeTitle } from './App.utils'
 
 /** Supabase kanban_columns table row (0020) - use imported type from canonicalizeColumns */
@@ -226,6 +226,8 @@ function App() {
   // Ticket persistence tracking (0047)
   const [lastMovePersisted, setLastMovePersisted] = useState<{ success: boolean; timestamp: Date; ticketId: string; error?: string } | null>(null)
   const [pendingMoves, setPendingMoves] = useState<Set<string>>(new Set())
+  // Track when each move was initiated to prevent premature rollback on slow API responses (0790)
+  const [pendingMoveTimestamps, setPendingMoveTimestamps] = useState<Map<string, number>>(new Map())
 
   // Ticket detail modal (0033): click card opens modal; content from Supabase or docs
   const [detailModal, setDetailModal] = useState<{ ticketId: string; title: string; columnId: string | null } | null>(null)
@@ -1976,8 +1978,15 @@ function App() {
         let overIndex = overColumn.cardIds.indexOf(String(effectiveOverId))
         if (overIndex < 0) overIndex = overColumn.cardIds.length
         const movedAt = new Date().toISOString()
-        // Optimistic update (0047)
+        const moveStartTime = Date.now()
+        // Optimistic update (0047) - ticket appears immediately in destination column (0790)
         setPendingMoves((prev) => new Set(prev).add(ticketPk))
+        // Track move start time to prevent premature rollback on slow API responses (0790)
+        setPendingMoveTimestamps((prev) => {
+          const next = new Map(prev)
+          next.set(ticketPk, moveStartTime)
+          return next
+        })
         // Immediately update agent runs state when ticket moves to/from Doing (0135)
         // This prevents stale badges from showing during the async refetch
         const wasInDoing = ticket?.kanban_column_id === 'col-doing'
@@ -2070,6 +2079,12 @@ function App() {
                       next.delete(ticketPk)
                       return next
                     })
+                    // Clear move timestamp on success (0790)
+                    setPendingMoveTimestamps((prev) => {
+                      const next = new Map(prev)
+                      next.delete(ticketPk)
+                      return next
+                    })
                   }
                   // If backend hasn't confirmed yet, keep in pendingMoves (will be checked on next poll)
                   return currentTickets
@@ -2090,33 +2105,67 @@ function App() {
                   next.delete(ticketPk)
                   return next
                 })
+                setPendingMoveTimestamps((prev) => {
+                  const next = new Map(prev)
+                  next.delete(ticketPk)
+                  return next
+                })
               })
             }, REFETCH_AFTER_MOVE_MS)
         } else {
-          // Revert optimistic update on failure (0047)
+          // Move failed - wait for rollback delay before reverting to give slow API responses time to succeed (0790)
           // Include actionable steps in error message if provided (0770)
           const errorMessage = 'actionableSteps' in result && result.actionableSteps
             ? `${result.error}\n\nNext steps: ${result.actionableSteps}`
             : result.error
+          
+          // Show error message immediately (0790)
           setLastMovePersisted({ success: false, timestamp: new Date(), ticketId: ticketPk, error: errorMessage })
-          setPendingMoves((prev) => {
-            const next = new Set(prev)
-            next.delete(ticketPk)
-            return next
-          })
-          refetchSupabaseTickets(false).then((result) => {
-            // Refetch agent runs if ticket was in Doing column (0135)
-            // Pass fresh tickets directly from refetch result to avoid stale state reads
-            if (ticket?.kanban_column_id === 'col-doing' || overColumn.id === 'col-doing') {
-              if (result.freshTickets) {
-                fetchActiveAgentRuns(result.freshTickets)
-              } else {
-                // Fallback: ref should be updated by now, but use it as backup
-                fetchActiveAgentRuns()
-              }
-            }
-          }) // Full refetch to restore correct state
           addLog(`Move failed: ${errorMessage}`)
+          
+          // Wait for rollback delay before reverting optimistic update (0790)
+          // This gives slow HAL API moves time to succeed and prevents premature "move back" behavior
+          const moveStartTimeFromMap = pendingMoveTimestamps.get(ticketPk) || moveStartTime
+          const timeSinceMoveStart = Date.now() - moveStartTimeFromMap
+          const remainingDelay = Math.max(0, ROLLBACK_AFTER_FAILURE_MS - timeSinceMoveStart)
+          
+          setTimeout(() => {
+            // Double-check that move still failed (it might have succeeded in the meantime)
+            // Only revert if ticket is still in pendingMoves (hasn't been confirmed as successful)
+            setPendingMoves((currentPending) => {
+              if (!currentPending.has(ticketPk)) {
+                // Move was already confirmed successful, don't revert
+                return currentPending
+              }
+              
+              // Move still pending after delay - revert optimistic update
+              const next = new Set(currentPending)
+              next.delete(ticketPk)
+              
+              // Revert ticket position by refetching from backend
+              refetchSupabaseTickets(false).then((result) => {
+                // Refetch agent runs if ticket was in Doing column (0135)
+                // Pass fresh tickets directly from refetch result to avoid stale state reads
+                if (ticket?.kanban_column_id === 'col-doing' || overColumn.id === 'col-doing') {
+                  if (result.freshTickets) {
+                    fetchActiveAgentRuns(result.freshTickets)
+                  } else {
+                    // Fallback: ref should be updated by now, but use it as backup
+                    fetchActiveAgentRuns()
+                  }
+                }
+              }) // Full refetch to restore correct state
+              
+              return next
+            })
+            
+            // Clear move timestamp after rollback (0790)
+            setPendingMoveTimestamps((prev) => {
+              const next = new Map(prev)
+              next.delete(ticketPk)
+              return next
+            })
+          }, remainingDelay)
         }
         return
       }
@@ -2132,9 +2181,16 @@ function App() {
         const doingTickets = supabaseTickets.filter((t) => t.kanban_column_id === 'col-doing')
         const overIndex = doingTickets.length // Append to end
         const movedAt = new Date().toISOString()
+        const moveStartTime = Date.now()
         
-        // Optimistic update
+        // Optimistic update - ticket appears immediately in destination column (0790)
         setPendingMoves((prev) => new Set(prev).add(ticketPk))
+        // Track move start time to prevent premature rollback on slow API responses (0790)
+        setPendingMoveTimestamps((prev) => {
+          const next = new Map(prev)
+          next.set(ticketPk, moveStartTime)
+          return next
+        })
         
         // Immediately update agent runs state when ticket moves to Doing (0135)
         const sourceColumnId = ticket.kanban_column_id || null
@@ -2189,6 +2245,12 @@ function App() {
                     next.delete(ticketPk)
                     return next
                   })
+                  // Clear move timestamp on success (0790)
+                  setPendingMoveTimestamps((prev) => {
+                    const next = new Map(prev)
+                    next.delete(ticketPk)
+                    return next
+                  })
                 }
                 return currentTickets
               })
@@ -2203,27 +2265,60 @@ function App() {
                 next.delete(ticketPk)
                 return next
               })
+              setPendingMoveTimestamps((prev) => {
+                const next = new Map(prev)
+                next.delete(ticketPk)
+                return next
+              })
             })
           }, REFETCH_AFTER_MOVE_MS)
         } else {
+          // Move failed - wait for rollback delay before reverting to give slow API responses time to succeed (0790)
           // Include actionable steps in error message if provided (0770)
           const errorMessage = result.actionableSteps 
             ? `${result.error}\n\nNext steps: ${result.actionableSteps}`
             : result.error
+          
+          // Show error message immediately (0790)
           setLastMovePersisted({ success: false, timestamp: new Date(), ticketId: ticketPk, error: errorMessage })
-          setPendingMoves((prev) => {
-            const next = new Set(prev)
-            next.delete(ticketPk)
-            return next
-          })
-          refetchSupabaseTickets(false).then((result) => {
-            if (result.freshTickets) {
-              fetchActiveAgentRuns(result.freshTickets)
-            } else {
-              fetchActiveAgentRuns()
-            }
-          })
           addLog(`Move failed: ${errorMessage}`)
+          
+          // Wait for rollback delay before reverting optimistic update (0790)
+          const moveStartTimeFromMap = pendingMoveTimestamps.get(ticketPk) || moveStartTime
+          const timeSinceMoveStart = Date.now() - moveStartTimeFromMap
+          const remainingDelay = Math.max(0, ROLLBACK_AFTER_FAILURE_MS - timeSinceMoveStart)
+          
+          setTimeout(() => {
+            // Double-check that move still failed (it might have succeeded in the meantime)
+            setPendingMoves((currentPending) => {
+              if (!currentPending.has(ticketPk)) {
+                // Move was already confirmed successful, don't revert
+                return currentPending
+              }
+              
+              // Move still pending after delay - revert optimistic update
+              const next = new Set(currentPending)
+              next.delete(ticketPk)
+              
+              // Revert ticket position by refetching from backend
+              refetchSupabaseTickets(false).then((result) => {
+                if (result.freshTickets) {
+                  fetchActiveAgentRuns(result.freshTickets)
+                } else {
+                  fetchActiveAgentRuns()
+                }
+              })
+              
+              return next
+            })
+            
+            // Clear move timestamp after rollback (0790)
+            setPendingMoveTimestamps((prev) => {
+              const next = new Map(prev)
+              next.delete(ticketPk)
+              return next
+            })
+          }, remainingDelay)
         }
         return
       }
@@ -2270,8 +2365,15 @@ function App() {
           const newOrder = arrayMove(sourceCardIds, activeIndex, overIndex)
           const movedAt = new Date().toISOString()
           const ticketPk = String(active.id)
-          // Optimistic update (0047)
+          const moveStartTime = Date.now()
+          // Optimistic update (0047) - ticket appears immediately in new position (0790)
           setPendingMoves((prev) => new Set(prev).add(ticketPk))
+          // Track move start time to prevent premature rollback on slow API responses (0790)
+          setPendingMoveTimestamps((prev) => {
+            const next = new Map(prev)
+            next.set(ticketPk, moveStartTime)
+            return next
+          })
           setSupabaseTickets((prev) =>
             prev.map((t) => {
               const i = newOrder.indexOf(t.pk)
@@ -2327,6 +2429,12 @@ function App() {
                       next.delete(ticketPk)
                       return next
                     })
+                    // Clear move timestamp on success (0790)
+                    setPendingMoveTimestamps((prev) => {
+                      const next = new Map(prev)
+                      next.delete(ticketPk)
+                      return next
+                    })
                   }
                   // If backend hasn't confirmed yet, keep in pendingMoves (will be checked on next poll)
                   return currentTickets
@@ -2338,17 +2446,46 @@ function App() {
                   next.delete(ticketPk)
                   return next
                 })
+                setPendingMoveTimestamps((prev) => {
+                  const next = new Map(prev)
+                  next.delete(ticketPk)
+                  return next
+                })
               })
             }, REFETCH_AFTER_MOVE_MS)
           } else {
-            // Revert optimistic update on failure (0047)
+            // Same-column reorder failed - wait for rollback delay before reverting (0790)
+            // Show error message immediately
             setLastMovePersisted({ success: false, timestamp: new Date(), ticketId: ticketPk, error: firstError })
-            setPendingMoves((prev) => {
-              const next = new Set(prev)
-              next.delete(ticketPk)
-              return next
-            })
-            refetchSupabaseTickets(false) // Full refetch to restore correct state
+            addLog(`Supabase reorder failed: ${firstError}`)
+            
+            // Wait for rollback delay before reverting optimistic update (0790)
+            const moveStartTimeFromMap = pendingMoveTimestamps.get(ticketPk) || moveStartTime
+            const timeSinceMoveStart = Date.now() - moveStartTimeFromMap
+            const remainingDelay = Math.max(0, ROLLBACK_AFTER_FAILURE_MS - timeSinceMoveStart)
+            
+            setTimeout(() => {
+              // Double-check that move still failed
+              setPendingMoves((currentPending) => {
+                if (!currentPending.has(ticketPk)) {
+                  // Move was already confirmed successful, don't revert
+                  return currentPending
+                }
+                
+                // Move still pending after delay - revert optimistic update
+                const next = new Set(currentPending)
+                next.delete(ticketPk)
+                refetchSupabaseTickets(false) // Full refetch to restore correct state
+                return next
+              })
+              
+              // Clear move timestamp after rollback (0790)
+              setPendingMoveTimestamps((prev) => {
+                const next = new Map(prev)
+                next.delete(ticketPk)
+                return next
+              })
+            }, remainingDelay)
           }
         } else {
           // Validation: prevent QA → Human in the Loop unless merge confirmed (0113)
@@ -2422,8 +2559,15 @@ function App() {
             }
           }
           
-          // Optimistic update (0047)
+          const moveStartTime = Date.now()
+          // Optimistic update (0047) - ticket appears immediately in destination column (0790)
           setPendingMoves((prev) => new Set(prev).add(ticketPk))
+          // Track move start time to prevent premature rollback on slow API responses (0790)
+          setPendingMoveTimestamps((prev) => {
+            const next = new Map(prev)
+            next.set(ticketPk, moveStartTime)
+            return next
+          })
           setSupabaseTickets((prev) =>
             prev.map((t) =>
               t.pk === ticketPk
@@ -2450,7 +2594,6 @@ function App() {
             // Remove from pending after delay - refetch preserves optimistic position until backend matches (0144)
             // CRITICAL: Only remove from pendingMoves when backend position actually matches optimistic position
             // This prevents snap-back when polling refetch happens before backend confirms
-            const sourceTicket = supabaseTickets.find((t) => t.pk === ticketPk)
             setTimeout(() => {
               refetchSupabaseTickets(false).then((result) => {
                 // After refetch, check if backend position matches optimistic position
@@ -2469,6 +2612,12 @@ function App() {
                     setPendingMoves((prev) => {
                       if (!prev.has(ticketPk)) return prev // Already removed
                       const next = new Set(prev)
+                      next.delete(ticketPk)
+                      return next
+                    })
+                    // Clear move timestamp on success (0790)
+                    setPendingMoveTimestamps((prev) => {
+                      const next = new Map(prev)
                       next.delete(ticketPk)
                       return next
                     })
@@ -2492,34 +2641,65 @@ function App() {
                   next.delete(ticketPk)
                   return next
                 })
+                setPendingMoveTimestamps((prev) => {
+                  const next = new Map(prev)
+                  next.delete(ticketPk)
+                  return next
+                })
               })
             }, REFETCH_AFTER_MOVE_MS)
           } else {
-            // Revert optimistic update on failure (0047)
+            // Move failed - wait for rollback delay before reverting to give slow API responses time to succeed (0790)
             // Include actionable steps in error message if provided (0770)
             const errorMessage = 'actionableSteps' in result && result.actionableSteps
               ? `${result.error}\n\nNext steps: ${result.actionableSteps}`
               : result.error
+            
+            // Show error message immediately (0790)
             setLastMovePersisted({ success: false, timestamp: new Date(), ticketId: ticketPk, error: errorMessage })
-            setPendingMoves((prev) => {
-              const next = new Set(prev)
-              next.delete(ticketPk)
-              return next
-            })
-            const sourceTicket = supabaseTickets.find((t) => t.pk === ticketPk)
-            refetchSupabaseTickets(false).then((result) => {
-              // Refetch agent runs if ticket was in Doing column (0135)
-              // Pass fresh tickets directly from refetch result to avoid stale state reads
-              if (sourceTicket?.kanban_column_id === 'col-doing' || overColumn.id === 'col-doing') {
-                if (result.freshTickets) {
-                  fetchActiveAgentRuns(result.freshTickets)
-                } else {
-                  // Fallback: ref should be updated by now, but use it as backup
-                  fetchActiveAgentRuns()
-                }
-              }
-            }) // Full refetch to restore correct state
             addLog(`Move failed: ${errorMessage}`)
+            
+            // Wait for rollback delay before reverting optimistic update (0790)
+            const moveStartTimeFromMap = pendingMoveTimestamps.get(ticketPk) || moveStartTime
+            const timeSinceMoveStart = Date.now() - moveStartTimeFromMap
+            const remainingDelay = Math.max(0, ROLLBACK_AFTER_FAILURE_MS - timeSinceMoveStart)
+            
+            setTimeout(() => {
+              // Double-check that move still failed (it might have succeeded in the meantime)
+              setPendingMoves((currentPending) => {
+                if (!currentPending.has(ticketPk)) {
+                  // Move was already confirmed successful, don't revert
+                  return currentPending
+                }
+                
+                // Move still pending after delay - revert optimistic update
+                const next = new Set(currentPending)
+                next.delete(ticketPk)
+                
+                // Revert ticket position by refetching from backend
+                refetchSupabaseTickets(false).then((result) => {
+                  // Refetch agent runs if ticket was in Doing column (0135)
+                  // Pass fresh tickets directly from refetch result to avoid stale state reads
+                  if (sourceTicket?.kanban_column_id === 'col-doing' || overColumn.id === 'col-doing') {
+                    if (result.freshTickets) {
+                      fetchActiveAgentRuns(result.freshTickets)
+                    } else {
+                      // Fallback: ref should be updated by now, but use it as backup
+                      fetchActiveAgentRuns()
+                    }
+                  }
+                }) // Full refetch to restore correct state
+                
+                return next
+              })
+              
+              // Clear move timestamp after rollback (0790)
+              setPendingMoveTimestamps((prev) => {
+                const next = new Map(prev)
+                next.delete(ticketPk)
+                return next
+              })
+            }, remainingDelay)
           }
         }
         return
