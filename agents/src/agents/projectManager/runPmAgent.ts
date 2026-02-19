@@ -36,7 +36,8 @@ import type { PmAgentConfig, PmAgentResult, ToolCallRecord } from './types.js'
 const execAsync = promisify(exec)
 const COL_TODO = 'col-todo'
 
-function isUnknownColumnError(err: unknown): boolean {
+/** True if the error indicates an unknown column in Postgres (schema migration issue). */
+export function isUnknownColumnError(err: unknown): boolean {
   const e = err as { code?: string; message?: string }
   const msg = (e?.message ?? '').toLowerCase()
   return e?.code === '42703' || (msg.includes('column') && msg.includes('does not exist'))
@@ -93,12 +94,84 @@ const MAX_TOOL_ITERATIONS = 10
 const MAX_CREATE_TICKET_RETRIES = 10
 
 /** True if the error is a Postgres unique constraint violation (id or filename collision). */
-function isUniqueViolation(err: { code?: string; message?: string } | null): boolean {
+export function isUniqueViolation(err: { code?: string; message?: string } | null): boolean {
   if (!err) return false
   if (err.code === '23505') return true
   const msg = (err.message ?? '').toLowerCase()
   return msg.includes('duplicate key') || msg.includes('unique constraint')
 }
+
+/**
+ * Auto-fixes common formatting issues in ticket body markdown.
+ * Currently converts bullets to checkboxes in Acceptance criteria section.
+ * @param bodyMd - The ticket body markdown
+ * @returns Object with fixed body and whether auto-fix was applied
+ */
+export function autoFixTicketBody(bodyMd: string): { fixedBody: string; autoFixed: boolean } {
+  const acSection = sectionContent(bodyMd, 'Acceptance criteria (UI-only)')
+  if (acSection && !/-\s*\[\s*\]/.test(acSection) && /^[\s]*[-*+]\s+/m.test(acSection)) {
+    // If AC section exists, has bullets but no checkboxes, convert bullets to checkboxes
+    const fixedAc = acSection.replace(/^(\s*)[-*+]\s+/gm, '$1- [ ] ')
+    // Use same pattern as sectionContent for consistency (case-sensitive, flexible spacing)
+    const acRegex = new RegExp(
+      `(##\\s+Acceptance criteria \\(UI-only\\)\\s*\\n)([\\s\\S]*?)(?=\\n##\\s*[^\\s#\\n]|$)`
+    )
+    const match = bodyMd.match(acRegex)
+    if (match) {
+      const fixedBody = bodyMd.replace(acRegex, `$1${fixedAc}\n`)
+      return { fixedBody, autoFixed: true }
+    }
+  }
+  return { fixedBody: bodyMd, autoFixed: false }
+}
+
+/**
+ * Computes the next position in the To Do column for a ticket.
+ * Handles both repo-scoped and legacy modes.
+ * @param supabase - Supabase client
+ * @param repoFullName - Repository full name (or 'legacy/unknown')
+ * @returns Next position number, or error message
+ */
+export async function computeNextTodoPosition(
+  supabase: SupabaseClient,
+  repoFullName: string
+): Promise<{ position: number } | { error: string }> {
+  const todoQ = supabase
+    .from('tickets')
+    .select('kanban_position')
+    .eq('kanban_column_id', COL_TODO)
+  const todoR = repoFullName !== 'legacy/unknown'
+    ? await todoQ.eq('repo_full_name', repoFullName).order('kanban_position', { ascending: false }).limit(1)
+    : await todoQ.order('kanban_position', { ascending: false }).limit(1)
+  
+  if (todoR.error && isUnknownColumnError(todoR.error)) {
+    // Legacy fallback
+    const legacyTodo = await supabase
+      .from('tickets')
+      .select('kanban_position')
+      .eq('kanban_column_id', COL_TODO)
+      .order('kanban_position', { ascending: false })
+      .limit(1)
+    if (legacyTodo.error) {
+      return { error: `Failed to fetch To Do position: ${legacyTodo.error.message}` }
+    } else {
+      const max = (legacyTodo.data ?? []).reduce(
+        (acc, r) => Math.max(acc, (r as { kanban_position?: number }).kanban_position ?? 0),
+        0
+      )
+      return { position: max + 1 }
+    }
+  } else if (todoR.error) {
+    return { error: `Failed to fetch To Do position: ${todoR.error.message}` }
+  } else {
+    const max = (todoR.data ?? []).reduce(
+      (acc, r) => Math.max(acc, (r as { kanban_position?: number }).kanban_position ?? 0),
+      0
+    )
+    return { position: max + 1 }
+  }
+}
+
 export async function runPmAgent(
   message: string,
   config: PmAgentConfig
@@ -332,34 +405,24 @@ export async function runPmAgent(
                   
                   // If not ready after normalization, try to auto-fix common formatting issues
                   if (!readiness.ready) {
-                    // Try to fix missing checkboxes in Acceptance criteria
-                    const acSection = sectionContent(finalBodyMd, 'Acceptance criteria (UI-only)')
-                    if (acSection && !/-\s*\[\s*\]/.test(acSection) && /^[\s]*[-*+]\s+/m.test(acSection)) {
-                      // If AC section exists, has bullets but no checkboxes, convert bullets to checkboxes
-                      const fixedAc = acSection.replace(/^(\s*)[-*+]\s+/gm, '$1- [ ] ')
-                      // Use same pattern as sectionContent for consistency (case-sensitive, flexible spacing)
-                      const acRegex = new RegExp(
-                        `(##\\s+Acceptance criteria \\(UI-only\\)\\s*\\n)([\\s\\S]*?)(?=\\n##\\s*[^\\s#\\n]|$)`
-                      )
-                      const match = finalBodyMd.match(acRegex)
-                      if (match) {
-                        finalBodyMd = finalBodyMd.replace(acRegex, `$1${fixedAc}\n`)
-                        autoFixed = true
-                        // Re-evaluate after fix
-                        readiness = evaluateTicketReady(finalBodyMd)
-                        
-                        // If fix made it ready, update the ticket in DB
-                        if (readiness.ready) {
-                          const updateQ = supabase.from('tickets').update({ body_md: finalBodyMd })
-                          const updateResult = repoFullName !== 'legacy/unknown' && candidateNum
-                            ? await updateQ.eq('repo_full_name', repoFullName).eq('ticket_number', candidateNum)
-                            : await updateQ.eq('id', id)
-                          if (updateResult.error) {
-                            // Fix worked but update failed - revert to original
-                            finalBodyMd = normalizedBodyMd
-                            readiness = evaluateTicketReady(finalBodyMd)
-                            autoFixed = false
-                          }
+                    const fixResult = autoFixTicketBody(finalBodyMd)
+                    if (fixResult.autoFixed) {
+                      finalBodyMd = fixResult.fixedBody
+                      autoFixed = true
+                      // Re-evaluate after fix
+                      readiness = evaluateTicketReady(finalBodyMd)
+                      
+                      // If fix made it ready, update the ticket in DB
+                      if (readiness.ready) {
+                        const updateQ = supabase.from('tickets').update({ body_md: finalBodyMd })
+                        const updateResult = repoFullName !== 'legacy/unknown' && candidateNum
+                          ? await updateQ.eq('repo_full_name', repoFullName).eq('ticket_number', candidateNum)
+                          : await updateQ.eq('id', id)
+                        if (updateResult.error) {
+                          // Fix worked but update failed - revert to original
+                          finalBodyMd = normalizedBodyMd
+                          readiness = evaluateTicketReady(finalBodyMd)
+                          autoFixed = false
                         }
                       }
                     }
@@ -371,43 +434,11 @@ export async function runPmAgent(
                   if (readiness.ready) {
                     try {
                       // Compute next position in To Do column
-                      let nextTodoPosition = 0
-                      const todoQ = supabase
-                        .from('tickets')
-                        .select('kanban_position')
-                        .eq('kanban_column_id', COL_TODO)
-                      const todoR = repoFullName !== 'legacy/unknown'
-                        ? await todoQ.eq('repo_full_name', repoFullName).order('kanban_position', { ascending: false }).limit(1)
-                        : await todoQ.order('kanban_position', { ascending: false }).limit(1)
-                      
-                      if (todoR.error && isUnknownColumnError(todoR.error)) {
-                        // Legacy fallback
-                        const legacyTodo = await supabase
-                          .from('tickets')
-                          .select('kanban_position')
-                          .eq('kanban_column_id', COL_TODO)
-                          .order('kanban_position', { ascending: false })
-                          .limit(1)
-                        if (legacyTodo.error) {
-                          moveError = `Failed to fetch To Do position: ${legacyTodo.error.message}`
-                        } else {
-                          const max = (legacyTodo.data ?? []).reduce(
-                            (acc, r) => Math.max(acc, (r as { kanban_position?: number }).kanban_position ?? 0),
-                            0
-                          )
-                          nextTodoPosition = max + 1
-                        }
-                      } else if (todoR.error) {
-                        moveError = `Failed to fetch To Do position: ${todoR.error.message}`
+                      const positionResult = await computeNextTodoPosition(supabase, repoFullName)
+                      if ('error' in positionResult) {
+                        moveError = positionResult.error
                       } else {
-                        const max = (todoR.data ?? []).reduce(
-                          (acc, r) => Math.max(acc, (r as { kanban_position?: number }).kanban_position ?? 0),
-                          0
-                        )
-                        nextTodoPosition = max + 1
-                      }
-                      
-                      if (!moveError) {
+                        const nextTodoPosition = positionResult.position
                         // Update ticket to To Do
                         const now = new Date().toISOString()
                         const updateQ = supabase
