@@ -768,28 +768,31 @@ export async function runPmAgent(
       ticket_id: z.string().describe('Ticket id (e.g. "HAL-0012", "0012", or "12").'),
       red_json: z
         .record(RedJsonScalar)
-        .optional()
+        .nullable()
         .describe(
           'RED document content as a JSON object (shallow map of scalar values only: string/number/boolean/null). For full nested JSON, pass red_json_content instead.'
         ),
       red_json_content: z
         .string()
-        .optional()
+        .nullable()
         .describe(
           'RED document content as a JSON string. Should contain expanded requirements, use cases, edge cases, and other detailed information. Will be parsed as JSON.'
         ),
       validation_status: z
         .enum(['valid', 'invalid', 'pending'])
-        .optional()
+        .nullable()
         .describe('Validation status for the RED document. Defaults to "pending".'),
-      created_by: z.string().optional().describe('Identifier for who created the RED document (e.g. "pm-agent", "user-name").'),
+      created_by: z
+        .string()
+        .nullable()
+        .describe('Identifier for who created the RED document (e.g. "pm-agent", "user-name").'),
     }),
     execute: async (input: {
       ticket_id: string
-      red_json?: Record<string, unknown>
-      red_json_content?: string
-      validation_status?: 'valid' | 'invalid' | 'pending'
-      created_by?: string
+      red_json: Record<string, unknown> | null
+      red_json_content: string | null
+      validation_status: 'valid' | 'invalid' | 'pending' | null
+      created_by: string | null
     }) => {
       type CreateRedResult =
         | {
@@ -863,7 +866,7 @@ export async function runPmAgent(
             repoFullName,
             redJson: redJsonParsed,
             validationStatus: input.validation_status || 'pending',
-            createdBy: input.created_by || 'pm-agent',
+            createdBy: (input.created_by && input.created_by.trim()) || 'pm-agent',
           }),
         })
 
