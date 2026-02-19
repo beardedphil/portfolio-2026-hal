@@ -452,8 +452,6 @@ function App() {
 
   // Ticket operations via custom hook
   const { moveTicketToColumn, addAutoMoveDiagnostic } = useTicketOperations({
-    supabaseUrl,
-    supabaseAnonKey,
     setAutoMoveDiagnostics,
   })
 

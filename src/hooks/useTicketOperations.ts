@@ -1,14 +1,10 @@
 import { useCallback } from 'react'
 
 interface UseTicketOperationsParams {
-  supabaseUrl: string | null
-  supabaseAnonKey: string | null
   setAutoMoveDiagnostics: React.Dispatch<React.SetStateAction<Array<{ timestamp: Date; message: string; type: 'error' | 'info' }>>>
 }
 
 export function useTicketOperations({
-  supabaseUrl,
-  supabaseAnonKey,
   setAutoMoveDiagnostics,
 }: UseTicketOperationsParams) {
   /** Add auto-move diagnostic entry (0061). */
