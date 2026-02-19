@@ -211,7 +211,8 @@ function App() {
   // Ref to track optimistic ticket positions for same-column reorder (prevents @dnd-kit revert)
   const optimisticTicketPositionsRef = useRef<Map<string, number>>(new Map())
   // State to store optimistic items arrays - using state ensures React re-renders when it changes
-  const [optimisticItems, setOptimisticItems] = useState<Map<string, string[]>>(new Map())
+  // Using object instead of Map so React can detect changes more reliably
+  const [optimisticItems, setOptimisticItems] = useState<Record<string, string[]>>({})
   // Version counter to force SortableContext to remount with new items when optimistic update happens
   const [sortableContextVersion, setSortableContextVersion] = useState(0)
   const [supabaseColumnsRows, setSupabaseColumnsRows] = useState<SupabaseKanbanColumnRow[]>([])
@@ -313,7 +314,7 @@ function App() {
       byColumn[colId].push({ id: t.pk, position: pos })
     }
     // If optimisticItems has a new order for a column, use that order instead of sorting by position
-    for (const [colId, optimisticOrder] of optimisticItems.entries()) {
+    for (const [colId, optimisticOrder] of Object.entries(optimisticItems)) {
       if (byColumn[colId] && optimisticOrder.length === byColumn[colId].length) {
         // Reorder byColumn[colId] to match optimisticOrder
         const orderMap = new Map(optimisticOrder.map((id, idx) => [id, idx]))
@@ -326,7 +327,7 @@ function App() {
     }
     // Sort columns that don't have optimistic items
     for (const id of Object.keys(byColumn)) {
-      if (!optimisticItems.has(id)) {
+      if (!(id in optimisticItems)) {
         byColumn[id].sort((a, b) => a.position - b.position)
       }
     }
@@ -1928,24 +1929,23 @@ function App() {
     const overColumn = findColumnById(String(over.id)) ?? findColumnByCardId(String(over.id))
     if (!overColumn || sourceColumn.id !== overColumn.id) return
     
-    // Same-column reorder - update optimistic items immediately
-    const sourceCardIds = sourceColumn.cardIds
-    const activeIndex = sourceCardIds.indexOf(String(active.id))
-    let overIndex = sourceCardIds.indexOf(String(over.id))
-    if (overIndex < 0) {
-      // over.id might be the column id, not a card id - use column length
-      overIndex = sourceCardIds.length
-    }
-    
-    if (activeIndex >= 0 && activeIndex !== overIndex) {
-      const newOrder = arrayMove(sourceCardIds, activeIndex, overIndex)
-      // Update optimistic items state immediately so @dnd-kit sees the change
-      setOptimisticItems((prev) => {
-        const next = new Map(prev)
-        next.set(sourceColumn.id, [...newOrder])
-        return next
-      })
-    }
+      // Same-column reorder - update optimistic items immediately
+      const sourceCardIds = sourceColumn.cardIds
+      const activeIndex = sourceCardIds.indexOf(String(active.id))
+      let overIndex = sourceCardIds.indexOf(String(over.id))
+      if (overIndex < 0) {
+        // over.id might be the column id, not a card id - use column length
+        overIndex = sourceCardIds.length
+      }
+      
+      if (activeIndex >= 0 && activeIndex !== overIndex) {
+        const newOrder = arrayMove(sourceCardIds, activeIndex, overIndex)
+        // Update optimistic items state immediately so @dnd-kit sees the change
+        setOptimisticItems((prev) => ({
+          ...prev,
+          [sourceColumn.id]: [...newOrder], // New array reference
+        }))
+      }
   }, [supabaseBoardActive, findColumnByCardId, findColumnById])
 
   const handleDragEnd = useCallback(
@@ -2459,13 +2459,12 @@ function App() {
           const ticketPk = String(active.id)
           const moveStartTime = Date.now()
           
-          // Optimistic items should already be set by handleDragOver during drag
-          // But ensure it's set here too in case handleDragOver didn't run
-          setOptimisticItems((prev) => {
-            const next = new Map(prev)
-            next.set(sourceColumn.id, [...newOrder]) // New array reference
-            return next
-          })
+          // CRITICAL: Update optimistic items IMMEDIATELY (synchronously)
+          // This must happen before @dnd-kit checks items at drag end
+          setOptimisticItems((prev) => ({
+            ...prev,
+            [sourceColumn.id]: [...newOrder], // New array reference - ensures React sees change
+          }))
           
           // Also update optimistic positions ref for useMemo fallback
           const positionMap = new Map<string, number>()
@@ -2562,9 +2561,8 @@ function App() {
                     // Clear optimistic positions and items for this column since backend confirmed
                     optimisticTicketPositionsRef.current.clear()
                     setOptimisticItems((prev) => {
-                      const next = new Map(prev)
-                      next.delete(sourceColumn.id)
-                      return next
+                      const { [sourceColumn.id]: _, ...rest } = prev
+                      return rest
                     })
                   }
                   // If backend hasn't confirmed yet, keep in pendingMoves (will be checked on next poll)
@@ -2619,9 +2617,8 @@ function App() {
                 // Clear optimistic positions and items on rollback
                 optimisticTicketPositionsRef.current.clear()
                 setOptimisticItems((prev) => {
-                  const next = new Map(prev)
-                  next.delete(sourceColumn.id)
-                  return next
+                  const { [sourceColumn.id]: _, ...rest } = prev
+                  return rest
                 })
               }, remainingDelay)
             }

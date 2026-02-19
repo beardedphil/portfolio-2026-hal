@@ -42,7 +42,7 @@ export interface SortableColumnProps {
   >
   activeWorkAgentTypes?: Record<string, 'Implementation' | 'QA' | 'Process Review'>
   sortableContextVersion?: number
-  optimisticItems?: Map<string, string[]>
+  optimisticItems?: Record<string, string[]>
 }
 
 export function SortableColumn({
@@ -168,9 +168,9 @@ export function SortableColumn({
         className={`column-cards ${isOver ? 'column-cards-over' : ''}`}
       >
         <SortableContext 
-          key={`${col.id}-${sortableContextVersion}-${optimisticItems?.get(col.id)?.join(',') ?? col.cardIds.join(',')}`}
+          key={`${col.id}-${sortableContextVersion}-${optimisticItems?.[col.id]?.join(',') ?? col.cardIds.join(',')}`}
           // Use optimistic items if available (for immediate @dnd-kit update), otherwise use computed items
-          items={optimisticItems?.get(col.id) ?? col.cardIds}
+          items={optimisticItems?.[col.id] ?? col.cardIds}
           strategy={verticalListSortingStrategy}
         >
           {col.cardIds.map((cardId) => {
