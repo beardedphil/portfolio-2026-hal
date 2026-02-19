@@ -2385,33 +2385,30 @@ function App() {
           const movedAt = new Date().toISOString()
           const ticketPk = String(active.id)
           const moveStartTime = Date.now()
-          // Optimistic update (0047) - ticket appears immediately in new position (0790)
-          // Pre-compute position map for O(1) lookup instead of O(n) indexOf in map
+          
+          // CRITICAL FIX: Update state and force render in requestAnimationFrame
+          // This ensures the render happens in the next frame, after @dnd-kit's internal checks
+          // but before the visual revert animation completes
           const positionMap = new Map<string, number>()
           newOrder.forEach((pk, i) => positionMap.set(pk, i))
           
-          // CRITICAL FIX: Update optimistic positions ref IMMEDIATELY so columns useMemo sees new positions
-          // @dnd-kit checks items at drag end - if unchanged, it reverts visual position
-          // By updating the ref synchronously, the columns useMemo will compute new cardIds immediately
+          // Update optimistic positions ref immediately
           for (let i = 0; i < newOrder.length; i++) {
             optimisticTicketPositionsRef.current.set(newOrder[i], i)
           }
           
-          // Update state - this will trigger columns useMemo to recompute with optimistic positions
-          const updatedTickets = (() => {
-            const prev = supabaseTickets
-            return prev.map((t) => {
-              const newPos = positionMap.get(t.pk)
-              if (newPos === undefined) return t
-              return {
-                ...t,
-                kanban_position: newPos,
-                ...(t.pk === ticketPk ? { kanban_moved_at: movedAt } : {}),
-              }
-            })
-          })()
+          // Pre-compute updated tickets
+          const updatedTickets = supabaseTickets.map((t) => {
+            const newPos = positionMap.get(t.pk)
+            if (newPos === undefined) return t
+            return {
+              ...t,
+              kanban_position: newPos,
+              ...(t.pk === ticketPk ? { kanban_moved_at: movedAt } : {}),
+            }
+          })
           
-          // Update state synchronously
+          // Update state immediately
           setPendingMoves((prev) => new Set(prev).add(ticketPk))
           setPendingMoveTimestamps((prev) => {
             const next = new Map(prev)
@@ -2420,12 +2417,13 @@ function App() {
           })
           setSupabaseTickets(updatedTickets)
           
-          // Force immediate render and increment version to force SortableContext remount
-          flushSync(() => {
-            // Increment version to force SortableContext to remount with new items
-            setSortableContextVersion((v) => v + 1)
-            // Trigger re-render to ensure columns useMemo runs with new optimistic positions
-            setPendingMoves((prev) => prev)
+          // Use requestAnimationFrame to ensure render happens after @dnd-kit's initial check
+          // but we still update state synchronously so it's ready
+          requestAnimationFrame(() => {
+            flushSync(() => {
+              // Increment version to force SortableContext remount with new items
+              setSortableContextVersion((v) => v + 1)
+            })
           })
           // Fire off all API calls in parallel WITHOUT awaiting - let them complete in background
           // This allows React to render the optimistic update immediately (fixes 5-10s delay)
