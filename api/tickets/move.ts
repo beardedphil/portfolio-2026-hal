@@ -102,38 +102,46 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const currentColumnId = (ticket as any).kanban_column_id
     const resolvedTicketPk = (ticket as any).pk as string
 
-    // Gate: prevent moving tickets from To Do to beyond-To-Do columns without a linked PR (HAL-0772)
+    // Gate: prevent moving tickets from To Do to beyond-To-Do columns without a linked PR (HAL-0772, HAL-0771)
     const columnsBeyondTodo = ['col-doing', 'col-qa', 'col-human-in-the-loop', 'col-done']
     if (currentColumnId === 'col-todo' && columnId && columnsBeyondTodo.includes(columnId) && resolvedTicketPk) {
-      // Check if ticket has a linked PR via agent runs
-      const { data: agentRuns, error: runsErr } = await supabase
-        .from('hal_agent_runs')
-        .select('pr_url')
-        .eq('ticket_pk', resolvedTicketPk)
-        .not('pr_url', 'is', null)
+      // First check if ticket has PR metadata (HAL-0771)
+      const ticketPrUrl = (ticket as any).pr_url
+      const hasTicketPr = ticketPrUrl && typeof ticketPrUrl === 'string' && ticketPrUrl.trim().length > 0
 
-      if (runsErr) {
-        json(res, 200, {
-          success: false,
-          error: `Cannot move ticket: failed to check for linked PR (${runsErr.message}).`,
+      if (hasTicketPr) {
+        // Ticket has PR metadata - allow move
+      } else {
+        // Fallback: check if ticket has a linked PR via agent runs (backward compatibility)
+        const { data: agentRuns, error: runsErr } = await supabase
+          .from('hal_agent_runs')
+          .select('pr_url')
+          .eq('ticket_pk', resolvedTicketPk)
+          .not('pr_url', 'is', null)
+
+        if (runsErr) {
+          json(res, 200, {
+            success: false,
+            error: `Cannot move ticket: failed to check for linked PR (${runsErr.message}).`,
+          })
+          return
+        }
+
+        // Check if any agent run has a non-empty PR URL
+        const hasRunPr = agentRuns && agentRuns.length > 0 && agentRuns.some((run: any) => {
+          const prUrl = run.pr_url
+          return prUrl && typeof prUrl === 'string' && prUrl.trim().length > 0
         })
-        return
-      }
 
-      // Check if any agent run has a non-empty PR URL
-      const hasPr = agentRuns && agentRuns.length > 0 && agentRuns.some((run: any) => {
-        const prUrl = run.pr_url
-        return prUrl && typeof prUrl === 'string' && prUrl.trim().length > 0
-      })
-
-      if (!hasPr) {
-        json(res, 200, {
-          success: false,
-          error: 'No PR associated',
-          errorCode: 'NO_PR_ASSOCIATED',
-          remedy: 'A GitHub Pull Request must be linked to this ticket before it can be moved beyond To Do. Create a PR or link an existing PR to continue.',
-        })
-        return
+        if (!hasRunPr) {
+          json(res, 200, {
+            success: false,
+            error: 'No PR associated',
+            errorCode: 'NO_PR_ASSOCIATED',
+            remedy: 'A GitHub Pull Request must be linked to this ticket before it can be moved beyond To Do. Click "Create draft PR" in the ticket detail view to create a PR, or link an existing PR to continue.',
+          })
+          return
+        }
       }
     }
 
