@@ -17,7 +17,37 @@ const CONVERSATION_RECENT_MAX_CHARS = 12_000
 /** Use minimal bootstrap to avoid context overflow: do not inline full instruction bodies or long topic index. Agent loads instructions on demand via get_instruction_set. */
 const USE_MINIMAL_BOOTSTRAP = true
 
-function recentTurnsWithinCharBudget(
+/** Types for instruction records */
+type TopicMeta = {
+  title?: string
+  description?: string
+  agentTypes?: string[]
+  keywords?: string[]
+}
+
+type InstructionRecord = {
+  topicId: string
+  filename: string
+  title: string
+  description: string
+  contentMd: string
+  alwaysApply: boolean
+  agentTypes: string[]
+  isBasic: boolean
+  isSituational: boolean
+  topicMetadata?: TopicMeta
+}
+
+const AGENT_TYPES = [
+  'project-manager',
+  'implementation-agent',
+  'qa-agent',
+  'process-review-agent',
+] as const
+
+type AgentType = (typeof AGENT_TYPES)[number]
+
+export function recentTurnsWithinCharBudget(
   turns: ConversationTurn[],
   maxChars: number
 ): { recent: ConversationTurn[]; omitted: number } {
@@ -42,7 +72,7 @@ const PM_LOCAL_RULES = [
   'qa-audit-report.mdc',
 ] as const
 
-function formatPmInputsSummary(config: PmAgentConfig): string {
+export function formatPmInputsSummary(config: PmAgentConfig): string {
   const hasSupabase =
     typeof config.supabaseUrl === 'string' &&
     config.supabaseUrl.trim() !== '' &&
@@ -118,6 +148,98 @@ function formatPmInputsSummary(config: PmAgentConfig): string {
   ]
 
   return lines.join('\n')
+}
+
+function labelForAgentType(agentType: AgentType): string {
+  if (agentType === 'project-manager') return 'Project Manager'
+  if (agentType === 'implementation-agent') return 'Implementation Agent'
+  if (agentType === 'qa-agent') return 'QA Agent'
+  return 'Process Review Agent'
+}
+
+function mapHalInstruction(raw: Record<string, unknown>): InstructionRecord {
+  const topicIdRaw = typeof raw.topicId === 'string' ? raw.topicId.trim() : ''
+  const filenameRaw = typeof raw.filename === 'string' ? raw.filename.trim() : ''
+  const titleRaw = typeof raw.title === 'string' ? raw.title.trim() : ''
+  const descriptionRaw = typeof raw.description === 'string' ? raw.description.trim() : ''
+  const contentMdRaw =
+    typeof raw.contentMd === 'string'
+      ? raw.contentMd
+      : typeof raw.contentBody === 'string'
+        ? raw.contentBody
+        : ''
+  const topicMeta = raw.topicMetadata as TopicMeta | undefined
+  const agentTypesRaw = Array.isArray(raw.agentTypes)
+    ? raw.agentTypes.filter((v): v is string => typeof v === 'string')
+    : []
+
+  const topicId = topicIdRaw || filenameRaw.replace(/\.mdc$/i, '')
+  const filename = filenameRaw || `${topicId || 'unknown'}.mdc`
+  return {
+    topicId,
+    filename,
+    title: titleRaw || filename.replace(/\.mdc$/i, '').replace(/-/g, ' '),
+    description: descriptionRaw || topicMeta?.description || 'No description',
+    contentMd: contentMdRaw,
+    alwaysApply: raw.alwaysApply === true,
+    agentTypes: agentTypesRaw,
+    isBasic: raw.isBasic === true,
+    isSituational: raw.isSituational === true,
+    topicMetadata: topicMeta,
+  }
+}
+
+function mapSupabaseInstruction(raw: Record<string, unknown>): InstructionRecord {
+  const topicIdRaw = typeof raw.topic_id === 'string' ? raw.topic_id.trim() : ''
+  const filenameRaw = typeof raw.filename === 'string' ? raw.filename.trim() : ''
+  const titleRaw = typeof raw.title === 'string' ? raw.title.trim() : ''
+  const descriptionRaw = typeof raw.description === 'string' ? raw.description.trim() : ''
+  const contentMdRaw =
+    typeof raw.content_md === 'string'
+      ? raw.content_md
+      : typeof raw.content_body === 'string'
+        ? raw.content_body
+        : ''
+  const topicMeta = raw.topic_metadata as TopicMeta | undefined
+  const agentTypesRaw = Array.isArray(raw.agent_types)
+    ? raw.agent_types.filter((v): v is string => typeof v === 'string')
+    : []
+
+  const topicId = topicIdRaw || filenameRaw.replace(/\.mdc$/i, '')
+  const filename = filenameRaw || `${topicId || 'unknown'}.mdc`
+  return {
+    topicId,
+    filename,
+    title: titleRaw || filename.replace(/\.mdc$/i, '').replace(/-/g, ' '),
+    description: descriptionRaw || topicMeta?.description || 'No description',
+    contentMd: contentMdRaw,
+    alwaysApply: raw.always_apply === true,
+    agentTypes: agentTypesRaw,
+    isBasic: raw.is_basic === true,
+    isSituational: raw.is_situational === true,
+    topicMetadata: topicMeta,
+  }
+}
+
+function appliesToAllAgents(inst: InstructionRecord): boolean {
+  return inst.alwaysApply || inst.agentTypes.includes('all')
+}
+
+function appliesToAgent(inst: InstructionRecord, agentType: string): boolean {
+  return appliesToAllAgents(inst) || inst.agentTypes.includes(agentType)
+}
+
+function dedupeTopicSummaries(
+  entries: Array<{ id: string; title: string; description: string }>
+): Array<{ id: string; title: string; description: string }> {
+  const seen = new Set<string>()
+  const unique: Array<{ id: string; title: string; description: string }> = []
+  for (const entry of entries) {
+    if (!entry.id || seen.has(entry.id)) continue
+    seen.add(entry.id)
+    unique.push(entry)
+  }
+  return unique.sort((a, b) => a.id.localeCompare(b.id))
 }
 
 export async function buildContextPack(config: PmAgentConfig, userMessage: string): Promise<string> {
@@ -256,104 +378,6 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
       topicMetadata?: TopicMeta
     }
 
-    const repoFullName = config.repoFullName || config.projectId || 'beardedphil/portfolio-2026-hal'
-    const agentTypes = [
-      'project-manager',
-      'implementation-agent',
-      'qa-agent',
-      'process-review-agent',
-    ] as const
-
-    const labelForAgentType = (agentType: (typeof agentTypes)[number]): string => {
-      if (agentType === 'project-manager') return 'Project Manager'
-      if (agentType === 'implementation-agent') return 'Implementation Agent'
-      if (agentType === 'qa-agent') return 'QA Agent'
-      return 'Process Review Agent'
-    }
-
-    const mapHalInstruction = (raw: Record<string, unknown>): InstructionRecord => {
-      const topicIdRaw = typeof raw.topicId === 'string' ? raw.topicId.trim() : ''
-      const filenameRaw = typeof raw.filename === 'string' ? raw.filename.trim() : ''
-      const titleRaw = typeof raw.title === 'string' ? raw.title.trim() : ''
-      const descriptionRaw = typeof raw.description === 'string' ? raw.description.trim() : ''
-      const contentMdRaw =
-        typeof raw.contentMd === 'string'
-          ? raw.contentMd
-          : typeof raw.contentBody === 'string'
-            ? raw.contentBody
-            : ''
-      const topicMeta = raw.topicMetadata as TopicMeta | undefined
-      const agentTypesRaw = Array.isArray(raw.agentTypes)
-        ? raw.agentTypes.filter((v): v is string => typeof v === 'string')
-        : []
-
-      const topicId = topicIdRaw || filenameRaw.replace(/\.mdc$/i, '')
-      const filename = filenameRaw || `${topicId || 'unknown'}.mdc`
-      return {
-        topicId,
-        filename,
-        title: titleRaw || filename.replace(/\.mdc$/i, '').replace(/-/g, ' '),
-        description: descriptionRaw || topicMeta?.description || 'No description',
-        contentMd: contentMdRaw,
-        alwaysApply: raw.alwaysApply === true,
-        agentTypes: agentTypesRaw,
-        isBasic: raw.isBasic === true,
-        isSituational: raw.isSituational === true,
-        topicMetadata: topicMeta,
-      }
-    }
-
-    const mapSupabaseInstruction = (raw: Record<string, unknown>): InstructionRecord => {
-      const topicIdRaw = typeof raw.topic_id === 'string' ? raw.topic_id.trim() : ''
-      const filenameRaw = typeof raw.filename === 'string' ? raw.filename.trim() : ''
-      const titleRaw = typeof raw.title === 'string' ? raw.title.trim() : ''
-      const descriptionRaw = typeof raw.description === 'string' ? raw.description.trim() : ''
-      const contentMdRaw =
-        typeof raw.content_md === 'string'
-          ? raw.content_md
-          : typeof raw.content_body === 'string'
-            ? raw.content_body
-            : ''
-      const topicMeta = raw.topic_metadata as TopicMeta | undefined
-      const agentTypesRaw = Array.isArray(raw.agent_types)
-        ? raw.agent_types.filter((v): v is string => typeof v === 'string')
-        : []
-
-      const topicId = topicIdRaw || filenameRaw.replace(/\.mdc$/i, '')
-      const filename = filenameRaw || `${topicId || 'unknown'}.mdc`
-      return {
-        topicId,
-        filename,
-        title: titleRaw || filename.replace(/\.mdc$/i, '').replace(/-/g, ' '),
-        description: descriptionRaw || topicMeta?.description || 'No description',
-        contentMd: contentMdRaw,
-        alwaysApply: raw.always_apply === true,
-        agentTypes: agentTypesRaw,
-        isBasic: raw.is_basic === true,
-        isSituational: raw.is_situational === true,
-        topicMetadata: topicMeta,
-      }
-    }
-
-    const appliesToAllAgents = (inst: InstructionRecord): boolean =>
-      inst.alwaysApply || inst.agentTypes.includes('all')
-
-    const appliesToAgent = (inst: InstructionRecord, agentType: string): boolean =>
-      appliesToAllAgents(inst) || inst.agentTypes.includes(agentType)
-
-    const dedupeTopicSummaries = (
-      entries: Array<{ id: string; title: string; description: string }>
-    ): Array<{ id: string; title: string; description: string }> => {
-      const seen = new Set<string>()
-      const unique: Array<{ id: string; title: string; description: string }> = []
-      for (const entry of entries) {
-        if (!entry.id || seen.has(entry.id)) continue
-        seen.add(entry.id)
-        unique.push(entry)
-      }
-      return unique.sort((a, b) => a.id.localeCompare(b.id))
-    }
-
     const appendInstructionBootstrap = (
       sourceLabel: string,
       basicInstructions: InstructionRecord[],
@@ -405,7 +429,7 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
       sections.push('3. Request additional topic-specific instructions only when needed.\n')
 
       sections.push('**Request full instruction set by agent type:**')
-      for (const agentType of agentTypes) {
+      for (const agentType of AGENT_TYPES) {
         const agentBasicCount = basicInstructions.filter(
           (inst) => inst.agentTypes.includes(agentType) && !inst.agentTypes.includes('all')
         ).length
@@ -423,7 +447,7 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
         }
       }
 
-      for (const agentType of agentTypes) {
+      for (const agentType of AGENT_TYPES) {
         const agentTopics = dedupeTopicSummaries(
           situationalInstructions
             .filter((inst) => appliesToAgent(inst, agentType))
