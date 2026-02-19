@@ -6,6 +6,8 @@ import type { ArtifactRow } from '../types/app'
 
 const KANBAN_POLL_MS = 10_000
 const KANBAN_SAFETY_POLL_MS = 15_000
+/** Delay before reverting optimistic update on move failure (0790); gives slow HAL API moves time to succeed */
+const ROLLBACK_AFTER_FAILURE_MS = 10_000 // 10 seconds - configurable delay before reverting failed moves
 
 export function useKanban(
   supabaseUrl: string | null,
@@ -24,6 +26,8 @@ export function useKanban(
   const [kanbanMoveError, setKanbanMoveError] = useState<string | null>(null)
   const lastRealtimeUpdateRef = useRef<number>(0)
   const realtimeSubscriptionsRef = useRef<{ tickets: boolean; agentRuns: boolean }>({ tickets: false, agentRuns: false })
+  // Track when each move was initiated to prevent premature rollback on slow API responses (0790)
+  const pendingMovesRef = useRef<Map<string, { startTime: number; originalColumnId: string | null; originalPosition: number | null; originalMovedAt: string | null }>>(new Map())
 
   /** Fetch tickets and columns from Supabase (HAL owns data; passes to KanbanBoard). */
   const fetchKanbanData = useCallback(async (skipIfRecentRealtime = false) => {
@@ -191,6 +195,14 @@ export function useKanban(
             })
           } else if (payload.eventType === 'UPDATE' && payload.new) {
             const updatedTicket = payload.new as KanbanTicketRow
+            // If this ticket has a pending move and the realtime update confirms the move succeeded, clear it (0790)
+            const pendingMove = pendingMovesRef.current.get(updatedTicket.pk)
+            if (pendingMove && 
+                updatedTicket.kanban_column_id !== pendingMove.originalColumnId &&
+                updatedTicket.kanban_position !== null) {
+              // Realtime update confirms the move succeeded - clear pending move (0790)
+              pendingMovesRef.current.delete(updatedTicket.pk)
+            }
             setKanbanTickets((prev) => {
               // Replace ticket by pk to prevent duplicates
               const filtered = prev.filter((t) => t.pk !== updatedTicket.pk)
@@ -307,9 +319,19 @@ export function useKanban(
       // Store original state for rollback on error
       const originalColumnId = ticket.kanban_column_id
       const originalPosition = ticket.kanban_position
+      const originalMovedAt = ticket.kanban_moved_at
       const movedAt = new Date().toISOString()
+      const moveStartTime = Date.now()
 
-      // Optimistically update UI immediately (0155)
+      // Track move start time to prevent premature rollback on slow API responses (0790)
+      pendingMovesRef.current.set(ticketPk, {
+        startTime: moveStartTime,
+        originalColumnId,
+        originalPosition,
+        originalMovedAt,
+      })
+
+      // Optimistically update UI immediately (0790) - ticket appears in destination column instantly
       setKanbanTickets((prev) => {
         const updated = prev.map((t) =>
           t.pk === ticketPk
@@ -350,6 +372,9 @@ export function useKanban(
           throw new Error(errorMsg)
         }
 
+        // Move succeeded - remove from pending moves (0790)
+        pendingMovesRef.current.delete(ticketPk)
+
         // Clear Process Review status when moving a ticket to Process Review column
         // (unless it's the ticket currently being reviewed)
         if (columnId === 'col-process-review' && options?.processReviewTicketPk !== ticketPk) {
@@ -360,30 +385,45 @@ export function useKanban(
         // Use skipIfRecentRealtime to avoid overwriting realtime updates (0140)
         await fetchKanbanData(true)
       } catch (err) {
-        // Revert optimistic update on error (0155)
+        // Move failed - wait for rollback delay before reverting to give slow API responses time to succeed (0790)
+        const pendingMove = pendingMovesRef.current.get(ticketPk)
+        if (!pendingMove) {
+          // Move was already confirmed successful, don't revert
+          return
+        }
+
+        // Wait for rollback delay before reverting optimistic update (0790)
+        const timeSinceMoveStart = Date.now() - pendingMove.startTime
+        const remainingDelay = Math.max(0, ROLLBACK_AFTER_FAILURE_MS - timeSinceMoveStart)
+
+        await new Promise((resolve) => setTimeout(resolve, remainingDelay))
+
+        // Check again if move was confirmed successful during the delay (0790)
+        const stillPending = pendingMovesRef.current.get(ticketPk)
+        if (!stillPending || stillPending.startTime !== pendingMove.startTime) {
+          // Move was already confirmed successful, don't revert
+          return
+        }
+
+        // Move still pending after delay - revert optimistic update (0790)
+        pendingMovesRef.current.delete(ticketPk)
+
         setKanbanTickets((prev) => {
           const reverted = prev.map((t) =>
             t.pk === ticketPk
               ? {
                   ...t,
-                  kanban_column_id: originalColumnId,
-                  kanban_position: originalPosition,
-                  kanban_moved_at: ticket.kanban_moved_at,
+                  kanban_column_id: pendingMove.originalColumnId,
+                  kanban_position: pendingMove.originalPosition,
+                  kanban_moved_at: pendingMove.originalMovedAt ?? null,
                 }
               : t
           )
           return reverted.sort((a, b) => (a.ticket_number ?? 0) - (b.ticket_number ?? 0))
         })
 
-        // Show user-visible error with clear message (HAL-0769)
-        const errorMsg = err instanceof Error ? err.message : String(err)
-        let userFriendlyError = errorMsg
-        if (errorMsg.includes('Direct writes') || errorMsg.includes('blocked')) {
-          userFriendlyError = 'Direct writes to tickets are blocked. Please use the standard move action in the UI to move tickets.'
-        } else if (errorMsg.includes('row-level security') || errorMsg.includes('policy') || errorMsg.includes('permission denied')) {
-          userFriendlyError = 'Unable to move ticket directly. Please use the standard move action in the UI.'
-        }
-        setKanbanMoveError(`Failed to move ticket: ${userFriendlyError}`)
+        // Show user-visible error with clear message (0790)
+        setKanbanMoveError('Move failed')
         setTimeout(() => setKanbanMoveError(null), 8000) // Auto-clear after 8 seconds
       }
     },
