@@ -751,7 +751,7 @@ export async function runPmAgent(
     parameters: z.object({
       ticket_id: z.string().describe('Ticket id (e.g. "HAL-0012", "0012", or "12").'),
       red_json: z
-        .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
+        .record(z.string(), z.string())
         .describe('RED document content as a JSON object. Should contain expanded requirements, use cases, edge cases, and other detailed information.'),
       validation_status: z
         .enum(['valid', 'invalid', 'pending'])
@@ -761,7 +761,7 @@ export async function runPmAgent(
     }),
     execute: async (input: {
       ticket_id: string
-      red_json: Record<string, any>
+      red_json: Record<string, string>
       validation_status?: 'valid' | 'invalid' | 'pending'
       created_by?: string
     }) => {
