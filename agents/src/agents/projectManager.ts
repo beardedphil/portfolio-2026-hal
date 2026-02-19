@@ -751,7 +751,7 @@ export async function runPmAgent(
     parameters: z.object({
       ticket_id: z.string().describe('Ticket id (e.g. "HAL-0012", "0012", or "12").'),
       red_json: z
-        .record(z.string(), z.string().or(z.number()).or(z.boolean()).or(z.null()))
+        .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
         .describe('RED document content as a JSON object. Should contain expanded requirements, use cases, edge cases, and other detailed information.'),
       validation_status: z
         .enum(['valid', 'invalid', 'pending'])
