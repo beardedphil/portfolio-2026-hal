@@ -156,7 +156,6 @@ export async function runPmAgent(
       z.number(),
       z.boolean(),
       z.null(),
-      z.array(JsonValue),
       z.record(JsonValue),
     ])
   )
