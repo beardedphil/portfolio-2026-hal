@@ -1428,6 +1428,235 @@ h1 {
   font-weight: 600;
 }
 
+/* RED section (0759) */
+.red-section {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 2px solid #dc2626;
+  background: #fef2f2;
+  padding: 1.5rem;
+  border-radius: 8px;
+}
+.red-section-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0 0 1rem 0;
+  color: #dc2626;
+}
+.red-loading,
+.red-empty {
+  color: #666;
+  font-style: italic;
+  margin: 0.5rem 0;
+}
+.red-error {
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  background: #fee;
+  border: 1px solid #fcc;
+  border-radius: 4px;
+  color: #c33;
+  font-size: 0.9rem;
+}
+.red-error p {
+  margin: 0;
+}
+.red-success {
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  background: #e8f5e9;
+  border: 1px solid #4caf50;
+  border-radius: 4px;
+  color: #2e7d32;
+  font-size: 0.9rem;
+}
+.red-success p {
+  margin: 0;
+}
+.red-latest {
+  margin-bottom: 1.5rem;
+}
+.red-latest-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+.red-latest-header h4 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #333;
+}
+.red-validation-status {
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+.red-validation-valid {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+.red-validation-invalid {
+  background: #ffebee;
+  color: #c62828;
+}
+.red-validation-pending {
+  background: #fff3e0;
+  color: #f57c00;
+}
+.red-content {
+  margin: 0.75rem 0;
+}
+.red-json-preview {
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  padding: 0.75rem;
+  font-family: 'Courier New', monospace;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  overflow-x: auto;
+  max-height: 400px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+.red-edit-button {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  border: 1px solid #dc2626;
+  border-radius: 6px;
+  background: #fee;
+  color: #dc2626;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.red-edit-button:hover {
+  background: #fecaca;
+  border-color: #b91c1c;
+}
+.red-edit-button:focus-visible {
+  outline: 2px solid #dc2626;
+  outline-offset: 2px;
+}
+.red-history {
+  margin-top: 1.5rem;
+}
+.red-history h4 {
+  margin: 0 0 0.75rem 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #333;
+}
+.red-versions-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.red-version-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+.red-version-number {
+  font-weight: 600;
+  color: #333;
+}
+.red-version-date {
+  margin-left: auto;
+  font-size: 0.85rem;
+  color: #666;
+}
+.red-editor {
+  margin-top: 1rem;
+}
+.red-editor h4 {
+  margin: 0 0 0.75rem 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #333;
+}
+.red-json-editor {
+  width: 100%;
+  min-height: 300px;
+  padding: 0.75rem;
+  font-family: 'Courier New', monospace;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  resize: vertical;
+  background: white;
+}
+.red-json-editor:focus {
+  outline: 2px solid #dc2626;
+  outline-offset: 2px;
+  border-color: #dc2626;
+}
+.red-editor-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+.red-save-button {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  border: 1px solid #dc2626;
+  border-radius: 6px;
+  background: #dc2626;
+  color: white;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.red-save-button:hover:not(:disabled) {
+  background: #b91c1c;
+  border-color: #991b1b;
+}
+.red-save-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.red-save-button:focus-visible {
+  outline: 2px solid #dc2626;
+  outline-offset: 2px;
+}
+.red-cancel-button {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  border: 1px solid #999;
+  border-radius: 6px;
+  background: white;
+  color: #333;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.red-cancel-button:hover:not(:disabled) {
+  background: #f5f5f5;
+  border-color: #666;
+}
+.red-cancel-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.red-cancel-button:focus-visible {
+  outline: 2px solid #999;
+  outline-offset: 2px;
+}
+
 /* Artifacts section (0082) */
 .artifacts-section {
   margin-top: 1.5rem;
