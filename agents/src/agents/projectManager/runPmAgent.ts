@@ -8,8 +8,6 @@ import { z } from 'zod'
 import crypto from 'node:crypto'
 import fs from 'fs/promises'
 import path from 'path'
-import { exec } from 'child_process'
-import { promisify } from 'util'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { redact } from '../../utils/redact.js'
 import {
@@ -33,7 +31,6 @@ import {
 import { buildContextPack } from './contextPack.js'
 import type { PmAgentConfig, PmAgentResult, ToolCallRecord } from './types.js'
 
-const execAsync = promisify(exec)
 const COL_TODO = 'col-todo'
 
 function isUnknownColumnError(err: unknown): boolean {
@@ -2345,64 +2342,63 @@ export async function runPmAgent(
                 }
               } else {
                 const listTicketsCall = toolCalls.find(
+                  (c) =>
+                    c.name === 'list_tickets_by_column' &&
+                    typeof c.output === 'object' &&
+                    c.output !== null &&
+                    (c.output as { success?: boolean }).success === true
+                )
+                if (listTicketsCall) {
+                  const out = listTicketsCall.output as {
+                    column_id: string
+                    tickets: Array<{ id: string; title: string; column: string }>
+                    count: number
+                  }
+                  if (out.count === 0) {
+                    reply = `No tickets found in column **${out.column_id}**.`
+                  } else {
+                    const ticketList = out.tickets
+                      .map((t) => `- **${t.id}** — ${t.title}`)
+                      .join('\n')
+                    reply = `Tickets in **${out.column_id}** (${out.count}):\n\n${ticketList}`
+                  }
+                } else {
+                  const listReposCall = toolCalls.find(
                     (c) =>
-                      c.name === 'list_tickets_by_column' &&
+                      c.name === 'list_available_repos' &&
                       typeof c.output === 'object' &&
                       c.output !== null &&
                       (c.output as { success?: boolean }).success === true
                   )
-                  if (listTicketsCall) {
-                    const out = listTicketsCall.output as {
-                      column_id: string
-                      tickets: Array<{ id: string; title: string; column: string }>
+                  if (listReposCall) {
+                    const out = listReposCall.output as {
+                      repos: Array<{ repo_full_name: string }>
                       count: number
                     }
                     if (out.count === 0) {
-                      reply = `No tickets found in column **${out.column_id}**.`
+                      reply = `No repositories found in the database.`
                     } else {
-                      const ticketList = out.tickets
-                        .map((t) => `- **${t.id}** — ${t.title}`)
-                        .join('\n')
-                      reply = `Tickets in **${out.column_id}** (${out.count}):\n\n${ticketList}`
+                      const repoList = out.repos.map((r) => `- **${r.repo_full_name}**`).join('\n')
+                      reply = `Available repositories (${out.count}):\n\n${repoList}`
                     }
                   } else {
-                    const listReposCall = toolCalls.find(
+                    const moveToOtherRepoCall = toolCalls.find(
                       (c) =>
-                        c.name === 'list_available_repos' &&
+                        c.name === 'kanban_move_ticket_to_other_repo_todo' &&
                         typeof c.output === 'object' &&
                         c.output !== null &&
                         (c.output as { success?: boolean }).success === true
                     )
-                    if (listReposCall) {
-                      const out = listReposCall.output as {
-                        repos: Array<{ repo_full_name: string }>
-                        count: number
+                    if (moveToOtherRepoCall) {
+                      const out = moveToOtherRepoCall.output as {
+                        ticketId: string
+                        display_id?: string
+                        fromRepo: string
+                        toRepo: string
+                        fromColumn: string
+                        toColumn: string
                       }
-                      if (out.count === 0) {
-                        reply = `No repositories found in the database.`
-                      } else {
-                        const repoList = out.repos.map((r) => `- **${r.repo_full_name}**`).join('\n')
-                        reply = `Available repositories (${out.count}):\n\n${repoList}`
-                      }
-                    } else {
-                      const moveToOtherRepoCall = toolCalls.find(
-                        (c) =>
-                          c.name === 'kanban_move_ticket_to_other_repo_todo' &&
-                          typeof c.output === 'object' &&
-                          c.output !== null &&
-                          (c.output as { success?: boolean }).success === true
-                      )
-                      if (moveToOtherRepoCall) {
-                        const out = moveToOtherRepoCall.output as {
-                          ticketId: string
-                          display_id?: string
-                          fromRepo: string
-                          toRepo: string
-                          fromColumn: string
-                          toColumn: string
-                        }
-                        reply = `I moved ticket **${out.display_id ?? out.ticketId}** from **${out.fromRepo}** (${out.fromColumn}) to **${out.toRepo}** (${out.toColumn}). The ticket is now in the To Do column of the target repository.`
-                      }
+                      reply = `I moved ticket **${out.display_id ?? out.ticketId}** from **${out.fromRepo}** (${out.fromColumn}) to **${out.toRepo}** (${out.toColumn}). The ticket is now in the To Do column of the target repository.`
                     }
                   }
                 }
