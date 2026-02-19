@@ -1874,10 +1874,40 @@ function App() {
     [isColumnId]
   )
 
-  const handleDragOver = useCallback(() => {
-    // State is updated only on drop (handleDragEnd) so that cross-column moves
-    // see the correct source column and persist.
-  }, [])
+  const handleDragOver = useCallback((event: any) => {
+    // For same-column reorder, update optimistic items during drag so @dnd-kit sees the change
+    // This prevents the revert because @dnd-kit will see items have changed before drag end
+    if (!supabaseBoardActive) return
+    
+    const { active, over } = event
+    if (!active || !over) return
+    
+    const sourceColumn = findColumnByCardId(String(active.id))
+    if (!sourceColumn) return
+    
+    // Check if over is the same column (could be a card or the column itself)
+    const overColumn = findColumnById(String(over.id)) ?? findColumnByCardId(String(over.id))
+    if (!overColumn || sourceColumn.id !== overColumn.id) return
+    
+    // Same-column reorder - update optimistic items immediately
+    const sourceCardIds = sourceColumn.cardIds
+    const activeIndex = sourceCardIds.indexOf(String(active.id))
+    let overIndex = sourceCardIds.indexOf(String(over.id))
+    if (overIndex < 0) {
+      // over.id might be the column id, not a card id - use column length
+      overIndex = sourceCardIds.length
+    }
+    
+    if (activeIndex >= 0 && activeIndex !== overIndex) {
+      const newOrder = arrayMove(sourceCardIds, activeIndex, overIndex)
+      // Update optimistic items state immediately so @dnd-kit sees the change
+      setOptimisticItems((prev) => {
+        const next = new Map(prev)
+        next.set(sourceColumn.id, [...newOrder])
+        return next
+      })
+    }
+  }, [supabaseBoardActive, findColumnByCardId, findColumnById])
 
   const handleDragEnd = useCallback(
     async (event: DragEndEvent) => {
@@ -2390,9 +2420,8 @@ function App() {
           const ticketPk = String(active.id)
           const moveStartTime = Date.now()
           
-          // CRITICAL FIX: Update optimistic items state IMMEDIATELY (synchronously)
-          // @dnd-kit checks items at drag end - we must update state before it checks
-          // This state will be used by SortableContext to get items, bypassing useMemo delay
+          // Optimistic items should already be set by handleDragOver during drag
+          // But ensure it's set here too in case handleDragOver didn't run
           setOptimisticItems((prev) => {
             const next = new Map(prev)
             next.set(sourceColumn.id, [...newOrder]) // New array reference
