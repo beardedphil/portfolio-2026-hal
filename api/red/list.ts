@@ -132,10 +132,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
-    // Fetch all RED versions for this ticket
+    // Fetch all RED versions for this ticket (including validation_result and validated_at)
     const { data: redVersions, error: redError } = await supabase
       .from('hal_red_documents')
-      .select('red_id, version, content_checksum, validation_status, created_at, created_by, artifact_id')
+      .select('red_id, version, content_checksum, validation_status, validation_result, validated_at, created_at, created_by, artifact_id')
       .eq('repo_full_name', resolvedRepoFullName)
       .eq('ticket_pk', resolvedTicketPk)
       .order('version', { ascending: false })

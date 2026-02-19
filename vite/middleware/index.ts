@@ -23,6 +23,9 @@ export function getAllMiddlewarePlugins(): Plugin[] {
     createSimpleMiddlewarePlugin('agent-runs-sync-artifacts-endpoint', '/api/agent-runs/sync-artifacts', { method: 'POST', allowOptions: false }),
     createSimpleMiddlewarePlugin('conversations-working-memory-get-endpoint', '/api/conversations/working-memory/get'),
     createSimpleMiddlewarePlugin('conversations-working-memory-update-endpoint', '/api/conversations/working-memory/update'),
+    createSimpleMiddlewarePlugin('red-list-endpoint', '/api/red/list'),
+    createSimpleMiddlewarePlugin('red-get-endpoint', '/api/red/get'),
+    createSimpleMiddlewarePlugin('red-validate-endpoint', '/api/red/validate'),
     // TODO: Extract remaining complex middleware plugins:
     // - implementation-agent-endpoint
     // - qa-agent-endpoint

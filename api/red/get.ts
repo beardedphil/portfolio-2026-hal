@@ -164,10 +164,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         return
       }
     } else {
-      // Fetch specific version
+      // Fetch specific version (including validation_result and validated_at)
       const { data, error: fetchError } = await supabase
         .from('hal_red_documents')
-        .select('*')
+        .select('red_id, repo_full_name, ticket_pk, version, red_json, content_checksum, validation_status, validation_result, validated_at, created_at, created_by, artifact_id')
         .eq('repo_full_name', resolvedRepoFullName)
         .eq('ticket_pk', resolvedTicketPk)
         .eq('version', version)
