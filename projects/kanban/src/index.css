@@ -1575,6 +1575,283 @@ h1 {
   border-color: var(--kanban-primary);
 }
 
+/* RED section (0759) */
+.red-section {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--kanban-border);
+}
+
+.red-section-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem 0;
+  color: var(--kanban-text);
+}
+
+.red-loading,
+.red-empty {
+  margin: 0.5rem 0;
+  color: var(--kanban-text-muted);
+  font-style: italic;
+  font-size: 0.9rem;
+}
+
+.red-error {
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  background: #fee;
+  border: 1px solid #fcc;
+  border-radius: 4px;
+  color: var(--kanban-error);
+}
+
+.red-error p {
+  margin: 0 0 0.5rem 0;
+}
+
+.red-retry-button {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.85rem;
+  color: var(--kanban-text);
+  background: var(--kanban-surface-alt);
+  border: 1px solid var(--kanban-border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.red-retry-button:hover {
+  background: var(--kanban-surface);
+  border-color: var(--kanban-primary);
+}
+
+[data-theme="dark"] .red-error {
+  background: #300;
+  border-color: #600;
+  color: #faa;
+}
+
+.red-latest {
+  margin: 0.75rem 0;
+}
+
+.red-latest-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.red-latest-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--kanban-text);
+}
+
+.red-validation-status {
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.red-validation-status-valid {
+  background: var(--kanban-success-bg);
+  color: var(--kanban-success-text);
+  border: 1px solid var(--kanban-success-border);
+}
+
+.red-validation-status-invalid {
+  background: #fee;
+  color: #c00;
+  border: 1px solid #fcc;
+}
+
+.red-validation-status-pending {
+  background: var(--kanban-warning-bg);
+  color: var(--kanban-warning-text);
+  border: 1px solid var(--kanban-warning-border);
+}
+
+[data-theme="dark"] .red-validation-status-invalid {
+  background: #300;
+  border-color: #600;
+  color: #faa;
+}
+
+.red-content {
+  margin: 0.75rem 0;
+}
+
+.red-json-display {
+  font-family: ui-monospace, 'Courier New', monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  background: var(--kanban-surface-alt);
+  color: var(--kanban-text);
+  border: 1px solid var(--kanban-border);
+  border-radius: 6px;
+  padding: 1rem;
+  overflow: auto;
+  max-height: 400px;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.red-edit {
+  margin: 0.75rem 0;
+}
+
+.red-json-editor {
+  width: 100%;
+  font-family: ui-monospace, 'Courier New', monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  background: var(--kanban-surface-alt);
+  color: var(--kanban-text);
+  border: 1px solid var(--kanban-border);
+  border-radius: 6px;
+  padding: 1rem;
+  resize: vertical;
+  min-height: 200px;
+  margin-bottom: 0.75rem;
+}
+
+.red-json-editor:focus {
+  outline: none;
+  border-color: var(--kanban-primary);
+}
+
+.red-edit-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.red-save-button,
+.red-cancel-button,
+.red-edit-button {
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid var(--kanban-border);
+  transition: all 0.2s;
+}
+
+.red-save-button {
+  background: var(--kanban-primary);
+  color: white;
+  border-color: var(--kanban-primary);
+}
+
+.red-save-button:hover:not(:disabled) {
+  background: var(--kanban-primary-hover);
+  border-color: var(--kanban-primary-hover);
+}
+
+.red-save-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.red-cancel-button,
+.red-edit-button {
+  background: var(--kanban-surface-alt);
+  color: var(--kanban-text);
+}
+
+.red-cancel-button:hover:not(:disabled),
+.red-edit-button:hover:not(:disabled) {
+  background: var(--kanban-surface);
+  border-color: var(--kanban-primary);
+}
+
+.red-actions {
+  margin-top: 0.75rem;
+}
+
+.red-history {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--kanban-border);
+}
+
+.red-history-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem 0;
+  color: var(--kanban-text);
+}
+
+.red-history-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.red-history-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem;
+  margin-bottom: 0.5rem;
+  background: var(--kanban-surface-alt);
+  border: 1px solid var(--kanban-border);
+  border-radius: 4px;
+}
+
+.red-history-item:last-child {
+  margin-bottom: 0;
+}
+
+.red-history-version {
+  font-weight: 600;
+  color: var(--kanban-text);
+  font-size: 0.9rem;
+}
+
+.red-history-status {
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.red-history-status-valid {
+  background: var(--kanban-success-bg);
+  color: var(--kanban-success-text);
+  border: 1px solid var(--kanban-success-border);
+}
+
+.red-history-status-invalid {
+  background: #fee;
+  color: #c00;
+  border: 1px solid #fcc;
+}
+
+.red-history-status-pending {
+  background: var(--kanban-warning-bg);
+  color: var(--kanban-warning-text);
+  border: 1px solid var(--kanban-warning-border);
+}
+
+[data-theme="dark"] .red-history-status-invalid {
+  background: #300;
+  border-color: #600;
+  color: #faa;
+}
+
+.red-history-date {
+  margin-left: auto;
+  font-size: 0.85rem;
+  color: var(--kanban-text-muted);
+  font-family: ui-monospace, monospace;
+}
+
 /* Artifact navigation (0148) */
 .artifact-navigation {
   display: flex;
