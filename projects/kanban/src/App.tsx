@@ -2025,15 +2025,15 @@ function App() {
           }
         }
         
+        // Pre-compute updated tickets outside flushSync for better performance
+        const updatedTickets = supabaseTickets.map((t) =>
+          t.pk === ticketPk
+            ? { ...t, kanban_column_id: overColumn.id, kanban_position: overIndex, kanban_moved_at: movedAt }
+            : t
+        )
         // Use flushSync to force immediate rendering of optimistic update
         flushSync(() => {
-          setSupabaseTickets((prev) =>
-            prev.map((t) =>
-              t.pk === ticketPk
-                ? { ...t, kanban_column_id: overColumn.id, kanban_position: overIndex, kanban_moved_at: movedAt }
-                : t
-            )
-          )
+          setSupabaseTickets(updatedTickets)
         })
         // Set isDragging to false AFTER optimistic update to prevent polling from interfering
         setIsDragging(false)
@@ -2214,15 +2214,15 @@ function App() {
           setActiveWorkAgentTypes((prev) => ({ ...prev, [ticketPk]: agentType! }))
         }
         
+        // Pre-compute updated tickets outside flushSync for better performance
+        const updatedTickets = supabaseTickets.map((t) =>
+          t.pk === ticketPk
+            ? { ...t, kanban_column_id: 'col-doing', kanban_position: overIndex, kanban_moved_at: movedAt }
+            : t
+        )
         // Use flushSync to force immediate rendering of optimistic update
         flushSync(() => {
-          setSupabaseTickets((prev) =>
-            prev.map((t) =>
-              t.pk === ticketPk
-                ? { ...t, kanban_column_id: 'col-doing', kanban_position: overIndex, kanban_moved_at: movedAt }
-                : t
-            )
-          )
+          setSupabaseTickets(updatedTickets)
         })
         // Set isDragging to false AFTER optimistic update to prevent polling from interfering
         setIsDragging(false)
@@ -2385,6 +2385,20 @@ function App() {
           newOrder.forEach((pk, i) => positionMap.set(pk, i))
           
           // Use flushSync to force React to render immediately, bypassing batching
+          // CRITICAL: This must happen synchronously before any async work
+          const updatedTickets = (() => {
+            const prev = supabaseTickets
+            return prev.map((t) => {
+              const newPos = positionMap.get(t.pk)
+              if (newPos === undefined) return t
+              return {
+                ...t,
+                kanban_position: newPos,
+                ...(t.pk === ticketPk ? { kanban_moved_at: movedAt } : {}),
+              }
+            })
+          })()
+          
           flushSync(() => {
             setPendingMoves((prev) => new Set(prev).add(ticketPk))
             // Track move start time to prevent premature rollback on slow API responses (0790)
@@ -2393,17 +2407,7 @@ function App() {
               next.set(ticketPk, moveStartTime)
               return next
             })
-            setSupabaseTickets((prev) =>
-              prev.map((t) => {
-                const newPos = positionMap.get(t.pk)
-                if (newPos === undefined) return t
-                return {
-                  ...t,
-                  kanban_position: newPos,
-                  ...(t.pk === ticketPk ? { kanban_moved_at: movedAt } : {}),
-                }
-              })
-            )
+            setSupabaseTickets(updatedTickets)
           })
           // Fire off all API calls in parallel WITHOUT awaiting - let them complete in background
           // This allows React to render the optimistic update immediately (fixes 5-10s delay)
@@ -2598,6 +2602,12 @@ function App() {
           
           const moveStartTime = Date.now()
           // Optimistic update (0047) - ticket appears immediately in destination column (0790)
+          // Pre-compute updated tickets outside flushSync for better performance
+          const updatedTickets = supabaseTickets.map((t) =>
+            t.pk === ticketPk
+              ? { ...t, kanban_column_id: overColumn.id, kanban_position: overIndex, kanban_moved_at: movedAt }
+              : t
+          )
           // Use flushSync to force immediate rendering of optimistic update
           flushSync(() => {
             setPendingMoves((prev) => new Set(prev).add(ticketPk))
@@ -2607,13 +2617,7 @@ function App() {
               next.set(ticketPk, moveStartTime)
               return next
             })
-            setSupabaseTickets((prev) =>
-              prev.map((t) =>
-                t.pk === ticketPk
-                  ? { ...t, kanban_column_id: overColumn.id, kanban_position: overIndex, kanban_moved_at: movedAt }
-                  : t
-              )
-            )
+            setSupabaseTickets(updatedTickets)
           })
           // Set isDragging to false AFTER optimistic update to prevent polling from interfering
           setIsDragging(false)
