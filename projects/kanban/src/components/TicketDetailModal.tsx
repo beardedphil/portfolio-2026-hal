@@ -10,6 +10,7 @@ import { ProcessReviewSection } from './ProcessReviewSection'
 import { HumanValidationSection } from './HumanValidationSection'
 import { AutoDismissMessage } from './AutoDismissMessage'
 import { PullRequestSection } from './PullRequestSection'
+import { RedSection } from './RedSection'
 
 /** Ticket detail modal (0033): title, metadata, markdown body, close/escape/backdrop, scroll lock, focus trap */
 export function TicketDetailModal({
@@ -342,6 +343,13 @@ export function TicketDetailModal({
                   supabaseAnonKey={supabaseKey}
                 />
               )}
+              <RedSection
+                ticketPk={ticketId}
+                ticketId={ticketId}
+                repoFullName={repoFullName || null}
+                supabaseUrl={supabaseUrl}
+                supabaseKey={supabaseKey}
+              />
             </>
           )}
         </div>
