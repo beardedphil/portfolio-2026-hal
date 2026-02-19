@@ -9,6 +9,7 @@ import { AttachmentsSection } from './AttachmentsSection'
 import { ProcessReviewSection } from './ProcessReviewSection'
 import { HumanValidationSection } from './HumanValidationSection'
 import { AutoDismissMessage } from './AutoDismissMessage'
+import { PullRequestSection } from './PullRequestSection'
 
 /** Ticket detail modal (0033): title, metadata, markdown body, close/escape/backdrop, scroll lock, focus trap */
 export function TicketDetailModal({
@@ -57,6 +58,13 @@ export function TicketDetailModal({
   attachments: TicketAttachment[]
   attachmentsLoading: boolean
   failureCounts?: { qa: number; hitl: number } | null
+  githubPrUrl?: string | null
+  githubPrNumber?: number | null
+  githubBranchName?: string | null
+  githubBaseCommitSha?: string | null
+  githubHeadCommitSha?: string | null
+  repoFullName?: string | null
+  defaultBranch?: string
 }) {
   const [validationSteps, setValidationSteps] = useState('')
   const [validationNotes, setValidationNotes] = useState('')
@@ -332,6 +340,20 @@ export function TicketDetailModal({
                   supabaseAnonKey={supabaseKey}
                 />
               )}
+              <PullRequestSection
+                ticketId={ticketId}
+                ticketPk={ticketId}
+                prUrl={githubPrUrl}
+                prNumber={githubPrNumber}
+                branchName={githubBranchName}
+                baseCommitSha={githubBaseCommitSha}
+                headCommitSha={githubHeadCommitSha}
+                repoFullName={repoFullName}
+                defaultBranch={defaultBranch}
+                supabaseUrl={supabaseUrl}
+                supabaseAnonKey={supabaseKey}
+                onPrCreated={_onTicketUpdate}
+              />
             </>
           )}
         </div>

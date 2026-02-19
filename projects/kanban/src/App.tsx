@@ -2999,27 +2999,36 @@ function App() {
         </div>
       )}
 
-      {detailModal && (
-        <TicketDetailModal
-          open
-          onClose={handleCloseTicketDetail}
-          ticketId={detailModal.ticketId}
-          title={detailModal.title}
-          body={detailModalBody}
-          loading={detailModalLoading}
-          error={detailModalError}
-          onRetry={detailModalError ? handleRetryTicketDetail : undefined}
-          artifacts={detailModalArtifacts}
-          artifactsLoading={detailModalArtifactsLoading}
-          artifactsStatus={detailModalArtifactsStatus}
-          onRefreshArtifacts={refreshDetailModalArtifacts}
-          onOpenArtifact={handleOpenArtifact}
-          columnId={detailModal.columnId}
-          supabaseUrl={supabaseProjectUrl || ''}
-          supabaseKey={supabaseAnonKey || ''}
-          attachments={detailModalAttachments}
-          attachmentsLoading={detailModalAttachmentsLoading}
-          failureCounts={detailModalFailureCounts}
+      {detailModal && (() => {
+        const ticket = sourceTickets.find((t) => t.pk === detailModal.ticketId)
+        return (
+          <TicketDetailModal
+            open
+            onClose={handleCloseTicketDetail}
+            ticketId={detailModal.ticketId}
+            title={detailModal.title}
+            body={detailModalBody}
+            loading={detailModalLoading}
+            error={detailModalError}
+            onRetry={detailModalError ? handleRetryTicketDetail : undefined}
+            artifacts={detailModalArtifacts}
+            artifactsLoading={detailModalArtifactsLoading}
+            artifactsStatus={detailModalArtifactsStatus}
+            onRefreshArtifacts={refreshDetailModalArtifacts}
+            onOpenArtifact={handleOpenArtifact}
+            columnId={detailModal.columnId}
+            supabaseUrl={supabaseProjectUrl || ''}
+            supabaseKey={supabaseAnonKey || ''}
+            attachments={detailModalAttachments}
+            attachmentsLoading={detailModalAttachmentsLoading}
+            failureCounts={detailModalFailureCounts}
+            githubPrUrl={ticket?.github_pr_url}
+            githubPrNumber={ticket?.github_pr_number}
+            githubBranchName={ticket?.github_branch_name}
+            githubBaseCommitSha={ticket?.github_base_commit_sha}
+            githubHeadCommitSha={ticket?.github_head_commit_sha}
+            repoFullName={ticket?.repo_full_name || connectedRepoFullName}
+            defaultBranch="main"
           onValidationPass={async (ticketPk: string) => {
             // Always use HAL's callbacks - HAL handles all database operations
             if (!halCtx) {
@@ -3162,8 +3171,9 @@ ${notes || '(none provided)'}
             }, 2000)
           }}
           onTicketUpdate={refetchSupabaseTickets}
-        />
-      )}
+          />
+        )
+      })()}
 
       <ArtifactReportViewer
         open={artifactViewer !== null}

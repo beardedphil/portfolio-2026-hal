@@ -16,6 +16,11 @@ export interface KanbanTicketRow {
   repo_full_name?: string
   ticket_number?: number
   display_id?: string
+  github_pr_url?: string | null
+  github_pr_number?: number | null
+  github_branch_name?: string | null
+  github_base_commit_sha?: string | null
+  github_head_commit_sha?: string | null
 }
 
 /** Kanban column row (matches Supabase kanban_columns table). */

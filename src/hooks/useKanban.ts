@@ -48,7 +48,7 @@ export function useKanban(
       const supabase = getSupabaseClient(url, key)
       const { data: ticketRows } = await supabase
         .from('tickets')
-        .select('pk, id, repo_full_name, ticket_number, display_id, filename, title, body_md, kanban_column_id, kanban_position, kanban_moved_at, updated_at')
+        .select('pk, id, repo_full_name, ticket_number, display_id, filename, title, body_md, kanban_column_id, kanban_position, kanban_moved_at, updated_at, github_pr_url, github_pr_number, github_branch_name, github_base_commit_sha, github_head_commit_sha')
         .eq('repo_full_name', connectedProject)
         .order('ticket_number', { ascending: true })
       const { data: colRows } = await supabase
