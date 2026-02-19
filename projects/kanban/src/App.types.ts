@@ -23,6 +23,8 @@ export type SupabaseTicketRow = {
   ticket_number?: number
   /** Human-facing display id like HAL-0079 (0079). */
   display_id?: string
+  /** Pull request URL (0771). */
+  pr_url?: string | null
 }
 
 /** Supabase agent_artifacts table row (0082) - exported from components/types.ts */

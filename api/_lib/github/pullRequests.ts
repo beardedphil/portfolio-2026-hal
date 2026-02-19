@@ -8,6 +8,14 @@ export type PrFile = {
   patch?: string | null // Unified diff patch (null for binary files or files too large)
 }
 
+export type PullRequest = {
+  number: number
+  html_url: string
+  head: { sha: string; ref: string }
+  base: { sha: string; ref: string }
+  draft: boolean
+}
+
 /** Fetch PR files from GitHub. prUrl e.g. https://github.com/owner/repo/pull/123 */
 export async function fetchPullRequestFiles(
   token: string,
@@ -20,6 +28,40 @@ export async function fetchPullRequestFiles(
     const url = `https://api.github.com/repos/${owner}/${repo}/pulls/${pullNumber}/files`
     const data = await githubFetch<PrFile[]>(token, url, { method: 'GET' })
     return { files: Array.isArray(data) ? data : [] }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/** Create a draft pull request. Returns PR URL and metadata. */
+export async function createDraftPullRequest(
+  token: string,
+  repoFullName: string,
+  title: string,
+  body: string,
+  head: string, // branch name
+  base: string // base branch (e.g. 'main')
+): Promise<{ pr: PullRequest } | { error: string }> {
+  try {
+    const [owner, repo] = repoFullName.split('/')
+    if (!owner || !repo) return { error: 'Invalid repo: expected owner/repo' }
+    
+    const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls`
+    const payload = {
+      title,
+      body,
+      head,
+      base,
+      draft: true,
+    }
+    
+    const data = await githubFetch<PullRequest>(token, url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    
+    return { pr: data }
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) }
   }
