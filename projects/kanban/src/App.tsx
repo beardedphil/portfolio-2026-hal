@@ -2386,18 +2386,26 @@ function App() {
               }
             })
           )
-          let allSucceeded = true
-          let firstError: string | undefined
-          for (let i = 0; i < newOrder.length; i++) {
-            const pk = newOrder[i]
-            const result = await updateSupabaseTicketKanban(pk, {
+          // Fire off all API calls in parallel to avoid blocking UI (fixes 5-10s delay on same-column reorder)
+          const updatePromises = newOrder.map((pk, i) =>
+            updateSupabaseTicketKanban(pk, {
               kanban_position: i,
               ...(pk === ticketPk ? { kanban_moved_at: movedAt } : {}),
             })
-            if (!result.ok) {
+          )
+          const results = await Promise.allSettled(updatePromises)
+          let allSucceeded = true
+          let firstError: string | undefined
+          for (let i = 0; i < results.length; i++) {
+            const result = results[i]
+            if (result.status === 'rejected') {
               allSucceeded = false
-              if (!firstError) firstError = result.error
-              addLog(`Supabase reorder failed: ${result.error}`)
+              if (!firstError) firstError = result.reason?.message || String(result.reason)
+              addLog(`Supabase reorder failed: ${result.reason}`)
+            } else if (result.value && !result.value.ok) {
+              allSucceeded = false
+              if (!firstError) firstError = result.value.error
+              addLog(`Supabase reorder failed: ${result.value.error}`)
             }
           }
           if (allSucceeded) {
