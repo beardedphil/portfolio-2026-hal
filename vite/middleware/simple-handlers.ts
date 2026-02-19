@@ -149,6 +149,11 @@ export function ticketsCheckFailureEscalationPlugin(): Plugin {
   return createHandlerPlugin('tickets-check-failure-escalation-endpoint', '/api/tickets/check-failure-escalation', 'POST')
 }
 
+/** Tickets create PR endpoint */
+export function ticketsCreatePrPlugin(): Plugin {
+  return createHandlerPlugin('tickets-create-pr-endpoint', '/api/tickets/create-pr', 'POST')
+}
+
 /** Conversations working memory get endpoint */
 export function conversationsWorkingMemoryGetPlugin(): Plugin {
   return {

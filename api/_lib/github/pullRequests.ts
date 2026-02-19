@@ -8,6 +8,15 @@ export type PrFile = {
   patch?: string | null // Unified diff patch (null for binary files or files too large)
 }
 
+export type PullRequest = {
+  number: number
+  html_url: string
+  head: { ref: string; sha: string }
+  base: { ref: string; sha: string }
+  draft: boolean
+  state: string
+}
+
 /** Fetch PR files from GitHub. prUrl e.g. https://github.com/owner/repo/pull/123 */
 export async function fetchPullRequestFiles(
   token: string,
@@ -20,6 +29,74 @@ export async function fetchPullRequestFiles(
     const url = `https://api.github.com/repos/${owner}/${repo}/pulls/${pullNumber}/files`
     const data = await githubFetch<PrFile[]>(token, url, { method: 'GET' })
     return { files: Array.isArray(data) ? data : [] }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/** Create a branch from the default branch (or specified base branch) */
+export async function createBranch(
+  token: string,
+  repoFullName: string,
+  branchName: string,
+  baseBranch: string = 'main'
+): Promise<{ ok: true; branchName: string } | { error: string }> {
+  try {
+    const [owner, repo] = repoFullName.split('/')
+    if (!owner || !repo) return { error: 'Invalid repo: expected owner/repo' }
+    
+    // First, get the SHA of the base branch
+    const refUrl = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/ref/heads/${encodeURIComponent(baseBranch)}`
+    const baseRef = await githubFetch<{ object: { sha: string } }>(token, refUrl, { method: 'GET' })
+    
+    // Create the new branch from the base branch SHA
+    const createRefUrl = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/refs`
+    const createBody = {
+      ref: `refs/heads/${branchName}`,
+      sha: baseRef.object.sha,
+    }
+    
+    await githubFetch<{ ref: string }>(token, createRefUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(createBody),
+    })
+    
+    return { ok: true, branchName }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/** Create a draft pull request */
+export async function createDraftPullRequest(
+  token: string,
+  repoFullName: string,
+  title: string,
+  head: string,
+  base: string,
+  body?: string
+): Promise<{ pr: PullRequest } | { error: string }> {
+  try {
+    const [owner, repo] = repoFullName.split('/')
+    if (!owner || !repo) return { error: 'Invalid repo: expected owner/repo' }
+    
+    const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls`
+    const prBody = {
+      title,
+      head,
+      base,
+      body: body || '',
+      draft: true,
+    }
+    
+    const pr = await githubFetch<PullRequest>(token, url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(prBody),
+    })
+    
+    return { pr }
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) }
   }

@@ -7,6 +7,8 @@ import {
 } from '../artifacts/_shared.js'
 import { readJsonBody, json, parseSupabaseCredentialsWithServiceRole, fetchTicketByPkOrId } from './_shared.js'
 import { resolveColumnId, calculateTargetPosition } from './_move-helpers.js'
+import { getSession } from '../_lib/github/session.js'
+import { createBranch, createDraftPullRequest, listBranches } from '../_lib/github/index.js'
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   // CORS: Allow cross-origin requests (for scripts calling from different origins)
@@ -103,37 +105,140 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const resolvedTicketPk = (ticket as any).pk as string
 
     // Gate: prevent moving tickets from To Do to beyond-To-Do columns without a linked PR (HAL-0772)
+    // If no PR exists, automatically create one (HAL-0771)
     const columnsBeyondTodo = ['col-doing', 'col-qa', 'col-human-in-the-loop', 'col-done']
     if (currentColumnId === 'col-todo' && columnId && columnsBeyondTodo.includes(columnId) && resolvedTicketPk) {
-      // Check if ticket has a linked PR via agent runs
-      const { data: agentRuns, error: runsErr } = await supabase
-        .from('hal_agent_runs')
-        .select('pr_url')
-        .eq('ticket_pk', resolvedTicketPk)
-        .not('pr_url', 'is', null)
+      // First check if ticket has a PR in the tickets table (new field from HAL-0771)
+      let hasPr = false
+      let prUrl: string | null = null
+      
+      if ((ticket as any).github_pr_url) {
+        hasPr = true
+        prUrl = (ticket as any).github_pr_url
+      } else {
+        // Fallback: check agent runs for PR
+        const { data: agentRuns, error: runsErr } = await supabase
+          .from('hal_agent_runs')
+          .select('pr_url')
+          .eq('ticket_pk', resolvedTicketPk)
+          .not('pr_url', 'is', null)
 
-      if (runsErr) {
-        json(res, 200, {
-          success: false,
-          error: `Cannot move ticket: failed to check for linked PR (${runsErr.message}).`,
+        if (runsErr) {
+          json(res, 200, {
+            success: false,
+            error: `Cannot move ticket: failed to check for linked PR (${runsErr.message}).`,
+          })
+          return
+        }
+
+        // Check if any agent run has a non-empty PR URL
+        const runWithPr = agentRuns?.find((run: any) => {
+          const url = run.pr_url
+          return url && typeof url === 'string' && url.trim().length > 0
         })
-        return
+        
+        if (runWithPr) {
+          hasPr = true
+          prUrl = runWithPr.pr_url
+        }
       }
 
-      // Check if any agent run has a non-empty PR URL
-      const hasPr = agentRuns && agentRuns.length > 0 && agentRuns.some((run: any) => {
-        const prUrl = run.pr_url
-        return prUrl && typeof prUrl === 'string' && prUrl.trim().length > 0
-      })
-
+      // If no PR exists, automatically create one
       if (!hasPr) {
-        json(res, 200, {
-          success: false,
-          error: 'No PR associated',
-          errorCode: 'NO_PR_ASSOCIATED',
-          remedy: 'A GitHub Pull Request must be linked to this ticket before it can be moved beyond To Do. Create a PR or link an existing PR to continue.',
-        })
-        return
+        // Ensure we have repo_full_name
+        if (!repoFullName || repoFullName.trim() === '') {
+          json(res, 200, {
+            success: false,
+            error: 'Cannot create PR: ticket is missing repo_full_name.',
+          })
+          return
+        }
+
+        // Get GitHub session for PR creation
+        const session = await getSession(req)
+        if (!session || !session.accessToken) {
+          json(res, 200, {
+            success: false,
+            error: 'No PR associated and GitHub authentication required to create one automatically.',
+            errorCode: 'NO_PR_ASSOCIATED',
+            remedy: 'Please connect your GitHub account to enable automatic PR creation, or manually create a PR and link it to this ticket.',
+          })
+          return
+        }
+
+        // Generate branch name from ticket
+        const generateBranchName = (ticketId: string, title: string): string => {
+          const numericId = ticketId.replace(/^[A-Z]+-/, '').replace(/^0+/, '') || ticketId.replace(/^[A-Z]+-/, '')
+          const slug = title
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            .substring(0, 50)
+          return `ticket/${numericId.padStart(4, '0')}-${slug}`
+        }
+
+        const branchName = generateBranchName(ticket.display_id || ticket.id, ticket.title)
+        const defaultBranch = 'main' // Could be made configurable per repo
+
+        // Check if branch already exists
+        const branchesResult = await listBranches(session.accessToken, repoFullName)
+        if ('error' in branchesResult) {
+          json(res, 200, {
+            success: false,
+            error: `Failed to create PR: could not list branches (${branchesResult.error}).`,
+          })
+          return
+        }
+
+        const branchExists = branchesResult.branches.some((b) => b.name === branchName)
+
+        if (!branchExists) {
+          // Create branch
+          const branchResult = await createBranch(session.accessToken, repoFullName, branchName, defaultBranch)
+          if ('error' in branchResult) {
+            json(res, 200, {
+              success: false,
+              error: `Failed to create PR: could not create branch (${branchResult.error}).`,
+            })
+            return
+          }
+        }
+
+        // Create draft PR
+        const prTitle = `[${ticket.display_id || ticket.id}] ${ticket.title}`
+        const prBody = `Draft PR for ticket ${ticket.display_id || ticket.id}.\n\nThis PR was automatically created by HAL.`
+        
+        const prResult = await createDraftPullRequest(
+          session.accessToken,
+          repoFullName,
+          prTitle,
+          branchName,
+          defaultBranch,
+          prBody
+        )
+
+        if ('error' in prResult) {
+          json(res, 200, {
+            success: false,
+            error: `Failed to create PR: ${prResult.error}.`,
+          })
+          return
+        }
+
+        const pr = prResult.pr
+        prUrl = pr.html_url
+
+        // Update ticket with PR info
+        await supabase
+          .from('tickets')
+          .update({
+            github_pr_url: pr.html_url,
+            github_pr_number: pr.number,
+            github_branch_name: branchName,
+            github_base_commit_sha: pr.base.sha,
+            github_head_commit_sha: pr.head.sha,
+          })
+          .eq('pk', resolvedTicketPk)
       }
     }
 

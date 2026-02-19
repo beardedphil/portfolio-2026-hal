@@ -32,6 +32,7 @@ import {
   processReviewCreateTicketsPlugin,
   ticketsCreateFromSuggestionPlugin,
   ticketsCheckFailureEscalationPlugin,
+  ticketsCreatePrPlugin,
   conversationsWorkingMemoryGetPlugin,
   conversationsWorkingMemoryUpdatePlugin,
 } from './vite/middleware/simple-handlers'
@@ -144,6 +145,7 @@ export default defineConfig({
     processReviewCreateTicketsPlugin(),
     ticketsCreateFromSuggestionPlugin(),
     ticketsCheckFailureEscalationPlugin(),
+    ticketsCreatePrPlugin(),
     conversationsWorkingMemoryGetPlugin(),
     conversationsWorkingMemoryUpdatePlugin(),
     serveCoveragePlugin(),
