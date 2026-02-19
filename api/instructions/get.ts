@@ -21,15 +21,162 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
 
 function json(res: ServerResponse, statusCode: number, body: unknown) {
   res.statusCode = statusCode
+  res.setHeader('Cache-Control', 'no-store')
   res.setHeader('Content-Type', 'application/json')
   res.end(JSON.stringify(body))
 }
 
-export default async function handler(req: IncomingMessage, res: ServerResponse) {
+function isWebRequest(v: unknown): v is Request {
+  return typeof v === 'object' && v !== null && 'url' in v && typeof (v as Request).headers?.get === 'function'
+}
+
+function withCors(headers: Headers) {
+  headers.set('Access-Control-Allow-Origin', '*')
+  headers.set('Access-Control-Allow-Methods', 'POST, OPTIONS')
+  headers.set('Access-Control-Allow-Headers', 'Content-Type')
+  headers.set('Cache-Control', 'no-store')
+  return headers
+}
+
+async function handleWebRequest(request: Request): Promise<Response> {
+  const headers = withCors(new Headers({ 'Content-Type': 'application/json' }))
+
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers })
+  }
+
+  if (request.method !== 'POST') {
+    return new Response('Method Not Allowed', { status: 405, headers })
+  }
+
+  let body: any = {}
+  try {
+    body = (await request.json().catch(() => ({}))) as any
+  } catch {
+    body = {}
+  }
+
+  const repoFullName = typeof body.repoFullName === 'string' ? body.repoFullName.trim() : 'beardedphil/portfolio-2026-hal'
+  const agentType = typeof body.agentType === 'string' ? body.agentType.trim() : undefined
+  const includeBasic = body.includeBasic !== false // Default to true
+  const includeSituational = body.includeSituational !== false // Default to true
+
+  const supabaseUrl =
+    (typeof body.supabaseUrl === 'string' ? body.supabaseUrl.trim() : undefined) ||
+    process.env.SUPABASE_URL?.trim() ||
+    process.env.VITE_SUPABASE_URL?.trim() ||
+    undefined
+  const supabaseAnonKey =
+    (typeof body.supabaseAnonKey === 'string' ? body.supabaseAnonKey.trim() : undefined) ||
+    process.env.SUPABASE_ANON_KEY?.trim() ||
+    process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
+    undefined
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error:
+          'Supabase credentials required (provide in request body or set SUPABASE_URL and SUPABASE_ANON_KEY in server environment).',
+      }),
+      { status: 400, headers }
+    )
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseAnonKey)
+
+  let query = supabase
+    .from('agent_instructions')
+    .select('*')
+    .eq('repo_full_name', repoFullName)
+    .order('filename')
+
+  if (includeBasic && !includeSituational) {
+    query = query.eq('is_basic', true)
+  } else if (includeSituational && !includeBasic) {
+    query = query.eq('is_situational', true)
+  }
+
+  const { data: instructions, error } = await query
+
+  if (error) {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: `Failed to fetch instructions: ${error.message}`,
+      }),
+      { status: 200, headers }
+    )
+  }
+
+  let filteredInstructions = instructions || []
+  let outOfScopeCount = 0
+
+  if (agentType) {
+    const beforeFilter = filteredInstructions.length
+    filteredInstructions = filteredInstructions.filter((inst: any) => {
+      const agentTypes = inst.agent_types || []
+      return inst.always_apply || agentTypes.includes('all') || agentTypes.includes(agentType)
+    })
+    outOfScopeCount = beforeFilter - filteredInstructions.length
+  }
+
+  const formatted = (filteredInstructions || []).map((inst: any) => ({
+    topicId: inst.topic_id,
+    filename: inst.filename,
+    title: inst.title,
+    description: inst.description,
+    contentMd: inst.content_md,
+    contentBody: inst.content_body,
+    alwaysApply: inst.always_apply,
+    agentTypes: inst.agent_types || [],
+    isBasic: inst.is_basic,
+    isSituational: inst.is_situational,
+    topicMetadata: inst.topic_metadata,
+    createdAt: inst.created_at,
+    updatedAt: inst.updated_at,
+  }))
+
+  return new Response(
+    JSON.stringify({
+      success: true,
+      instructions: formatted,
+      count: formatted.length,
+      repoFullName,
+      agentType: agentType || 'all',
+      metadata: {
+        totalAvailable: (instructions || []).length,
+        filteredCount: formatted.length,
+        outOfScopeCount,
+        scopingApplied: !!agentType,
+        accessedAt: new Date().toISOString(),
+      },
+    }),
+    { status: 200, headers }
+  )
+}
+
+export async function POST(request: Request): Promise<Response> {
+  try {
+    return await handleWebRequest(request)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('[api/instructions/get] POST', msg, err)
+    const headers = withCors(new Headers({ 'Content-Type': 'application/json' }))
+    return new Response(JSON.stringify({ success: false, error: msg }), { status: 500, headers })
+  }
+}
+
+export default async function handler(req: IncomingMessage | Request, res?: ServerResponse) {
+  if (isWebRequest(req)) {
+    return await handleWebRequest(req)
+  }
+  if (!res) throw new Error('Response object missing')
   // CORS: Allow cross-origin requests
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+  res.setHeader('Cache-Control', 'no-store')
 
   if (req.method === 'OPTIONS') {
     res.statusCode = 204
