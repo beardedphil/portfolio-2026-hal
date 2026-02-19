@@ -2095,7 +2095,7 @@ function App() {
         } else {
           // Revert optimistic update on failure (0047)
           // Include actionable steps in error message if provided (0770)
-          const errorMessage = result.actionableSteps 
+          const errorMessage = 'actionableSteps' in result && result.actionableSteps
             ? `${result.error}\n\nNext steps: ${result.actionableSteps}`
             : result.error
           setLastMovePersisted({ success: false, timestamp: new Date(), ticketId: ticketPk, error: errorMessage })
@@ -2497,7 +2497,7 @@ function App() {
           } else {
             // Revert optimistic update on failure (0047)
             // Include actionable steps in error message if provided (0770)
-            const errorMessage = result.actionableSteps 
+            const errorMessage = 'actionableSteps' in result && result.actionableSteps
               ? `${result.error}\n\nNext steps: ${result.actionableSteps}`
               : result.error
             setLastMovePersisted({ success: false, timestamp: new Date(), ticketId: ticketPk, error: errorMessage })
