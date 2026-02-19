@@ -507,16 +507,25 @@ export async function runPmAgent(
   const kanbanMoveTicketToTodoTool = tool({
     description:
       'Move a ticket from Unassigned to To Do via the HAL API. Only call after evaluate_ticket_ready returns ready: true.',
-    parameters: z.object({
-      ticket_id: z.string().describe('Ticket id (e.g. "HAL-0012", "0012", or "12").'),
-      position: z
-        .enum(['top', 'bottom'])
-        .optional()
-        .describe(
-          'Position in To Do column: "top" to place at position 0 (first card), "bottom" to place at end (default). Use "top" when called from "Prepare top ticket" workflow.'
-        ),
+    parameters: jsonSchema<{ ticket_id: string; position: 'top' | 'bottom' | null }>({
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        ticket_id: {
+          type: 'string',
+          description: 'Ticket id (e.g. "HAL-0012", "0012", or "12").',
+        },
+        position: {
+          type: ['string', 'null'],
+          enum: ['top', 'bottom', null],
+          description:
+            'Position in To Do column: "top" to place at position 0 (first card), "bottom" to place at end (default). Use "top" when called from "Prepare top ticket" workflow.',
+        },
+      },
+      // OpenAI tool schema validation requires `required` to include every key in `properties`
+      required: ['ticket_id', 'position'],
     }),
-    execute: async (input: { ticket_id: string; position?: 'top' | 'bottom' }) => {
+    execute: async (input: { ticket_id: string; position: 'top' | 'bottom' | null }) => {
       type MoveResult =
         | { success: true; ticketId: string; fromColumn: string; toColumn: string }
         | { success: false; error: string }
