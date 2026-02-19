@@ -13,24 +13,16 @@
       "maintainability": 0
     },
     {
-      "file": "agents/src/agents/projectManager/contextBuilding.ts",
-      "maintainability": 0
-    },
-    {
-      "file": "agents/src/agents/projectManager/contextPack.ts",
-      "maintainability": 0
-    },
-    {
-      "file": "agents/src/agents/projectManager/runPmAgent.ts",
-      "maintainability": 0
-    },
-    {
       "file": "agents/src/agents/projectManager.ts",
       "maintainability": 0
     },
     {
       "file": "projects/kanban/src/App.tsx",
       "maintainability": 0
+    },
+    {
+      "file": "agents/src/agents/projectManager/contextBuilding.ts",
+      "maintainability": 1.99
     },
     {
       "file": "src/App.tsx",
@@ -78,10 +70,36 @@
     },
     {
       "file": "api/agent-runs/_shared.ts",
-      "maintainability": 32.99
+      "maintainability": 32.44
+    },
+    {
+      "file": "api/tickets/create-from-suggestion.ts",
+      "maintainability": 33.81
+    },
+    {
+      "file": "api/pm-agent/launch.ts",
+      "maintainability": 34.04
     }
   ],
   "mostRecentImprovements": [
+    {
+      "file": "agents/src/agents/projectManager/contextPack.ts",
+      "before": 0,
+      "after": 167.17,
+      "delta": 167.17
+    },
+    {
+      "file": "agents/src/agents/projectManager/runPmAgent.ts",
+      "before": 0,
+      "after": 167.17,
+      "delta": 167.17
+    },
+    {
+      "file": "agents/src/agents/projectManager/contextBuilding.ts",
+      "before": 0,
+      "after": 1.99,
+      "delta": 1.99
+    },
     {
       "file": "api/artifacts/get.ts",
       "before": 32.38,
@@ -107,7 +125,7 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-19T16:17:10.864Z",
-  "filesAnalyzed": 281,
-  "unroundedSimplicity": 40.3
+  "generatedAt": "2026-02-19T16:44:11.500Z",
+  "filesAnalyzed": 282,
+  "unroundedSimplicity": 41.3
 }
