@@ -58,7 +58,7 @@
     },
     {
       "file": "projects/kanban/src/components/TicketDetailModal.tsx",
-      "maintainability": 30.65
+      "maintainability": 29.74
     },
     {
       "file": "src/hooks/useProcessReview.ts",
@@ -83,33 +83,15 @@
   ],
   "mostRecentImprovements": [
     {
-      "file": "agents/src/agents/projectManager/contextPack.ts",
-      "before": 0,
-      "after": 167.17,
-      "delta": 167.17
-    },
-    {
-      "file": "agents/src/agents/projectManager/runPmAgent.ts",
-      "before": 0,
-      "after": 167.17,
-      "delta": 167.17
-    },
-    {
-      "file": "agents/src/agents/projectManager/contextBuilding.ts",
-      "before": 0,
-      "after": 1.99,
-      "delta": 1.99
-    },
-    {
       "file": "api/artifacts/get.ts",
       "before": 32.38,
       "after": 32.38,
       "delta": 0
     },
     {
-      "file": "projects/kanban/src/components/TicketDetailModal.tsx",
-      "before": 30.65,
-      "after": 30.65,
+      "file": "api/tickets/create-from-suggestion.ts",
+      "before": 33.81,
+      "after": 33.81,
       "delta": 0
     },
     {
@@ -119,13 +101,19 @@
       "delta": 0
     },
     {
+      "file": "api/agent-runs/_shared.ts",
+      "before": 32.44,
+      "after": 32.44,
+      "delta": 0
+    },
+    {
       "file": "api/instructions/migrate-process-docs.ts",
       "before": 26.39,
       "after": 26.39,
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-19T16:44:11.500Z",
-  "filesAnalyzed": 282,
-  "unroundedSimplicity": 41.3
+  "generatedAt": "2026-02-19T17:00:32.815Z",
+  "filesAnalyzed": 284,
+  "unroundedSimplicity": 41.1
 }
