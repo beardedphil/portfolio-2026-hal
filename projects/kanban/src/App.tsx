@@ -3085,8 +3085,8 @@ function App() {
           repoFullName={detailModalPrData.repoFullName}
           onPrCreated={async () => {
             // Refresh ticket data after PR creation
-            if (halCtx && halCtx.onTicketUpdate) {
-              await halCtx.onTicketUpdate()
+            if (halCtx && halCtx.onTicketCreated) {
+              await halCtx.onTicketCreated()
             } else if (supabaseBoardActive) {
               // Refetch tickets from Supabase
               await refetchSupabaseTickets()

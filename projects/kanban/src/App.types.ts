@@ -23,6 +23,16 @@ export type SupabaseTicketRow = {
   ticket_number?: number
   /** Human-facing display id like HAL-0079 (0079). */
   display_id?: string
+  /** PR URL (0771). */
+  pr_url?: string | null
+  /** PR number (0771). */
+  pr_number?: number | null
+  /** Branch name (0771). */
+  branch_name?: string | null
+  /** Base commit SHA (0771). */
+  base_commit_sha?: string | null
+  /** Head commit SHA (0771). */
+  head_commit_sha?: string | null
 }
 
 /** Supabase agent_artifacts table row (0082) - exported from components/types.ts */

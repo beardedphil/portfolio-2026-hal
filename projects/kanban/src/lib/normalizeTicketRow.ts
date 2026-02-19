@@ -15,6 +15,16 @@ export type SupabaseTicketRow = {
   /** Per-repo ticket number (0079). */
   ticket_number?: number
   display_id: string
+  /** PR URL (0771). */
+  pr_url?: string | null
+  /** PR number (0771). */
+  pr_number?: number | null
+  /** Branch name (0771). */
+  branch_name?: string | null
+  /** Base commit SHA (0771). */
+  base_commit_sha?: string | null
+  /** Head commit SHA (0771). */
+  head_commit_sha?: string | null
 }
 
 export function normalizeTicketRow(row: Partial<SupabaseTicketRow> & { id?: string }): SupabaseTicketRow {
@@ -37,5 +47,10 @@ export function normalizeTicketRow(row: Partial<SupabaseTicketRow> & { id?: stri
     repo_full_name: row.repo_full_name,
     ticket_number: row.ticket_number,
     display_id: displayId,
+    pr_url: row.pr_url ?? null,
+    pr_number: row.pr_number ?? null,
+    branch_name: row.branch_name ?? null,
+    base_commit_sha: row.base_commit_sha ?? null,
+    head_commit_sha: row.head_commit_sha ?? null,
   }
 }

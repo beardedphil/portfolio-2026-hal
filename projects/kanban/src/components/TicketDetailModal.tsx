@@ -71,8 +71,9 @@ export function TicketDetailModal({
   baseCommitSha?: string | null
   headCommitSha?: string | null
   repoFullName?: string | null
-  onPrCreated?: () => void
+  onPrCreated: (() => void | Promise<void>) | undefined
 }) {
+  // onPrCreated is passed to PullRequestSection component below {
   const [validationSteps, setValidationSteps] = useState('')
   const [validationNotes, setValidationNotes] = useState('')
   const [isProcessing, setIsProcessing] = useState(false)
@@ -310,7 +311,7 @@ export function TicketDetailModal({
                 repoFullName={repoFullName}
                 supabaseUrl={supabaseUrl}
                 supabaseAnonKey={supabaseKey}
-                onPrCreated={onTicketUpdate}
+                onPrCreated={onPrCreated || _onTicketUpdate}
               />
               {showValidationSection && (
                 <>
