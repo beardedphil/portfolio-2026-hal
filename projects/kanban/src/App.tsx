@@ -224,7 +224,7 @@ function App() {
   const [activeWorkAgentTypes, setActiveWorkAgentTypes] = useState<Record<string, 'Implementation' | 'QA' | 'Process Review'>>({})
   // Sync with Docs removed (Supabase-only) (0065)
   // Ticket persistence tracking (0047)
-  const [lastMovePersisted, setLastMovePersisted] = useState<{ success: boolean; timestamp: Date; ticketId: string; error?: string } | null>(null)
+  const [lastMovePersisted, setLastMovePersisted] = useState<{ success: boolean; timestamp: Date; ticketId: string; error?: string; isValidationBlock?: boolean } | null>(null)
   const [pendingMoves, setPendingMoves] = useState<Set<string>>(new Set())
   // Track when each move was initiated to prevent premature rollback on slow API responses (0790)
   const [pendingMoveTimestamps, setPendingMoveTimestamps] = useState<Map<string, number>>(new Map())
@@ -1968,6 +1968,7 @@ function App() {
               timestamp: new Date(),
               ticketId: ticketPk,
               error: errorMsg,
+              isValidationBlock: true,
             })
             addLog(`Move blocked: ${errorMsg}`)
             alert(errorMsg)
@@ -2511,6 +2512,7 @@ function App() {
                   timestamp: new Date(),
                   ticketId: String(active.id),
                   error: errorMsg,
+                  isValidationBlock: true,
                 })
                 addLog(`Move blocked: ${errorMsg}`)
                 // Show alert to user
@@ -2815,7 +2817,7 @@ function App() {
           ) : (
             <>
               <div style={{ whiteSpace: 'pre-line' }}>
-                ✗ Move blocked: {lastMovePersisted.error ?? 'Unknown error'}
+                ✗ {lastMovePersisted.isValidationBlock ? 'Move blocked' : 'Move failed'}: {lastMovePersisted.error ?? 'Unknown error'}
               </div>
               <button
                 type="button"
