@@ -758,8 +758,26 @@ export async function runPmAgent(
             z.number(),
             z.boolean(),
             z.null(),
-            z.array(z.any()),
-            z.record(z.string(), z.any()),
+            z.array(
+              z.union([
+                z.string(),
+                z.number(),
+                z.boolean(),
+                z.null(),
+                z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])),
+              ])
+            ),
+            z.record(
+              z.string(),
+              z.union([
+                z.string(),
+                z.number(),
+                z.boolean(),
+                z.null(),
+                z.array(z.union([z.string(), z.number(), z.boolean(), z.null()])),
+                z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])),
+              ])
+            ),
           ])
         )
         .describe('RED document content as a JSON object. Should contain expanded requirements, use cases, edge cases, and other detailed information.'),
