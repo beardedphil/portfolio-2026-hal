@@ -1,16 +1,21 @@
 ---
-description: After writing tickets, run sync-tickets
+description: Supabase-backed Kanban — tickets are managed in Supabase only (all agents)
 alwaysApply: true
 ---
 
-# Ticket Writing: Always Run `sync-tickets`
+# Ticket Source of Truth: Supabase Only (All Agents)
 
-When a Cursor agent creates or edits ticket files under `docs/tickets/`:
+We use a **Supabase-backed Kanban** in **Supabase-only mode**. Ticket state (content, column, position) lives in the database. The app and agents **do not read from `docs/tickets/*.md`** — tickets are fetched directly from Supabase.
 
-- Run `npm run sync-tickets` immediately after the change.
-- Commit and push any resulting repo changes.
-
-## Notes
-
-- The script reads Supabase credentials from `.env` (`SUPABASE_URL`, `SUPABASE_ANON_KEY`).
+- **Do not create or edit ticket files** under `docs/tickets/` directly. The app does not read these files (Supabase-only mode).
+- **To create or change a ticket (any agent):** use **HAL API endpoints**:
+  - **Create / update body:** Use the HAL PM agent (create_ticket / update_ticket_body tools) or HAL API endpoint `POST /api/tickets/update`. The Kanban UI reflects changes within the polling interval (~10s).
+  - **Move ticket column (e.g. QA → Human in the Loop):** Use HAL API endpoint `POST /api/tickets/move` with `{ ticketId: string, columnId: string }`. The API uses server-side Supabase credentials.
+- **HAL API endpoints:** All Supabase operations go through HAL's API endpoints, which use server-side environment variables (`SUPABASE_URL`, `SUPABASE_ANON_KEY`). Agents don't need credentials in their environment.
+  - `POST /api/tickets/get` — Fetch ticket content
+  - `POST /api/tickets/update` — Update ticket body
+  - `POST /api/tickets/move` — Move ticket to different column
+  - `POST /api/artifacts/insert-implementation` — Store implementation artifacts
+  - `POST /api/artifacts/insert-qa` — Store QA artifacts
+- **Historical note:** `sync-tickets.js` was previously used to sync between `docs/tickets/*.md` files and Supabase, but this workflow is **deprecated and no longer used**. The system now operates in Supabase-only mode. The script may exist for historical reference or one-time migration purposes only.
 - **Never commit `.env`** (it must remain ignored).
