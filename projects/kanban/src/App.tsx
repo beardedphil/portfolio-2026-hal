@@ -2384,8 +2384,9 @@ function App() {
           const positionMap = new Map<string, number>()
           newOrder.forEach((pk, i) => positionMap.set(pk, i))
           
-          // Use flushSync to force React to render immediately, bypassing batching
-          // CRITICAL: This must happen synchronously before any async work
+          // CRITICAL FIX: Update state BEFORE @dnd-kit checks items at drag end
+          // @dnd-kit compares items at drag end to drag start - if unchanged, it reverts visual position
+          // We must update supabaseTickets synchronously so columns useMemo recomputes and SortableContext gets new items
           const updatedTickets = (() => {
             const prev = supabaseTickets
             return prev.map((t) => {
@@ -2399,15 +2400,22 @@ function App() {
             })
           })()
           
+          // Update state synchronously - this must happen in the same synchronous call stack
+          // as the drag end handler so @dnd-kit sees the new items when it checks
+          setPendingMoves((prev) => new Set(prev).add(ticketPk))
+          setPendingMoveTimestamps((prev) => {
+            const next = new Map(prev)
+            next.set(ticketPk, moveStartTime)
+            return next
+          })
+          setSupabaseTickets(updatedTickets)
+          
+          // Use flushSync to force React to render immediately after state updates
+          // This ensures columns recompute and SortableContext receives new items before @dnd-kit reverts
           flushSync(() => {
-            setPendingMoves((prev) => new Set(prev).add(ticketPk))
-            // Track move start time to prevent premature rollback on slow API responses (0790)
-            setPendingMoveTimestamps((prev) => {
-              const next = new Map(prev)
-              next.set(ticketPk, moveStartTime)
-              return next
-            })
-            setSupabaseTickets(updatedTickets)
+            // Force a render to ensure columns useMemo runs and components re-render with new items
+            // This is a no-op state update that forces React to process the previous updates
+            setPendingMoves((prev) => prev)
           })
           // Fire off all API calls in parallel WITHOUT awaiting - let them complete in background
           // This allows React to render the optimistic update immediately (fixes 5-10s delay)
