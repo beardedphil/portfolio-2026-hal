@@ -150,15 +150,10 @@ export async function runPmAgent(
   // In particular, any schema with `{ type: "array" }` must define `items`.
   // Define a proper recursive JSON value schema so we never emit array schemas
   // without `items` (a common pitfall of "unknown/any" conversions).
-  const JsonValue: z.ZodType<unknown> = z.lazy(() =>
-    z.union([
-      z.string(),
-      z.number(),
-      z.boolean(),
-      z.null(),
-      z.record(JsonValue),
-    ])
-  )
+  // NOTE: OpenAI tool schema validation rejects JSON Schema $ref in certain positions
+  // (e.g. additionalProperties/items must include an explicit `type`).
+  // Keep red_json shallow (no nested objects/arrays) and use red_json_content for full JSON.
+  const RedJsonScalar = z.union([z.string(), z.number(), z.boolean(), z.null()])
 
   let contextPack: string
   try {
@@ -765,10 +760,10 @@ export async function runPmAgent(
     parameters: z.object({
       ticket_id: z.string().describe('Ticket id (e.g. "HAL-0012", "0012", or "12").'),
       red_json: z
-        .record(JsonValue)
+        .record(RedJsonScalar)
         .optional()
         .describe(
-          'RED document content as a JSON object. Should contain expanded requirements, use cases, edge cases, and other detailed information.'
+          'RED document content as a JSON object (shallow map of scalar values only: string/number/boolean/null). For full nested JSON, pass red_json_content instead.'
         ),
       red_json_content: z
         .string()
