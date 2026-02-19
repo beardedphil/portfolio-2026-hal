@@ -85,6 +85,37 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const ticket = ticketQuery.data as { pk: string; id: number; display_id?: string; title?: string; body_md?: string; repo_full_name: string }
 
+    // Fetch latest valid RED for this ticket (HAL-0760: RED-driven orchestration)
+    const { data: redData, error: redError } = await supabase.rpc('get_latest_valid_red', {
+      p_repo_full_name: ticket.repo_full_name,
+      p_ticket_pk: ticket.pk,
+    })
+
+    if (redError) {
+      json(res, 200, {
+        success: false,
+        error: `Failed to fetch RED: ${redError.message}. Context Bundle generation requires a valid RED document.`,
+      })
+      return
+    }
+
+    if (!redData || redData.length === 0) {
+      json(res, 200, {
+        success: false,
+        error: `No valid RED found for ticket ${ticket.display_id || ticket.id}. Context Bundle generation requires a valid RED document. To generate a RED, use the RED section in the ticket details view or call POST /api/red/insert with the structured requirements.`,
+      })
+      return
+    }
+
+    const redDocument = redData[0] as {
+      red_id: string
+      version: number
+      validation_status: string
+    }
+
+    const redId = redDocument.red_id
+    const redVersion = redDocument.version
+
     const { data: artifacts, error: artifactsError } = await supabase
       .from('agent_artifacts')
       .select('artifact_id, ticket_pk, agent_type, title, body_md, created_at')
@@ -139,6 +170,7 @@ Provide 3-5 suggestions. If no meaningful improvements, return [].`
 
     const displayId = ticket.display_id ?? String(ticket.id).padStart(4, '0')
     const initialProgress = appendProgress([], `Launching Process Review agent for ticket ${displayId}`)
+    // Store RED identifier (HAL-0760: track which RED version was used)
     const { data: runRow, error: runInsErr } = await serverSupabase
       .from('hal_agent_runs')
       .insert({
@@ -149,6 +181,8 @@ Provide 3-5 suggestions. If no meaningful improvements, return [].`
         display_id: displayId,
         status: 'launching',
         progress: initialProgress,
+        red_id: redId,
+        red_version: redVersion,
       })
       .select('run_id')
       .maybeSingle()

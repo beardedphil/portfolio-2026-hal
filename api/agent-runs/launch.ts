@@ -69,6 +69,53 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const halApiBaseUrl = getOrigin(req)
 
+    // Fetch latest valid RED for this ticket (HAL-0760: RED-driven orchestration)
+    const { data: redData, error: redError } = await supabase.rpc('get_latest_valid_red', {
+      p_repo_full_name: repoFullName,
+      p_ticket_pk: ticketPk,
+    })
+
+    if (redError) {
+      json(res, 500, {
+        error: `Failed to fetch RED: ${redError.message}. Context Bundle generation requires a valid RED document.`,
+      })
+      return
+    }
+
+    if (!redData || redData.length === 0) {
+      json(res, 400, {
+        error: `No valid RED found for ticket ${displayId}. Context Bundle generation requires a valid RED document. To generate a RED, use the RED section in the ticket details view or call POST /api/red/insert with the structured requirements.`,
+      })
+      return
+    }
+
+    const redDocument = redData[0] as {
+      red_id: string
+      version: number
+      red_json: any
+      validation_status: string
+    }
+
+    const redId = redDocument.red_id
+    const redVersion = redDocument.version
+    const redJson = redDocument.red_json
+
+    // Extract structured fields from RED JSON (HAL-0760: use RED-derived fields, not body_md parsing)
+    // RED JSON structure: { goal, deliverable (or human_verifiable_deliverable), acceptance_criteria, ... }
+    const goal = typeof redJson?.goal === 'string' ? redJson.goal.trim() : ''
+    const deliverable =
+      typeof redJson?.deliverable === 'string'
+        ? redJson.deliverable.trim()
+        : typeof redJson?.human_verifiable_deliverable === 'string'
+          ? redJson.human_verifiable_deliverable.trim()
+          : ''
+    const criteria =
+      typeof redJson?.acceptance_criteria === 'string'
+        ? redJson.acceptance_criteria.trim()
+        : Array.isArray(redJson?.acceptance_criteria)
+          ? redJson.acceptance_criteria.map((item: any) => (typeof item === 'string' ? item : String(item))).join('\n')
+          : ''
+
     // Update stage to 'fetching_ticket' (0690) - ticket already fetched, but update stage for consistency
     // Note: Run row not created yet, so we'll update after creation
 
@@ -99,14 +146,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         console.error(`[QA Agent] Error moving ticket ${displayId} from QA to Doing:`, moveErr instanceof Error ? moveErr.message : String(moveErr))
       }
     }
-
-    // Build prompt
-    const goalMatch = bodyMd.match(/##\s*Goal[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
-    const deliverableMatch = bodyMd.match(/##\s*Human-verifiable deliverable[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
-    const criteriaMatch = bodyMd.match(/##\s*Acceptance criteria[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
-    const goal = (goalMatch?.[1] ?? '').trim()
-    const deliverable = (deliverableMatch?.[1] ?? '').trim()
-    const criteria = (criteriaMatch?.[1] ?? '').trim()
 
     const promptText =
       agentType === 'implementation'
@@ -215,6 +254,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           ].join('\n')
 
     // Create run row - start with 'preparing' stage (0690)
+    // Store RED identifier (HAL-0760: track which RED version was used)
     const initialProgress = appendProgress([], `Launching ${agentType} run for ${displayId}`)
     const { data: runRow, error: runInsErr } = await supabase
       .from('hal_agent_runs')
@@ -227,6 +267,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         status: 'launching',
         current_stage: 'preparing',
         progress: initialProgress,
+        red_id: redId,
+        red_version: redVersion,
       })
       .select('run_id')
       .maybeSingle()

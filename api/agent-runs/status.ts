@@ -164,9 +164,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     const supabase = getServerSupabase()
+    // Include RED identifier in run metadata (HAL-0760: show RED version used)
     const { data: run, error: runErr } = await supabase
       .from('hal_agent_runs')
-      .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, cursor_agent_id, cursor_status, pr_url, summary, error, status, current_stage, progress')
+      .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, cursor_agent_id, cursor_status, pr_url, summary, error, status, current_stage, progress, red_id, red_version')
       .eq('run_id', runId)
       .maybeSingle()
 
