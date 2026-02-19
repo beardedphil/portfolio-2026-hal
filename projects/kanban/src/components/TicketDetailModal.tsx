@@ -10,6 +10,7 @@ import { ProcessReviewSection } from './ProcessReviewSection'
 import { HumanValidationSection } from './HumanValidationSection'
 import { AutoDismissMessage } from './AutoDismissMessage'
 import { PullRequestSection } from './PullRequestSection'
+import { REDSection } from './REDSection'
 
 /** Ticket detail modal (0033): title, metadata, markdown body, close/escape/backdrop, scroll lock, focus trap */
 export function TicketDetailModal({
@@ -274,6 +275,14 @@ export function TicketDetailModal({
                   <p className="ticket-detail-empty">No content.</p>
                 )}
               </div>
+              <REDSection
+                ticketPk={ticketId}
+                ticketId={ticketId}
+                repoFullName={repoFullName || null}
+                supabaseUrl={supabaseUrl}
+                supabaseAnonKey={supabaseKey}
+                onRefresh={onRefreshArtifacts}
+              />
               <ArtifactsSection
                 artifacts={artifacts}
                 loading={artifactsLoading}
