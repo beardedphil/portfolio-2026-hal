@@ -57,6 +57,23 @@ export async function calculateTargetPosition(
   const ticketsList = (ticketsInColumn || []).filter((t: any) => t.pk !== currentTicketPk)
   const maxPosition = ticketsList.length > 0 ? Math.max(...ticketsList.map((t: any) => t.kanban_position ?? -1)) : -1
 
+  // HAL-0791: When moving from QA or HITL to To-do due to failure, position at top (position 0)
+  const isFailureMoveToTodo = 
+    (currentColumnId === 'col-qa' || currentColumnId === 'col-human-in-the-loop') &&
+    columnId === 'col-todo' &&
+    (position === undefined || position === null || position === 'bottom' || position === '')
+
+  if (isFailureMoveToTodo) {
+    // Shift all tickets in To-do column down by 1 to make room at position 0
+    for (const t of ticketsList) {
+      await supabase
+        .from('tickets')
+        .update({ kanban_position: ((t.kanban_position ?? -1) + 1) } as any)
+        .eq('pk', (t as any).pk)
+    }
+    return { position: 0, needsShift: false }
+  }
+
   if (position === undefined || position === null || position === 'bottom' || position === '') {
     return { position: maxPosition + 1, needsShift: false }
   }
