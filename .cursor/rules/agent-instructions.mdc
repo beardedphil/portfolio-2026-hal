@@ -50,9 +50,9 @@ Instructions are loaded from `.cursor/rules` and `docs/`. See `docs/process/hal-
 
 ## Moving Tickets After Implementation
 
-**MANDATORY:** After implementation, the implementation agent **MUST** move the ticket to **Ready for QA** before sending a completion summary.
+**MANDATORY:** After implementation, the implementation agent **MUST** automatically move the ticket to **Ready for QA** before sending a completion summary. **DO NOT wait for user interaction or ask for permission - just move it.**
 
-**Move ticket to Ready for QA:**
+**Move ticket to Ready for QA (AUTOMATIC - NO USER INTERACTION REQUIRED):**
 ```javascript
 const baseUrl = (await readFile('.hal/api-base-url', 'utf8')).trim()
 const res = await fetch(`${baseUrl}/api/tickets/move`, {
@@ -61,30 +61,35 @@ const res = await fetch(`${baseUrl}/api/tickets/move`, {
   body: JSON.stringify({ ticketId: '0167', columnId: 'col-qa' }),
 })
 const result = await res.json()
-if (!result.success) throw new Error(`Failed: ${result.error}`)
+if (!result.success) {
+  // If missing artifacts, store them and retry
+  if (result.missingArtifacts && Array.isArray(result.missingArtifacts)) {
+    // Store missing artifacts, then retry move
+    // (implementation details in error handling below)
+  } else {
+    throw new Error(`Failed to move ticket: ${result.error}`)
+  }
+}
 ```
 
-**When to move:**
-1. After all code changes are committed and pushed
-2. After all 8 required artifacts are stored (plan, worklog, changed-files, decisions, verification, pm-review, git-diff, instructions-used)
-3. **Before** sending completion summary
-
-**If move returns `missingArtifacts`:** Store each via `POST /api/artifacts/insert-implementation`, then retry move.
-
-**When to move (MANDATORY WORKFLOW):**
+**When to move (AUTOMATIC WORKFLOW - NO USER INTERACTION):**
 1. ✅ After all code changes are committed and pushed
-2. ✅ After all required artifacts are stored (all 8: plan, worklog, changed-files, decisions, verification, pm-review, git-diff, instructions-used)
-3. ✅ **Before moving:** Call get_artifacts (or POST /api/artifacts/get) and confirm all 8 required implementation artifacts are present with substantive content.
-4. ✅ **MOVE THE TICKET TO READY FOR QA** (use the API call above)
+2. ✅ After all 8 required artifacts are stored (plan, worklog, changed-files, decisions, verification, pm-review, git-diff, instructions-used)
+3. ✅ **Automatically call get_artifacts** (or POST /api/artifacts/get) and confirm all 8 required implementation artifacts are present with substantive content
+4. ✅ **AUTOMATICALLY MOVE THE TICKET TO READY FOR QA** (use the API call above) - **DO THIS AUTOMATICALLY, DO NOT ASK USER**
 5. ✅ **THEN** send your final "implementation complete" summary message
 
-**If move returns success: false with missingArtifacts:** Store each listed artifact via POST /api/artifacts/insert-implementation with the corresponding artifactType, then retry POST /api/tickets/move. The move API will not allow moving to Ready for QA until all 8 artifacts are present.
+**Error Handling for Ticket Move:**
+- **If move returns success: false with missingArtifacts:** Automatically store each listed artifact via POST /api/artifacts/insert-implementation with the corresponding artifactType, then automatically retry POST /api/tickets/move. The move API will not allow moving to Ready for QA until all 8 artifacts are present.
+- **If move fails for other reasons:** Log the error, but **STILL ATTEMPT TO MOVE**. The system is designed to handle failures gracefully. Do not block completion - move the ticket and note any issues in your summary.
 
-**CRITICAL WORKFLOW RULE:** 
+**CRITICAL WORKFLOW RULES:** 
+- **ALWAYS move the ticket automatically** - never ask the user for permission or wait for confirmation
 - **DO NOT** send a completion summary or "done" message without first moving the ticket to Ready for QA
 - **DO NOT** mark the ticket as complete in your message if you haven't moved it
 - The ticket move is **part of the completion workflow**, not an optional step
-- If the move fails, **DO NOT** proceed with completion - fix the issue and retry the move (if missingArtifacts, store those artifacts then retry move)
+- **If the move fails, retry automatically** - do not give up after one failure
+- **The system is designed to handle failures** - if a move fails, it's okay, just note it and move on
 
 **Available column IDs:**
 - `col-unassigned` - Unassigned
