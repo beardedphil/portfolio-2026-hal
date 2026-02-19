@@ -17,10 +17,6 @@
       "maintainability": 0
     },
     {
-      "file": "agents/src/agents/projectManager/contextPack.ts",
-      "maintainability": 0
-    },
-    {
       "file": "agents/src/agents/projectManager/runPmAgent.ts",
       "maintainability": 0
     },
@@ -45,6 +41,10 @@
       "maintainability": 15.68
     },
     {
+      "file": "agents/src/agents/projectManager/instructionLoading.ts",
+      "maintainability": 20.33
+    },
+    {
       "file": "projects/kanban/src/components/ArtifactReportViewer.tsx",
       "maintainability": 24.62
     },
@@ -65,6 +65,10 @@
       "maintainability": 29.07
     },
     {
+      "file": "agents/src/agents/projectManager/contextPack.ts",
+      "maintainability": 30.16
+    },
+    {
       "file": "projects/kanban/src/components/TicketDetailModal.tsx",
       "maintainability": 30.65
     },
@@ -75,13 +79,15 @@
     {
       "file": "api/artifacts/get.ts",
       "maintainability": 32.38
-    },
-    {
-      "file": "api/agent-runs/_shared.ts",
-      "maintainability": 32.99
     }
   ],
   "mostRecentImprovements": [
+    {
+      "file": "agents/src/agents/projectManager/contextPack.ts",
+      "before": 0,
+      "after": 30.16,
+      "delta": 30.16
+    },
     {
       "file": "api/artifacts/get.ts",
       "before": 32.38,
@@ -107,7 +113,7 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-19T00:39:38.864Z",
-  "filesAnalyzed": 279,
-  "unroundedSimplicity": 40.4
+  "generatedAt": "2026-02-19T14:52:44.033Z",
+  "filesAnalyzed": 281,
+  "unroundedSimplicity": 40.3
 }
