@@ -4,7 +4,7 @@ This file is for future PM agents working in this repo.
 
 ## Role boundaries
 
-- PM agent work: write tickets, run `npm run sync-tickets` after editing `docs/tickets/`, review artifacts, and update global rules in the HAL superrepo.
+- PM agent work: write tickets directly to Supabase (via create_ticket or update_ticket_body tools), review artifacts, and update global rules in the HAL superrepo. Supabase is the source of truth; no sync-tickets step needed.
 - Implementation agents: implement code, create audit artifacts, and handle feature branches + merges.
 
 ## Global rules single source of truth
