@@ -296,14 +296,6 @@ export function useKanban(
 
   const handleKanbanMoveTicket = useCallback(
     async (ticketPk: string, columnId: string, position?: number) => {
-      const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
-      const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
-      if (!url || !key) {
-        setKanbanMoveError('Cannot move ticket: Supabase credentials not configured')
-        setTimeout(() => setKanbanMoveError(null), 5000)
-        return
-      }
-
       // Find the ticket to get its current state for optimistic update
       const ticket = kanbanTickets.find((t) => t.pk === ticketPk)
       if (!ticket) {
@@ -334,18 +326,28 @@ export function useKanban(
       setKanbanMoveError(null) // Clear any previous error
 
       try {
-        const supabase = getSupabaseClient(url, key)
-        const { error } = await supabase
-          .from('tickets')
-          .update({
-            kanban_column_id: columnId,
-            kanban_position: position ?? 0,
-            kanban_moved_at: movedAt,
-          })
-          .eq('pk', ticketPk)
+        // Call server API instead of direct Supabase write (HAL-0769)
+        // Server API uses service role key to bypass RLS
+        const apiBaseUrl = import.meta.env.VITE_HAL_API_BASE_URL || window.location.origin
+        const response = await fetch(`${apiBaseUrl}/api/tickets/move`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ticketPk,
+            columnId,
+            position,
+          }),
+        })
 
-        if (error) {
-          throw error
+        const result = await response.json()
+
+        if (!result.success) {
+          // Check if this is an RLS error (direct write blocked)
+          const errorMsg = result.error || 'Unknown error'
+          if (errorMsg.includes('row-level security') || errorMsg.includes('policy') || errorMsg.includes('permission denied')) {
+            throw new Error('Direct writes to tickets are blocked. Please use the standard move action in the UI.')
+          }
+          throw new Error(errorMsg)
         }
 
         // Clear Process Review status when moving a ticket to Process Review column
@@ -373,27 +375,54 @@ export function useKanban(
           return reverted.sort((a, b) => (a.ticket_number ?? 0) - (b.ticket_number ?? 0))
         })
 
-        // Show user-visible error (0155)
+        // Show user-visible error with clear message (HAL-0769)
         const errorMsg = err instanceof Error ? err.message : String(err)
-        setKanbanMoveError(`Failed to move ticket: ${errorMsg}`)
+        let userFriendlyError = errorMsg
+        if (errorMsg.includes('Direct writes') || errorMsg.includes('blocked')) {
+          userFriendlyError = 'Direct writes to tickets are blocked. Please use the standard move action in the UI to move tickets.'
+        } else if (errorMsg.includes('row-level security') || errorMsg.includes('policy') || errorMsg.includes('permission denied')) {
+          userFriendlyError = 'Unable to move ticket directly. Please use the standard move action in the UI.'
+        }
+        setKanbanMoveError(`Failed to move ticket: ${userFriendlyError}`)
         setTimeout(() => setKanbanMoveError(null), 8000) // Auto-clear after 8 seconds
       }
     },
-    [supabaseUrl, supabaseAnonKey, fetchKanbanData, kanbanTickets, options]
+    [fetchKanbanData, kanbanTickets, options]
   )
 
   const handleKanbanReorderColumn = useCallback(
-    async (_columnId: string, orderedTicketPks: string[]) => {
-      const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
-      const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
-      if (!url || !key) return
-      const supabase = getSupabaseClient(url, key)
-      for (let i = 0; i < orderedTicketPks.length; i++) {
-        await supabase.from('tickets').update({ kanban_position: i }).eq('pk', orderedTicketPks[i])
+    async (columnId: string, orderedTicketPks: string[]) => {
+      try {
+        // Call server API instead of direct Supabase write (HAL-0769)
+        // Server API uses service role key to bypass RLS
+        const apiBaseUrl = import.meta.env.VITE_HAL_API_BASE_URL || window.location.origin
+        // Update position for each ticket in the ordered list
+        for (let i = 0; i < orderedTicketPks.length; i++) {
+          const ticketPk = orderedTicketPks[i]
+          const response = await fetch(`${apiBaseUrl}/api/tickets/move`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ticketPk,
+              columnId,
+              position: i,
+            }),
+          })
+
+          const result = await response.json()
+          if (!result.success) {
+            console.error(`Failed to reorder ticket ${ticketPk}:`, result.error)
+            // Continue with other tickets even if one fails
+          }
+        }
+        await fetchKanbanData()
+      } catch (err) {
+        console.error('Failed to reorder tickets:', err)
+        // Refresh data anyway to show current state
+        await fetchKanbanData()
       }
-      await fetchKanbanData()
     },
-    [supabaseUrl, supabaseAnonKey, fetchKanbanData]
+    [fetchKanbanData]
   )
 
   const handleKanbanUpdateTicketBody = useCallback(

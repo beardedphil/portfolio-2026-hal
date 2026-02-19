@@ -5,7 +5,7 @@ import {
   hasMissingArtifactExplanation,
   type ArtifactRowForCheck,
 } from '../artifacts/_shared.js'
-import { readJsonBody, json, parseSupabaseCredentials, fetchTicketByPkOrId } from './_shared.js'
+import { readJsonBody, json, parseSupabaseCredentialsWithServiceRole, fetchTicketByPkOrId } from './_shared.js'
 import { resolveColumnId, calculateTargetPosition } from './_move-helpers.js'
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
@@ -42,8 +42,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     let columnId = typeof body.columnId === 'string' ? body.columnId.trim() || undefined : undefined
     const columnName = typeof body.columnName === 'string' ? body.columnName.trim() || undefined : undefined
     const position = body.position
-    // Use credentials from request body if provided, otherwise fall back to server environment variables
-    const { supabaseUrl, supabaseAnonKey } = parseSupabaseCredentials(body)
+    // Use service role key (preferred) to bypass RLS, fall back to anon key if not available
+    const { supabaseUrl, supabaseKey } = parseSupabaseCredentialsWithServiceRole(body)
 
     if (!ticketId && !ticketPk) {
       json(res, 400, {
@@ -61,15 +61,15 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
-    if (!supabaseUrl || !supabaseAnonKey) {
+    if (!supabaseUrl || !supabaseKey) {
       json(res, 400, {
         success: false,
-        error: 'Supabase credentials required (provide in request body or set SUPABASE_URL and SUPABASE_ANON_KEY in server environment).',
+        error: 'Supabase credentials required (provide in request body or set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/SUPABASE_ANON_KEY in server environment).',
       })
       return
     }
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey)
+    const supabase = createClient(supabaseUrl, supabaseKey)
 
     // Resolve column name to column ID if needed
     if (!columnId && columnName) {

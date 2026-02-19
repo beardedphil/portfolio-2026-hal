@@ -81,6 +81,7 @@ export function isUniqueViolation(err: { code?: string; message?: string } | nul
 
 /**
  * Parses Supabase credentials from request body or environment variables.
+ * For server APIs that need to bypass RLS, prefer service role key.
  */
 export function parseSupabaseCredentials(body: {
   supabaseUrl?: string
@@ -97,6 +98,32 @@ export function parseSupabaseCredentials(body: {
     process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
     undefined
   return { supabaseUrl, supabaseAnonKey }
+}
+
+/**
+ * Parses Supabase credentials with preference for service role key (bypasses RLS).
+ * Used by server APIs that need to perform writes that are blocked for anon users.
+ */
+export function parseSupabaseCredentialsWithServiceRole(body: {
+  supabaseUrl?: string
+  supabaseAnonKey?: string
+}): { supabaseUrl?: string; supabaseKey?: string } {
+  const supabaseUrl =
+    (typeof body.supabaseUrl === 'string' ? body.supabaseUrl.trim() : undefined) ||
+    process.env.SUPABASE_URL?.trim() ||
+    process.env.VITE_SUPABASE_URL?.trim() ||
+    undefined
+  
+  // Prefer service role key to bypass RLS, fall back to anon key if not available
+  const supabaseKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
+    process.env.VITE_SUPABASE_SERVICE_ROLE_KEY?.trim() ||
+    (typeof body.supabaseAnonKey === 'string' ? body.supabaseAnonKey.trim() : undefined) ||
+    process.env.SUPABASE_ANON_KEY?.trim() ||
+    process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
+    undefined
+  
+  return { supabaseUrl, supabaseKey }
 }
 
 /**
