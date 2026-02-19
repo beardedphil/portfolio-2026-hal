@@ -14,6 +14,10 @@ export type HalSessionData = {
   oauthState?: string
   /** Exact redirectUri used during OAuth start; must match during token exchange. */
   oauthRedirectUri?: string
+  /** Most recent OAuth code observed (for de-duping callback replays). */
+  oauthLastCode?: string
+  /** Epoch ms when oauthLastCode was stored. */
+  oauthLastCodeAt?: number
   github?: GithubSession
 }
 

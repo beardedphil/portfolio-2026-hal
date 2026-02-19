@@ -7,12 +7,14 @@ const AUTH_SECRET_MIN = 32
 
 function sendJson(res: ServerResponse, status: number, body: object) {
   res.statusCode = status
+  res.setHeader('Cache-Control', 'no-store')
   res.setHeader('Content-Type', 'application/json')
   res.end(JSON.stringify(body))
 }
 
 function redirect(res: ServerResponse, location: string) {
   res.statusCode = 302
+  res.setHeader('Cache-Control', 'no-store')
   res.setHeader('Location', location)
   res.end()
 }
@@ -22,6 +24,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   try {
     if (req.method !== 'GET') {
       res.statusCode = 405
+      res.setHeader('Cache-Control', 'no-store')
       res.end('Method Not Allowed')
       return
     }
@@ -56,19 +59,44 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
-    if (!code || !state || !expected || state !== expected) {
-      sendJson(res, 400, { error: 'Invalid OAuth callback (missing or mismatched state).' })
+    if (!code || !state) {
+      // OAuth provider didn't send expected params (or user navigated here manually).
+      // Redirect back to app; clear state so user can retry.
+      session.oauthState = undefined
+      session.oauthRedirectUri = undefined
+      await session.save()
+      redirect(res, `${origin}/?github=error&reason=${encodeURIComponent('Invalid OAuth callback (missing code/state).')}`)
+      return
+    }
+
+    if (!expected || state !== expected) {
+      // Potential replay/double-hit: if we already saw this code recently, just bounce back.
+      if (session.oauthLastCode === code) {
+        redirect(res, `${origin}/?github=error&reason=${encodeURIComponent('OAuth callback was already handled. Please retry connect if needed.')}`)
+        return
+      }
+      session.oauthState = undefined
+      session.oauthRedirectUri = undefined
+      await session.save()
+      redirect(res, `${origin}/?github=error&reason=${encodeURIComponent('Invalid OAuth callback (mismatched state). Please retry connect.')}`)
       return
     }
 
     // IMPORTANT: GitHub requires the redirect_uri used during the token exchange to match
     // the redirect_uri used during the authorization request. Store it at /start and reuse it here.
     const redirectUri = session.oauthRedirectUri || `${origin}/api/auth/github/callback`
+
+    // Make callback single-use to prevent parallel replays from double-exchanging the same code.
+    // Clear state before exchanging so a second hit fails fast (and doesn't "consume" the one-time code).
+    session.oauthState = undefined
+    session.oauthRedirectUri = undefined
+    session.oauthLastCode = code
+    session.oauthLastCodeAt = Date.now()
+    await session.save()
+
     const token = await exchangeCodeForToken({ code, redirectUri })
     const viewer = await getViewer(token.access_token)
 
-    session.oauthState = undefined
-    session.oauthRedirectUri = undefined
     session.github = {
       accessToken: token.access_token,
       scope: token.scope,

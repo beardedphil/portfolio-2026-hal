@@ -7,12 +7,14 @@ const AUTH_SECRET_MIN = 32
 
 function sendJson(res: ServerResponse, status: number, body: object) {
   res.statusCode = status
+  res.setHeader('Cache-Control', 'no-store')
   res.setHeader('Content-Type', 'application/json')
   res.end(JSON.stringify(body))
 }
 
 function redirect(res: ServerResponse, location: string) {
   res.statusCode = 302
+  res.setHeader('Cache-Control', 'no-store')
   res.setHeader('Location', location)
   res.end()
 }
@@ -89,7 +91,7 @@ async function handleWebRequest(request: Request): Promise<Response> {
   url.searchParams.set('state', state)
   url.searchParams.set('scope', 'repo read:user')
 
-  const headers = new Headers({ Location: url.toString() })
+  const headers = new Headers({ Location: url.toString(), 'Cache-Control': 'no-store' })
   const setCookie = outHeaders['set-cookie']
   if (setCookie) {
     for (const v of Array.isArray(setCookie) ? setCookie : [setCookie]) headers.append('Set-Cookie', v)
