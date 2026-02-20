@@ -38,7 +38,7 @@
     },
     {
       "file": "api/instructions/get-index.ts",
-      "maintainability": 7.63
+      "maintainability": 7.99
     },
     {
       "file": "api/implementation-agent/run.ts",
@@ -65,12 +65,12 @@
       "maintainability": 25.54
     },
     {
-      "file": "api/instructions/get-topic.ts",
-      "maintainability": 25.79
-    },
-    {
       "file": "api/instructions/migrate-process-docs.ts",
       "maintainability": 26.39
+    },
+    {
+      "file": "api/instructions/get-topic.ts",
+      "maintainability": 26.6
     },
     {
       "file": "api/conversations/working-memory/update.ts",
@@ -83,15 +83,21 @@
   ],
   "mostRecentImprovements": [
     {
-      "file": "api/tickets/create-pr.ts",
-      "before": 25.54,
-      "after": 25.54,
-      "delta": 0
+      "file": "api/instructions/get-topic.ts",
+      "before": 25.79,
+      "after": 26.6,
+      "delta": 0.81
     },
     {
       "file": "api/instructions/get-index.ts",
       "before": 7.63,
-      "after": 7.63,
+      "after": 7.99,
+      "delta": 0.36
+    },
+    {
+      "file": "api/tickets/create-pr.ts",
+      "before": 25.54,
+      "after": 25.54,
       "delta": 0
     },
     {
@@ -119,7 +125,7 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-20T04:47:01.323Z",
+  "generatedAt": "2026-02-20T04:51:25.747Z",
   "filesAnalyzed": 298,
   "unroundedMaintainability": 40.3,
   "unroundedSimplicity": 40.3
