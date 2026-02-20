@@ -1061,11 +1061,14 @@ export async function runPmAgent(
           let additionalTopicCandidates: AgentInstruction[] = []
 
           // Try HAL API first (preferred path)
-          let halBaseUrl: string | null = null
+          // In server/runtime contexts (e.g. Vercel), `.hal/api-base-url` usually doesn't exist.
+          // Default to HAL_API_BASE_URL (or prod URL) so instruction loading works reliably.
+          let halBaseUrl: string | null = (process.env.HAL_API_BASE_URL || 'https://portfolio-2026-hal.vercel.app').trim()
           try {
             const apiBaseUrlPath = path.join(config.repoRoot, '.hal', 'api-base-url')
             const apiBaseUrlContent = await fs.readFile(apiBaseUrlPath, 'utf8')
-            halBaseUrl = apiBaseUrlContent.trim()
+            const candidate = apiBaseUrlContent.trim()
+            if (candidate) halBaseUrl = candidate
           } catch {
             // .hal/api-base-url missing, try direct Supabase fallback.
           }

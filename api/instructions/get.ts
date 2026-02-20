@@ -8,6 +8,7 @@
 
 import type { IncomingMessage, ServerResponse } from 'http'
 import { createClient } from '@supabase/supabase-js'
+import { getServerSupabase } from '../agent-runs/_shared.js'
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []
@@ -72,18 +73,11 @@ async function handleWebRequest(request: Request): Promise<Response> {
     process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
     undefined
 
-  if (!supabaseUrl || !supabaseAnonKey) {
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error:
-          'Supabase credentials required (provide in request body or set SUPABASE_URL and SUPABASE_ANON_KEY in server environment).',
-      }),
-      { status: 400, headers }
-    )
-  }
-
-  const supabase = createClient(supabaseUrl, supabaseAnonKey)
+  // Prefer server-side Supabase (service role) when request creds are not provided.
+  const supabase =
+    supabaseUrl && supabaseAnonKey
+      ? createClient(supabaseUrl, supabaseAnonKey)
+      : getServerSupabase()
 
   let query = supabase
     .from('agent_instructions')
@@ -217,15 +211,11 @@ export default async function handler(req: IncomingMessage | Request, res?: Serv
       process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
       undefined
 
-    if (!supabaseUrl || !supabaseAnonKey) {
-      json(res, 400, {
-        success: false,
-        error: 'Supabase credentials required (provide in request body or set SUPABASE_URL and SUPABASE_ANON_KEY in server environment).',
-      })
-      return
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseAnonKey)
+    // Prefer server-side Supabase (service role) when request creds are not provided.
+    const supabase =
+      supabaseUrl && supabaseAnonKey
+        ? createClient(supabaseUrl, supabaseAnonKey)
+        : getServerSupabase()
 
     // Build query
     let query = supabase
