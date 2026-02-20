@@ -13,6 +13,10 @@
       "maintainability": 0
     },
     {
+      "file": "api/agent-runs/launch.ts",
+      "maintainability": 0
+    },
+    {
       "file": "api/agent-runs/status.ts",
       "maintainability": 0
     },
@@ -29,6 +33,10 @@
       "maintainability": 1.99
     },
     {
+      "file": "api/agent-runs/providers/openai.ts",
+      "maintainability": 3.5
+    },
+    {
       "file": "api/instructions/get-index.ts",
       "maintainability": 7.63
     },
@@ -37,8 +45,8 @@
       "maintainability": 12.23
     },
     {
-      "file": "api/agent-runs/launch.ts",
-      "maintainability": 12.43
+      "file": "src/hooks/useProcessReview.ts",
+      "maintainability": 18.54
     },
     {
       "file": "api/auth/github/callback.ts",
@@ -71,14 +79,6 @@
     {
       "file": "api/process-review/create-tickets.ts",
       "maintainability": 29.07
-    },
-    {
-      "file": "projects/kanban/src/components/TicketDetailModal.tsx",
-      "maintainability": 29.15
-    },
-    {
-      "file": "api/instructions/get.ts",
-      "maintainability": 29.51
     }
   ],
   "mostRecentImprovements": [
@@ -111,16 +111,10 @@
       "before": 26.39,
       "after": 26.39,
       "delta": 0
-    },
-    {
-      "file": "api/agent-runs/launch.ts",
-      "before": 12.43,
-      "after": 12.43,
-      "delta": 0
     }
   ],
-  "generatedAt": "2026-02-19T23:24:09.824Z",
-  "filesAnalyzed": 291,
-  "unroundedMaintainability": 40.5,
-  "unroundedSimplicity": 40.5
+  "generatedAt": "2026-02-20T04:40:43.100Z",
+  "filesAnalyzed": 298,
+  "unroundedMaintainability": 40.3,
+  "unroundedSimplicity": 40.3
 }
