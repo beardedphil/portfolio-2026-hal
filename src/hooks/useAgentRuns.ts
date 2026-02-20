@@ -16,6 +16,8 @@ interface UseAgentRunsParams {
   agentSequenceRefs: React.MutableRefObject<Map<string, number>>
   pmMaxSequenceRef: React.MutableRefObject<number>
   addMessage: (conversationId: string, agent: Message['agent'], content: string, id?: number, imageAttachments?: ImageAttachment[], promptText?: string) => void
+  upsertMessage: (conversationId: string, agent: Message['agent'], content: string, id: number, imageAttachments?: ImageAttachment[], promptText?: string) => void
+  appendToMessage: (conversationId: string, agent: Message['agent'], delta: string, id: number, imageAttachments?: ImageAttachment[], promptText?: string) => void
   getDefaultConversationId: (agentRole: string) => string
   setLastAgentError: (error: string | null) => void
   setOpenaiLastError: (error: string | null) => void
@@ -52,6 +54,8 @@ export function useAgentRuns(params: UseAgentRunsParams) {
     agentSequenceRefs,
     pmMaxSequenceRef,
     addMessage,
+    upsertMessage,
+    appendToMessage,
     getDefaultConversationId,
     setLastAgentError,
     setOpenaiLastError,
@@ -156,20 +160,19 @@ export function useAgentRuns(params: UseAgentRunsParams) {
               }
             }
 
-            // PM agent uses OpenAI Responses API (not Cursor Cloud Agents)
-            addPmSystemMessage('[Status] Sending message to PM agent (OpenAI)...')
-            const respondRes = await fetch('/api/pm/respond', {
+            // PM agent: async run + SSE stream (works past Vercel timeouts)
+            addPmSystemMessage('[Status] Launching PM run (async)...')
+            const launchRes = await fetch('/api/agent-runs/launch', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               credentials: 'include',
               body: JSON.stringify({
+                agentType: 'project-manager',
+                repoFullName: connectedGithubRepo?.fullName,
+                defaultBranch: connectedGithubRepo?.defaultBranch || 'main',
                 message: content,
                 conversationId: convId,
                 projectId: connectedProject,
-                supabaseUrl: url,
-                supabaseAnonKey: key,
-                repoFullName: connectedGithubRepo?.fullName,
-                defaultBranch: connectedGithubRepo?.defaultBranch || 'main',
                 images: imageAttachments?.map((img) => ({
                   dataUrl: img.dataUrl,
                   filename: img.filename,
@@ -177,56 +180,124 @@ export function useAgentRuns(params: UseAgentRunsParams) {
                 })),
               }),
             })
-
-            const respondData = (await respondRes.json()) as {
-              reply?: string
-              error?: string
-              toolCalls?: unknown[]
-              outboundRequest?: object
+            const launchText = await launchRes.text()
+            let launchData: { runId?: string; error?: string }
+            try {
+              launchData = JSON.parse(launchText) as typeof launchData
+            } catch {
+              const msg = launchRes.ok
+                ? 'Invalid response from server (not JSON).'
+                : `Launch failed (${launchRes.status}): ${launchText.slice(0, 200)}`
+              setOpenaiLastError(msg)
+              setLastAgentError(msg)
+              addMessage(convId, 'project-manager', `[PM] Error: ${msg}`)
+              setAgentTypingTarget(null)
+              return
             }
-
-            setAgentTypingTarget(null)
-
-            if (!respondRes.ok || respondData.error) {
-              const errMsg = respondData.error ?? `Request failed with status ${respondRes.status}`
-              setOpenaiLastError(errMsg)
-              setLastAgentError(errMsg)
-              
-              // Check if it's a configuration error (503)
-              if (respondRes.status === 503) {
-                addMessage(
-                  convId,
-                  'project-manager',
-                  `[PM] Configuration Error: ${errMsg}\n\nTo enable the Project Manager chat, set OPENAI_API_KEY and OPENAI_MODEL in your .env file.`
-                )
-              } else {
-                addMessage(convId, 'project-manager', `[PM] Error: ${errMsg}`)
-              }
+            if (!launchRes.ok || !launchData.runId) {
+              const msg = launchData.error ?? `Launch failed (HTTP ${launchRes.status})`
+              setOpenaiLastError(msg)
+              setLastAgentError(msg)
+              addMessage(convId, 'project-manager', `[PM] Error: ${msg}`)
+              setAgentTypingTarget(null)
               return
             }
 
-            setOpenaiLastError(null)
-            setLastAgentError(null)
+            const runId = launchData.runId
+            addPmSystemMessage(`[Status] Streaming PM output (runId: ${runId.slice(0, 8)}...)`)
 
-            const reply = respondData.reply ?? ''
-            if (useDb && url && key && connectedProject) {
-              const currentMaxSeq = agentSequenceRefs.current.get(convId) ?? 0
-              const nextSeq = currentMaxSeq + 1
-              const supabase = getSupabaseClient(url, key)
-              await supabase.from('hal_conversation_messages').insert({
-                project_id: connectedProject,
-                agent: convId,
-                role: 'assistant',
-                content: reply,
-                sequence: nextSeq,
-              })
-              agentSequenceRefs.current.set(convId, nextSeq)
-              const parsed = parseConversationId(convId)
-              if (parsed?.agentRole === 'project-manager' && parsed.instanceNumber === 1) pmMaxSequenceRef.current = nextSeq
-              addMessage(convId, 'project-manager', reply, nextSeq)
-            } else {
-              addMessage(convId, 'project-manager', reply)
+            const assistantId = useDb && url && key && connectedProject
+              ? ((agentSequenceRefs.current.get(convId) ?? 0) + 1)
+              : Date.now()
+
+            // Create placeholder assistant message that we update in-place as deltas arrive.
+            upsertMessage(convId, 'project-manager', '', assistantId)
+
+            const es = new EventSource(`/api/agent-runs/stream?runId=${encodeURIComponent(runId)}`)
+            let closed = false
+            const close = () => {
+              if (closed) return
+              closed = true
+              try { es.close() } catch { /* ignore */ }
+              setAgentTypingTarget(null)
             }
+
+            const finalize = async (finalText: string) => {
+              const reply = finalText.trim()
+              upsertMessage(convId, 'project-manager', reply, assistantId)
+              setOpenaiLastError(null)
+              setLastAgentError(null)
+              if (useDb && url && key && connectedProject) {
+                const supabase = getSupabaseClient(url, key)
+                await supabase.from('hal_conversation_messages').insert({
+                  project_id: connectedProject,
+                  agent: convId,
+                  role: 'assistant',
+                  content: reply,
+                  sequence: assistantId,
+                })
+                agentSequenceRefs.current.set(convId, assistantId)
+                const parsed = parseConversationId(convId)
+                if (parsed?.agentRole === 'project-manager' && parsed.instanceNumber === 1) {
+                  pmMaxSequenceRef.current = assistantId
+                }
+              }
+              close()
+            }
+
+            es.addEventListener('text_delta', (evt) => {
+              try {
+                const data = JSON.parse((evt as MessageEvent).data) as any
+                const delta = String(data?.payload?.text ?? '')
+                if (delta) appendToMessage(convId, 'project-manager', delta, assistantId)
+              } catch {
+                // ignore parse errors
+              }
+            })
+            es.addEventListener('progress', (evt) => {
+              try {
+                const data = JSON.parse((evt as MessageEvent).data) as any
+                const msg = String(data?.payload?.message ?? '')
+                if (msg) addPmSystemMessage(`[Progress] ${msg}`)
+              } catch {
+                // ignore
+              }
+            })
+            es.addEventListener('stage', (evt) => {
+              try {
+                const data = JSON.parse((evt as MessageEvent).data) as any
+                const stage = String(data?.payload?.stage ?? '')
+                if (stage) addPmSystemMessage(`[Stage] ${stage}`)
+              } catch {
+                // ignore
+              }
+            })
+            es.addEventListener('done', (evt) => {
+              try {
+                const data = JSON.parse((evt as MessageEvent).data) as any
+                const summary = String(data?.payload?.summary ?? '')
+                void finalize(summary || '')
+              } catch {
+                void finalize('')
+              }
+            })
+            es.addEventListener('error', (evt) => {
+              // Note: EventSource 'error' fires for disconnects too. The server persists events and
+              // EventSource will auto-reconnect with Last-Event-ID, so only surface an error if the run fails.
+              try {
+                const dataText = (evt as any)?.data
+                if (typeof dataText === 'string' && dataText.trim()) {
+                  const data = JSON.parse(dataText) as any
+                  const msg = String(data?.payload?.message ?? data?.message ?? 'Stream error')
+                  setOpenaiLastError(msg)
+                  setLastAgentError(msg)
+                  addMessage(convId, 'project-manager', `[PM] Error: ${msg}`)
+                  close()
+                }
+              } catch {
+                // ignore transient disconnects
+              }
+            })
           } catch (err) {
             setAgentTypingTarget(null)
             const msg = err instanceof Error ? err.message : String(err)
@@ -325,97 +396,110 @@ export function useAgentRuns(params: UseAgentRunsParams) {
             }
 
             setImplAgentRunId(launchData.runId)
-            setImplAgentRunStatus('polling')
-            addProgress(`Run launched. Polling status (runId: ${launchData.runId.slice(0, 8)}...)`)
+            setImplAgentRunStatus('running')
+            addProgress(`Run launched. Streaming status (runId: ${launchData.runId.slice(0, 8)}...)`)
 
-            const poll = async () => {
-              const r = await fetch(`/api/agent-runs/status?runId=${encodeURIComponent(launchData.runId!)}`, {
-                credentials: 'include',
-              })
-              const implStatusText = await r.text()
-              let data: { status?: string; current_stage?: string; cursor_status?: string; error?: string; summary?: string; pr_url?: string }
+            const runId = launchData.runId
+            const es = new EventSource(`/api/agent-runs/stream?runId=${encodeURIComponent(runId)}`)
+            let closed = false
+            const close = () => {
+              if (closed) return
+              closed = true
+              try { es.close() } catch { /* ignore */ }
+            }
+
+            es.addEventListener('progress', (evt) => {
               try {
-                data = JSON.parse(implStatusText) as typeof data
+                const data = JSON.parse((evt as MessageEvent).data) as any
+                const msg = String(data?.payload?.message ?? '')
+                if (msg) addProgress(msg)
               } catch {
-                const msg = r.ok
-                  ? 'Invalid response when polling status (not JSON).'
-                  : `Status check failed (${r.status}): ${implStatusText.slice(0, 200)}`
-                setImplAgentRunStatus('failed')
-                setImplAgentError(msg)
-                addProgress(`Failed: ${msg}`)
-                addMessage(convId, 'implementation-agent', `[Implementation Agent] ${msg}`)
-                setAgentTypingTarget(null)
-                return false
+                // ignore
               }
-              const s = String(data.status ?? '')
-              const currentStage = String(data.current_stage ?? '')
-              const cursorStatus = String(data.cursor_status ?? '')
-              
-              // Map current_stage to implAgentRunStatus (0690)
-              if (currentStage && ['preparing', 'fetching_ticket', 'resolving_repo', 'launching', 'running', 'completed', 'failed'].includes(currentStage)) {
-                setImplAgentRunStatus(currentStage as any)
-              } else if (s === 'polling' && !currentStage) {
-                // Fallback: if no current_stage but status is polling, use 'running'
-                setImplAgentRunStatus('running')
-              }
-              
-              if (s === 'failed') {
-                setImplAgentRunStatus('failed')
-                const msg = String(data.error ?? 'Unknown error')
-                setImplAgentError(msg)
-                addProgress(`Failed: ${msg}`)
-                addMessage(convId, 'implementation-agent', `[Implementation Agent] ${msg}`)
-                setAgentTypingTarget(null)
-                return false
-              }
-              if (s === 'finished') {
-                setImplAgentRunStatus('completed')
-                const summary = String(data.summary ?? 'Implementation completed.')
-                const prUrl = data.pr_url ? String(data.pr_url) : ''
-                const full = prUrl ? `${summary}\n\nPull request: ${prUrl}` : summary
-                addProgress('Implementation completed successfully.')
-                addMessage(convId, 'implementation-agent', `**Completion summary**\n\n${full}`)
-                setImplAgentRunId(null)
-                const ticketIdForMove = implAgentTicketId
-                let ticketPkForSync: string | null = null
-                if (ticketIdForMove) {
-                  const ticket = kanbanTickets.find(
-                    (t) =>
-                      (t.display_id ?? String(t.ticket_number ?? t.id).padStart(4, '0')) === ticketIdForMove ||
-                      t.pk === ticketIdForMove
-                  )
-                  if (ticket) ticketPkForSync = ticket.pk
-                  if (ticket?.kanban_column_id === 'col-doing') {
-                    const qaCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-qa').length
-                    handleKanbanMoveTicket(ticket.pk, 'col-qa', qaCount).catch(() => {})
-                  }
-                }
-                setImplAgentTicketId(null)
-                setCursorRunAgentType(null)
-                setAgentTypingTarget(null)
-                // Backfill artifacts from run (in case poll path didn't write) then refresh board
-                if (ticketPkForSync) {
-                  fetch('/api/agent-runs/sync-artifacts', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
-                    body: JSON.stringify({ ticketPk: ticketPkForSync }),
-                  }).catch(() => {}).finally(() => fetchKanbanData().catch(() => {}))
-                } else {
-                  fetchKanbanData().catch(() => {})
-                }
-                return false
-              }
-              if (cursorStatus) addProgress(`Agent is running (status: ${cursorStatus})...`)
-              return true
-            }
+            })
 
-            // Poll loop (client-side) until terminal state
-            for (;;) {
-              const keep = await poll()
-              if (!keep) break
-              await new Promise((r) => setTimeout(r, 4000))
-            }
+            es.addEventListener('done', (evt) => {
+              void (async () => {
+                try {
+                  const data = JSON.parse((evt as MessageEvent).data) as any
+                  const summaryFromEvent = String(data?.payload?.summary ?? '')
+                  const prUrlFromEvent = data?.payload?.prUrl ? String(data.payload.prUrl) : ''
+
+                  // Call status once to (a) get canonical summary/pr_url and (b) trigger any server-side finalization.
+                  let summary = summaryFromEvent || 'Implementation completed.'
+                  let prUrl = prUrlFromEvent
+                  try {
+                    const r = await fetch(`/api/agent-runs/status?runId=${encodeURIComponent(runId)}`, { credentials: 'include' })
+                    const text = await r.text()
+                    const parsed = JSON.parse(text) as any
+                    if (parsed?.summary) summary = String(parsed.summary)
+                    if (parsed?.pr_url) prUrl = String(parsed.pr_url)
+                  } catch {
+                    // ignore
+                  }
+
+                  const full = prUrl ? `${summary}\n\nPull request: ${prUrl}` : summary
+                  addProgress('Implementation completed successfully.')
+                  addMessage(convId, 'implementation-agent', `**Completion summary**\n\n${full}`)
+
+                  setImplAgentRunStatus('completed')
+                  setImplAgentRunId(null)
+
+                  const ticketIdForMove = implAgentTicketId
+                  let ticketPkForSync: string | null = null
+                  if (ticketIdForMove) {
+                    const ticket = kanbanTickets.find(
+                      (t) =>
+                        (t.display_id ?? String(t.ticket_number ?? t.id).padStart(4, '0')) === ticketIdForMove ||
+                        t.pk === ticketIdForMove
+                    )
+                    if (ticket) ticketPkForSync = ticket.pk
+                    if (ticket?.kanban_column_id === 'col-doing') {
+                      const qaCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-qa').length
+                      handleKanbanMoveTicket(ticket.pk, 'col-qa', qaCount).catch(() => {})
+                    }
+                  }
+
+                  setImplAgentTicketId(null)
+                  setCursorRunAgentType(null)
+                  setAgentTypingTarget(null)
+
+                  if (ticketPkForSync) {
+                    fetch('/api/agent-runs/sync-artifacts', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      credentials: 'include',
+                      body: JSON.stringify({ ticketPk: ticketPkForSync }),
+                    })
+                      .catch(() => {})
+                      .finally(() => fetchKanbanData().catch(() => {}))
+                  } else {
+                    fetchKanbanData().catch(() => {})
+                  }
+                } finally {
+                  close()
+                }
+              })()
+            })
+
+            es.addEventListener('error', (evt) => {
+              // Run error events are emitted as SSE event named "error" with a JSON payload.
+              try {
+                const dataText = (evt as any)?.data
+                if (typeof dataText === 'string' && dataText.trim()) {
+                  const data = JSON.parse(dataText) as any
+                  const msg = String(data?.payload?.message ?? 'Run failed.')
+                  setImplAgentRunStatus('failed')
+                  setImplAgentError(msg)
+                  addProgress(`Failed: ${msg}`)
+                  addMessage(convId, 'implementation-agent', `[Implementation Agent] ${msg}`)
+                  setAgentTypingTarget(null)
+                  close()
+                }
+              } catch {
+                // ignore transient disconnects; EventSource will auto-reconnect.
+              }
+            })
           } catch (err) {
             setImplAgentRunStatus('failed')
             const msg = err instanceof Error ? err.message : String(err)
@@ -514,69 +598,73 @@ export function useAgentRuns(params: UseAgentRunsParams) {
             }
 
             setQaAgentRunId(launchData.runId)
-            setQaAgentRunStatus('polling')
-            addProgress(`Run launched. Polling status (runId: ${launchData.runId.slice(0, 8)}...)`)
+            setQaAgentRunStatus('reviewing')
+            addProgress(`Run launched. Streaming status (runId: ${launchData.runId.slice(0, 8)}...)`)
 
-            const poll = async () => {
-              const r = await fetch(`/api/agent-runs/status?runId=${encodeURIComponent(launchData.runId!)}`, {
-                credentials: 'include',
-              })
-              const text = await r.text()
-              let data: { status?: string; current_stage?: string; cursor_status?: string; error?: string; summary?: string }
+            const runId = launchData.runId
+            const es = new EventSource(`/api/agent-runs/stream?runId=${encodeURIComponent(runId)}`)
+            let closed = false
+            const close = () => {
+              if (closed) return
+              closed = true
+              try { es.close() } catch { /* ignore */ }
+            }
+
+            es.addEventListener('progress', (evt) => {
               try {
-                data = JSON.parse(text) as typeof data
+                const data = JSON.parse((evt as MessageEvent).data) as any
+                const msg = String(data?.payload?.message ?? '')
+                if (msg) addProgress(msg)
               } catch {
-                const msg = r.ok
-                  ? 'Invalid response when polling status (not JSON).'
-                  : `Status check failed (${r.status}): ${text.slice(0, 200)}`
-                setQaAgentRunStatus('failed')
-                setQaAgentError(msg)
-                addProgress(`Failed: ${msg}`)
-                addMessage(convId, 'qa-agent', `[QA Agent] ${msg}`)
-                setAgentTypingTarget(null)
-                return false
+                // ignore
               }
-              const s = String(data.status ?? '')
-              const currentStage = String(data.current_stage ?? '')
-              const cursorStatus = String(data.cursor_status ?? '')
-              
-              // Map current_stage to qaAgentRunStatus (0690)
-              if (currentStage && ['preparing', 'fetching_ticket', 'fetching_branch', 'launching', 'reviewing', 'completed', 'failed'].includes(currentStage)) {
-                setQaAgentRunStatus(currentStage as any)
-              } else if (s === 'polling' && !currentStage) {
-                // Fallback: if no current_stage but status is polling, use 'reviewing'
-                setQaAgentRunStatus('reviewing')
-              }
-              
-              if (s === 'failed') {
-                setQaAgentRunStatus('failed')
-                const msg = String(data.error ?? 'Unknown error')
-                setQaAgentError(msg)
-                addProgress(`Failed: ${msg}`)
-                addMessage(convId, 'qa-agent', `[QA Agent] ${msg}`)
-                setAgentTypingTarget(null)
-                return false
-              }
-              if (s === 'finished') {
-                setQaAgentRunStatus('completed')
-                const summary = String(data.summary ?? 'QA completed.')
-                addProgress('QA completed successfully.')
-                addMessage(convId, 'qa-agent', `**Completion summary**\n\n${summary}`)
-                setQaAgentRunId(null)
-                setQaAgentTicketId(null)
-                setCursorRunAgentType(null)
-                setAgentTypingTarget(null)
-                return false
-              }
-              if (cursorStatus) addProgress(`QA agent is running (status: ${cursorStatus})...`)
-              return true
-            }
+            })
 
-            for (;;) {
-              const keep = await poll()
-              if (!keep) break
-              await new Promise((r) => setTimeout(r, 4000))
-            }
+            es.addEventListener('done', (evt) => {
+              void (async () => {
+                try {
+                  const data = JSON.parse((evt as MessageEvent).data) as any
+                  const summaryFromEvent = String(data?.payload?.summary ?? '')
+                  let summary = summaryFromEvent || 'QA completed.'
+                  try {
+                    const r = await fetch(`/api/agent-runs/status?runId=${encodeURIComponent(runId)}`, { credentials: 'include' })
+                    const text = await r.text()
+                    const parsed = JSON.parse(text) as any
+                    if (parsed?.summary) summary = String(parsed.summary)
+                  } catch {
+                    // ignore
+                  }
+
+                  addProgress('QA completed successfully.')
+                  addMessage(convId, 'qa-agent', `**Completion summary**\n\n${summary}`)
+                  setQaAgentRunStatus('completed')
+                  setQaAgentRunId(null)
+                  setQaAgentTicketId(null)
+                  setCursorRunAgentType(null)
+                  setAgentTypingTarget(null)
+                } finally {
+                  close()
+                }
+              })()
+            })
+
+            es.addEventListener('error', (evt) => {
+              try {
+                const dataText = (evt as any)?.data
+                if (typeof dataText === 'string' && dataText.trim()) {
+                  const data = JSON.parse(dataText) as any
+                  const msg = String(data?.payload?.message ?? 'QA run failed.')
+                  setQaAgentRunStatus('failed')
+                  setQaAgentError(msg)
+                  addProgress(`Failed: ${msg}`)
+                  addMessage(convId, 'qa-agent', `[QA Agent] ${msg}`)
+                  setAgentTypingTarget(null)
+                  close()
+                }
+              } catch {
+                // ignore transient disconnects
+              }
+            })
           } catch (err) {
             setQaAgentRunStatus('failed')
             const msg = err instanceof Error ? err.message : String(err)
@@ -596,6 +684,8 @@ export function useAgentRuns(params: UseAgentRunsParams) {
       agentSequenceRefs,
       pmMaxSequenceRef,
       addMessage,
+      upsertMessage,
+      appendToMessage,
       getDefaultConversationId,
       setLastAgentError,
       setOpenaiLastError,

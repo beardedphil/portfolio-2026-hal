@@ -13,7 +13,7 @@ import {
   validateMethod,
 } from './_shared.js'
 
-export type AgentType = 'implementation' | 'qa'
+export type AgentType = 'implementation' | 'qa' | 'project-manager' | 'process-review'
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   if (!validateMethod(req, res, 'POST')) {
@@ -29,26 +29,87 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       defaultBranch?: string
       // For QA: optionally provide branch hint (still read from ticket body if present)
       message?: string
+      // PM only: optional conversation routing + attachments
+      conversationId?: string
+      projectId?: string
+      images?: Array<{ dataUrl: string; filename: string; mimeType: string }>
       /** Optional Cursor Cloud Agent model (e.g. "claude-4-sonnet", "gpt-5.2"). Omit for auto-selection. */
       model?: string
     }
 
-    const agentType = body.agentType === 'qa' ? 'qa' : 'implementation'
-    // Implementation and QA: do not send model — let Cursor auto-select. PM and Process Review use gpt-5.2 via their own launch endpoints.
+    const agentType: AgentType =
+      body.agentType === 'qa'
+        ? 'qa'
+        : body.agentType === 'project-manager'
+          ? 'project-manager'
+          : body.agentType === 'process-review'
+            ? 'process-review'
+            : 'implementation'
+    // Implementation and QA: do not send model — let Cursor auto-select.
     const model = (typeof body.model === 'string' ? body.model.trim() : '') || ''
     const repoFullName = typeof body.repoFullName === 'string' ? body.repoFullName.trim() : ''
     const ticketNumber = typeof body.ticketNumber === 'number' ? body.ticketNumber : null
     // Use connected repo's default branch (empty repos have no branches until first push)
     const defaultBranch = (typeof body.defaultBranch === 'string' ? body.defaultBranch.trim() : '') || 'main'
-    if (!repoFullName || !ticketNumber || !Number.isFinite(ticketNumber)) {
-      json(res, 400, { error: 'agentType, repoFullName, and ticketNumber are required.' })
+    const message = typeof body.message === 'string' ? body.message.trim() : ''
+    const conversationId = typeof body.conversationId === 'string' ? body.conversationId.trim() : ''
+    const projectId = typeof body.projectId === 'string' ? body.projectId.trim() : ''
+    const images = Array.isArray(body.images) ? body.images : undefined
+
+    if (!repoFullName) {
+      json(res, 400, { error: 'repoFullName is required.' })
       return
     }
 
-    const cursorKey = getCursorApiKey()
-    const auth = Buffer.from(`${cursorKey}:`).toString('base64')
-    const repoUrl = `https://github.com/${repoFullName}`
+    const needsTicket = agentType === 'implementation' || agentType === 'qa' || agentType === 'process-review'
+    if (needsTicket && (!ticketNumber || !Number.isFinite(ticketNumber))) {
+      json(res, 400, { error: 'ticketNumber is required.' })
+      return
+    }
+    if (agentType === 'project-manager' && !message) {
+      json(res, 400, { error: 'message is required for project-manager runs.' })
+      return
+    }
+
     const supabase = getServerSupabase()
+
+    // Project Manager (OpenAI) is async/streamed via agent-runs/work + agent-runs/stream.
+    if (agentType === 'project-manager') {
+      const openaiModel =
+        process.env.OPENAI_PM_MODEL?.trim() ||
+        process.env.OPENAI_MODEL?.trim() ||
+        'gpt-5.2'
+      const initialProgress = appendProgress([], `Launching project-manager run for ${repoFullName}`)
+      const { data: runRow, error: runInsErr } = await supabase
+        .from('hal_agent_runs')
+        .insert({
+          agent_type: 'project-manager',
+          repo_full_name: repoFullName,
+          ticket_pk: null,
+          ticket_number: null,
+          display_id: null,
+          provider: 'openai',
+          model: openaiModel,
+          status: 'created',
+          current_stage: 'preparing',
+          progress: initialProgress,
+          input_json: {
+            message,
+            conversationId: conversationId || null,
+            projectId: projectId || null,
+            defaultBranch,
+            images: images ?? null,
+          },
+        })
+        .select('run_id')
+        .maybeSingle()
+      if (runInsErr || !runRow?.run_id) {
+        json(res, 500, { error: `Failed to create run row: ${runInsErr?.message ?? 'unknown'}` })
+        return
+      }
+      json(res, 200, { runId: runRow.run_id, status: 'created', provider: 'openai' })
+      return
+    }
 
     // Fetch ticket (repo-scoped 0079)
     const { data: ticket, error: ticketErr } = await supabase
@@ -107,6 +168,39 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const goal = (goalMatch?.[1] ?? '').trim()
     const deliverable = (deliverableMatch?.[1] ?? '').trim()
     const criteria = (criteriaMatch?.[1] ?? '').trim()
+
+    // Process Review (OpenAI) launch: just create run row; /work will generate streamed output.
+    if (agentType === 'process-review') {
+      const openaiModel =
+        process.env.OPENAI_PROCESS_REVIEW_MODEL?.trim() ||
+        process.env.OPENAI_MODEL?.trim() ||
+        'gpt-5.2'
+      const initialProgress = appendProgress([], `Launching process-review run for ${displayId}`)
+      const { data: runRow, error: runInsErr } = await supabase
+        .from('hal_agent_runs')
+        .insert({
+          agent_type: 'process-review',
+          repo_full_name: repoFullName,
+          ticket_pk: ticketPk,
+          ticket_number: ticketNumber,
+          display_id: displayId,
+          provider: 'openai',
+          model: openaiModel,
+          status: 'created',
+          current_stage: 'preparing',
+          progress: initialProgress,
+        })
+        .select('run_id')
+        .maybeSingle()
+
+      if (runInsErr || !runRow?.run_id) {
+        json(res, 500, { error: `Failed to create run row: ${runInsErr?.message ?? 'unknown'}` })
+        return
+      }
+
+      json(res, 200, { runId: runRow.run_id, status: 'created', provider: 'openai' })
+      return
+    }
 
     const promptText =
       agentType === 'implementation'
@@ -224,6 +318,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         ticket_pk: ticketPk,
         ticket_number: ticketNumber,
         display_id: displayId,
+        provider: 'cursor',
         status: 'launching',
         current_stage: 'preparing',
         progress: initialProgress,
@@ -320,6 +415,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       .eq('run_id', runId)
 
     // Launch Cursor agent
+    const cursorKey = getCursorApiKey()
+    const auth = Buffer.from(`${cursorKey}:`).toString('base64')
+    const repoUrl = `https://github.com/${repoFullName}`
     const branchName =
       agentType === 'implementation'
         ? `ticket/${String(ticketNumber).padStart(4, '0')}-implementation`

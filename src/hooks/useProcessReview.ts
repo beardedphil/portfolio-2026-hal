@@ -24,6 +24,22 @@ interface UseProcessReviewParams {
     imageAttachments?: ImageAttachment[],
     promptText?: string
   ) => void
+  upsertMessage: (
+    conversationId: string,
+    agent: 'process-review-agent',
+    content: string,
+    id: number,
+    imageAttachments?: ImageAttachment[],
+    promptText?: string
+  ) => void
+  appendToMessage: (
+    conversationId: string,
+    agent: 'process-review-agent',
+    delta: string,
+    id: number,
+    imageAttachments?: ImageAttachment[],
+    promptText?: string
+  ) => void
   kanbanTickets: KanbanTicketRow[]
   handleKanbanMoveTicket: (ticketPk: string, columnId: string, position?: number) => Promise<void>
   processReviewRecommendations: ProcessReviewRecommendation[] | null
@@ -47,6 +63,8 @@ export function useProcessReview({
   supabaseAnonKey,
   getOrCreateConversation,
   addMessage,
+  upsertMessage,
+  appendToMessage,
   kanbanTickets,
   handleKanbanMoveTicket,
   processReviewRecommendations,
@@ -94,86 +112,149 @@ export function useProcessReview({
       }
 
       try {
-        if (!supabaseUrl || !supabaseAnonKey) {
-          throw new Error('Supabase credentials not available')
+        const ticketRow = kanbanTickets.find((t) => t.pk === data.ticketPk) as any
+        const repoFullName = (ticketRow?.repo_full_name as string | undefined) ?? ''
+        const ticketNumber =
+          typeof ticketRow?.ticket_number === 'number'
+            ? (ticketRow.ticket_number as number)
+            : Number.parseInt(String(data.ticketId ?? '').replace(/[^\d]/g, ''), 10)
+
+        if (!repoFullName || !Number.isFinite(ticketNumber)) {
+          throw new Error('Process Review requires repo_full_name and ticket_number.')
         }
 
-        // Run Process Review using legacy OpenAI endpoint
-        addProgress('Running Process Review (OpenAI)...')
-        setProcessReviewAgentRunStatus('running')
+        addProgress('Launching Process Review (async)...')
+        setProcessReviewAgentRunStatus('launching')
 
-        const runRes = await fetch('/api/process-review/run', {
+        const launchRes = await fetch('/api/agent-runs/launch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
           body: JSON.stringify({
-            ticketPk: data.ticketPk,
-            ticketId: data.ticketId,
-            supabaseUrl: supabaseUrl ?? (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? undefined,
-            supabaseAnonKey: supabaseAnonKey ?? (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? undefined,
+            agentType: 'process-review',
+            repoFullName,
+            ticketNumber,
+            defaultBranch: 'main',
           }),
         })
-        const runData = (await runRes.json()) as {
-          success?: boolean
-          suggestions?: Array<{ text: string; justification: string }>
-          reviewId?: string
-          error?: string
+        const launchText = await launchRes.text()
+        let launchData: { runId?: string; error?: string }
+        try {
+          launchData = JSON.parse(launchText) as typeof launchData
+        } catch {
+          const msg = launchRes.ok
+            ? 'Invalid response from server (not JSON).'
+            : `Launch failed (${launchRes.status}): ${launchText.slice(0, 200)}`
+          throw new Error(msg)
+        }
+        if (!launchRes.ok || !launchData.runId) {
+          throw new Error(launchData.error ?? `Launch failed (HTTP ${launchRes.status})`)
         }
 
-        if (!runData.success) {
-          setProcessReviewStatus('failed')
-          setProcessReviewAgentRunStatus('failed')
-          const errorMsg = runData.error || 'Process Review failed'
-          setProcessReviewAgentError(errorMsg)
-          addMessage(convId, 'process-review-agent', `[Process Review] ❌ Failed: ${errorMsg}`)
-          // Return to idle state after showing error
-          setTimeout(() => {
-            setProcessReviewStatus('idle')
-            setProcessReviewTicketPk(null)
-          }, 5000)
-          return
+        const runId = launchData.runId
+        setProcessReviewAgentRunStatus('running')
+        addProgress(`Streaming Process Review output (runId: ${runId.slice(0, 8)}...)`)
+
+        const placeholderId = Date.now()
+        upsertMessage(convId, 'process-review-agent', '', placeholderId)
+
+        const es = new EventSource(`/api/agent-runs/stream?runId=${encodeURIComponent(runId)}`)
+        let closed = false
+        const close = () => {
+          if (closed) return
+          closed = true
+          try { es.close() } catch { /* ignore */ }
         }
 
-        // Use reviewId from response or generate one for idempotency
-        const reviewId = runData.reviewId || `review-${Date.now()}-${data.ticketPk}`
-        const suggestions = runData.suggestions || []
-        const suggestionCount = suggestions.length
-        if (suggestionCount > 0 && suggestions) {
-          const recommendations = suggestions.map((s: { text: string; justification: string }, idx: number) => ({
-            text: s.text,
-            justification: s.justification,
-            id: `rec-${Date.now()}-${idx}`,
-            error: undefined as string | undefined,
-            isCreating: false,
-          }))
-          setProcessReviewRecommendations(recommendations)
-          setProcessReviewModalTicketPk(data.ticketPk)
-          setProcessReviewModalTicketId(data.ticketId || null)
-          setProcessReviewModalReviewId(reviewId!)
+        const finish = (suggestions: Array<{ text: string; justification: string }>, summary: string, reviewId: string) => {
+          const suggestionCount = suggestions.length
+          if (suggestionCount > 0) {
+            const recommendations = suggestions.map((s, idx) => ({
+              text: s.text,
+              justification: s.justification,
+              id: `rec-${Date.now()}-${idx}`,
+              error: undefined as string | undefined,
+              isCreating: false,
+            }))
+            setProcessReviewRecommendations(recommendations)
+            setProcessReviewModalTicketPk(data.ticketPk)
+            setProcessReviewModalTicketId(data.ticketId || null)
+            setProcessReviewModalReviewId(reviewId)
 
-          setProcessReviewStatus('completed')
-          setProcessReviewAgentRunStatus('completed')
-          const successMsg = `Process Review completed for ticket ${ticketDisplayId}. ${suggestionCount} recommendation${suggestionCount !== 1 ? 's' : ''} ready for review.`
-          addMessage(
-            convId,
-            'process-review-agent',
-            `[Process Review] ✅ ${successMsg}\n\nReview the recommendations in the modal and click "Implement" to create tickets.`
-          )
-
-          // Modal auto-opens when recommendations are set (no banner, ticket stays in Active Work)
-          addProgress('Process Review completed - recommendations modal opened')
-        } else {
-          setProcessReviewStatus('completed')
-          setProcessReviewAgentRunStatus('completed')
-          const successMsg = `Process Review completed for ticket ${ticketDisplayId}. No recommendations found.`
-          addMessage(convId, 'process-review-agent', `[Process Review] ✅ ${successMsg}`)
-
-          // Ticket stays in Active Work (no move to Done, no banner)
-          addProgress('Process Review completed - no recommendations found')
-          setTimeout(() => {
-            setProcessReviewStatus('idle')
-            setProcessReviewTicketPk(null)
-          }, 5000)
+            setProcessReviewStatus('completed')
+            setProcessReviewAgentRunStatus('completed')
+            const successMsg = `Process Review completed for ticket ${ticketDisplayId}. ${suggestionCount} recommendation${suggestionCount !== 1 ? 's' : ''} ready for review.`
+            addMessage(
+              convId,
+              'process-review-agent',
+              `[Process Review] ✅ ${successMsg}\n\nReview the recommendations in the modal and click "Implement" to create tickets.`
+            )
+            addProgress('Process Review completed - recommendations modal opened')
+          } else {
+            setProcessReviewStatus('completed')
+            setProcessReviewAgentRunStatus('completed')
+            const successMsg = `Process Review completed for ticket ${ticketDisplayId}. No recommendations found.`
+            addMessage(convId, 'process-review-agent', `[Process Review] ✅ ${successMsg}`)
+            addProgress('Process Review completed - no recommendations found')
+            setTimeout(() => {
+              setProcessReviewStatus('idle')
+              setProcessReviewTicketPk(null)
+            }, 5000)
+          }
+          upsertMessage(convId, 'process-review-agent', summary, placeholderId)
         }
+
+        es.addEventListener('text_delta', (evt) => {
+          try {
+            const data = JSON.parse((evt as MessageEvent).data) as any
+            const delta = String(data?.payload?.text ?? '')
+            if (delta) appendToMessage(convId, 'process-review-agent', delta, placeholderId)
+          } catch {
+            // ignore
+          }
+        })
+        es.addEventListener('progress', (evt) => {
+          try {
+            const data = JSON.parse((evt as MessageEvent).data) as any
+            const msg = String(data?.payload?.message ?? '')
+            if (msg) addProgress(msg)
+          } catch {
+            // ignore
+          }
+        })
+        es.addEventListener('done', (evt) => {
+          try {
+            const evtData = JSON.parse((evt as MessageEvent).data) as any
+            const payload = evtData?.payload ?? {}
+            const summary = String(payload.summary ?? '')
+            const suggestions = Array.isArray(payload.suggestions) ? (payload.suggestions as any[]) : []
+            const normalized = suggestions
+              .filter((s) => s && typeof s === 'object')
+              .filter((s) => typeof (s as any).text === 'string' && typeof (s as any).justification === 'string')
+              .map((s) => ({ text: String((s as any).text).trim(), justification: String((s as any).justification).trim() }))
+              .filter((s) => s.text && s.justification)
+            const reviewId = `review-${Date.now()}-${data.ticketPk}`
+            finish(normalized, summary || '', reviewId)
+          } finally {
+            close()
+          }
+        })
+        es.addEventListener('error', (evt) => {
+          try {
+            const dataText = (evt as any)?.data
+            if (typeof dataText === 'string' && dataText.trim()) {
+              const data = JSON.parse(dataText) as any
+              const msg = String(data?.payload?.message ?? 'Process Review failed.')
+              setProcessReviewStatus('failed')
+              setProcessReviewAgentRunStatus('failed')
+              setProcessReviewAgentError(msg)
+              addMessage(convId, 'process-review-agent', `[Process Review] ❌ Failed: ${msg}`)
+              close()
+            }
+          } catch {
+            // ignore transient disconnects
+          }
+        })
       } catch (err) {
         setProcessReviewStatus('failed')
         setProcessReviewAgentRunStatus('failed')
@@ -188,6 +269,8 @@ export function useProcessReview({
       getOrCreateConversation,
       formatTicketId,
       addMessage,
+      upsertMessage,
+      appendToMessage,
       kanbanTickets,
       handleKanbanMoveTicket,
       setProcessReviewStatus,

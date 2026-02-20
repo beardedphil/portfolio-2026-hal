@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
 /**
- * Reports a single repo-wide Maintainability metric for QA reports.
- * Uses TypeScript compiler API to compute maintainability index per file, then averages
+ * Reports a single repo-wide Simplicity metric for QA reports.
+ * Uses TypeScript compiler API to compute a maintainability-index-like score per file, then averages
  * across the whole repo (same scope as test coverage: src, api, agents, projects).
- * Outputs "Maintainability: XX%" so QA report body_md can include it and the dashboard can parse it.
+ * Outputs "Simplicity: XX%" so QA report body_md can include it and the dashboard can parse it.
  */
 
 import fs from 'fs'
@@ -193,7 +193,7 @@ function writeJson(filePath, data) {
 function main() {
   const filePaths = collectAllPaths()
   if (filePaths.length === 0) {
-    console.log('Maintainability: N/A')
+    console.log('Simplicity: N/A')
     process.exit(0)
   }
 
@@ -213,7 +213,7 @@ function main() {
   }
 
   if (count === 0) {
-    console.log('Maintainability: N/A')
+    console.log('Simplicity: N/A')
     process.exit(0)
   }
 
@@ -221,7 +221,7 @@ function main() {
   // Maintainability index is typically 0–171; scale to 0–100 and clamp
   const unroundedMaintainability = Math.min(100, Math.max(0, (overallAvg / 171) * 100))
   const maintainabilityPct = Math.round(unroundedMaintainability)
-  console.log(`Maintainability: ${maintainabilityPct}%`)
+  console.log(`Simplicity: ${maintainabilityPct}%`)
 
   // Update repo metrics file for dashboard (no QA report parsing)
   const metricsPath = path.join(ROOT_DIR, 'public', 'metrics.json')

@@ -463,7 +463,7 @@ function App() {
   // getOrCreateConversation and getDefaultConversationId are now provided by useConversations hook
 
   // Message management via custom hook
-  const { addMessage } = useMessageManagement({
+  const { addMessage, upsertMessage, appendToMessage } = useMessageManagement({
     conversations,
     setConversations,
     messageIdRef,
@@ -501,6 +501,8 @@ function App() {
     agentSequenceRefs,
     pmMaxSequenceRef,
     addMessage,
+    upsertMessage,
+    appendToMessage,
     getDefaultConversationId: getDefaultConversationIdWrapper,
     setLastAgentError,
     setOpenaiLastError,
@@ -553,6 +555,8 @@ function App() {
     supabaseAnonKey,
     getOrCreateConversation,
     addMessage,
+    upsertMessage,
+    appendToMessage,
     kanbanTickets,
     handleKanbanMoveTicket,
     processReviewRecommendations,

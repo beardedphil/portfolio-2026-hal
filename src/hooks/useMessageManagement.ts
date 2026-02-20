@@ -20,6 +20,12 @@ export function useMessageManagement({
   moveTicketToColumn,
   addAutoMoveDiagnostic,
 }: UseMessageManagementParams) {
+  const ensureIntegerCounter = () => {
+    if (!Number.isInteger(messageIdRef.current)) {
+      messageIdRef.current = Math.floor(messageIdRef.current)
+    }
+  }
+
   const addMessage = useCallback(
     (
       conversationId: string,
@@ -35,9 +41,7 @@ export function useMessageManagement({
       //   to preserve ordering without colliding with the next integer sequence.
       // Never allow fractional IDs to update the global integer message counter, or all future
       // generated IDs will become fractional and DB inserts will fail.
-      if (!Number.isInteger(messageIdRef.current)) {
-        messageIdRef.current = Math.floor(messageIdRef.current)
-      }
+      ensureIntegerCounter()
 
       const hasProvidedId = typeof id === 'number' && Number.isFinite(id)
       const isProvidedIdInteger = hasProvidedId && Number.isInteger(id)
@@ -162,5 +166,99 @@ export function useMessageManagement({
     [conversations, setConversations, messageIdRef, qaAgentTicketId, moveTicketToColumn, addAutoMoveDiagnostic]
   )
 
-  return { addMessage }
+  const upsertMessage = useCallback(
+    (
+      conversationId: string,
+      agent: Message['agent'],
+      content: string,
+      id: number,
+      imageAttachments?: ImageAttachment[],
+      promptText?: string
+    ) => {
+      ensureIntegerCounter()
+      if (!Number.isFinite(id)) return
+
+      // Keep the global counter monotonic for integer IDs (never for fractional system IDs).
+      const isSystemMessage = agent === 'system'
+      if (!isSystemMessage && Number.isInteger(id)) {
+        messageIdRef.current = Math.max(messageIdRef.current, id)
+      }
+
+      setConversations((prev) => {
+        const next = new Map(prev)
+        let conv = next.get(conversationId)
+        if (!conv) {
+          const parsed = parseConversationId(conversationId)
+          if (parsed) {
+            conv = {
+              id: conversationId,
+              agentRole: parsed.agentRole,
+              instanceNumber: parsed.instanceNumber,
+              messages: [],
+              createdAt: new Date(),
+            }
+            next.set(conversationId, conv)
+          } else {
+            return next
+          }
+        }
+
+        const idx = conv.messages.findIndex((m) => m.id === id)
+        const nextMsg = {
+          id,
+          agent,
+          content,
+          timestamp: new Date(),
+          imageAttachments,
+          ...(promptText && { promptText }),
+        }
+
+        if (idx >= 0) {
+          const updated = conv.messages.slice()
+          updated[idx] = { ...updated[idx], ...nextMsg }
+          next.set(conversationId, { ...conv, messages: updated })
+          return next
+        }
+
+        next.set(conversationId, { ...conv, messages: [...conv.messages, nextMsg] })
+        return next
+      })
+    },
+    [setConversations, messageIdRef]
+  )
+
+  const appendToMessage = useCallback(
+    (
+      conversationId: string,
+      agent: Message['agent'],
+      delta: string,
+      id: number,
+      imageAttachments?: ImageAttachment[],
+      promptText?: string
+    ) => {
+      if (!delta) return
+      setConversations((prev) => {
+        const next = new Map(prev)
+        let conv = next.get(conversationId)
+        if (!conv) return next
+        const idx = conv.messages.findIndex((m) => m.id === id)
+        if (idx < 0) return next
+        const updated = conv.messages.slice()
+        const existing = updated[idx]
+        updated[idx] = {
+          ...existing,
+          agent,
+          content: String(existing.content ?? '') + delta,
+          timestamp: new Date(),
+          imageAttachments: imageAttachments ?? existing.imageAttachments,
+          ...(promptText ? { promptText } : {}),
+        }
+        next.set(conversationId, { ...conv, messages: updated })
+        return next
+      })
+    },
+    [setConversations]
+  )
+
+  return { addMessage, upsertMessage, appendToMessage }
 }

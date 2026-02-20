@@ -6,7 +6,7 @@
  */
 
 import { createOpenAI } from '@ai-sdk/openai'
-import { generateText, jsonSchema, tool } from 'ai'
+import { streamText, jsonSchema, tool } from 'ai'
 import { z } from 'zod'
 import path from 'path'
 import fs from 'fs/promises'
@@ -139,7 +139,10 @@ export const COL_TODO = 'col-todo'
 
 export async function runPmAgent(
   message: string,
-  config: PmAgentConfig
+  config: PmAgentConfig & {
+    onTextDelta?: (delta: string) => void | Promise<void>
+    abortSignal?: AbortSignal
+  }
 ): Promise<PmAgentResult> {
   const toolCalls: ToolCallRecord[] = []
   let capturedRequest: object | null = null
@@ -1341,16 +1344,37 @@ export async function runPmAgent(
       : undefined
 
   try {
-    const result = await generateText({
+    const result = await streamText({
       model,
       system: PM_SYSTEM_INSTRUCTIONS,
       prompt: prompt as any, // Type assertion: AI SDK supports array format for vision models
       tools,
       maxSteps: MAX_TOOL_ITERATIONS,
       ...(providerOptions && { providerOptions }),
+      ...(config.abortSignal && { abortSignal: config.abortSignal }),
     })
 
-    let reply = result.text ?? ''
+    let reply = ''
+    let emitBuf = ''
+    let lastEmitAt = 0
+    const canEmit = typeof config.onTextDelta === 'function'
+
+    for await (const delta of result.textStream) {
+      reply += delta
+      if (!canEmit) continue
+      emitBuf += delta
+      const now = Date.now()
+      if (emitBuf.length >= 220 || now - lastEmitAt >= 250) {
+        const chunk = emitBuf
+        emitBuf = ''
+        lastEmitAt = now
+        await config.onTextDelta!(chunk)
+      }
+    }
+    if (canEmit && emitBuf) {
+      await config.onTextDelta!(emitBuf)
+    }
+
     // If the model returned no text but create_ticket succeeded, provide a fallback so the user sees a clear outcome (0011/0020)
     // Also handle placeholder validation failures (0066)
     if (!reply.trim()) {
