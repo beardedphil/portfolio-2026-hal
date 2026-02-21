@@ -149,28 +149,28 @@ export function formatPmInputsSummary(config: PmAgentConfig): string {
   return lines.join('\n')
 }
 
-export async function buildContextPack(config: PmAgentConfig, userMessage: string): Promise<string> {
-  const rulesDir = config.rulesDir ?? '.cursor/rules'
-  const rulesPath = path.resolve(config.repoRoot, rulesDir)
+interface LocalLoadResult {
+  localLoaded: boolean
+  ticketTemplateContent: string | null
+  checklistContent: string | null
+  localRulesContent: string
+}
 
-  const sections: string[] = []
-
-  // Always include a compact list of HAL-provided inputs and enabled tools (helps debugging while keeping context small).
-  sections.push(formatPmInputsSummary(config))
-
-  // Local-first: try loading rules from repo
-  let localLoaded = false
-  let ticketTemplateContent: string | null = null
-  let checklistContent: string | null = null
-  let localRulesContent = ''
+async function loadLocalFiles(
+  repoRoot: string,
+  rulesPath: string
+): Promise<LocalLoadResult> {
+  const result: LocalLoadResult = {
+    localLoaded: false,
+    ticketTemplateContent: null,
+    checklistContent: null,
+    localRulesContent: '',
+  }
 
   try {
-    const templatePath =
-      path.join(config.repoRoot, 'docs/templates/ticket.template.md')
-    const templateAltPath =
-      path.join(config.repoRoot, 'projects/kanban/docs/templates/ticket.template.md')
-    const checklistPath =
-      path.join(config.repoRoot, 'docs/process/ready-to-start-checklist.md')
+    const templatePath = path.join(repoRoot, 'docs/templates/ticket.template.md')
+    const templateAltPath = path.join(repoRoot, 'projects/kanban/docs/templates/ticket.template.md')
+    const checklistPath = path.join(repoRoot, 'docs/process/ready-to-start-checklist.md')
 
     let templateContent: string | null = null
     try {
@@ -188,25 +188,80 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
       .catch(() => null)
 
     if (templateContent && checklistRead && agentInstructions) {
-      ticketTemplateContent = templateContent
-      checklistContent = checklistRead
+      result.ticketTemplateContent = templateContent
+      result.checklistContent = checklistRead
       const ruleParts: string[] = [agentInstructions]
       for (const name of PM_LOCAL_RULES) {
         if (name === 'agent-instructions.mdc') continue
-        const content = await fs
-          .readFile(path.join(rulesPath, name), 'utf8')
-          .catch(() => '')
+        const content = await fs.readFile(path.join(rulesPath, name), 'utf8').catch(() => '')
         if (content) ruleParts.push(content)
       }
-      const halContractPath = path.join(config.repoRoot, 'docs/process/hal-tool-call-contract.mdc')
+      const halContractPath = path.join(repoRoot, 'docs/process/hal-tool-call-contract.mdc')
       const halContract = await fs.readFile(halContractPath, 'utf8').catch(() => '')
       if (halContract) ruleParts.push(halContract)
-      localRulesContent = ruleParts.join('\n\n---\n\n')
-      localLoaded = true
+      result.localRulesContent = ruleParts.join('\n\n---\n\n')
+      result.localLoaded = true
     }
   } catch {
     // local load failed, will use HAL/Supabase fallback
   }
+
+  return result
+}
+
+function buildConversationSection(
+  config: PmAgentConfig,
+  userMessage: string
+): { section: string; hasConversation: boolean } {
+  if (config.conversationContextPack && config.conversationContextPack.trim() !== '') {
+    return {
+      section: '## Conversation so far\n\n' + config.conversationContextPack.trim(),
+      hasConversation: true,
+    }
+  }
+
+  const history = config.conversationHistory
+  if (history && history.length > 0) {
+    const { recent, omitted } = recentTurnsWithinCharBudget(history, CONVERSATION_RECENT_MAX_CHARS)
+    const truncNote =
+      omitted > 0
+        ? `\n(older messages omitted; showing recent conversation within ${CONVERSATION_RECENT_MAX_CHARS.toLocaleString()} characters)\n\n`
+        : '\n\n'
+    const lines = recent.map((t) => `**${t.role}**: ${t.content}`)
+    return {
+      section: '## Conversation so far' + truncNote + lines.join('\n\n'),
+      hasConversation: true,
+    }
+  }
+
+  return { section: '', hasConversation: false }
+}
+
+async function appendGitStatusSection(sections: string[], repoRoot: string): Promise<void> {
+  sections.push('## Git status (git status -sb)')
+  try {
+    const { stdout } = await execAsync('git status -sb', {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    })
+    sections.push('```\n' + stdout.trim() + '\n```')
+  } catch {
+    sections.push('(git status failed)')
+  }
+}
+
+export async function buildContextPack(config: PmAgentConfig, userMessage: string): Promise<string> {
+  const rulesDir = config.rulesDir ?? '.cursor/rules'
+  const rulesPath = path.resolve(config.repoRoot, rulesDir)
+
+  const sections: string[] = []
+
+  // Always include a compact list of HAL-provided inputs and enabled tools (helps debugging while keeping context small).
+  sections.push(formatPmInputsSummary(config))
+
+  // Local-first: try loading rules from repo
+  const localLoadResult = await loadLocalFiles(config.repoRoot, rulesPath)
+  let { localLoaded, ticketTemplateContent, checklistContent, localRulesContent } = localLoadResult
 
   if (localLoaded) {
     sections.push(
@@ -233,25 +288,9 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
   }
 
   // Conversation so far: pre-built context pack (e.g. summary + recent from DB) or bounded history
-  let hasConversation = false
-  if (config.conversationContextPack && config.conversationContextPack.trim() !== '') {
-    sections.push('## Conversation so far\n\n' + config.conversationContextPack.trim())
-    hasConversation = true
-  } else {
-    const history = config.conversationHistory
-    if (history && history.length > 0) {
-      const { recent, omitted } = recentTurnsWithinCharBudget(history, CONVERSATION_RECENT_MAX_CHARS)
-      const truncNote =
-        omitted > 0
-          ? `\n(older messages omitted; showing recent conversation within ${CONVERSATION_RECENT_MAX_CHARS.toLocaleString()} characters)\n\n`
-          : '\n\n'
-      const lines = recent.map((t) => `**${t.role}**: ${t.content}`)
-      sections.push('## Conversation so far' + truncNote + lines.join('\n\n'))
-      hasConversation = true
-    }
-  }
-
-  if (hasConversation) {
+  const conversationResult = buildConversationSection(config, userMessage)
+  if (conversationResult.hasConversation) {
+    sections.push(conversationResult.section)
     sections.push('## User message (latest reply in the conversation above)\n\n' + userMessage)
   } else {
     sections.push('## User message\n\n' + userMessage)
@@ -576,16 +615,7 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
     }
   }
 
-  sections.push('## Git status (git status -sb)')
-  try {
-    const { stdout } = await execAsync('git status -sb', {
-      cwd: config.repoRoot,
-      encoding: 'utf8',
-    })
-    sections.push('```\n' + stdout.trim() + '\n```')
-  } catch {
-    sections.push('(git status failed)')
-  }
+  await appendGitStatusSection(sections, config.repoRoot)
 
   return sections.join('\n\n')
 }
