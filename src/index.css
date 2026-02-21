@@ -474,6 +474,28 @@ body {
 [data-theme="lcars"] .hal-header {
   background: var(--hal-lcars-dark-gray);
   border-bottom: 3px solid var(--hal-lcars-orange);
+  position: relative;
+}
+
+/* LCARS header accent: segmented color bar at top */
+[data-theme="lcars"] .hal-header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 8px;
+  background: linear-gradient(
+    to right,
+    var(--hal-lcars-orange) 0%,
+    var(--hal-lcars-orange) 25%,
+    var(--hal-lcars-yellow) 25%,
+    var(--hal-lcars-yellow) 50%,
+    var(--hal-lcars-orange) 50%,
+    var(--hal-lcars-orange) 75%,
+    var(--hal-lcars-yellow) 75%,
+    var(--hal-lcars-yellow) 100%
+  );
 }
 
 [data-theme="lcars"] .hal-header h1 {
@@ -863,6 +885,13 @@ body {
   align-items: stretch;
   scrollbar-width: thin;
   scrollbar-color: var(--kanban-border, #3d3550) transparent;
+}
+
+/* LCARS panel treatment for kanban container */
+[data-theme="lcars"] .kanban-frame-container {
+  border-left: 6px solid var(--hal-lcars-orange);
+  border-radius: 0 20px 20px 0;
+  background: var(--hal-lcars-black);
 }
 .kanban-frame-container::-webkit-scrollbar {
   width: 8px;
@@ -3518,4 +3547,16 @@ div.kanban-frame-container #root,
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+}
+
+/* LCARS panel treatment for PM chat widget */
+[data-theme="lcars"] .pm-chat-widget {
+  border: 4px solid var(--hal-lcars-orange);
+  border-radius: 20px 20px 0 20px;
+  background: var(--hal-lcars-dark-gray);
+}
+
+[data-theme="lcars"] .pm-chat-widget-fullscreen {
+  border-radius: 0;
+  border: 4px solid var(--hal-lcars-orange);
 }
