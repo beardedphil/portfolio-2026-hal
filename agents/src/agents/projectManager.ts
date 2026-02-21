@@ -965,7 +965,7 @@ ${JSON.stringify(redJsonForArtifact, null, 2)}
 `
               await halFetchJson(
                 '/api/artifacts/insert-implementation',
-                { ticketId: input.ticket_id, artifactType: 'red', title: artifactTitle, body_md: artifactBody },
+                { ticketId: ticketPk, artifactType: 'red', title: artifactTitle, body_md: artifactBody },
                 { timeoutMs: 25_000, progressMessage: `Saving RED artifact for ${input.ticket_id}…` }
               )
             }
@@ -1051,7 +1051,7 @@ ${JSON.stringify(redJsonForArtifact, null, 2)}
 `
             await halFetchJson(
               '/api/artifacts/insert-implementation',
-              { ticketId: input.ticket_id, artifactType: 'red', title: artifactTitle, body_md: artifactBody },
+              { ticketId: ticketPk, artifactType: 'red', title: artifactTitle, body_md: artifactBody },
               { timeoutMs: 25_000, progressMessage: `Saving RED artifact for ${input.ticket_id}…` }
             )
           } catch {

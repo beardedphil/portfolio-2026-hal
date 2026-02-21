@@ -84,6 +84,8 @@ export function getSupabaseCredentials(parsed: ParsedArtifactRequest): {
     undefined
   const supabaseAnonKey =
     parsed.supabaseAnonKey ||
+    process.env.SUPABASE_SECRET_KEY?.trim() ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
     process.env.SUPABASE_ANON_KEY?.trim() ||
     process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
     undefined

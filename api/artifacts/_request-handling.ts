@@ -48,6 +48,10 @@ export function getSupabaseCredentials(body: ParsedRequestBody): { url: string; 
     undefined
   const supabaseAnonKey =
     body.supabaseAnonKey ||
+    // Prefer privileged server keys when present so server-side callers (e.g. agents)
+    // don't need to pass project credentials in the request body.
+    process.env.SUPABASE_SECRET_KEY?.trim() ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
     process.env.SUPABASE_ANON_KEY?.trim() ||
     process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
     undefined
