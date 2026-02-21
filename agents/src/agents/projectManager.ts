@@ -12,16 +12,17 @@ import path from 'path'
 import fs from 'fs/promises'
 import { redact } from '../utils/redact.js'
 import {
-  normalizeBodyForReady,
-  normalizeTitleLineInBody,
-} from '../lib/ticketBodyNormalization.js'
-import {
-  slugFromTitle,
   parseTicketNumber,
   evaluateTicketReady,
-  PLACEHOLDER_RE,
   type ReadyCheckResult,
 } from '../lib/projectManagerHelpers.js'
+import {
+  validateNoPlaceholders,
+  createPlaceholderError,
+  processTicketBody,
+  formatTicketCreationResult,
+  getRepoFullName,
+} from './projectManager/toolHelpers.js'
 import {
   listDirectory,
   readFile,
@@ -50,6 +51,11 @@ import {
   isAbortError as isAbortErrorHelper,
   generateFallbackReply,
 } from './projectManager/replyGeneration.js'
+import {
+  buildFullPromptText,
+  buildPrompt,
+} from './projectManager/promptBuilding.js'
+import { halFetchJson } from './projectManager/halApiHelpers.js'
 
 // Re-export for backward compatibility
 export type { ReadyCheckResult }
@@ -224,48 +230,16 @@ export async function runPmAgent(
 
   const isAbortError = (err: unknown) => isAbortErrorHelper(err, config.abortSignal)
 
-  const halFetchJson = async (
+  const halFetch = async (
     path: string,
     body: unknown,
     opts?: { timeoutMs?: number; progressMessage?: string }
   ) => {
-    const timeoutMs = Math.max(1_000, Math.floor(opts?.timeoutMs ?? 20_000))
-    const controller = new AbortController()
-    const t = setTimeout(() => controller.abort(new Error('HAL request timeout')), timeoutMs)
-    const onAbort = () => controller.abort(config.abortSignal?.reason ?? new Error('Aborted'))
-    try {
-      const progress = String(opts?.progressMessage ?? '').trim()
-      if (progress) await config.onProgress?.(progress)
-      if (config.abortSignal) config.abortSignal.addEventListener('abort', onAbort, { once: true })
-      const res = await fetch(`${halBaseUrl}${path}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body ?? {}),
-        signal: controller.signal,
-      })
-      const text = await res.text()
-      let json: any = {}
-      if (text) {
-        try {
-          json = JSON.parse(text)
-        } catch (e) {
-          const contentType = res.headers.get('content-type') || 'unknown'
-          const prefix = text.slice(0, 200)
-          json = {
-            success: false,
-            error: `Non-JSON response from ${path} (HTTP ${res.status}, content-type: ${contentType}): ${prefix}`,
-          }
-        }
-      }
-      return { ok: res.ok, json }
-    } finally {
-      clearTimeout(t)
-      try {
-        if (config.abortSignal) config.abortSignal.removeEventListener('abort', onAbort)
-      } catch {
-        // ignore
-      }
-    }
+    return halFetchJson(halBaseUrl, path, body, {
+      ...opts,
+      abortSignal: config.abortSignal,
+      onProgress: config.onProgress,
+    })
   }
 
   const createTicketTool = tool({
@@ -294,31 +268,20 @@ export async function runPmAgent(
 
       let out: CreateResult
       try {
-        let bodyMdTrimmed = input.body_md.trim()
-        const placeholders = bodyMdTrimmed.match(PLACEHOLDER_RE) ?? []
+        const placeholders = validateNoPlaceholders(input.body_md)
         if (placeholders.length > 0) {
-          const uniquePlaceholders = [...new Set(placeholders)]
-          out = {
-            success: false,
-            error: `Ticket creation rejected: unresolved template placeholder tokens detected. Detected placeholders: ${uniquePlaceholders.join(', ')}.`,
-            detectedPlaceholders: uniquePlaceholders,
-          }
+          out = createPlaceholderError(placeholders)
           toolCalls.push({ name: 'create_ticket', input, output: out })
           return out
         }
 
-        bodyMdTrimmed = normalizeBodyForReady(bodyMdTrimmed)
+        const repoFullName = getRepoFullName(config.projectId)
 
-        const repoFullName =
-          typeof config.projectId === 'string' && config.projectId.trim()
-            ? config.projectId.trim()
-            : 'beardedphil/portfolio-2026-hal'
-
-        const { json: created } = await halFetchJson(
+        const { json: created } = await halFetch(
           '/api/tickets/create-general',
           {
             title: input.title.trim(),
-            body_md: bodyMdTrimmed,
+            body_md: processTicketBody(input.body_md).normalized,
             repo_full_name: repoFullName,
             kanban_column_id: COL_UNASSIGNED,
           },
@@ -332,15 +295,11 @@ export async function runPmAgent(
 
         const displayId = String(created.ticketId)
         const ticketPk = typeof created.pk === 'string' ? created.pk : undefined
-        const ticketNumber = parseTicketNumber(displayId)
-        const id = String(ticketNumber ?? 0).padStart(4, '0')
-        const filename = `${id}-${slugFromTitle(input.title)}.md`
-        const filePath = `supabase:tickets/${displayId}`
+        const { normalized: normalizedBodyMd } = processTicketBody(input.body_md, displayId)
 
-        const normalizedBodyMd = normalizeTitleLineInBody(bodyMdTrimmed, displayId)
         // Persist normalized Title line (and strip QA blocks server-side).
         try {
-          await halFetchJson(
+              await halFetch(
             '/api/tickets/update',
             {
               ...(ticketPk ? { ticketPk } : { ticketId: displayId }),
@@ -353,11 +312,12 @@ export async function runPmAgent(
         }
 
         const readiness = evaluateTicketReady(normalizedBodyMd)
+        const baseResult = formatTicketCreationResult(created, input, repoFullName, normalizedBodyMd)
 
         let movedToTodo = false
         let moveError: string | undefined
         if (readiness.ready) {
-          const { json: moved } = await halFetchJson(
+          const { json: moved } = await halFetch(
             '/api/tickets/move',
             { ticketId: displayId, columnId: COL_TODO, position: 'bottom' },
             { timeoutMs: 25_000, progressMessage: `Moving ${displayId} to To Do…` }
@@ -368,14 +328,7 @@ export async function runPmAgent(
 
         out = {
           success: true,
-          id,
-          display_id: displayId,
-          ...(typeof ticketNumber === 'number' ? { ticket_number: ticketNumber } : {}),
-          repo_full_name: repoFullName,
-          filename,
-          filePath,
-          ready: readiness.ready,
-          ...(readiness.missingItems.length > 0 ? { missingItems: readiness.missingItems } : {}),
+          ...baseResult,
           ...(movedToTodo ? { movedToTodo: true } : {}),
           ...(moveError ? { moveError } : {}),
         }
@@ -425,7 +378,7 @@ export async function runPmAgent(
 
       let out: FetchResult
       try {
-        const { json: data } = await halFetchJson(
+        const { json: data } = await halFetch(
           '/api/tickets/get',
           { ticketId: input.ticket_id },
           { timeoutMs: 20_000, progressMessage: `Fetching ticket ${input.ticket_id}…` }
@@ -508,23 +461,15 @@ export async function runPmAgent(
         | { success: false; error: string; detectedPlaceholders?: string[] }
       let out: UpdateResult
       try {
-        let bodyMdTrimmed = input.body_md.trim()
-        const placeholders = bodyMdTrimmed.match(PLACEHOLDER_RE) ?? []
+        const placeholders = validateNoPlaceholders(input.body_md)
         if (placeholders.length > 0) {
-          const uniquePlaceholders = [...new Set(placeholders)]
-          out = {
-            success: false,
-            error: `Ticket update rejected: unresolved template placeholder tokens detected. Detected placeholders: ${uniquePlaceholders.join(', ')}.`,
-            detectedPlaceholders: uniquePlaceholders,
-          }
+          out = createPlaceholderError(placeholders)
           toolCalls.push({ name: 'update_ticket_body', input, output: out })
           return out
         }
 
-        bodyMdTrimmed = normalizeBodyForReady(bodyMdTrimmed)
-
         // Fetch ticket to get display_id / pk for robust update.
-        const { json: fetched } = await halFetchJson(
+        const { json: fetched } = await halFetch(
           '/api/tickets/get',
           { ticketId: input.ticket_id },
           { timeoutMs: 20_000, progressMessage: `Fetching ticket ${input.ticket_id} for update…` }
@@ -538,9 +483,9 @@ export async function runPmAgent(
         const ticket = fetched.ticket as any
         const displayId = String(ticket.display_id || input.ticket_id)
         const ticketPk = typeof ticket.pk === 'string' ? ticket.pk : undefined
-        const normalizedBodyMd = normalizeTitleLineInBody(bodyMdTrimmed, displayId)
+        const { normalized: normalizedBodyMd } = processTicketBody(input.body_md, displayId)
 
-        const { json: updated } = await halFetchJson(
+        const { json: updated } = await halFetch(
           '/api/tickets/update',
           {
             ...(ticketPk ? { ticketPk } : { ticketId: displayId }),
@@ -613,7 +558,7 @@ export async function runPmAgent(
       let out: MoveResult
       try {
         // Fetch current column and preferred display id
-        const { json: fetched } = await halFetchJson(
+        const { json: fetched } = await halFetch(
           '/api/tickets/get',
           { ticketId: input.ticket_id },
           { timeoutMs: 20_000, progressMessage: `Checking current column for ${input.ticket_id}…` }
@@ -636,7 +581,7 @@ export async function runPmAgent(
         }
         const ticketIdToMove = String(ticket.display_id || input.ticket_id)
         const position = input.position ?? 'bottom'
-        const { json: moved } = await halFetchJson(
+        const { json: moved } = await halFetch(
           '/api/tickets/move',
           { ticketId: ticketIdToMove, columnId: COL_TODO, position },
           { timeoutMs: 25_000, progressMessage: `Moving ${ticketIdToMove} to To Do…` }
@@ -889,7 +834,7 @@ export async function runPmAgent(
       let out: CreateRedResult
       try {
         // Fetch ticket to get ticketPk and repoFullName
-        const { json: fetched } = await halFetchJson(
+        const { json: fetched } = await halFetch(
           '/api/tickets/get',
           { ticketId: input.ticket_id },
           { timeoutMs: 20_000, progressMessage: `Fetching ticket ${input.ticket_id} for RED…` }
@@ -914,7 +859,7 @@ export async function runPmAgent(
         }
 
         // Idempotency: if a RED already exists, reuse it instead of creating new versions.
-        const { json: existing } = await halFetchJson(
+        const { json: existing } = await halFetch(
           '/api/red/list',
           { ticketPk, repoFullName },
           { timeoutMs: 20_000, progressMessage: `Checking existing REDs for ${input.ticket_id}…` }
@@ -923,7 +868,7 @@ export async function runPmAgent(
           const latest = existing.red_versions[0] as any
           // Best-effort: ensure it's validated for "latest-valid" gates
           try {
-            await halFetchJson(
+            await halFetch(
               '/api/red/validate',
               {
                 redId: latest.red_id,
@@ -940,7 +885,7 @@ export async function runPmAgent(
           // Best-effort: create/update mirrored RED artifact for visibility in ticket Artifacts.
           try {
             const vNum = Number(latest.version ?? 0) || 0
-            const { json: redGet } = await halFetchJson(
+            const { json: redGet } = await halFetch(
               '/api/red/get',
               { ticketPk, ticketId: input.ticket_id, repoFullName, version: vNum },
               { timeoutMs: 20_000, progressMessage: `Loading latest RED JSON for ${input.ticket_id}…` }
@@ -964,7 +909,7 @@ Validation Status: ${validationStatus}
 ${JSON.stringify(redJsonForArtifact, null, 2)}
 \`\`\`
 `
-              await halFetchJson(
+              await halFetch(
                 '/api/artifacts/insert-implementation',
                 { ticketId: ticketPk, artifactType: 'red', title: artifactTitle, body_md: artifactBody },
                 { timeoutMs: 25_000, progressMessage: `Saving RED artifact for ${input.ticket_id}…` }
@@ -999,7 +944,7 @@ ${JSON.stringify(redJsonForArtifact, null, 2)}
         }
 
         // Create RED document via HAL API
-        const { json: created } = await halFetchJson(
+        const { json: created } = await halFetch(
           '/api/red/insert',
           {
             ticketPk,
@@ -1015,7 +960,7 @@ ${JSON.stringify(redJsonForArtifact, null, 2)}
         } else {
           // Option A: validate via separate table (immutable RED rows)
           try {
-            await halFetchJson(
+            await halFetch(
               '/api/red/validate',
               {
                 redId: created.red_document.red_id,
@@ -1050,7 +995,7 @@ Validation Status: ${validationStatus}
 ${JSON.stringify(redJsonForArtifact, null, 2)}
 \`\`\`
 `
-            await halFetchJson(
+            await halFetch(
               '/api/artifacts/insert-implementation',
               { ticketId: ticketPk, artifactType: 'red', title: artifactTitle, body_md: artifactBody },
               { timeoutMs: 25_000, progressMessage: `Saving RED artifact for ${input.ticket_id}…` }
@@ -1494,43 +1439,12 @@ ${JSON.stringify(redJsonForArtifact, null, 2)}
     ...(createRedDocumentTool ? { create_red_document_v2: createRedDocumentTool } : {}),
   }
 
-  const promptBase = `${contextPack}\n\n---\n\nRespond to the user message above using the tools as needed.`
-
-  // Build full prompt text for display (system instructions + context pack + user message + images if present)
-  const hasImages = config.images && config.images.length > 0
-  const isVisionModel = config.openaiModel.includes('vision') || config.openaiModel.includes('gpt-4o')
-  let imageInfo = ''
-  if (hasImages) {
-    const imageList = config.images!.map((img, idx) => `  ${idx + 1}. ${img.filename || `Image ${idx + 1}`} (${img.mimeType || 'image'})`).join('\n')
-    if (isVisionModel) {
-      imageInfo = `\n\n## Images (included in prompt)\n\n${imageList}\n\n(Note: Images are sent as base64-encoded data URLs in the prompt array, but are not shown in this text representation.)`
-    } else {
-      imageInfo = `\n\n## Images (provided but ignored)\n\n${imageList}\n\n(Note: Images were provided but the model (${config.openaiModel}) does not support vision. Images are ignored.)`
-    }
-  }
-  const fullPromptText = `## System Instructions\n\n${PM_SYSTEM_INSTRUCTIONS}\n\n---\n\n## User Prompt\n\n${promptBase}${imageInfo}`
-
-  // Build prompt with images if present
-  // For vision models, prompt must be an array of content parts
-  // For non-vision models, prompt is a string (images are ignored)
-  // Note: hasImages and isVisionModel are already defined above when building fullPromptText
+  const fullPromptText = buildFullPromptText(PM_SYSTEM_INSTRUCTIONS, contextPack, config)
+  const prompt = buildPrompt(contextPack, config)
   
-  let prompt: string | Array<{ type: 'text' | 'image'; text?: string; image?: string }>
-  if (hasImages && isVisionModel) {
-    // Vision model: use array format with text and images
-    prompt = [
-      { type: 'text' as const, text: promptBase },
-      ...config.images!.map((img) => ({ type: 'image' as const, image: img.dataUrl })),
-    ]
-    // For vision models, note that images are included but not shown in text representation
-    // The fullPromptText will show the text portion
-  } else {
-    // Non-vision model or no images: use string format
-    prompt = promptBase
-    if (hasImages && !isVisionModel) {
-      // Log warning but don't fail - user can still send text
-      console.warn('[PM Agent] Images provided but model does not support vision. Images will be ignored.')
-    }
+  // Log warning for non-vision models with images
+  if (config.images && config.images.length > 0 && !(config.openaiModel.includes('vision') || config.openaiModel.includes('gpt-4o'))) {
+    console.warn('[PM Agent] Images provided but model does not support vision. Images will be ignored.')
   }
 
   const providerOptions =
