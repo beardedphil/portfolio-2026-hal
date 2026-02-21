@@ -72,6 +72,326 @@ export const PM_LOCAL_RULES = [
   'qa-audit-report.mdc',
 ] as const
 
+// Types for instruction handling
+type TopicMeta = {
+  title?: string
+  description?: string
+  agentTypes?: string[]
+  keywords?: string[]
+}
+
+type InstructionRecord = {
+  topicId: string
+  filename: string
+  title: string
+  description: string
+  contentMd: string
+  alwaysApply: boolean
+  agentTypes: string[]
+  isBasic: boolean
+  isSituational: boolean
+  topicMetadata?: TopicMeta
+}
+
+const AGENT_TYPES = [
+  'project-manager',
+  'implementation-agent',
+  'qa-agent',
+  'process-review-agent',
+] as const
+
+type AgentType = (typeof AGENT_TYPES)[number]
+
+// Helper functions for instruction handling
+function labelForAgentType(agentType: AgentType): string {
+  if (agentType === 'project-manager') return 'Project Manager'
+  if (agentType === 'implementation-agent') return 'Implementation Agent'
+  if (agentType === 'qa-agent') return 'QA Agent'
+  return 'Process Review Agent'
+}
+
+function mapHalInstruction(raw: Record<string, unknown>): InstructionRecord {
+  const topicIdRaw = typeof raw.topicId === 'string' ? raw.topicId.trim() : ''
+  const filenameRaw = typeof raw.filename === 'string' ? raw.filename.trim() : ''
+  const titleRaw = typeof raw.title === 'string' ? raw.title.trim() : ''
+  const descriptionRaw = typeof raw.description === 'string' ? raw.description.trim() : ''
+  const contentMdRaw =
+    typeof raw.contentMd === 'string'
+      ? raw.contentMd
+      : typeof raw.contentBody === 'string'
+        ? raw.contentBody
+        : ''
+  const topicMeta = raw.topicMetadata as TopicMeta | undefined
+  const agentTypesRaw = Array.isArray(raw.agentTypes)
+    ? raw.agentTypes.filter((v): v is string => typeof v === 'string')
+    : []
+
+  const topicId = topicIdRaw || filenameRaw.replace(/\.mdc$/i, '')
+  const filename = filenameRaw || `${topicId || 'unknown'}.mdc`
+  return {
+    topicId,
+    filename,
+    title: titleRaw || filename.replace(/\.mdc$/i, '').replace(/-/g, ' '),
+    description: descriptionRaw || topicMeta?.description || 'No description',
+    contentMd: contentMdRaw,
+    alwaysApply: raw.alwaysApply === true,
+    agentTypes: agentTypesRaw,
+    isBasic: raw.isBasic === true,
+    isSituational: raw.isSituational === true,
+    topicMetadata: topicMeta,
+  }
+}
+
+function appliesToAllAgents(inst: InstructionRecord): boolean {
+  return inst.alwaysApply || inst.agentTypes.includes('all')
+}
+
+function appliesToAgent(inst: InstructionRecord, agentType: string): boolean {
+  return appliesToAllAgents(inst) || inst.agentTypes.includes(agentType)
+}
+
+function dedupeTopicSummaries(
+  entries: Array<{ id: string; title: string; description: string }>
+): Array<{ id: string; title: string; description: string }> {
+  const seen = new Set<string>()
+  const unique: Array<{ id: string; title: string; description: string }> = []
+  for (const entry of entries) {
+    if (!entry.id || seen.has(entry.id)) continue
+    seen.add(entry.id)
+    unique.push(entry)
+  }
+  return unique.sort((a, b) => a.id.localeCompare(b.id))
+}
+
+function appendInstructionBootstrap(
+  sections: string[],
+  sourceLabel: string,
+  basicInstructions: InstructionRecord[],
+  situationalInstructions: InstructionRecord[],
+  minimalBootstrap: boolean
+): boolean {
+  const globalBasic = basicInstructions.filter(appliesToAllAgents)
+
+  if (basicInstructions.length === 0 && situationalInstructions.length === 0) {
+    return false
+  }
+
+  sections.push(`### Global bootstrap instructions (${sourceLabel})\n`)
+
+  if (minimalBootstrap) {
+    sections.push(
+      'Instructions are stored in Supabase. **Load your full PM instructions first:** `get_instruction_set({ agentType: "project-manager" })`. '
+    )
+    sections.push(
+      'For ticket creation or readiness checks, load `get_instruction_set({ topicId: "ticket-template" })` and `get_instruction_set({ topicId: "ready-to-start-checklist" })`.\n'
+    )
+    sections.push(
+      '**Request a topic by ID:** `get_instruction_set({ topicId: "<topic-id>" })`.'
+    )
+    return true
+  }
+
+  if (globalBasic.length === 0) {
+    sections.push('_No global bootstrap instruction bodies were found._')
+  } else {
+    for (const inst of globalBasic) {
+      sections.push(`#### ${inst.filename}\n\n${inst.contentMd}\n`)
+    }
+  }
+
+  const sharedSituational = dedupeTopicSummaries(
+    situationalInstructions
+      .filter(appliesToAllAgents)
+      .map((inst) => ({
+        id: inst.topicId,
+        title: inst.topicMetadata?.title || inst.title,
+        description: inst.topicMetadata?.description || inst.description,
+      }))
+  )
+
+  sections.push('### Instruction loading workflow\n')
+  sections.push('1. Start with the global bootstrap instructions (all agents).')
+  sections.push('2. Request the full instruction set for the active agent type.')
+  sections.push('3. Request additional topic-specific instructions only when needed.\n')
+
+  sections.push('**Request full instruction set by agent type:**')
+  for (const agentType of AGENT_TYPES) {
+    const agentBasicCount = basicInstructions.filter(
+      (inst) => inst.agentTypes.includes(agentType) && !inst.agentTypes.includes('all')
+    ).length
+    sections.push(
+      `- \`${agentType}\` (${agentBasicCount} basic instruction${agentBasicCount === 1 ? '' : 's'}): \`get_instruction_set({ agentType: "${agentType}" })\``
+    )
+  }
+
+  if (sharedSituational.length > 0) {
+    sections.push('\n**Less-common shared topics (all agents):**')
+    for (const topic of sharedSituational) {
+      sections.push(
+        `- **${topic.title}** (ID: \`${topic.id}\`): ${topic.description}`
+      )
+    }
+  }
+
+  for (const agentType of AGENT_TYPES) {
+    const agentTopics = dedupeTopicSummaries(
+      situationalInstructions
+        .filter((inst) => appliesToAgent(inst, agentType))
+        .map((inst) => ({
+          id: inst.topicId,
+          title: inst.topicMetadata?.title || inst.title,
+          description: inst.topicMetadata?.description || inst.description,
+        }))
+    )
+    if (agentTopics.length === 0) continue
+
+    sections.push(`\n**Additional topics for ${labelForAgentType(agentType)}:**`)
+    for (const topic of agentTopics) {
+      sections.push(
+        `- **${topic.title}** (ID: \`${topic.id}\`): ${topic.description}`
+      )
+    }
+  }
+
+  sections.push(
+    '\n**Request a specific topic directly:** `get_instruction_set({ topicId: "<topic-id>" })`.'
+  )
+  return true
+}
+
+async function loadLocalRules(
+  config: PmAgentConfig,
+  rulesPath: string
+): Promise<{ success: boolean; ticketTemplate: string | null; checklist: string | null; rulesContent: string }> {
+  try {
+    const templatePath = path.join(config.repoRoot, 'docs/templates/ticket.template.md')
+    const templateAltPath = path.join(config.repoRoot, 'projects/kanban/docs/templates/ticket.template.md')
+    const checklistPath = path.join(config.repoRoot, 'docs/process/ready-to-start-checklist.md')
+
+    let templateContent: string | null = null
+    try {
+      templateContent = await fs.readFile(templatePath, 'utf8')
+    } catch {
+      try {
+        templateContent = await fs.readFile(templateAltPath, 'utf8')
+      } catch {
+        templateContent = null
+      }
+    }
+    const checklistRead = await fs.readFile(checklistPath, 'utf8').catch(() => null)
+    const agentInstructions = await fs
+      .readFile(path.join(rulesPath, 'agent-instructions.mdc'), 'utf8')
+      .catch(() => null)
+
+    if (templateContent && checklistRead && agentInstructions) {
+      const ruleParts: string[] = [agentInstructions]
+      for (const name of PM_LOCAL_RULES) {
+        if (name === 'agent-instructions.mdc') continue
+        const content = await fs
+          .readFile(path.join(rulesPath, name), 'utf8')
+          .catch(() => '')
+        if (content) ruleParts.push(content)
+      }
+      const halContractPath = path.join(config.repoRoot, 'docs/process/hal-tool-call-contract.mdc')
+      const halContract = await fs.readFile(halContractPath, 'utf8').catch(() => '')
+      if (halContract) ruleParts.push(halContract)
+      const localRulesContent = ruleParts.join('\n\n---\n\n')
+      return {
+        success: true,
+        ticketTemplate: templateContent,
+        checklist: checklistRead,
+        rulesContent: localRulesContent,
+      }
+    }
+    return { success: false, ticketTemplate: null, checklist: null, rulesContent: '' }
+  } catch {
+    return { success: false, ticketTemplate: null, checklist: null, rulesContent: '' }
+  }
+}
+
+async function loadInstructionsFromHalApi(
+  config: PmAgentConfig,
+  sections: string[],
+  ticketTemplateContent: { current: string | null },
+  checklistContent: { current: string | null }
+): Promise<boolean> {
+  const repoFullName = config.repoFullName || config.projectId || 'beardedphil/portfolio-2026-hal'
+
+  let halBaseUrl: string | null = null
+  try {
+    const apiBaseUrlPath = path.join(config.repoRoot, '.hal', 'api-base-url')
+    const apiBaseUrlContent = await fs.readFile(apiBaseUrlPath, 'utf8')
+    halBaseUrl = apiBaseUrlContent.trim()
+  } catch {
+    // .hal/api-base-url not found
+    return false
+  }
+
+  if (!halBaseUrl) return false
+
+  try {
+    const [basicRes, situationalRes] = await Promise.all([
+      fetch(`${halBaseUrl}/api/instructions/get`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repoFullName,
+          includeBasic: true,
+          includeSituational: false,
+        }),
+      }),
+      fetch(`${halBaseUrl}/api/instructions/get`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repoFullName,
+          includeBasic: false,
+          includeSituational: true,
+        }),
+      }),
+    ])
+
+    const basicInstructions: InstructionRecord[] = []
+    const situationalInstructions: InstructionRecord[] = []
+
+    if (basicRes.ok) {
+      const basicData = (await basicRes.json()) as {
+        success?: boolean
+        instructions?: Array<Record<string, unknown>>
+      }
+      if (basicData.success && Array.isArray(basicData.instructions)) {
+        basicInstructions.push(...basicData.instructions.map(mapHalInstruction))
+      }
+    }
+
+    if (situationalRes.ok) {
+      const situationalData = (await situationalRes.json()) as {
+        success?: boolean
+        instructions?: Array<Record<string, unknown>>
+      }
+      if (situationalData.success && Array.isArray(situationalData.instructions)) {
+        situationalInstructions.push(...situationalData.instructions.map(mapHalInstruction))
+      }
+    }
+
+    const bootstrapLoaded = appendInstructionBootstrap(
+      sections,
+      'HAL API',
+      basicInstructions,
+      situationalInstructions,
+      USE_MINIMAL_BOOTSTRAP
+    )
+    const templateInst = basicInstructions.find((i) => i.topicId === 'ticket-template')
+    const checklistInst = basicInstructions.find((i) => i.topicId === 'ready-to-start-checklist')
+    if (templateInst?.contentMd) ticketTemplateContent.current = templateInst.contentMd
+    if (checklistInst?.contentMd) checklistContent.current = checklistInst.contentMd
+    return bootstrapLoaded
+  } catch (apiErr) {
+    console.warn('[PM Agent] HAL API instruction bootstrap failed:', apiErr)
+    return false
+  }
+}
+
 export function formatPmInputsSummary(config: PmAgentConfig): string {
   const hasGitHubRepo =
     typeof config.repoFullName === 'string' && config.repoFullName.trim() !== ''
@@ -159,54 +479,11 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
   sections.push(formatPmInputsSummary(config))
 
   // Local-first: try loading rules from repo
-  let localLoaded = false
-  let ticketTemplateContent: string | null = null
-  let checklistContent: string | null = null
-  let localRulesContent = ''
-
-  try {
-    const templatePath =
-      path.join(config.repoRoot, 'docs/templates/ticket.template.md')
-    const templateAltPath =
-      path.join(config.repoRoot, 'projects/kanban/docs/templates/ticket.template.md')
-    const checklistPath =
-      path.join(config.repoRoot, 'docs/process/ready-to-start-checklist.md')
-
-    let templateContent: string | null = null
-    try {
-      templateContent = await fs.readFile(templatePath, 'utf8')
-    } catch {
-      try {
-        templateContent = await fs.readFile(templateAltPath, 'utf8')
-      } catch {
-        templateContent = null
-      }
-    }
-    const checklistRead = await fs.readFile(checklistPath, 'utf8').catch(() => null)
-    const agentInstructions = await fs
-      .readFile(path.join(rulesPath, 'agent-instructions.mdc'), 'utf8')
-      .catch(() => null)
-
-    if (templateContent && checklistRead && agentInstructions) {
-      ticketTemplateContent = templateContent
-      checklistContent = checklistRead
-      const ruleParts: string[] = [agentInstructions]
-      for (const name of PM_LOCAL_RULES) {
-        if (name === 'agent-instructions.mdc') continue
-        const content = await fs
-          .readFile(path.join(rulesPath, name), 'utf8')
-          .catch(() => '')
-        if (content) ruleParts.push(content)
-      }
-      const halContractPath = path.join(config.repoRoot, 'docs/process/hal-tool-call-contract.mdc')
-      const halContract = await fs.readFile(halContractPath, 'utf8').catch(() => '')
-      if (halContract) ruleParts.push(halContract)
-      localRulesContent = ruleParts.join('\n\n---\n\n')
-      localLoaded = true
-    }
-  } catch {
-    // local load failed, will use HAL/Supabase fallback
-  }
+  const localRules = await loadLocalRules(config, rulesPath)
+  const localLoaded = localRules.success
+  let ticketTemplateContent = localRules.ticketTemplate
+  let checklistContent = localRules.checklist
+  const localRulesContent = localRules.rulesContent
 
   if (localLoaded) {
     sections.push(
@@ -264,289 +541,37 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
   }
 
   if (!localLoaded) {
-  try {
-    type TopicMeta = {
-      title?: string
-      description?: string
-      agentTypes?: string[]
-      keywords?: string[]
-    }
-
-    type InstructionRecord = {
-      topicId: string
-      filename: string
-      title: string
-      description: string
-      contentMd: string
-      alwaysApply: boolean
-      agentTypes: string[]
-      isBasic: boolean
-      isSituational: boolean
-      topicMetadata?: TopicMeta
-    }
-
-    const repoFullName = config.repoFullName || config.projectId || 'beardedphil/portfolio-2026-hal'
-    const agentTypes = [
-      'project-manager',
-      'implementation-agent',
-      'qa-agent',
-      'process-review-agent',
-    ] as const
-
-    const labelForAgentType = (agentType: (typeof agentTypes)[number]): string => {
-      if (agentType === 'project-manager') return 'Project Manager'
-      if (agentType === 'implementation-agent') return 'Implementation Agent'
-      if (agentType === 'qa-agent') return 'QA Agent'
-      return 'Process Review Agent'
-    }
-
-    const mapHalInstruction = (raw: Record<string, unknown>): InstructionRecord => {
-      const topicIdRaw = typeof raw.topicId === 'string' ? raw.topicId.trim() : ''
-      const filenameRaw = typeof raw.filename === 'string' ? raw.filename.trim() : ''
-      const titleRaw = typeof raw.title === 'string' ? raw.title.trim() : ''
-      const descriptionRaw = typeof raw.description === 'string' ? raw.description.trim() : ''
-      const contentMdRaw =
-        typeof raw.contentMd === 'string'
-          ? raw.contentMd
-          : typeof raw.contentBody === 'string'
-            ? raw.contentBody
-            : ''
-      const topicMeta = raw.topicMetadata as TopicMeta | undefined
-      const agentTypesRaw = Array.isArray(raw.agentTypes)
-        ? raw.agentTypes.filter((v): v is string => typeof v === 'string')
-        : []
-
-      const topicId = topicIdRaw || filenameRaw.replace(/\.mdc$/i, '')
-      const filename = filenameRaw || `${topicId || 'unknown'}.mdc`
-      return {
-        topicId,
-        filename,
-        title: titleRaw || filename.replace(/\.mdc$/i, '').replace(/-/g, ' '),
-        description: descriptionRaw || topicMeta?.description || 'No description',
-        contentMd: contentMdRaw,
-        alwaysApply: raw.alwaysApply === true,
-        agentTypes: agentTypesRaw,
-        isBasic: raw.isBasic === true,
-        isSituational: raw.isSituational === true,
-        topicMetadata: topicMeta,
-      }
-    }
-
-    // mapSupabaseInstruction removed: agents must be API-only (no Supabase instruction fallback).
-
-    const appliesToAllAgents = (inst: InstructionRecord): boolean =>
-      inst.alwaysApply || inst.agentTypes.includes('all')
-
-    const appliesToAgent = (inst: InstructionRecord, agentType: string): boolean =>
-      appliesToAllAgents(inst) || inst.agentTypes.includes(agentType)
-
-    const dedupeTopicSummaries = (
-      entries: Array<{ id: string; title: string; description: string }>
-    ): Array<{ id: string; title: string; description: string }> => {
-      const seen = new Set<string>()
-      const unique: Array<{ id: string; title: string; description: string }> = []
-      for (const entry of entries) {
-        if (!entry.id || seen.has(entry.id)) continue
-        seen.add(entry.id)
-        unique.push(entry)
-      }
-      return unique.sort((a, b) => a.id.localeCompare(b.id))
-    }
-
-    const appendInstructionBootstrap = (
-      sourceLabel: string,
-      basicInstructions: InstructionRecord[],
-      situationalInstructions: InstructionRecord[],
-      minimalBootstrap: boolean
-    ): boolean => {
-      const globalBasic = basicInstructions.filter(appliesToAllAgents)
-
-      if (basicInstructions.length === 0 && situationalInstructions.length === 0) {
-        return false
-      }
-
-      sections.push(`### Global bootstrap instructions (${sourceLabel})\n`)
-
-      if (minimalBootstrap) {
-        sections.push(
-          'Instructions are stored in Supabase. **Load your full PM instructions first:** `get_instruction_set({ agentType: "project-manager" })`. '
-        )
-        sections.push(
-          'For ticket creation or readiness checks, load `get_instruction_set({ topicId: "ticket-template" })` and `get_instruction_set({ topicId: "ready-to-start-checklist" })`.\n'
-        )
-        sections.push(
-          '**Request a topic by ID:** `get_instruction_set({ topicId: "<topic-id>" })`.'
-        )
-        return true
-      }
-
-      if (globalBasic.length === 0) {
-        sections.push('_No global bootstrap instruction bodies were found._')
-      } else {
-        for (const inst of globalBasic) {
-          sections.push(`#### ${inst.filename}\n\n${inst.contentMd}\n`)
-        }
-      }
-
-      const sharedSituational = dedupeTopicSummaries(
-        situationalInstructions
-          .filter(appliesToAllAgents)
-          .map((inst) => ({
-            id: inst.topicId,
-            title: inst.topicMetadata?.title || inst.title,
-            description: inst.topicMetadata?.description || inst.description,
-          }))
-      )
-
-      sections.push('### Instruction loading workflow\n')
-      sections.push('1. Start with the global bootstrap instructions (all agents).')
-      sections.push('2. Request the full instruction set for the active agent type.')
-      sections.push('3. Request additional topic-specific instructions only when needed.\n')
-
-      sections.push('**Request full instruction set by agent type:**')
-      for (const agentType of agentTypes) {
-        const agentBasicCount = basicInstructions.filter(
-          (inst) => inst.agentTypes.includes(agentType) && !inst.agentTypes.includes('all')
-        ).length
-        sections.push(
-          `- \`${agentType}\` (${agentBasicCount} basic instruction${agentBasicCount === 1 ? '' : 's'}): \`get_instruction_set({ agentType: "${agentType}" })\``
-        )
-      }
-
-      if (sharedSituational.length > 0) {
-        sections.push('\n**Less-common shared topics (all agents):**')
-        for (const topic of sharedSituational) {
-          sections.push(
-            `- **${topic.title}** (ID: \`${topic.id}\`): ${topic.description}`
-          )
-        }
-      }
-
-      for (const agentType of agentTypes) {
-        const agentTopics = dedupeTopicSummaries(
-          situationalInstructions
-            .filter((inst) => appliesToAgent(inst, agentType))
-            .map((inst) => ({
-              id: inst.topicId,
-              title: inst.topicMetadata?.title || inst.title,
-              description: inst.topicMetadata?.description || inst.description,
-            }))
-        )
-        if (agentTopics.length === 0) continue
-
-        sections.push(`\n**Additional topics for ${labelForAgentType(agentType)}:**`)
-        for (const topic of agentTopics) {
-          sections.push(
-            `- **${topic.title}** (ID: \`${topic.id}\`): ${topic.description}`
-          )
-        }
-      }
-
-      sections.push(
-        '\n**Request a specific topic directly:** `get_instruction_set({ topicId: "<topic-id>" })`.'
-      )
-      return true
-    }
-
-    let bootstrapLoaded = false
-
-    // HAL API is the primary path.
-    let halBaseUrl: string | null = null
     try {
-      const apiBaseUrlPath = path.join(config.repoRoot, '.hal', 'api-base-url')
-      const apiBaseUrlContent = await fs.readFile(apiBaseUrlPath, 'utf8')
-      halBaseUrl = apiBaseUrlContent.trim()
-    } catch {
-      // .hal/api-base-url not found, will try direct Supabase fallback.
-    }
+      const ticketTemplateRef = { current: ticketTemplateContent }
+      const checklistRef = { current: checklistContent }
+      const bootstrapLoaded = await loadInstructionsFromHalApi(config, sections, ticketTemplateRef, checklistRef)
+      ticketTemplateContent = ticketTemplateRef.current
+      checklistContent = checklistRef.current
 
-    if (halBaseUrl) {
-      try {
-        const [basicRes, situationalRes] = await Promise.all([
-          fetch(`${halBaseUrl}/api/instructions/get`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              repoFullName,
-              includeBasic: true,
-              includeSituational: false,
-            }),
-          }),
-          fetch(`${halBaseUrl}/api/instructions/get`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              repoFullName,
-              includeBasic: false,
-              includeSituational: true,
-            }),
-          }),
-        ])
-
-        const basicInstructions: InstructionRecord[] = []
-        const situationalInstructions: InstructionRecord[] = []
-
-        if (basicRes.ok) {
-          const basicData = (await basicRes.json()) as {
-            success?: boolean
-            instructions?: Array<Record<string, unknown>>
-          }
-          if (basicData.success && Array.isArray(basicData.instructions)) {
-            basicInstructions.push(...basicData.instructions.map(mapHalInstruction))
-          }
+      // Last resort: local entry point only (no topic content from filesystem).
+      if (!bootstrapLoaded) {
+        try {
+          const entryPointPath = path.join(rulesPath, 'agent-instructions.mdc')
+          const entryPointContent = await fs.readFile(entryPointPath, 'utf8')
+          sections.push('### Agent Instructions Entry Point (filesystem fallback)\n\n')
+          sections.push(entryPointContent)
+          sections.push(
+            '\n\n**Note:** This fallback is entry-point only. Individual instruction sets and topics are loaded from HAL/Supabase, not local files.'
+          )
+        } catch {
+          sections.push('### Agent Instructions\n\n')
+          sections.push(
+            '**Error:** Could not load instruction bootstrap from HAL/Supabase or the local entry-point fallback.\n'
+          )
+          sections.push('**To access instructions:**\n')
+          sections.push('- Use HAL API endpoint `/api/instructions/get` to fetch bootstrap/basic instructions\n')
+          sections.push('- Use `get_instruction_set({ agentType: "<agent-type>" })` for full agent instruction sets\n')
+          sections.push('- Use HAL API endpoint `/api/instructions/get-topic` (or `get_instruction_set({ topicId })`) for specific topics\n')
         }
-
-        if (situationalRes.ok) {
-          const situationalData = (await situationalRes.json()) as {
-            success?: boolean
-            instructions?: Array<Record<string, unknown>>
-          }
-          if (situationalData.success && Array.isArray(situationalData.instructions)) {
-            situationalInstructions.push(...situationalData.instructions.map(mapHalInstruction))
-          }
-        }
-
-        bootstrapLoaded = appendInstructionBootstrap(
-          'HAL API',
-          basicInstructions,
-          situationalInstructions,
-          USE_MINIMAL_BOOTSTRAP
-        )
-        const templateInst = basicInstructions.find((i) => i.topicId === 'ticket-template')
-        const checklistInst = basicInstructions.find((i) => i.topicId === 'ready-to-start-checklist')
-        if (templateInst?.contentMd) ticketTemplateContent = templateInst.contentMd
-        if (checklistInst?.contentMd) checklistContent = checklistInst.contentMd
-      } catch (apiErr) {
-        console.warn('[PM Agent] HAL API instruction bootstrap failed:', apiErr)
       }
+    } catch (err) {
+      sections.push(`(error loading rules: ${err instanceof Error ? err.message : String(err)})`)
     }
-
-    // No direct Supabase fallback: agents must be API-only.
-
-    // Last resort: local entry point only (no topic content from filesystem).
-    if (!bootstrapLoaded) {
-      try {
-        const entryPointPath = path.join(rulesPath, 'agent-instructions.mdc')
-        const entryPointContent = await fs.readFile(entryPointPath, 'utf8')
-        sections.push('### Agent Instructions Entry Point (filesystem fallback)\n\n')
-        sections.push(entryPointContent)
-        sections.push(
-          '\n\n**Note:** This fallback is entry-point only. Individual instruction sets and topics are loaded from HAL/Supabase, not local files.'
-        )
-      } catch {
-        sections.push('### Agent Instructions\n\n')
-        sections.push(
-          '**Error:** Could not load instruction bootstrap from HAL/Supabase or the local entry-point fallback.\n'
-        )
-        sections.push('**To access instructions:**\n')
-        sections.push('- Use HAL API endpoint `/api/instructions/get` to fetch bootstrap/basic instructions\n')
-        sections.push('- Use `get_instruction_set({ agentType: "<agent-type>" })` for full agent instruction sets\n')
-        sections.push('- Use HAL API endpoint `/api/instructions/get-topic` (or `get_instruction_set({ topicId })`) for specific topics\n')
-      }
-    }
-  } catch (err) {
-    sections.push(`(error loading rules: ${err instanceof Error ? err.message : String(err)})`)
-  }
   }
 
   if (!localLoaded && USE_MINIMAL_BOOTSTRAP) {
