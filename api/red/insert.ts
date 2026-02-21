@@ -7,6 +7,7 @@ import type { IncomingMessage, ServerResponse } from 'http'
 import { createClient } from '@supabase/supabase-js'
 import { parseSupabaseCredentialsWithServiceRole } from '../tickets/_shared.js'
 import { generateRedChecksum } from './_checksum.js'
+import { getLatestManifestForRepo } from '../manifests/_helpers.js'
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []
@@ -177,17 +178,32 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       ? (existingVersions[0].version as number) + 1
       : 1
 
-    // Generate deterministic checksum
-    const contentChecksum = generateRedChecksum(redJson)
+    // Fetch latest manifest for this repo and add manifest_id to redJson
+    let redJsonWithManifest = redJson
+    try {
+      const manifest = await getLatestManifestForRepo(supabaseUrl, supabaseKey, resolvedRepoFullName)
+      if (manifest && typeof redJson === 'object' && redJson !== null && !Array.isArray(redJson)) {
+        redJsonWithManifest = {
+          ...(redJson as Record<string, unknown>),
+          manifest_id: manifest.manifest_id,
+          manifest_version: manifest.schema_version,
+        }
+      }
+    } catch {
+      // Ignore manifest fetch errors - not critical for RED insertion
+    }
 
-    // Insert new RED version
+    // Generate deterministic checksum (use redJsonWithManifest to include manifest reference)
+    const contentChecksum = generateRedChecksum(redJsonWithManifest)
+
+    // Insert new RED version (use redJsonWithManifest to include manifest reference)
     const { data: insertedRed, error: insertError } = await supabase
       .from('hal_red_documents')
       .insert({
         repo_full_name: resolvedRepoFullName,
         ticket_pk: resolvedTicketPk,
         version: nextVersion,
-        red_json: redJson,
+        red_json: redJsonWithManifest,
         content_checksum: contentChecksum,
         validation_status: validationStatus,
         created_by: createdBy || null,

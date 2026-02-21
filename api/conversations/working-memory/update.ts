@@ -1,5 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { createClient } from '@supabase/supabase-js'
+import { getLatestManifestForRepo } from '../../manifests/_helpers.js'
+import { parseSupabaseCredentialsWithServiceRole } from '../../tickets/_shared.js'
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []
@@ -154,12 +156,36 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       }
     }
 
+    // Fetch manifest for this repo (projectId is typically repo_full_name)
+    let manifestContext = ''
+    try {
+      const { supabaseUrl: manifestSupabaseUrl, supabaseKey: manifestSupabaseKey } = parseSupabaseCredentialsWithServiceRole({
+        supabaseUrl,
+        supabaseAnonKey,
+      })
+      if (manifestSupabaseUrl && manifestSupabaseKey) {
+        const manifest = await getLatestManifestForRepo(manifestSupabaseUrl, manifestSupabaseKey, projectId)
+        if (manifest) {
+          manifestContext = `\n\n## Project Integration Manifest (v${manifest.schema_version})\n` +
+            `Goal: ${manifest.goal}\n` +
+            `Stack: ${manifest.stack.join(', ')}\n` +
+            `Constraints: ${manifest.constraints.length > 0 ? manifest.constraints.join('; ') : 'None specified'}\n` +
+            `Conventions: ${manifest.conventions.length > 0 ? manifest.conventions.slice(0, 3).join('; ') : 'None specified'}\n` +
+            `(Manifest ID: ${manifest.manifest_id})\n`
+        }
+      }
+    } catch {
+      // Ignore manifest fetch errors - not critical for working memory generation
+    }
+
     // Generate working memory using OpenAI
     const conversationText = messages
       .map((m) => `**${m.role}**: ${m.content}`)
       .join('\n\n')
 
     const prompt = `You are analyzing a conversation between a user and a Project Manager agent. Extract and structure key information into a working memory format.
+${manifestContext}
+Conversation:
 
 Conversation:
 ${conversationText}
