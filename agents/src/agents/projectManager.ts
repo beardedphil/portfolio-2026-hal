@@ -46,6 +46,7 @@ import {
   generateWorkingMemory,
   type WorkingMemory,
 } from './projectManager/summarization.js'
+import { isAbortError, halFetchJson } from './projectManager/runPmAgentHelpers.js'
 
 // Re-export for backward compatibility
 export type { ReadyCheckResult }
@@ -218,53 +219,17 @@ export async function runPmAgent(
 
   const halBaseUrl = (process.env.HAL_API_BASE_URL || 'https://portfolio-2026-hal.vercel.app').trim()
 
-  const isAbortError = (err: unknown) =>
-    config.abortSignal?.aborted === true ||
-    (typeof (err as any)?.name === 'string' && String((err as any).name).toLowerCase() === 'aborterror') ||
-    (err instanceof Error && /aborted|abort/i.test(err.message))
-
-  const halFetchJson = async (
+  // Helper function wrapper that uses config's abortSignal and onProgress
+  const halFetchJsonWithConfig = async (
     path: string,
     body: unknown,
     opts?: { timeoutMs?: number; progressMessage?: string }
   ) => {
-    const timeoutMs = Math.max(1_000, Math.floor(opts?.timeoutMs ?? 20_000))
-    const controller = new AbortController()
-    const t = setTimeout(() => controller.abort(new Error('HAL request timeout')), timeoutMs)
-    const onAbort = () => controller.abort(config.abortSignal?.reason ?? new Error('Aborted'))
-    try {
-      const progress = String(opts?.progressMessage ?? '').trim()
-      if (progress) await config.onProgress?.(progress)
-      if (config.abortSignal) config.abortSignal.addEventListener('abort', onAbort, { once: true })
-      const res = await fetch(`${halBaseUrl}${path}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body ?? {}),
-        signal: controller.signal,
-      })
-      const text = await res.text()
-      let json: any = {}
-      if (text) {
-        try {
-          json = JSON.parse(text)
-        } catch (e) {
-          const contentType = res.headers.get('content-type') || 'unknown'
-          const prefix = text.slice(0, 200)
-          json = {
-            success: false,
-            error: `Non-JSON response from ${path} (HTTP ${res.status}, content-type: ${contentType}): ${prefix}`,
-          }
-        }
-      }
-      return { ok: res.ok, json }
-    } finally {
-      clearTimeout(t)
-      try {
-        if (config.abortSignal) config.abortSignal.removeEventListener('abort', onAbort)
-      } catch {
-        // ignore
-      }
-    }
+    return halFetchJson(halBaseUrl, path, body, {
+      ...opts,
+      abortSignal: config.abortSignal,
+      onProgress: config.onProgress,
+    })
   }
 
   const createTicketTool = tool({
@@ -313,7 +278,7 @@ export async function runPmAgent(
             ? config.projectId.trim()
             : 'beardedphil/portfolio-2026-hal'
 
-        const { json: created } = await halFetchJson(
+        const { json: created } = await halFetchJsonWithConfig(
           '/api/tickets/create-general',
           {
             title: input.title.trim(),
@@ -339,7 +304,7 @@ export async function runPmAgent(
         const normalizedBodyMd = normalizeTitleLineInBody(bodyMdTrimmed, displayId)
         // Persist normalized Title line (and strip QA blocks server-side).
         try {
-          await halFetchJson(
+          await halFetchJsonWithConfig(
             '/api/tickets/update',
             {
               ...(ticketPk ? { ticketPk } : { ticketId: displayId }),
@@ -356,7 +321,7 @@ export async function runPmAgent(
         let movedToTodo = false
         let moveError: string | undefined
         if (readiness.ready) {
-          const { json: moved } = await halFetchJson(
+          const { json: moved } = await halFetchJsonWithConfig(
             '/api/tickets/move',
             { ticketId: displayId, columnId: COL_TODO, position: 'bottom' },
             { timeoutMs: 25_000, progressMessage: `Moving ${displayId} to To Do…` }
@@ -424,7 +389,7 @@ export async function runPmAgent(
 
       let out: FetchResult
       try {
-        const { json: data } = await halFetchJson(
+        const { json: data } = await halFetchJsonWithConfig(
           '/api/tickets/get',
           { ticketId: input.ticket_id },
           { timeoutMs: 20_000, progressMessage: `Fetching ticket ${input.ticket_id}…` }
@@ -523,7 +488,7 @@ export async function runPmAgent(
         bodyMdTrimmed = normalizeBodyForReady(bodyMdTrimmed)
 
         // Fetch ticket to get display_id / pk for robust update.
-        const { json: fetched } = await halFetchJson(
+        const { json: fetched } = await halFetchJsonWithConfig(
           '/api/tickets/get',
           { ticketId: input.ticket_id },
           { timeoutMs: 20_000, progressMessage: `Fetching ticket ${input.ticket_id} for update…` }
@@ -539,7 +504,7 @@ export async function runPmAgent(
         const ticketPk = typeof ticket.pk === 'string' ? ticket.pk : undefined
         const normalizedBodyMd = normalizeTitleLineInBody(bodyMdTrimmed, displayId)
 
-        const { json: updated } = await halFetchJson(
+        const { json: updated } = await halFetchJsonWithConfig(
           '/api/tickets/update',
           {
             ...(ticketPk ? { ticketPk } : { ticketId: displayId }),
@@ -612,7 +577,7 @@ export async function runPmAgent(
       let out: MoveResult
       try {
         // Fetch current column and preferred display id
-        const { json: fetched } = await halFetchJson(
+        const { json: fetched } = await halFetchJsonWithConfig(
           '/api/tickets/get',
           { ticketId: input.ticket_id },
           { timeoutMs: 20_000, progressMessage: `Checking current column for ${input.ticket_id}…` }
@@ -635,7 +600,7 @@ export async function runPmAgent(
         }
         const ticketIdToMove = String(ticket.display_id || input.ticket_id)
         const position = input.position ?? 'bottom'
-        const { json: moved } = await halFetchJson(
+        const { json: moved } = await halFetchJsonWithConfig(
           '/api/tickets/move',
           { ticketId: ticketIdToMove, columnId: COL_TODO, position },
           { timeoutMs: 25_000, progressMessage: `Moving ${ticketIdToMove} to To Do…` }
@@ -888,7 +853,7 @@ export async function runPmAgent(
       let out: CreateRedResult
       try {
         // Fetch ticket to get ticketPk and repoFullName
-        const { json: fetched } = await halFetchJson(
+        const { json: fetched } = await halFetchJsonWithConfig(
           '/api/tickets/get',
           { ticketId: input.ticket_id },
           { timeoutMs: 20_000, progressMessage: `Fetching ticket ${input.ticket_id} for RED…` }
@@ -913,7 +878,7 @@ export async function runPmAgent(
         }
 
         // Idempotency: if a RED already exists, reuse it instead of creating new versions.
-        const { json: existing } = await halFetchJson(
+        const { json: existing } = await halFetchJsonWithConfig(
           '/api/red/list',
           { ticketPk, repoFullName },
           { timeoutMs: 20_000, progressMessage: `Checking existing REDs for ${input.ticket_id}…` }
@@ -922,7 +887,7 @@ export async function runPmAgent(
           const latest = existing.red_versions[0] as any
           // Best-effort: ensure it's validated for "latest-valid" gates
           try {
-            await halFetchJson(
+            await halFetchJsonWithConfig(
               '/api/red/validate',
               {
                 redId: latest.red_id,
@@ -939,7 +904,7 @@ export async function runPmAgent(
           // Best-effort: create/update mirrored RED artifact for visibility in ticket Artifacts.
           try {
             const vNum = Number(latest.version ?? 0) || 0
-            const { json: redGet } = await halFetchJson(
+            const { json: redGet } = await halFetchJsonWithConfig(
               '/api/red/get',
               { ticketPk, ticketId: input.ticket_id, repoFullName, version: vNum },
               { timeoutMs: 20_000, progressMessage: `Loading latest RED JSON for ${input.ticket_id}…` }
@@ -963,7 +928,7 @@ Validation Status: ${validationStatus}
 ${JSON.stringify(redJsonForArtifact, null, 2)}
 \`\`\`
 `
-              await halFetchJson(
+              await halFetchJsonWithConfig(
                 '/api/artifacts/insert-implementation',
                 { ticketId: ticketPk, artifactType: 'red', title: artifactTitle, body_md: artifactBody },
                 { timeoutMs: 25_000, progressMessage: `Saving RED artifact for ${input.ticket_id}…` }
@@ -998,7 +963,7 @@ ${JSON.stringify(redJsonForArtifact, null, 2)}
         }
 
         // Create RED document via HAL API
-        const { json: created } = await halFetchJson(
+        const { json: created } = await halFetchJsonWithConfig(
           '/api/red/insert',
           {
             ticketPk,
@@ -1014,7 +979,7 @@ ${JSON.stringify(redJsonForArtifact, null, 2)}
         } else {
           // Option A: validate via separate table (immutable RED rows)
           try {
-            await halFetchJson(
+            await halFetchJsonWithConfig(
               '/api/red/validate',
               {
                 redId: created.red_document.red_id,
@@ -1049,7 +1014,7 @@ Validation Status: ${validationStatus}
 ${JSON.stringify(redJsonForArtifact, null, 2)}
 \`\`\`
 `
-            await halFetchJson(
+            await halFetchJsonWithConfig(
               '/api/artifacts/insert-implementation',
               { ticketId: ticketPk, artifactType: 'red', title: artifactTitle, body_md: artifactBody },
               { timeoutMs: 25_000, progressMessage: `Saving RED artifact for ${input.ticket_id}…` }
@@ -1761,11 +1726,7 @@ ${JSON.stringify(redJsonForArtifact, null, 2)}
     // Important: `runPmAgent` is often executed under a time budget enforced by an AbortSignal.
     // In that case we MUST let the abort propagate (throw) so the caller can treat it as
     // "continue in the next work slice" rather than a hard failure.
-    const isAbort =
-      config.abortSignal?.aborted === true ||
-      (typeof (err as any)?.name === 'string' && String((err as any).name).toLowerCase() === 'aborterror') ||
-      (err instanceof Error && /aborted|abort/i.test(err.message))
-    if (isAbort) throw err
+    if (isAbortError(err, config.abortSignal)) throw err
 
     return {
       reply: '',
