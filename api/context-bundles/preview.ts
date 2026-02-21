@@ -199,6 +199,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         overage,
       },
       sectionMetrics,
+      bundle: bundle, // Include the full bundle content for preview
     })
   } catch (err) {
     console.error('Error in preview context bundle handler:', err)
