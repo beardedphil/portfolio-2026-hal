@@ -38,7 +38,6 @@ export function AgentRunBundleModal({
   supabaseUrl,
   supabaseAnonKey,
 }: AgentRunBundleModalProps) {
-  const apiBaseUrl = import.meta.env.VITE_HAL_API_BASE_URL || window.location.origin
   const [runId, setRunId] = useState<string>(initialRunId || '')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)

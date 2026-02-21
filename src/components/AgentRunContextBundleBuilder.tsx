@@ -32,7 +32,7 @@ interface BuildResponse {
 export function AgentRunContextBundleBuilder({
   runId,
   ticketPk,
-  ticketId,
+  ticketId: _ticketId, // Not used - API fetches ticket from ticketPk
   repoFullName,
   supabaseUrl,
   supabaseAnonKey,

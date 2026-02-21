@@ -1034,11 +1034,6 @@ function App() {
         supabaseUrl={supabaseUrl}
         supabaseAnonKey={supabaseAnonKey}
       />
-        repoFullName={connectedGithubRepo?.fullName || null}
-        supabaseUrl={supabaseUrl}
-        supabaseAnonKey={supabaseAnonKey}
-        allowTicketSelection={true}
-      />
     </div>
   )
 }
