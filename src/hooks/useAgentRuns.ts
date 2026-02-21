@@ -436,9 +436,13 @@ export function useAgentRuns(params: UseAgentRunsParams) {
             }
             if (!launchRes.ok || !launchData.runId) {
               const msg = launchData.error ?? `Launch failed (HTTP ${launchRes.status})`
+              const isMissingBundle = (launchData as any).missingContextBundle === true
+              const errorMsg = isMissingBundle
+                ? `Cannot launch agent run: No context bundle found for this ticket. Please build a context bundle first using the "Build Context Bundle" option. Agent runs require a deterministic Context Bundle JSON and cannot use chat history.`
+                : msg
               setImplAgentRunStatus('failed')
-              setImplAgentError(msg)
-              addMessage(convId, 'implementation-agent', `[Implementation Agent] ${msg}`)
+              setImplAgentError(errorMsg)
+              addMessage(convId, 'implementation-agent', `[Implementation Agent] ${errorMsg}`)
               setTimeout(() => setAgentTypingTarget(null), 500)
               return
             }
@@ -638,9 +642,13 @@ export function useAgentRuns(params: UseAgentRunsParams) {
             }
             if (!launchRes.ok || !launchData.runId) {
               const msg = launchData.error ?? `Launch failed (HTTP ${launchRes.status})`
+              const isMissingBundle = (launchData as any).missingContextBundle === true
+              const errorMsg = isMissingBundle
+                ? `Cannot launch agent run: No context bundle found for this ticket. Please build a context bundle first using the "Build Context Bundle" option. Agent runs require a deterministic Context Bundle JSON and cannot use chat history.`
+                : msg
               setQaAgentRunStatus('failed')
-              setQaAgentError(msg)
-              addMessage(convId, 'qa-agent', `[QA Agent] ${msg}`)
+              setQaAgentError(errorMsg)
+              addMessage(convId, 'qa-agent', `[QA Agent] ${errorMsg}`)
               setTimeout(() => setAgentTypingTarget(null), 500)
               return
             }

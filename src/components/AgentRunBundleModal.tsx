@@ -23,6 +23,8 @@ interface AgentRun {
   finished_at: string | null
   summary: string | null
   error: string | null
+  context_bundle_id?: string | null
+  context_bundle_checksum?: string | null
 }
 
 interface Ticket {
@@ -187,6 +189,72 @@ export function AgentRunBundleModal({
                   </div>
                 </div>
               </div>
+
+              {/* HAL-0748: Context Bundle Information */}
+              {agentRun.context_bundle_id ? (
+                <div style={{ padding: '12px', background: 'var(--hal-surface-alt)', borderRadius: '4px', border: '1px solid var(--hal-border)' }}>
+                  <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Context Bundle</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12px' }}>
+                    <div>
+                      <strong>Bundle ID:</strong>{' '}
+                      <span style={{ fontFamily: 'monospace' }}>{agentRun.context_bundle_id.substring(0, 8)}...</span>
+                    </div>
+                    {agentRun.context_bundle_checksum && (
+                      <div>
+                        <strong>Checksum (SHA-256):</strong>
+                        <div style={{ fontFamily: 'monospace', fontSize: '11px', wordBreak: 'break-all', marginTop: '4px', padding: '8px', background: 'var(--hal-surface)', borderRadius: '4px' }}>
+                          {agentRun.context_bundle_checksum}
+                        </div>
+                      </div>
+                    )}
+                    <div style={{ marginTop: '8px', padding: '8px', background: 'var(--hal-status-info-bg, rgba(33, 150, 243, 0.1))', borderRadius: '4px', fontSize: '11px', color: 'var(--hal-text-muted)' }}>
+                      <strong>Note:</strong> This agent run was executed using the deterministic Context Bundle JSON above. Chat history is not part of the agent input and is not used for execution.
+                    </div>
+                    <div style={{ marginTop: '4px' }}>
+                      <button
+                        type="button"
+                        className="btn-standard"
+                        onClick={async () => {
+                          if (!supabaseUrl || !supabaseAnonKey || !agentRun.context_bundle_id) return
+                          try {
+                            const response = await fetch('/api/context-bundles/get', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              credentials: 'include',
+                              body: JSON.stringify({
+                                bundleId: agentRun.context_bundle_id,
+                                supabaseUrl,
+                                supabaseAnonKey,
+                              }),
+                            })
+                            const data = await response.json()
+                            if (data.success && data.bundle) {
+                              const blob = new Blob([JSON.stringify(data.bundle.bundle_json, null, 2)], { type: 'application/json' })
+                              const url = URL.createObjectURL(blob)
+                              const a = document.createElement('a')
+                              a.href = url
+                              a.download = `context-bundle-${agentRun.context_bundle_id.substring(0, 8)}.json`
+                              document.body.appendChild(a)
+                              a.click()
+                              document.body.removeChild(a)
+                              URL.revokeObjectURL(url)
+                            }
+                          } catch (err) {
+                            console.error('Failed to download bundle:', err)
+                          }
+                        }}
+                        style={{ fontSize: '12px', padding: '4px 8px' }}
+                      >
+                        Download Bundle JSON
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ padding: '12px', background: 'var(--hal-status-warning-bg, rgba(255, 193, 7, 0.1))', borderRadius: '4px', border: '1px solid var(--hal-status-warning, #ff9800)', fontSize: '12px' }}>
+                  <strong>No Context Bundle:</strong> This agent run was executed without a context bundle. This should not happen for implementation, QA, or process-review runs.
+                </div>
+              )}
 
               {agentRun.ticket_pk && agentRun.repo_full_name ? (
                 <AgentRunContextBundleBuilder
