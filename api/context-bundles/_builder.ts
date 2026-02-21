@@ -93,6 +93,7 @@ export interface BuilderResult {
     version: number
     schema_version: string
   } | null
+  artifactReferences?: ArtifactReference[]
   error?: string
 }
 
@@ -171,6 +172,14 @@ export async function buildContextBundleV0(
       selectedArtifactIds
     )
 
+    // Build artifact references for receipt (with exact snippets)
+    const artifactReferences = await buildArtifactReferences(
+      supabase,
+      ticketPk,
+      selectedArtifactIds,
+      relevantArtifacts
+    )
+
     // 7. Get instructions (role-specific)
     const instructions = await getRoleSpecificInstructions(supabase, repoFullName, role)
 
@@ -201,6 +210,7 @@ export async function buildContextBundleV0(
       bundle,
       redReference,
       integrationManifestReference,
+      artifactReferences,
     }
   } catch (err) {
     return {
@@ -386,6 +396,18 @@ async function getRepoContext(
   }
 }
 
+export interface ArtifactReference {
+  artifact_id: string
+  artifact_title: string
+  artifact_version: string // created_at timestamp
+  snippets: Array<{
+    content: string
+    source_artifact_id: string
+    source_artifact_version: string
+    pointer: string // e.g., 'summary', 'hard_facts[0]', 'keywords[2]'
+  }>
+}
+
 /**
  * Gets relevant artifacts (distilled).
  */
@@ -404,10 +426,10 @@ async function getRelevantArtifacts(
     return []
   }
 
-  // Fetch artifacts
+  // Fetch artifacts with created_at for version tracking
   const { data: artifacts, error: artifactsError } = await supabase
     .from('agent_artifacts')
-    .select('artifact_id, title, body_md')
+    .select('artifact_id, title, body_md, created_at')
     .in('artifact_id', selectedArtifactIds)
     .eq('ticket_pk', ticketPk)
 
@@ -439,6 +461,89 @@ async function getRelevantArtifacts(
   }
 
   return distilledArtifacts
+}
+
+/**
+ * Builds artifact references with exact snippets for receipt storage.
+ */
+export async function buildArtifactReferences(
+  supabase: ReturnType<typeof createClient>,
+  ticketPk: string,
+  selectedArtifactIds: string[],
+  distilledArtifacts: Array<{
+    artifact_id: string
+    artifact_title: string
+    summary: string
+    hard_facts: string[]
+    keywords: string[]
+  }>
+): Promise<ArtifactReference[]> {
+  if (selectedArtifactIds.length === 0 || distilledArtifacts.length === 0) {
+    return []
+  }
+
+  // Fetch artifacts with created_at (version)
+  const { data: artifacts, error: artifactsError } = await supabase
+    .from('agent_artifacts')
+    .select('artifact_id, title, created_at')
+    .in('artifact_id', selectedArtifactIds)
+    .eq('ticket_pk', ticketPk)
+
+  if (artifactsError || !artifacts || artifacts.length === 0) {
+    return []
+  }
+
+  // Build artifact references with snippets
+  const artifactReferences: ArtifactReference[] = []
+
+  for (const artifact of artifacts) {
+    const distilled = distilledArtifacts.find((d) => d.artifact_id === artifact.artifact_id)
+    if (!distilled) continue
+
+    // Use created_at as version, fallback to current timestamp if missing
+    const artifactVersion = artifact.created_at || new Date().toISOString()
+
+    const snippets: ArtifactReference['snippets'] = []
+
+    // Add summary snippet
+    if (distilled.summary) {
+      snippets.push({
+        content: distilled.summary,
+        source_artifact_id: artifact.artifact_id,
+        source_artifact_version: artifactVersion,
+        pointer: 'summary',
+      })
+    }
+
+    // Add hard_facts snippets
+    distilled.hard_facts.forEach((fact, index) => {
+      snippets.push({
+        content: fact,
+        source_artifact_id: artifact.artifact_id,
+        source_artifact_version: artifactVersion,
+        pointer: `hard_facts[${index}]`,
+      })
+    })
+
+    // Add keywords snippets
+    distilled.keywords.forEach((keyword, index) => {
+      snippets.push({
+        content: keyword,
+        source_artifact_id: artifact.artifact_id,
+        source_artifact_version: artifactVersion,
+        pointer: `keywords[${index}]`,
+      })
+    })
+
+    artifactReferences.push({
+      artifact_id: artifact.artifact_id,
+      artifact_title: artifact.title || 'Untitled',
+      artifact_version: artifactVersion,
+      snippets,
+    })
+  }
+
+  return artifactReferences
 }
 
 /**

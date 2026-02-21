@@ -113,6 +113,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         red_reference: receipt.red_reference,
         integration_manifest_reference: receipt.integration_manifest_reference,
         git_ref: receipt.git_ref,
+        artifact_references: receipt.artifact_references || null,
         created_at: receipt.created_at,
         bundle: bundle || null,
       },
