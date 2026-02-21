@@ -14,6 +14,7 @@ import {
 } from './_checksum.js'
 import { getLatestManifest } from '../_lib/integration-manifest/context-integration.js'
 import { getSession } from '../_lib/github/session.js'
+import { distillArtifact } from './_distill.js'
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []
@@ -54,6 +55,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       repoFullName?: string
       role?: string
       bundleJson?: unknown
+      selectedArtifactIds?: string[]
       supabaseUrl?: string
       supabaseAnonKey?: string
       redReference?: { red_id: string; version: number } | null
@@ -70,6 +72,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const repoFullName = typeof body.repoFullName === 'string' ? body.repoFullName.trim() || undefined : undefined
     const role = typeof body.role === 'string' ? body.role.trim() || undefined : undefined
     const bundleJson = body.bundleJson
+    const selectedArtifactIds = Array.isArray(body.selectedArtifactIds)
+      ? body.selectedArtifactIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+      : []
 
     const { supabaseUrl, supabaseAnonKey } = parseSupabaseCredentials(body)
 
@@ -179,9 +184,87 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const nextVersion = latestBundles && latestBundles.length > 0 ? latestBundles[0].version + 1 : 1
 
+    // Distill selected artifacts if any
+    const distilledArtifacts: Array<{
+      artifact_id: string
+      artifact_title: string
+      summary: string
+      hard_facts: string[]
+      keywords: string[]
+      distillation_error?: string
+    }> = []
+    const distillationErrors: Array<{ artifact_id: string; error: string }> = []
+
+    if (selectedArtifactIds.length > 0) {
+      // Fetch artifacts
+      const { data: artifacts, error: artifactsError } = await supabase
+        .from('agent_artifacts')
+        .select('artifact_id, title, body_md')
+        .in('artifact_id', selectedArtifactIds)
+        .eq('ticket_pk', resolvedTicketPk)
+
+      if (artifactsError) {
+        return json(res, 500, {
+          success: false,
+          error: `Failed to fetch artifacts: ${artifactsError.message}`,
+        })
+      }
+
+      if (!artifacts || artifacts.length === 0) {
+        return json(res, 400, {
+          success: false,
+          error: 'No artifacts found for the selected artifact IDs.',
+        })
+      }
+
+      // Distill each artifact
+      for (const artifact of artifacts) {
+        const result = await distillArtifact(artifact.body_md || '', artifact.title || '')
+
+        if (!result.success || !result.distilled) {
+          distillationErrors.push({
+            artifact_id: artifact.artifact_id,
+            error: result.error || 'Distillation failed',
+          })
+          distilledArtifacts.push({
+            artifact_id: artifact.artifact_id,
+            artifact_title: artifact.title || 'Untitled',
+            summary: '',
+            hard_facts: [],
+            keywords: [],
+            distillation_error: result.error || 'Distillation failed',
+          })
+          continue
+        }
+
+        distilledArtifacts.push({
+          artifact_id: artifact.artifact_id,
+          artifact_title: artifact.title || 'Untitled',
+          summary: result.distilled.summary,
+          hard_facts: result.distilled.hard_facts,
+          keywords: result.distilled.keywords,
+        })
+      }
+    }
+
+    // Block bundle creation if any distillation failed
+    if (distillationErrors.length > 0) {
+      return json(res, 400, {
+        success: false,
+        error: `Distillation failed for ${distillationErrors.length} artifact(s). Bundle creation blocked until all distillations succeed.`,
+        distillation_errors: distillationErrors,
+      })
+    }
+
+    // Build final bundle JSON with distilled artifacts
+    const finalBundleJson = {
+      ...(typeof bundleJson === 'object' && bundleJson !== null ? bundleJson : {}),
+      distilled_artifacts: distilledArtifacts,
+    }
+
     // Generate checksums
-    const contentChecksum = generateContentChecksum(bundleJson)
-    const bundleChecksum = generateBundleChecksum(bundleJson, {
+    const contentChecksum = generateContentChecksum(finalBundleJson)
+    const bundleChecksum = generateBundleChecksum(finalBundleJson, {
       repoFullName: resolvedRepoFullName,
       ticketPk: resolvedTicketPk,
       ticketId: resolvedTicketId,
@@ -219,7 +302,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         ticket_id: resolvedTicketId,
         role,
         version: nextVersion,
-        bundle_json: bundleJson,
+        bundle_json: finalBundleJson,
         content_checksum: contentChecksum,
         bundle_checksum: bundleChecksum,
         created_by: createdBy,
@@ -235,7 +318,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     // Calculate section metrics
-    const sectionMetrics = calculateSectionMetrics(bundleJson)
+    const sectionMetrics = calculateSectionMetrics(finalBundleJson)
     const totalCharacters = calculateTotalCharacters(sectionMetrics)
 
     // Insert receipt

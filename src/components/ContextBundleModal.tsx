@@ -79,7 +79,36 @@ interface GenerateResponse {
     section_metrics: Record<string, number>
     total_characters: number
   }
+  distillation_errors?: Array<{ artifact_id: string; error: string }>
   error?: string
+}
+
+interface Artifact {
+  artifact_id: string
+  title: string
+  agent_type: string
+  created_at: string
+}
+
+interface ArtifactsResponse {
+  success: boolean
+  artifacts?: Artifact[]
+  error?: string
+}
+
+interface DistilledArtifact {
+  artifact_id: string
+  artifact_title: string
+  summary: string
+  hard_facts: string[]
+  keywords: string[]
+  distillation_error?: string
+}
+
+interface BundleJson {
+  distilled_artifacts?: DistilledArtifact[]
+  distillation_errors?: Array<{ artifact_id: string; error: string }>
+  [key: string]: unknown
 }
 
 export function ContextBundleModal({
@@ -101,6 +130,10 @@ export function ContextBundleModal({
   const [receiptLoading, setReceiptLoading] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [generateRole, setGenerateRole] = useState<string>('implementation-agent')
+  const [artifacts, setArtifacts] = useState<Artifact[]>([])
+  const [loadingArtifacts, setLoadingArtifacts] = useState(false)
+  const [selectedArtifactIds, setSelectedArtifactIds] = useState<Set<string>>(new Set())
+  const [bundleJson, setBundleJson] = useState<BundleJson | null>(null)
   
   // Ticket selection state (if allowTicketSelection is true)
   const [selectedTicketId, setSelectedTicketId] = useState<string>(initialTicketId || '')
@@ -108,10 +141,11 @@ export function ContextBundleModal({
   const [selectedRepoFullName, setSelectedRepoFullName] = useState<string | null>(initialRepoFullName)
   const [loadingTicket, setLoadingTicket] = useState(false)
 
-  // Load bundles when modal opens
+  // Load bundles and artifacts when modal opens
   useEffect(() => {
     if (isOpen && selectedTicketPk && supabaseUrl && supabaseAnonKey) {
       loadBundles()
+      loadArtifacts()
     }
   }, [isOpen, selectedTicketPk, supabaseUrl, supabaseAnonKey])
   
@@ -130,6 +164,9 @@ export function ContextBundleModal({
       setSelectedBundleId(null)
       setReceipt(null)
       setGenerateRole('implementation-agent')
+      setArtifacts([])
+      setSelectedArtifactIds(new Set())
+      setBundleJson(null)
       if (!allowTicketSelection) {
         setSelectedTicketId(initialTicketId || '')
         setSelectedTicketPk(initialTicketPk)
@@ -188,6 +225,42 @@ export function ContextBundleModal({
     e.preventDefault()
     if (selectedTicketId.trim()) {
       await loadTicketInfo(selectedTicketId.trim())
+    }
+  }
+
+  const loadArtifacts = async () => {
+    if (!selectedTicketPk || !supabaseUrl || !supabaseAnonKey) return
+
+    setLoadingArtifacts(true)
+    setError(null)
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/artifacts/get`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          ticketPk: selectedTicketPk,
+          ticketId: selectedTicketId,
+          supabaseUrl,
+          supabaseAnonKey,
+        }),
+      })
+
+      const data = (await response.json()) as ArtifactsResponse
+
+      if (!response.ok || !data.success) {
+        setError(data.error || 'Failed to load artifacts')
+        return
+      }
+
+      setArtifacts(data.artifacts || [])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error')
+    } finally {
+      setLoadingArtifacts(false)
     }
   }
 
@@ -257,6 +330,19 @@ export function ContextBundleModal({
 
       setReceipt(data.receipt || null)
       setSelectedBundleId(bundleId)
+
+      // Also fetch the bundle JSON to get distilled artifacts
+      const { createClient } = await import('@supabase/supabase-js')
+      const supabase = createClient(supabaseUrl, supabaseAnonKey)
+      const { data: bundleData, error: bundleError } = await supabase
+        .from('context_bundles')
+        .select('bundle_json')
+        .eq('bundle_id', bundleId)
+        .maybeSingle()
+
+      if (!bundleError && bundleData) {
+        setBundleJson(bundleData.bundle_json as BundleJson)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
     } finally {
@@ -270,13 +356,16 @@ export function ContextBundleModal({
       return
     }
 
+    if (selectedArtifactIds.size === 0) {
+      setError('Please select at least one artifact to include in the bundle')
+      return
+    }
+
     setGenerating(true)
     setError(null)
 
     try {
-      // For now, generate a simple bundle structure
-      // In a real implementation, this would call an agent or build the bundle from ticket data
-      const bundleJson = {
+      const bundleJsonData = {
         ticket: `Ticket ${selectedTicketId || selectedTicketPk}`,
         repo_context: `Repository: ${selectedRepoFullName}`,
         instructions: 'Agent instructions would go here',
@@ -295,7 +384,8 @@ export function ContextBundleModal({
           ticketId: selectedTicketId,
           repoFullName: selectedRepoFullName,
           role: generateRole,
-          bundleJson,
+          bundleJson: bundleJsonData,
+          selectedArtifactIds: Array.from(selectedArtifactIds),
           supabaseUrl,
           supabaseAnonKey,
         }),
@@ -304,7 +394,16 @@ export function ContextBundleModal({
       const data = (await response.json()) as GenerateResponse
 
       if (!response.ok || !data.success) {
-        setError(data.error || 'Failed to generate bundle')
+        // Check if this is a distillation error
+        if (data.distillation_errors && data.distillation_errors.length > 0) {
+          const errorMessages = data.distillation_errors.map((e) => {
+            const artifact = artifacts.find((a) => a.artifact_id === e.artifact_id)
+            return `${artifact?.title || e.artifact_id}: ${e.error}`
+          }).join('\n')
+          setError(`Bundle generation blocked: Some artifacts failed to distill. Please resolve these errors:\n${errorMessages}`)
+        } else {
+          setError(data.error || 'Failed to generate bundle')
+        }
         return
       }
 
@@ -320,6 +419,16 @@ export function ContextBundleModal({
     } finally {
       setGenerating(false)
     }
+  }
+
+  const toggleArtifactSelection = (artifactId: string) => {
+    const newSelection = new Set(selectedArtifactIds)
+    if (newSelection.has(artifactId)) {
+      newSelection.delete(artifactId)
+    } else {
+      newSelection.add(artifactId)
+    }
+    setSelectedArtifactIds(newSelection)
   }
 
   const formatRole = (role: string): string => {
@@ -398,28 +507,75 @@ export function ContextBundleModal({
               {/* Generate Bundle Section */}
           <div style={{ border: '1px solid var(--hal-border)', borderRadius: '8px', padding: '16px' }}>
             <h3 style={{ margin: '0 0 12px 0', fontSize: '18px' }}>Generate New Bundle</h3>
-            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <label>
-                Role:
-                <select
-                  value={generateRole}
-                  onChange={(e) => setGenerateRole(e.target.value)}
-                  style={{ marginLeft: '8px', padding: '4px 8px' }}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <label>
+                  Role:
+                  <select
+                    value={generateRole}
+                    onChange={(e) => setGenerateRole(e.target.value)}
+                    style={{ marginLeft: '8px', padding: '4px 8px' }}
+                  >
+                    <option value="implementation-agent">Implementation Agent</option>
+                    <option value="qa-agent">QA Agent</option>
+                    <option value="project-manager">Project Manager</option>
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  className="btn-standard"
+                  onClick={handleGenerate}
+                  disabled={generating || selectedArtifactIds.size === 0}
+                  style={{ marginLeft: 'auto' }}
                 >
-                  <option value="implementation-agent">Implementation Agent</option>
-                  <option value="qa-agent">QA Agent</option>
-                  <option value="project-manager">Project Manager</option>
-                </select>
-              </label>
-              <button
-                type="button"
-                className="btn-standard"
-                onClick={handleGenerate}
-                disabled={generating}
-                style={{ marginLeft: 'auto' }}
-              >
-                {generating ? 'Generating...' : 'Generate Bundle'}
-              </button>
+                  {generating ? 'Generating...' : 'Generate Bundle'}
+                </button>
+              </div>
+
+              {/* Artifact Selection */}
+              <div>
+                <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>Select Artifacts to Distill</h4>
+                {loadingArtifacts ? (
+                  <p>Loading artifacts...</p>
+                ) : artifacts.length === 0 ? (
+                  <p style={{ color: 'var(--hal-text-muted)', fontSize: '14px' }}>No artifacts found for this ticket.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '200px', overflowY: 'auto' }}>
+                    {artifacts.map((artifact) => (
+                      <label
+                        key={artifact.artifact_id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          padding: '8px',
+                          border: '1px solid var(--hal-border)',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          background: selectedArtifactIds.has(artifact.artifact_id) ? 'var(--hal-surface-alt)' : 'var(--hal-surface)',
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedArtifactIds.has(artifact.artifact_id)}
+                          onChange={() => toggleArtifactSelection(artifact.artifact_id)}
+                        />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: '500', fontSize: '14px' }}>{artifact.title}</div>
+                          <div style={{ fontSize: '12px', color: 'var(--hal-text-muted)' }}>
+                            {artifact.agent_type} • {new Date(artifact.created_at).toLocaleDateString()}
+                          </div>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                )}
+                {selectedArtifactIds.size > 0 && (
+                  <p style={{ marginTop: '8px', fontSize: '14px', color: 'var(--hal-text-muted)' }}>
+                    {selectedArtifactIds.size} artifact{selectedArtifactIds.size !== 1 ? 's' : ''} selected
+                  </p>
+                )}
+              </div>
             </div>
           </div>
 
@@ -516,6 +672,83 @@ export function ContextBundleModal({
                       </div>
                     </div>
                   </div>
+
+                  {/* Distilled Artifacts */}
+                  {bundleJson?.distilled_artifacts && bundleJson.distilled_artifacts.length > 0 && (
+                    <div>
+                      <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>Distilled Artifacts</h4>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        {bundleJson.distilled_artifacts.map((distilled) => (
+                          <div
+                            key={distilled.artifact_id}
+                            style={{
+                              border: '1px solid var(--hal-border)',
+                              borderRadius: '8px',
+                              padding: '12px',
+                              background: distilled.distillation_error ? 'var(--hal-status-error-bg, #ffebee)' : 'var(--hal-surface-alt)',
+                            }}
+                          >
+                            <div style={{ marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div>
+                                <div style={{ fontWeight: '600', fontSize: '14px' }}>{distilled.artifact_title}</div>
+                                <div style={{ fontSize: '12px', color: 'var(--hal-text-muted)', marginTop: '2px' }}>
+                                  Artifact ID: {distilled.artifact_id.substring(0, 8)}... • Version: {receipt?.bundle?.version || 'N/A'}
+                                </div>
+                              </div>
+                              {distilled.distillation_error && (
+                                <div style={{ fontSize: '12px', color: 'var(--hal-status-error, #c62828)', fontWeight: '600' }}>
+                                  Distillation Failed
+                                </div>
+                              )}
+                            </div>
+                            {distilled.distillation_error ? (
+                              <div style={{ padding: '8px', background: 'var(--hal-surface)', borderRadius: '4px', fontSize: '14px', color: 'var(--hal-status-error, #c62828)' }}>
+                                <strong>Error:</strong> {distilled.distillation_error}
+                              </div>
+                            ) : (
+                              <>
+                                <div style={{ marginBottom: '8px' }}>
+                                  <div style={{ fontWeight: '600', fontSize: '13px', marginBottom: '4px' }}>Summary</div>
+                                  <div style={{ fontSize: '14px', lineHeight: '1.5' }}>{distilled.summary || 'No summary available'}</div>
+                                </div>
+                                {distilled.hard_facts.length > 0 && (
+                                  <div style={{ marginBottom: '8px' }}>
+                                    <div style={{ fontWeight: '600', fontSize: '13px', marginBottom: '4px' }}>Hard Facts</div>
+                                    <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '14px', lineHeight: '1.5' }}>
+                                      {distilled.hard_facts.map((fact, idx) => (
+                                        <li key={idx}>{fact}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                                {distilled.keywords.length > 0 && (
+                                  <div>
+                                    <div style={{ fontWeight: '600', fontSize: '13px', marginBottom: '4px' }}>Keywords</div>
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                                      {distilled.keywords.map((keyword, idx) => (
+                                        <span
+                                          key={idx}
+                                          style={{
+                                            padding: '2px 8px',
+                                            background: 'var(--hal-surface)',
+                                            borderRadius: '4px',
+                                            fontSize: '12px',
+                                            border: '1px solid var(--hal-border)',
+                                          }}
+                                        >
+                                          {keyword}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* References */}
                   <div>
