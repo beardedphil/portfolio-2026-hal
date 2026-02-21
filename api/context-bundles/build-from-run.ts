@@ -246,39 +246,109 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const sectionMetrics = calculateSectionMetrics(bundleJson)
     const totalCharacters = calculateTotalCharacters(sectionMetrics)
 
-    // Extract git ref from run if available
-    const gitRef = run.pr_url
+    // Extract git ref from run if available and enhance with base/head SHA
+    let gitRef = run.pr_url
       ? {
           pr_url: run.pr_url,
           pr_number: run.ticket_number || null,
+          base_sha: null as string | null,
+          head_sha: null as string | null,
         }
       : null
 
-    // Insert receipt
-    const { data: newReceipt, error: receiptError } = await supabase
-      .from('bundle_receipts')
-      .insert({
-        bundle_id: newBundle.bundle_id,
-        repo_full_name: run.repo_full_name,
-        ticket_pk: run.ticket_pk,
-        ticket_id: ticket.id,
-        role,
-        content_checksum: contentChecksum,
-        bundle_checksum: bundleChecksum,
-        section_metrics: sectionMetrics,
-        total_characters: totalCharacters,
-        red_reference: null,
-        integration_manifest_reference: integrationManifestReference,
-        git_ref: gitRef,
-      })
-      .select()
-      .single()
+    // Enhance git_ref with base_sha and head_sha if PR URL is available
+    if (gitRef?.pr_url && (!gitRef.base_sha || !gitRef.head_sha)) {
+      try {
+        const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN
+        if (githubToken) {
+          const { fetchPullRequest } = await import('../_lib/github/pullRequests.js')
+          const prResult = await fetchPullRequest(githubToken, gitRef.pr_url)
+          if (!('error' in prResult) && prResult.pullRequest) {
+            gitRef = {
+              ...gitRef,
+              base_sha: prResult.pullRequest.base?.sha || null,
+              head_sha: prResult.pullRequest.head?.sha || null,
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to fetch PR details for git_ref:', err)
+        // Continue with existing gitRef
+      }
+    }
 
-    if (receiptError) {
-      // Bundle was created but receipt failed - this is a problem
+    // For build-from-run, we don't have artifact selection, so use empty arrays
+    // Artifacts would need to be extracted from the run events or input_json if needed
+    const artifactIds: string[] = []
+    const artifactVersions: Record<string, number> = {}
+    const selectedSnippets: Array<{
+      artifact_id: string
+      artifact_version: number
+      snippet: string
+      artifact_title?: string
+    }> = []
+
+    // Check if receipt with same content_checksum already exists (idempotent creation)
+    const { data: existingReceipt, error: existingReceiptError } = await supabase
+      .from('bundle_receipts')
+      .select('*')
+      .eq('content_checksum', contentChecksum)
+      .eq('repo_full_name', run.repo_full_name)
+      .eq('ticket_pk', run.ticket_pk)
+      .eq('role', role)
+      .maybeSingle()
+
+    if (existingReceiptError && existingReceiptError.code !== 'PGRST116') {
+      // PGRST116 is "not found" which is fine
       return json(res, 500, {
         success: false,
-        error: `Bundle created but failed to store receipt: ${receiptError.message}`,
+        error: `Failed to check existing receipt: ${existingReceiptError.message}`,
+      })
+    }
+
+    let newReceipt
+    if (existingReceipt) {
+      // Reuse existing receipt (idempotent)
+      newReceipt = existingReceipt
+    } else {
+      // Insert new receipt
+      const { data: insertedReceipt, error: receiptError } = await supabase
+        .from('bundle_receipts')
+        .insert({
+          bundle_id: newBundle.bundle_id,
+          repo_full_name: run.repo_full_name,
+          ticket_pk: run.ticket_pk,
+          ticket_id: ticket.id,
+          role,
+          content_checksum: contentChecksum,
+          bundle_checksum: bundleChecksum,
+          section_metrics: sectionMetrics,
+          total_characters: totalCharacters,
+          red_reference: null,
+          integration_manifest_reference: integrationManifestReference,
+          git_ref: gitRef,
+          artifact_ids: artifactIds,
+          artifact_versions: artifactVersions,
+          selected_snippets: selectedSnippets,
+        })
+        .select()
+        .single()
+
+      if (receiptError) {
+        // Bundle was created but receipt failed - this is a problem
+        return json(res, 500, {
+          success: false,
+          error: `Bundle created but failed to store receipt: ${receiptError.message}`,
+        })
+      }
+
+      newReceipt = insertedReceipt
+    }
+
+    if (!newReceipt) {
+      return json(res, 500, {
+        success: false,
+        error: 'Failed to create or retrieve receipt',
       })
     }
 

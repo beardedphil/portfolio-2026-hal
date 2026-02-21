@@ -65,6 +65,23 @@ export async function createDraftPullRequest(
   }
 }
 
+/** Fetch PR details including base and head SHA. */
+export async function fetchPullRequest(
+  token: string,
+  prUrl: string
+): Promise<{ pullRequest: { number: number; base: { sha: string }; head: { sha: string } } } | { error: string }> {
+  try {
+    const m = prUrl.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/i)
+    if (!m) return { error: 'Invalid PR URL' }
+    const [, owner, repo, pullNumber] = m
+    const url = `https://api.github.com/repos/${owner}/${repo}/pulls/${pullNumber}`
+    const data = await githubFetch<{ number: number; base: { sha: string }; head: { sha: string } }>(token, url, { method: 'GET' })
+    return { pullRequest: data }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
 /** Fetch unified git diff from PR files. Combines all file patches into a single unified diff. */
 export async function fetchPullRequestDiff(
   token: string,

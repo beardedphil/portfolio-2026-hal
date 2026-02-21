@@ -27,6 +27,13 @@ interface BundleListResponse {
   error?: string
 }
 
+interface SelectedSnippet {
+  artifact_id: string
+  artifact_version: number
+  snippet: string
+  artifact_title?: string
+}
+
 interface BundleReceipt {
   receipt_id: string
   bundle_id: string
@@ -48,6 +55,9 @@ interface BundleReceipt {
     base_sha?: string
     head_sha?: string
   } | null
+  artifact_ids?: string[]
+  artifact_versions?: Record<string, number>
+  selected_snippets?: SelectedSnippet[]
   created_at: string
   bundle: {
     bundle_id: string
@@ -750,23 +760,91 @@ export function ContextBundleModal({
                     </div>
                   )}
 
+                  {/* Artifact IDs and Versions */}
+                  {receipt.artifact_ids && receipt.artifact_ids.length > 0 && (
+                    <div>
+                      <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>Artifacts Used</h4>
+                      <div style={{ background: 'var(--hal-surface-alt)', padding: '8px', borderRadius: '4px' }}>
+                        {receipt.artifact_ids.map((artifactId) => (
+                          <div key={artifactId} style={{ marginBottom: '4px', fontSize: '14px' }}>
+                            <span style={{ fontFamily: 'monospace', fontSize: '12px' }}>{artifactId.substring(0, 8)}...</span>
+                            {receipt.artifact_versions && receipt.artifact_versions[artifactId] !== undefined && (
+                              <span style={{ marginLeft: '8px', color: 'var(--hal-text-muted)' }}>
+                                (Version {receipt.artifact_versions[artifactId]})
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Selected Snippets */}
+                  {receipt.selected_snippets && receipt.selected_snippets.length > 0 && (
+                    <div>
+                      <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>Selected Snippets (Verbatim)</h4>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        {receipt.selected_snippets.map((snippet, idx) => (
+                          <div
+                            key={idx}
+                            style={{
+                              border: '1px solid var(--hal-border)',
+                              borderRadius: '8px',
+                              padding: '12px',
+                              background: 'var(--hal-surface-alt)',
+                            }}
+                          >
+                            <div style={{ marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div>
+                                <div style={{ fontWeight: '600', fontSize: '14px' }}>
+                                  {snippet.artifact_title || 'Untitled Artifact'}
+                                </div>
+                                <div style={{ fontSize: '12px', color: 'var(--hal-text-muted)', marginTop: '2px' }}>
+                                  Artifact ID: <span style={{ fontFamily: 'monospace' }}>{snippet.artifact_id.substring(0, 8)}...</span>
+                                  {' • '}
+                                  Version: {snippet.artifact_version}
+                                </div>
+                              </div>
+                            </div>
+                            <div
+                              style={{
+                                background: 'var(--hal-surface)',
+                                padding: '12px',
+                                borderRadius: '4px',
+                                fontSize: '13px',
+                                fontFamily: 'monospace',
+                                whiteSpace: 'pre-wrap',
+                                wordBreak: 'break-word',
+                                maxHeight: '300px',
+                                overflowY: 'auto',
+                                border: '1px solid var(--hal-border)',
+                              }}
+                            >
+                              {snippet.snippet || '(Empty snippet)'}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* References */}
                   <div>
                     <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>References</h4>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {receipt.red_reference && (
-                        <div style={{ fontSize: '14px' }}>
-                          <strong>RED:</strong> Version {receipt.red_reference.version} (ID: {receipt.red_reference.red_id.substring(0, 8)}...)
-                        </div>
-                      )}
                       {receipt.integration_manifest_reference && (
                         <div style={{ fontSize: '14px' }}>
                           <strong>Integration Manifest:</strong> Version {receipt.integration_manifest_reference.version} (Schema: {receipt.integration_manifest_reference.schema_version}, ID: {receipt.integration_manifest_reference.manifest_id.substring(0, 8)}...)
                         </div>
                       )}
+                      {receipt.red_reference && (
+                        <div style={{ fontSize: '14px' }}>
+                          <strong>RED:</strong> Version {receipt.red_reference.version} (ID: {receipt.red_reference.red_id.substring(0, 8)}...)
+                        </div>
+                      )}
                       {receipt.git_ref && (
                         <div style={{ fontSize: '14px' }}>
-                          <strong>Git Ref:</strong>{' '}
+                          <strong>Git Diff Reference:</strong>{' '}
                           {receipt.git_ref.pr_url ? (
                             <a href={receipt.git_ref.pr_url} target="_blank" rel="noopener noreferrer">
                               PR #{receipt.git_ref.pr_number}
@@ -782,6 +860,11 @@ export function ContextBundleModal({
                           {receipt.git_ref.head_sha && (
                             <span style={{ marginLeft: '8px', fontFamily: 'monospace', fontSize: '12px' }}>
                               Head: {receipt.git_ref.head_sha.substring(0, 7)}...
+                            </span>
+                          )}
+                          {(!receipt.git_ref.base_sha || !receipt.git_ref.head_sha) && (
+                            <span style={{ marginLeft: '8px', color: 'var(--hal-status-warning, #f57c00)', fontSize: '12px' }}>
+                              (Missing base/head SHA)
                             </span>
                           )}
                         </div>

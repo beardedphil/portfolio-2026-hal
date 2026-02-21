@@ -84,6 +84,13 @@ export interface ContextBundleV0 {
   }
 }
 
+export interface SelectedSnippet {
+  artifact_id: string
+  artifact_version: number
+  snippet: string // Verbatim text
+  artifact_title?: string
+}
+
 export interface BuilderResult {
   success: boolean
   bundle?: ContextBundleV0
@@ -93,6 +100,9 @@ export interface BuilderResult {
     version: number
     schema_version: string
   } | null
+  artifactIds?: string[]
+  artifactVersions?: Record<string, number> // Map artifact_id -> version
+  selectedSnippets?: SelectedSnippet[]
   error?: string
 }
 
@@ -164,12 +174,13 @@ export async function buildContextBundleV0(
       last_known_good_commit: gitRef?.base_sha || null,
     }
 
-    // 6. Get relevant artifacts (distilled)
-    const relevantArtifacts = await getRelevantArtifacts(
+    // 6. Get relevant artifacts (distilled) and capture metadata
+    const artifactsResult = await getRelevantArtifacts(
       supabase,
       ticketPk,
       selectedArtifactIds
     )
+    const relevantArtifacts = artifactsResult.distilled
 
     // 7. Get instructions (role-specific)
     const instructions = await getRoleSpecificInstructions(supabase, repoFullName, role)
@@ -201,6 +212,9 @@ export async function buildContextBundleV0(
       bundle,
       redReference,
       integrationManifestReference,
+      artifactIds: artifactsResult.artifactIds,
+      artifactVersions: artifactsResult.artifactVersions,
+      selectedSnippets: artifactsResult.selectedSnippets,
     }
   } catch (err) {
     return {
@@ -393,29 +407,44 @@ async function getRelevantArtifacts(
   supabase: ReturnType<typeof createClient>,
   ticketPk: string,
   selectedArtifactIds: string[]
-): Promise<Array<{
-  artifact_id: string
-  artifact_title: string
-  summary: string
-  hard_facts: string[]
-  keywords: string[]
-}>> {
+): Promise<{
+  distilled: Array<{
+    artifact_id: string
+    artifact_title: string
+    summary: string
+    hard_facts: string[]
+    keywords: string[]
+  }>
+  artifactIds: string[]
+  artifactVersions: Record<string, number>
+  selectedSnippets: SelectedSnippet[]
+}> {
   if (selectedArtifactIds.length === 0) {
-    return []
+    return {
+      distilled: [],
+      artifactIds: [],
+      artifactVersions: {},
+      selectedSnippets: [],
+    }
   }
 
   // Fetch artifacts
   const { data: artifacts, error: artifactsError } = await supabase
     .from('agent_artifacts')
-    .select('artifact_id, title, body_md')
+    .select('artifact_id, title, body_md, created_at')
     .in('artifact_id', selectedArtifactIds)
     .eq('ticket_pk', ticketPk)
 
   if (artifactsError || !artifacts || artifacts.length === 0) {
-    return []
+    return {
+      distilled: [],
+      artifactIds: [],
+      artifactVersions: {},
+      selectedSnippets: [],
+    }
   }
 
-  // Distill each artifact
+  // Distill each artifact and capture metadata
   const distilledArtifacts: Array<{
     artifact_id: string
     artifact_title: string
@@ -424,7 +453,25 @@ async function getRelevantArtifacts(
     keywords: string[]
   }> = []
 
+  const artifactIds: string[] = []
+  const artifactVersions: Record<string, number> = {}
+  const selectedSnippets: SelectedSnippet[] = []
+
   for (const artifact of artifacts) {
+    artifactIds.push(artifact.artifact_id)
+    // Use 1 as default version (artifacts don't have explicit versions)
+    // Could use created_at timestamp as version indicator in future
+    artifactVersions[artifact.artifact_id] = 1
+
+    // Store verbatim snippet (full body_md for now)
+    const snippet: SelectedSnippet = {
+      artifact_id: artifact.artifact_id,
+      artifact_version: 1,
+      snippet: artifact.body_md || '',
+      artifact_title: artifact.title || 'Untitled',
+    }
+    selectedSnippets.push(snippet)
+
     const result = await distillArtifact(artifact.body_md || '', artifact.title || '')
 
     if (result.success && result.distilled) {
@@ -438,7 +485,12 @@ async function getRelevantArtifacts(
     }
   }
 
-  return distilledArtifacts
+  return {
+    distilled: distilledArtifacts,
+    artifactIds,
+    artifactVersions,
+    selectedSnippets,
+  }
 }
 
 /**
