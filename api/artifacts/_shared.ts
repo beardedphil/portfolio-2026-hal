@@ -82,6 +82,7 @@ export function extractArtifactTypeFromTitle(title: string): string | null {
   if (normalized.startsWith('decisions for ticket')) return 'decisions'
   if (normalized.startsWith('verification for ticket')) return 'verification'
   if (normalized.startsWith('pm review for ticket')) return 'pm-review'
+  if (normalized.startsWith('red for ticket') || normalized.startsWith('red v')) return 'red'
   if (normalized.startsWith('image for ticket')) return 'image'
   if (normalized.startsWith('git diff for ticket') || normalized.startsWith('git-diff for ticket')) return 'git-diff'
   if (normalized.startsWith('instructions used for ticket')) return 'instructions-used'
@@ -169,6 +170,7 @@ export function createCanonicalTitle(
     'pm-review': `PM Review for ticket ${normalizedDisplayId}`,
     'qa-report': `QA report for ticket ${normalizedDisplayId}`,
     'implementation-agent-note': `Implementation agent note for ticket ${normalizedDisplayId}`,
+    'red': `RED for ticket ${normalizedDisplayId}`,
     'image': `Image for ticket ${normalizedDisplayId}`,
     'git-diff': `Git diff for ticket ${normalizedDisplayId}`,
     'instructions-used': `Instructions Used for ticket ${normalizedDisplayId}`,

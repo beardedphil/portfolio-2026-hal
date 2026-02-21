@@ -935,6 +935,43 @@ export async function runPmAgent(
           } catch {
             // Non-fatal
           }
+
+          // Best-effort: create/update mirrored RED artifact for visibility in ticket Artifacts.
+          try {
+            const vNum = Number(latest.version ?? 0) || 0
+            const { json: redGet } = await halFetchJson(
+              '/api/red/get',
+              { ticketPk, ticketId: input.ticket_id, repoFullName, version: vNum },
+              { timeoutMs: 20_000, progressMessage: `Loading latest RED JSON for ${input.ticket_id}…` }
+            )
+            const redDoc = redGet?.success ? redGet.red_document : null
+            const redJsonForArtifact = redDoc?.red_json ?? null
+            if (redJsonForArtifact != null) {
+              const createdAt = typeof redDoc?.created_at === 'string' ? redDoc.created_at : new Date().toISOString()
+              const validationStatus =
+                typeof redDoc?.validation_status === 'string' ? redDoc.validation_status : 'pending'
+              const artifactTitle = `RED v${vNum || redDoc?.version || 0} — ${createdAt.split('T')[0]}`
+              const artifactBody = `# RED Document Version ${vNum || redDoc?.version || 0}
+
+RED ID: ${String(latest.red_id)}
+Created: ${createdAt}
+Validation Status: ${validationStatus}
+
+## Canonical RED JSON
+
+\`\`\`json
+${JSON.stringify(redJsonForArtifact, null, 2)}
+\`\`\`
+`
+              await halFetchJson(
+                '/api/artifacts/insert-implementation',
+                { ticketId: input.ticket_id, artifactType: 'red', title: artifactTitle, body_md: artifactBody },
+                { timeoutMs: 25_000, progressMessage: `Saving RED artifact for ${input.ticket_id}…` }
+              )
+            }
+          } catch {
+            // Non-fatal
+          }
           out = {
             success: true,
             red_document: {
@@ -989,6 +1026,36 @@ export async function runPmAgent(
             )
           } catch {
             // Non-fatal: RED exists but may not satisfy latest-valid gates until validated.
+          }
+
+          // Best-effort: create/update mirrored RED artifact for visibility in ticket Artifacts.
+          try {
+            const savedRED = created.red_document as any
+            const version = Number(savedRED?.version ?? 0) || 0
+            const createdAt = typeof savedRED?.created_at === 'string' ? savedRED.created_at : new Date().toISOString()
+            const validationStatus =
+              typeof savedRED?.validation_status === 'string' ? savedRED.validation_status : 'pending'
+            const redJsonForArtifact = savedRED?.red_json ?? redJsonParsed
+            const artifactTitle = `RED v${version} — ${createdAt.split('T')[0]}`
+            const artifactBody = `# RED Document Version ${version}
+
+RED ID: ${String(savedRED?.red_id ?? '')}
+Created: ${createdAt}
+Validation Status: ${validationStatus}
+
+## Canonical RED JSON
+
+\`\`\`json
+${JSON.stringify(redJsonForArtifact, null, 2)}
+\`\`\`
+`
+            await halFetchJson(
+              '/api/artifacts/insert-implementation',
+              { ticketId: input.ticket_id, artifactType: 'red', title: artifactTitle, body_md: artifactBody },
+              { timeoutMs: 25_000, progressMessage: `Saving RED artifact for ${input.ticket_id}…` }
+            )
+          } catch {
+            // Non-fatal
           }
           out = {
             success: true,

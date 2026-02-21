@@ -5,6 +5,7 @@ interface REDDocument {
   version: number
   red_json: unknown
   validation_status: 'valid' | 'invalid' | 'pending'
+  effective_validation_status?: 'valid' | 'invalid' | 'pending'
   created_at: string
   created_by: string | null
   artifact_id: string | null
@@ -15,6 +16,7 @@ interface REDVersion {
   version: number
   content_checksum: string
   validation_status: 'valid' | 'invalid' | 'pending'
+  effective_validation_status?: 'valid' | 'invalid' | 'pending'
   created_at: string
   created_by: string | null
   artifact_id: string | null
@@ -37,6 +39,7 @@ export function REDSection({
 }) {
   const [latestRED, setLatestRED] = useState<REDDocument | null>(null)
   const [redVersions, setRedVersions] = useState<REDVersion[]>([])
+  const [latestEffectiveStatus, setLatestEffectiveStatus] = useState<'valid' | 'invalid' | 'pending' | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isEditing, setIsEditing] = useState(false)
@@ -75,9 +78,11 @@ export function REDSection({
       const latestData = await latestResponse.json()
       if (latestData.success && latestData.red_document) {
         setLatestRED(latestData.red_document)
+        setLatestEffectiveStatus(latestData.red_document.effective_validation_status ?? null)
       } else {
         // No RED found is not an error - just means no RED exists yet
         setLatestRED(null)
+        setLatestEffectiveStatus(null)
       }
 
       // Fetch version history
@@ -96,7 +101,34 @@ export function REDSection({
 
       const listData = await listResponse.json()
       if (listData.success && Array.isArray(listData.red_versions)) {
-        setRedVersions(listData.red_versions)
+        const versions = listData.red_versions as REDVersion[]
+        setRedVersions(versions)
+        const newest = versions[0]
+        if (newest?.effective_validation_status) {
+          setLatestEffectiveStatus(newest.effective_validation_status)
+        }
+
+        // Fallback: If no latest-valid RED exists but versions exist, load the latest version
+        // so the section doesn't incorrectly show "No RED exists yet".
+        if (!latestData.success && newest?.version != null) {
+          const latestAnyResponse = await fetch('/api/red/get', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              ticketPk,
+              ticketId,
+              repoFullName: repoFullName || undefined,
+              version: newest.version,
+              supabaseUrl,
+              supabaseAnonKey,
+            }),
+          })
+          const latestAnyData = await latestAnyResponse.json()
+          if (latestAnyData.success && latestAnyData.red_document) {
+            setLatestRED(latestAnyData.red_document)
+          }
+        }
       } else {
         setRedVersions([])
       }
@@ -271,8 +303,8 @@ ${JSON.stringify(redJson, null, 2)}
               <div className="red-latest">
                 <div className="red-latest-header">
                   <h4>Latest Version (v{latestRED.version})</h4>
-                  <span className={`red-validation-status red-validation-${latestRED.validation_status}`}>
-                    {latestRED.validation_status}
+                  <span className={`red-validation-status red-validation-${latestEffectiveStatus ?? latestRED.validation_status}`}>
+                    {latestEffectiveStatus ?? latestRED.validation_status}
                   </span>
                 </div>
                 <div className="red-content">
@@ -296,8 +328,8 @@ ${JSON.stringify(redJson, null, 2)}
                     {redVersions.map((version) => (
                       <li key={version.red_id} className="red-version-item">
                         <span className="red-version-number">v{version.version}</span>
-                        <span className={`red-validation-status red-validation-${version.validation_status}`}>
-                          {version.validation_status}
+                        <span className={`red-validation-status red-validation-${version.effective_validation_status ?? version.validation_status}`}>
+                          {version.effective_validation_status ?? version.validation_status}
                         </span>
                         <span className="red-version-date">
                           {new Date(version.created_at).toLocaleString()}
