@@ -294,8 +294,8 @@ function App() {
   /** Integration Manifest modal (0773). */
   const [integrationManifestOpen, setIntegrationManifestOpen] = useState<boolean>(false)
   const [contextBundleModalOpen, setContextBundleModalOpen] = useState<boolean>(false)
-  const [contextBundleTicketPk, setContextBundleTicketPk] = useState<string | null>(null)
-  const [contextBundleTicketId, setContextBundleTicketId] = useState<string | null>(null)
+  const [contextBundleTicketPk] = useState<string | null>(null)
+  const [contextBundleTicketId] = useState<string | null>(null)
   /** Agent Run Bundle Builder modal (0756). */
   const [agentRunBundleModalOpen, setAgentRunBundleModalOpen] = useState<boolean>(false)
   const [agentRunBundleRunId, setAgentRunBundleRunId] = useState<string | null>(null)
@@ -702,21 +702,8 @@ function App() {
         onGithubDisconnect={handleGithubDisconnect}
         onDisconnectClick={handleDisconnectClick}
         disconnectButtonRef={disconnectButtonRef}
-        onAgentInstructionsClick={() => setAgentInstructionsOpen(true)}
         onCoverageReportClick={() => setCoverageReportOpen(true)}
         onMaintainabilityReportClick={() => setMaintainabilityReportOpen(true)}
-        onIntegrationManifestClick={() => setIntegrationManifestOpen(true)}
-        onContextBundleClick={() => {
-          setContextBundleModalOpen(true)
-          // Clear ticket selection to allow user to enter ticket ID
-          setContextBundleTicketPk(null)
-          setContextBundleTicketId(null)
-        }}
-        onAgentRunBundleClick={() => {
-          setAgentRunBundleModalOpen(true)
-          // Use current agent run ID if available, otherwise user can enter one
-          setAgentRunBundleRunId(implAgentRunId || qaAgentRunId || null)
-        }}
         theme={theme}
         onThemeChange={setTheme}
       />

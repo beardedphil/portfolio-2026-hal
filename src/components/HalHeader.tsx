@@ -12,12 +12,8 @@ interface HalHeaderProps {
   onGithubDisconnect: () => void
   onDisconnectClick: () => void
   disconnectButtonRef: React.RefObject<HTMLButtonElement>
-  onAgentInstructionsClick: () => void
   onCoverageReportClick: () => void
   onMaintainabilityReportClick: () => void
-  onIntegrationManifestClick: () => void
-  onContextBundleClick?: () => void
-  onAgentRunBundleClick?: () => void
   theme: Theme
   onThemeChange: (theme: Theme) => void
 }
@@ -30,12 +26,8 @@ export function HalHeader({
   onGithubDisconnect,
   onDisconnectClick,
   disconnectButtonRef,
-  onAgentInstructionsClick,
   onCoverageReportClick,
   onMaintainabilityReportClick,
-  onIntegrationManifestClick,
-  onContextBundleClick,
-  onAgentRunBundleClick,
   theme,
   onThemeChange,
 }: HalHeaderProps) {
@@ -112,50 +104,6 @@ export function HalHeader({
             {/* There's always money in the banana stand. */}
           </select>
         </div>
-        <button
-          type="button"
-          className="agent-instructions-btn btn-standard"
-          onClick={onAgentInstructionsClick}
-          aria-label="View agent instructions"
-          title="View agent instructions"
-        >
-          Agent Instructions
-        </button>
-        {connectedProject && connectedGithubRepo && (
-          <>
-            <button
-              type="button"
-              className="integration-manifest-btn btn-standard"
-              onClick={onIntegrationManifestClick}
-              aria-label="Regenerate Integration Manifest"
-              title="Regenerate Integration Manifest"
-            >
-              Regenerate Integration Manifest
-            </button>
-            {onContextBundleClick && (
-              <button
-                type="button"
-                className="context-bundle-btn btn-standard"
-                onClick={onContextBundleClick}
-                aria-label="View Context Bundles"
-                title="View Context Bundles"
-              >
-                Context Bundles
-              </button>
-            )}
-            {onAgentRunBundleClick && (
-              <button
-                type="button"
-                className="agent-run-bundle-btn btn-standard"
-                onClick={onAgentRunBundleClick}
-                aria-label="Build Context Bundle from Agent Run"
-                title="Build Context Bundle from Agent Run"
-              >
-                Build Bundle from Run
-              </button>
-            )}
-          </>
-        )}
       </div>
     </header>
   )
