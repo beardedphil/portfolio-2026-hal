@@ -5,10 +5,6 @@
       "coverage": 0
     },
     {
-      "file": "/workspace/agents/src/agents/projectManager.ts",
-      "coverage": 0
-    },
-    {
       "file": "/workspace/agents/src/agents/qaTools.ts",
       "coverage": 0
     },
@@ -17,27 +13,11 @@
       "coverage": 0
     },
     {
-      "file": "/workspace/agents/src/agents/tools.ts",
-      "coverage": 0
-    },
-    {
       "file": "/workspace/agents/src/agents/projectManager/checkUnassigned.ts",
       "coverage": 0
     },
     {
-      "file": "/workspace/agents/src/agents/projectManager/contextPack.ts",
-      "coverage": 0
-    },
-    {
       "file": "/workspace/agents/src/agents/projectManager/respond.ts",
-      "coverage": 0
-    },
-    {
-      "file": "/workspace/agents/src/agents/projectManager/responseHandling.ts",
-      "coverage": 0
-    },
-    {
-      "file": "/workspace/agents/src/agents/projectManager/runPmAgent.ts",
       "coverage": 0
     },
     {
@@ -53,11 +33,11 @@
       "coverage": 0
     },
     {
-      "file": "/workspace/agents/src/agents/projectManager/workingMemory.ts",
+      "file": "/workspace/agents/src/agents/projectManager/tools.ts",
       "coverage": 0
     },
     {
-      "file": "/workspace/agents/src/utils/redact.ts",
+      "file": "/workspace/agents/src/agents/projectManager/workingMemory.ts",
       "coverage": 0
     },
     {
@@ -73,21 +53,34 @@
       "coverage": 0
     },
     {
+      "file": "/workspace/api/_lib/integration-manifest/context-integration.ts",
+      "coverage": 0
+    },
+    {
+      "file": "/workspace/api/_lib/integration-manifest/generate.ts",
+      "coverage": 0
+    },
+    {
       "file": "/workspace/api/agent-runs/_shared.ts",
       "coverage": 0
     },
     {
       "file": "/workspace/api/agent-runs/launch.ts",
       "coverage": 0
-    }
-  ],
-  "mostRecentImprovements": [
+    },
     {
-      "file": "/workspace/agents/src/agents/projectManager/contextBuilding.ts",
-      "before": 0,
-      "after": 40.5,
-      "delta": 40.5
+      "file": "/workspace/api/agent-runs/runEvents.ts",
+      "coverage": 0
+    },
+    {
+      "file": "/workspace/api/agent-runs/status.ts",
+      "coverage": 0
+    },
+    {
+      "file": "/workspace/api/agent-runs/stream.ts",
+      "coverage": 0
     }
   ],
-  "generatedAt": "2026-02-16T21:45:58.068Z"
+  "mostRecentImprovements": [],
+  "generatedAt": "2026-02-21T22:31:54.008Z"
 }
