@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
 import type { Agent, Message, Conversation, ImageAttachment } from './lib/conversationStorage'
-import type { Theme } from './types/hal'
 import * as Kanban from 'portfolio-2026-kanban'
 import type { KanbanBoardProps } from 'portfolio-2026-kanban'
 import 'portfolio-2026-kanban/style.css'
@@ -77,18 +76,8 @@ function App() {
   // Diagnostics panel no longer visible - floating widget replaces sidebar (0698)
   // const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const [connectedProject, setConnectedProject] = useState<string | null>(null)
-  // Theme state with localStorage persistence (HAL-0745: added LCARS theme option)
-  const [theme, setTheme] = useState<Theme>(() => {
-    try {
-      const stored = localStorage.getItem('hal-theme')
-      if (stored === 'dark' || stored === 'lcars' || stored === 'arrested' || stored === 'light') {
-        return stored as Theme
-      }
-      return 'dark'
-    } catch {
-      return 'dark'
-    }
-  })
+  // Theme is always 'dark' (0797: removed theme dropdown)
+  const theme = 'dark' as const
   // These are used in logic but not displayed in UI with floating widget (0698)
   const [_lastPmOutboundRequest, setLastPmOutboundRequest] = useState<object | null>(null)
   const [_lastPmToolCalls, setLastPmToolCalls] = useState<ToolCallRecord[] | null>(null)
@@ -308,15 +297,10 @@ function App() {
     }
   }, [selectedChatTarget])
 
-  // Apply theme to document root on mount and when theme changes (HAL-0745: added LCARS theme)
+  // Apply dark theme to document root on mount (0797: always dark theme)
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme)
-    try {
-      localStorage.setItem('hal-theme', theme)
-    } catch {
-      // Ignore localStorage errors
-    }
-  }, [theme])
+    document.documentElement.setAttribute('data-theme', 'dark')
+  }, [])
 
   // Restore connected GitHub repo from localStorage on load (0119: fix repo display after refresh)
   // The repo state is restored for UI display; Kanban will receive the connection message when the iframe loads
@@ -704,8 +688,6 @@ function App() {
         disconnectButtonRef={disconnectButtonRef}
         onCoverageReportClick={() => setCoverageReportOpen(true)}
         onMaintainabilityReportClick={() => setMaintainabilityReportOpen(true)}
-        theme={theme}
-        onThemeChange={setTheme}
       />
 
       {githubConnectError && (

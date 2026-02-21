@@ -2,7 +2,6 @@ import React from 'react'
 import { CoverageBadge } from './CoverageBadge'
 import { MaintainabilityBadge } from './MaintainabilityBadge'
 import type { GithubAuthMe, ConnectedGithubRepo } from '../types/app'
-import type { Theme } from '../types/hal'
 
 interface HalHeaderProps {
   connectedProject: string | null
@@ -14,8 +13,6 @@ interface HalHeaderProps {
   disconnectButtonRef: React.RefObject<HTMLButtonElement>
   onCoverageReportClick: () => void
   onMaintainabilityReportClick: () => void
-  theme: Theme
-  onThemeChange: (theme: Theme) => void
 }
 
 export function HalHeader({
@@ -28,24 +25,12 @@ export function HalHeader({
   disconnectButtonRef,
   onCoverageReportClick,
   onMaintainabilityReportClick,
-  theme,
-  onThemeChange,
 }: HalHeaderProps) {
   return (
     <header className="hal-header">
-      {/* LCARS accent: segmented color bar */}
-      {theme === 'lcars' && (
-        <div className="hal-header-lcars-bar" aria-hidden="true">
-          <div className="hal-header-lcars-segment hal-header-lcars-segment-orange"></div>
-          <div className="hal-header-lcars-segment hal-header-lcars-segment-yellow"></div>
-          <div className="hal-header-lcars-segment hal-header-lcars-segment-orange"></div>
-        </div>
-      )}
       <div className="hal-header-left">
         <h1>HAL</h1>
         <span className="hal-subtitle">Agent Workspace</span>
-        {/* LCARS corner pill accent (visible only in LCARS theme) */}
-        <div className="hal-header-lcars-pill" aria-hidden="true"></div>
       </div>
       <div className="hal-header-center">
         {!connectedProject ? (
@@ -95,25 +80,6 @@ export function HalHeader({
             )}
           </>
         )}
-      </div>
-      <div className="hal-header-actions">
-        <div className="hal-header-theme-selector">
-          <label htmlFor="theme-select" className="theme-select-label">
-            Theme:
-          </label>
-          <select
-            id="theme-select"
-            className="theme-select btn-standard"
-            value={theme}
-            onChange={(e) => onThemeChange(e.target.value as Theme)}
-            aria-label="Select theme"
-          >
-            <option value="dark">Dark</option>
-            <option value="lcars">LCARS</option>
-            <option value="arrested">Arrested</option>
-            {/* There's always money in the banana stand. */}
-          </select>
-        </div>
       </div>
     </header>
   )
