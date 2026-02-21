@@ -77,12 +77,12 @@ function App() {
   // Diagnostics panel no longer visible - floating widget replaces sidebar (0698)
   // const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const [connectedProject, setConnectedProject] = useState<string | null>(null)
-  // Theme state with localStorage persistence
+  // Theme state with localStorage persistence (HAL-0745: added LCARS theme option)
   const [theme, setTheme] = useState<Theme>(() => {
     try {
       const stored = localStorage.getItem('hal-theme')
-      if (stored === 'dark' || stored === 'lcars' || stored === 'arrested') {
-        return stored
+      if (stored === 'dark' || stored === 'lcars' || stored === 'arrested' || stored === 'light') {
+        return stored as Theme
       }
       return 'dark'
     } catch {
@@ -308,7 +308,7 @@ function App() {
     }
   }, [selectedChatTarget])
 
-  // Apply theme to document root on mount and when theme changes
+  // Apply theme to document root on mount and when theme changes (HAL-0745: added LCARS theme)
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
     try {

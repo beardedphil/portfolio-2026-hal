@@ -33,9 +33,19 @@ export function HalHeader({
 }: HalHeaderProps) {
   return (
     <header className="hal-header">
+      {/* LCARS accent: segmented color bar */}
+      {theme === 'lcars' && (
+        <div className="hal-header-lcars-bar" aria-hidden="true">
+          <div className="hal-header-lcars-segment hal-header-lcars-segment-orange"></div>
+          <div className="hal-header-lcars-segment hal-header-lcars-segment-yellow"></div>
+          <div className="hal-header-lcars-segment hal-header-lcars-segment-orange"></div>
+        </div>
+      )}
       <div className="hal-header-left">
         <h1>HAL</h1>
         <span className="hal-subtitle">Agent Workspace</span>
+        {/* LCARS corner pill accent (visible only in LCARS theme) */}
+        <div className="hal-header-lcars-pill" aria-hidden="true"></div>
       </div>
       <div className="hal-header-center">
         {!connectedProject ? (
@@ -87,13 +97,13 @@ export function HalHeader({
         )}
       </div>
       <div className="hal-header-actions">
-        <div className="theme-selector">
+        <div className="hal-header-theme-selector">
           <label htmlFor="theme-select" className="theme-select-label">
             Theme:
           </label>
           <select
             id="theme-select"
-            className="theme-select"
+            className="theme-select btn-standard"
             value={theme}
             onChange={(e) => onThemeChange(e.target.value as Theme)}
             aria-label="Select theme"
