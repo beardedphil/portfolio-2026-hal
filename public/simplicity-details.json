@@ -119,13 +119,19 @@
       "delta": 0
     },
     {
+      "file": "api/agent-runs/providers/openai.ts",
+      "before": 2.25,
+      "after": 2.25,
+      "delta": 0
+    },
+    {
       "file": "api/instructions/migrate-process-docs.ts",
       "before": 26.39,
       "after": 26.39,
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-21T15:43:40.973Z",
+  "generatedAt": "2026-02-21T15:50:14.890Z",
   "filesAnalyzed": 298,
   "unroundedMaintainability": 40.3,
   "unroundedSimplicity": 40.3
