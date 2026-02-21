@@ -12,6 +12,29 @@ interface ContextBundleModalProps {
   allowTicketSelection?: boolean
 }
 
+interface Artifact {
+  artifact_id: string
+  title: string
+  agent_type: string
+  created_at: string
+  updated_at?: string
+  body_md?: string
+}
+
+interface DistilledArtifact {
+  summary: string
+  hard_facts: string[]
+  keywords: string[]
+}
+
+interface DistilledCard {
+  artifact_id: string
+  artifact_version: number
+  title: string
+  distilled: DistilledArtifact
+  error?: string
+}
+
 interface Bundle {
   bundle_id: string
   ticket_id: string
@@ -108,10 +131,19 @@ export function ContextBundleModal({
   const [selectedRepoFullName, setSelectedRepoFullName] = useState<string | null>(initialRepoFullName)
   const [loadingTicket, setLoadingTicket] = useState(false)
 
-  // Load bundles when modal opens
+  // Artifact selection and distillation state
+  const [artifacts, setArtifacts] = useState<Artifact[]>([])
+  const [loadingArtifacts, setLoadingArtifacts] = useState(false)
+  const [selectedArtifactIds, setSelectedArtifactIds] = useState<Set<string>>(new Set())
+  const [distilledCards, setDistilledCards] = useState<DistilledCard[]>([])
+  const [distilling, setDistilling] = useState(false)
+  const [showPreview, setShowPreview] = useState(false)
+
+  // Load bundles and artifacts when modal opens
   useEffect(() => {
     if (isOpen && selectedTicketPk && supabaseUrl && supabaseAnonKey) {
       loadBundles()
+      loadArtifacts()
     }
   }, [isOpen, selectedTicketPk, supabaseUrl, supabaseAnonKey])
   
@@ -130,6 +162,10 @@ export function ContextBundleModal({
       setSelectedBundleId(null)
       setReceipt(null)
       setGenerateRole('implementation-agent')
+      setArtifacts([])
+      setSelectedArtifactIds(new Set())
+      setDistilledCards([])
+      setShowPreview(false)
       if (!allowTicketSelection) {
         setSelectedTicketId(initialTicketId || '')
         setSelectedTicketPk(initialTicketPk)
@@ -228,6 +264,47 @@ export function ContextBundleModal({
     }
   }
 
+  const loadArtifacts = async () => {
+    if (!selectedTicketPk || !supabaseUrl || !supabaseAnonKey) return
+
+    setLoadingArtifacts(true)
+    setError(null)
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/artifacts/get`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          ticketPk: selectedTicketPk,
+          ticketId: selectedTicketId,
+          supabaseUrl,
+          supabaseAnonKey,
+          summary: true, // Get summary mode for faster loading
+        }),
+      })
+
+      const data = (await response.json()) as {
+        success: boolean
+        artifacts?: Artifact[]
+        error?: string
+      }
+
+      if (!response.ok || !data.success) {
+        setError(data.error || 'Failed to load artifacts')
+        return
+      }
+
+      setArtifacts(data.artifacts || [])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error')
+    } finally {
+      setLoadingArtifacts(false)
+    }
+  }
+
   const loadReceipt = async (bundleId: string) => {
     if (!supabaseUrl || !supabaseAnonKey) return
 
@@ -264,24 +341,153 @@ export function ContextBundleModal({
     }
   }
 
+  const handleArtifactToggle = (artifactId: string) => {
+    const newSelected = new Set(selectedArtifactIds)
+    if (newSelected.has(artifactId)) {
+      newSelected.delete(artifactId)
+    } else {
+      newSelected.add(artifactId)
+    }
+    setSelectedArtifactIds(newSelected)
+    // Clear preview when selection changes
+    setDistilledCards([])
+    setShowPreview(false)
+  }
+
+  const handlePreviewBundle = async () => {
+    if (selectedArtifactIds.size === 0) {
+      setError('Please select at least one artifact')
+      return
+    }
+
+    if (!supabaseUrl || !supabaseAnonKey) return
+
+    setDistilling(true)
+    setError(null)
+    setShowPreview(true)
+
+    try {
+      const artifactIdsArray = Array.from(selectedArtifactIds)
+
+      const response = await fetch(`${apiBaseUrl}/api/context-bundles/distill-artifact`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          artifactIds: artifactIdsArray,
+          supabaseUrl,
+          supabaseAnonKey,
+        }),
+      })
+
+      const data = (await response.json()) as {
+        success: boolean
+        results?: Array<{
+          artifact_id: string
+          success: boolean
+          distilled?: DistilledArtifact
+          error?: string
+        }>
+        error?: string
+      }
+
+      if (!response.ok || !data.success) {
+        setError(data.error || 'Failed to distill artifacts')
+        return
+      }
+
+      // Build distilled cards with artifact metadata
+      const cards: DistilledCard[] = []
+      const artifactMap = new Map(artifacts.map((a) => [a.artifact_id, a]))
+
+      for (const result of data.results || []) {
+        const artifact = artifactMap.get(result.artifact_id)
+        if (!artifact) continue
+
+        if (result.success && result.distilled) {
+          cards.push({
+            artifact_id: result.artifact_id,
+            artifact_version: 1, // TODO: Get actual version from artifact metadata
+            title: artifact.title,
+            distilled: result.distilled,
+          })
+        } else {
+          cards.push({
+            artifact_id: result.artifact_id,
+            artifact_version: 1,
+            title: artifact.title,
+            distilled: {
+              summary: '',
+              hard_facts: [],
+              keywords: [],
+            },
+            error: result.error || 'Distillation failed',
+          })
+        }
+      }
+
+      setDistilledCards(cards)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error')
+      setShowPreview(false)
+    } finally {
+      setDistilling(false)
+    }
+  }
+
   const handleGenerate = async () => {
     if (!selectedTicketPk || !selectedRepoFullName || !supabaseUrl || !supabaseAnonKey) {
       setError('Missing required information to generate bundle')
       return
     }
 
+    if (selectedArtifactIds.size === 0) {
+      setError('Please select at least one artifact to include in the bundle')
+      return
+    }
+
+    // Check if there are any distillation errors
+    const hasErrors = distilledCards.some((card) => card.error)
+    if (hasErrors) {
+      setError('Cannot generate bundle: some artifacts failed distillation. Please fix errors or remove failed artifacts.')
+      return
+    }
+
+    // If preview hasn't been generated, generate it first
+    if (distilledCards.length === 0) {
+      await handlePreviewBundle()
+      // Wait a bit for state to update
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      // Check again after preview
+      const stillHasErrors = distilledCards.some((card) => card.error)
+      if (stillHasErrors) {
+        setError('Cannot generate bundle: some artifacts failed distillation. Please fix errors or remove failed artifacts.')
+        return
+      }
+    }
+
     setGenerating(true)
     setError(null)
 
     try {
-      // For now, generate a simple bundle structure
-      // In a real implementation, this would call an agent or build the bundle from ticket data
+      // Build bundle JSON with distilled artifacts
+      const distilledArtifacts = distilledCards
+        .filter((card) => !card.error)
+        .map((card) => ({
+          artifact_id: card.artifact_id,
+          artifact_version: card.artifact_version,
+          title: card.title,
+          distilled: card.distilled,
+        }))
+
       const bundleJson = {
         ticket: `Ticket ${selectedTicketId || selectedTicketPk}`,
         repo_context: `Repository: ${selectedRepoFullName}`,
-        instructions: 'Agent instructions would go here',
         role: generateRole,
         generated_at: new Date().toISOString(),
+        artifacts: distilledArtifacts,
       }
 
       const response = await fetch(`${apiBaseUrl}/api/context-bundles/generate`, {
@@ -315,6 +521,11 @@ export function ContextBundleModal({
       if (data.bundle?.bundle_id) {
         await loadReceipt(data.bundle.bundle_id)
       }
+
+      // Reset preview state
+      setShowPreview(false)
+      setDistilledCards([])
+      setSelectedArtifactIds(new Set())
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
     } finally {
@@ -395,33 +606,162 @@ export function ContextBundleModal({
 
           {!needsTicketSelection && selectedTicketPk && (
             <>
-              {/* Generate Bundle Section */}
-          <div style={{ border: '1px solid var(--hal-border)', borderRadius: '8px', padding: '16px' }}>
-            <h3 style={{ margin: '0 0 12px 0', fontSize: '18px' }}>Generate New Bundle</h3>
-            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <label>
-                Role:
-                <select
-                  value={generateRole}
-                  onChange={(e) => setGenerateRole(e.target.value)}
-                  style={{ marginLeft: '8px', padding: '4px 8px' }}
-                >
-                  <option value="implementation-agent">Implementation Agent</option>
-                  <option value="qa-agent">QA Agent</option>
-                  <option value="project-manager">Project Manager</option>
-                </select>
-              </label>
-              <button
-                type="button"
-                className="btn-standard"
-                onClick={handleGenerate}
-                disabled={generating}
-                style={{ marginLeft: 'auto' }}
-              >
-                {generating ? 'Generating...' : 'Generate Bundle'}
-              </button>
-            </div>
-          </div>
+              {/* Artifact Selection Section */}
+              <div style={{ border: '1px solid var(--hal-border)', borderRadius: '8px', padding: '16px' }}>
+                <h3 style={{ margin: '0 0 12px 0', fontSize: '18px' }}>Select Artifacts for Bundle</h3>
+                {loadingArtifacts ? (
+                  <p>Loading artifacts...</p>
+                ) : artifacts.length === 0 ? (
+                  <p style={{ color: 'var(--hal-text-muted)' }}>No artifacts found for this ticket.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto' }}>
+                    {artifacts.map((artifact) => (
+                      <label
+                        key={artifact.artifact_id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          gap: '8px',
+                          padding: '8px',
+                          border: '1px solid var(--hal-border)',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          background: selectedArtifactIds.has(artifact.artifact_id) ? 'var(--hal-surface-alt)' : 'transparent',
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedArtifactIds.has(artifact.artifact_id)}
+                          onChange={() => handleArtifactToggle(artifact.artifact_id)}
+                          style={{ marginTop: '2px' }}
+                        />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: '600', marginBottom: '4px' }}>{artifact.title}</div>
+                          <div style={{ fontSize: '12px', color: 'var(--hal-text-muted)' }}>
+                            {artifact.agent_type} • {new Date(artifact.created_at).toLocaleDateString()}
+                          </div>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                )}
+                <div style={{ marginTop: '12px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <label>
+                    Role:
+                    <select
+                      value={generateRole}
+                      onChange={(e) => setGenerateRole(e.target.value)}
+                      style={{ marginLeft: '8px', padding: '4px 8px' }}
+                    >
+                      <option value="implementation-agent">Implementation Agent</option>
+                      <option value="qa-agent">QA Agent</option>
+                      <option value="project-manager">Project Manager</option>
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    className="btn-standard"
+                    onClick={handlePreviewBundle}
+                    disabled={distilling || selectedArtifactIds.size === 0}
+                  >
+                    {distilling ? 'Distilling...' : 'Preview Bundle'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-standard"
+                    onClick={handleGenerate}
+                    disabled={generating || selectedArtifactIds.size === 0 || distilledCards.some((c) => c.error)}
+                    style={{ marginLeft: 'auto' }}
+                  >
+                    {generating ? 'Generating...' : 'Generate Bundle'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Bundle Preview (Distilled Cards) */}
+              {showPreview && (
+                <div style={{ border: '1px solid var(--hal-border)', borderRadius: '8px', padding: '16px' }}>
+                  <h3 style={{ margin: '0 0 12px 0', fontSize: '18px' }}>Bundle Preview</h3>
+                  {distilling ? (
+                    <p>Distilling artifacts...</p>
+                  ) : distilledCards.length === 0 ? (
+                    <p style={{ color: 'var(--hal-text-muted)' }}>No artifacts selected or preview not generated.</p>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      {distilledCards.map((card) => (
+                        <div
+                          key={card.artifact_id}
+                          style={{
+                            border: '1px solid var(--hal-border)',
+                            borderRadius: '4px',
+                            padding: '12px',
+                            background: card.error ? 'var(--hal-status-error-light, #ffebee)' : 'var(--hal-surface)',
+                          }}
+                        >
+                          {card.error ? (
+                            <div>
+                              <div style={{ fontWeight: '600', color: 'var(--hal-status-error, #c62828)', marginBottom: '8px' }}>
+                                Error: {card.title}
+                              </div>
+                              <div style={{ fontSize: '14px', color: 'var(--hal-status-error, #c62828)' }}>
+                                {card.error}
+                              </div>
+                              <div style={{ fontSize: '12px', color: 'var(--hal-text-muted)', marginTop: '8px' }}>
+                                Artifact ID: {card.artifact_id} • Version: {card.artifact_version}
+                              </div>
+                            </div>
+                          ) : (
+                            <div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                <div style={{ fontWeight: '600' }}>{card.title}</div>
+                                <div style={{ fontSize: '12px', color: 'var(--hal-text-muted)' }}>
+                                  ID: {card.artifact_id.substring(0, 8)}... • v{card.artifact_version}
+                                </div>
+                              </div>
+                              <div style={{ marginBottom: '8px' }}>
+                                <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '4px' }}>Summary</div>
+                                <div style={{ fontSize: '14px', color: 'var(--hal-text)' }}>{card.distilled.summary}</div>
+                              </div>
+                              {card.distilled.hard_facts.length > 0 && (
+                                <div style={{ marginBottom: '8px' }}>
+                                  <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '4px' }}>Hard Facts</div>
+                                  <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '14px' }}>
+                                    {card.distilled.hard_facts.map((fact, idx) => (
+                                      <li key={idx} style={{ marginBottom: '4px' }}>
+                                        {fact}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                              {card.distilled.keywords.length > 0 && (
+                                <div>
+                                  <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '4px' }}>Keywords</div>
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                                    {card.distilled.keywords.map((keyword, idx) => (
+                                      <span
+                                        key={idx}
+                                        style={{
+                                          padding: '2px 8px',
+                                          background: 'var(--hal-surface-alt)',
+                                          borderRadius: '12px',
+                                          fontSize: '12px',
+                                        }}
+                                      >
+                                        {keyword}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
           {/* Bundle List */}
           <div>
