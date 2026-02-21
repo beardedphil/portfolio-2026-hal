@@ -132,26 +132,49 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
-    // Fetch all RED versions for this ticket (include validation result via FK join)
-    const { data: redVersions, error: redError } = await supabase
+    // Fetch all RED versions for this ticket.
+    // Prefer including validation result via FK join (Option A), but fall back gracefully
+    // when the validations table hasn't been migrated in the connected DB yet.
+    let redVersions: any[] = []
+    let redError: { message?: string } | null = null
+    const withJoin = await supabase
       .from('hal_red_documents')
-      .select('red_id, version, content_checksum, validation_status, created_at, created_by, artifact_id, hal_red_validations(result, created_at, created_by)')
+      .select(
+        'red_id, version, content_checksum, validation_status, created_at, created_by, artifact_id, hal_red_validations(result, created_at, created_by)'
+      )
       .eq('repo_full_name', resolvedRepoFullName)
       .eq('ticket_pk', resolvedTicketPk)
       .order('version', { ascending: false })
       .order('created_at', { ascending: false })
+    if (withJoin.error) {
+      const msg = String((withJoin.error as any).message || '')
+      if (/hal_red_validations|relation .*hal_red_validations/i.test(msg)) {
+        const withoutJoin = await supabase
+          .from('hal_red_documents')
+          .select('red_id, version, content_checksum, validation_status, created_at, created_by, artifact_id')
+          .eq('repo_full_name', resolvedRepoFullName)
+          .eq('ticket_pk', resolvedTicketPk)
+          .order('version', { ascending: false })
+          .order('created_at', { ascending: false })
+        redError = (withoutJoin.error as any) ?? null
+        redVersions = (withoutJoin.data as any[]) ?? []
+      } else {
+        redError = withJoin.error as any
+        redVersions = []
+      }
+    } else {
+      redError = null
+      redVersions = (withJoin.data as any[]) ?? []
+    }
 
     if (redError) {
-      json(res, 200, {
-        success: false,
-        error: `Failed to fetch RED versions: ${redError.message}`,
-      })
+      json(res, 200, { success: false, error: `Failed to fetch RED versions: ${redError.message ?? String(redError)}` })
       return
     }
 
     const list = (redVersions || []).map((r: any) => {
       const v = Array.isArray(r.hal_red_validations) ? r.hal_red_validations[0] : null
-      const effective = v?.result === 'valid' ? 'valid' : v?.result === 'invalid' ? 'invalid' : 'pending'
+      const effective = v?.result === 'valid' ? 'valid' : v?.result === 'invalid' ? 'invalid' : (r.validation_status ?? 'pending')
       return { ...r, effective_validation_status: effective, validation: v || null }
     })
 

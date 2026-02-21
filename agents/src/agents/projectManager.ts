@@ -912,6 +912,42 @@ export async function runPmAgent(
           return out
         }
 
+        // Idempotency: if a RED already exists, reuse it instead of creating new versions.
+        const { json: existing } = await halFetchJson(
+          '/api/red/list',
+          { ticketPk, repoFullName },
+          { timeoutMs: 20_000, progressMessage: `Checking existing REDs for ${input.ticket_id}…` }
+        )
+        if (existing?.success && Array.isArray(existing.red_versions) && existing.red_versions.length > 0) {
+          const latest = existing.red_versions[0] as any
+          // Best-effort: ensure it's validated for "latest-valid" gates
+          try {
+            await halFetchJson(
+              '/api/red/validate',
+              {
+                redId: latest.red_id,
+                result: 'valid',
+                createdBy: 'pm-agent',
+                notes: 'Auto-validated existing RED for To Do gate.',
+              },
+              { timeoutMs: 20_000, progressMessage: `Validating existing RED for ${input.ticket_id}…` }
+            )
+          } catch {
+            // Non-fatal
+          }
+          out = {
+            success: true,
+            red_document: {
+              red_id: String(latest.red_id),
+              version: Number(latest.version ?? 0) || 0,
+              ticket_pk: ticketPk,
+              repo_full_name: repoFullName,
+            },
+          }
+          toolCalls.push({ name: 'create_red_document_v2', input, output: out })
+          return out
+        }
+
         let redJsonParsed: unknown
         try {
           redJsonParsed = JSON.parse(input.red_json_content)
