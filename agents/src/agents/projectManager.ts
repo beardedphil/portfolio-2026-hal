@@ -170,6 +170,7 @@ export async function runPmAgent(
   message: string,
   config: PmAgentConfig & {
     onTextDelta?: (delta: string) => void | Promise<void>
+    onProgress?: (message: string) => void | Promise<void>
     abortSignal?: AbortSignal
   }
 ): Promise<PmAgentResult> {
@@ -222,12 +223,18 @@ export async function runPmAgent(
     (typeof (err as any)?.name === 'string' && String((err as any).name).toLowerCase() === 'aborterror') ||
     (err instanceof Error && /aborted|abort/i.test(err.message))
 
-  const halFetchJson = async (path: string, body: unknown, opts?: { timeoutMs?: number }) => {
+  const halFetchJson = async (
+    path: string,
+    body: unknown,
+    opts?: { timeoutMs?: number; progressMessage?: string }
+  ) => {
     const timeoutMs = Math.max(1_000, Math.floor(opts?.timeoutMs ?? 20_000))
     const controller = new AbortController()
     const t = setTimeout(() => controller.abort(new Error('HAL request timeout')), timeoutMs)
     const onAbort = () => controller.abort(config.abortSignal?.reason ?? new Error('Aborted'))
     try {
+      const progress = String(opts?.progressMessage ?? '').trim()
+      if (progress) await config.onProgress?.(progress)
       if (config.abortSignal) config.abortSignal.addEventListener('abort', onAbort, { once: true })
       const res = await fetch(`${halBaseUrl}${path}`, {
         method: 'POST',
@@ -302,7 +309,7 @@ export async function runPmAgent(
             repo_full_name: repoFullName,
             kanban_column_id: COL_UNASSIGNED,
           },
-          { timeoutMs: 25_000 }
+          { timeoutMs: 25_000, progressMessage: `Creating ticket: ${input.title.trim()}` }
         )
         if (!created?.success || !created?.ticketId) {
           out = { success: false, error: created?.error || 'Failed to create ticket' }
@@ -326,7 +333,7 @@ export async function runPmAgent(
               ...(ticketPk ? { ticketPk } : { ticketId: displayId }),
               body_md: normalizedBodyMd,
             },
-            { timeoutMs: 20_000 }
+            { timeoutMs: 20_000, progressMessage: `Normalizing ticket body for ${displayId}` }
           )
         } catch {
           // Non-fatal: ticket is still created.
@@ -340,7 +347,7 @@ export async function runPmAgent(
           const { json: moved } = await halFetchJson(
             '/api/tickets/move',
             { ticketId: displayId, columnId: COL_TODO, position: 'bottom' },
-            { timeoutMs: 25_000 }
+            { timeoutMs: 25_000, progressMessage: `Moving ${displayId} to To Do…` }
           )
           if (moved?.success) movedToTodo = true
           else moveError = moved?.error || 'Failed to move to To Do'
@@ -408,7 +415,7 @@ export async function runPmAgent(
         const { json: data } = await halFetchJson(
           '/api/tickets/get',
           { ticketId: input.ticket_id },
-          { timeoutMs: 20_000 }
+          { timeoutMs: 20_000, progressMessage: `Fetching ticket ${input.ticket_id}…` }
         )
         if (!data?.success || !data?.ticket) {
           out = { success: false, error: data?.error || `Ticket ${input.ticket_id} not found.` }
@@ -507,7 +514,7 @@ export async function runPmAgent(
         const { json: fetched } = await halFetchJson(
           '/api/tickets/get',
           { ticketId: input.ticket_id },
-          { timeoutMs: 20_000 }
+          { timeoutMs: 20_000, progressMessage: `Fetching ticket ${input.ticket_id} for update…` }
         )
         if (!fetched?.success || !fetched?.ticket) {
           out = { success: false, error: fetched?.error || `Ticket ${input.ticket_id} not found.` }
@@ -526,7 +533,7 @@ export async function runPmAgent(
             ...(ticketPk ? { ticketPk } : { ticketId: displayId }),
             body_md: normalizedBodyMd,
           },
-          { timeoutMs: 20_000 }
+          { timeoutMs: 20_000, progressMessage: `Updating ticket body for ${displayId}…` }
         )
         if (!updated?.success) {
           out = { success: false, error: updated?.error || 'Failed to update ticket' }
@@ -596,7 +603,7 @@ export async function runPmAgent(
         const { json: fetched } = await halFetchJson(
           '/api/tickets/get',
           { ticketId: input.ticket_id },
-          { timeoutMs: 20_000 }
+          { timeoutMs: 20_000, progressMessage: `Checking current column for ${input.ticket_id}…` }
         )
         if (!fetched?.success || !fetched?.ticket) {
           out = { success: false, error: fetched?.error || `Ticket ${input.ticket_id} not found.` }
@@ -619,7 +626,7 @@ export async function runPmAgent(
         const { json: moved } = await halFetchJson(
           '/api/tickets/move',
           { ticketId: ticketIdToMove, columnId: COL_TODO, position },
-          { timeoutMs: 25_000 }
+          { timeoutMs: 25_000, progressMessage: `Moving ${ticketIdToMove} to To Do…` }
         )
         if (!moved?.success) {
           out = { success: false, error: moved?.error || 'Failed to move ticket' }

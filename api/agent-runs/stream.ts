@@ -110,7 +110,7 @@ async function streamLoop(args: StreamArgs, write: (chunk: string) => void, isCl
     const budgetMs =
       run.agent_type === 'implementation' || run.agent_type === 'qa'
         ? 12_000
-        : 45_000
+        : 55_000
     await advanceRunWithProvider({ supabase, run, budgetMs }).catch(() => null)
 
     const now = Date.now()

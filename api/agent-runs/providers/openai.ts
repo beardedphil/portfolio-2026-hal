@@ -361,6 +361,14 @@ async function advanceProjectManagerOpenAI({ supabase, run, budgetMs }: AdvanceR
     reply += delta
     await appendRunEvent(supabase, run.run_id, 'text_delta', { text: delta })
   }
+  let lastProgress = ''
+  const onProgress = async (message: string) => {
+    const msg = String(message || '').trim()
+    if (!msg) return
+    if (msg === lastProgress) return
+    lastProgress = msg
+    await appendRunEvent(supabase, run.run_id, 'progress', { message: msg })
+  }
 
   try {
     const result = await pmModule.runPmAgent(message, {
@@ -374,6 +382,7 @@ async function advanceProjectManagerOpenAI({ supabase, run, budgetMs }: AdvanceR
       repoFullName: run.repo_full_name,
       images,
       onTextDelta,
+      onProgress,
       abortSignal: abortController.signal,
     })
 

@@ -112,7 +112,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     // Best-effort: run one work slice so old clients still get a reply in a single request.
-    await advanceRunWithProvider({ supabase, run: run as any, budgetMs: 45_000 }).catch(() => null)
+    await advanceRunWithProvider({ supabase, run: run as any, budgetMs: 55_000 }).catch(() => null)
     const { data: updated } = await supabase
       .from('hal_agent_runs')
       .select('summary, status, error')
