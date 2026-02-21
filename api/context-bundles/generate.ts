@@ -213,6 +213,85 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const integrationManifestReference = builderResult.integrationManifestReference || null
     const redReference = builderResult.redReference || null
+    const artifactReferences = builderResult.artifactReferences || []
+
+    // Validate git_ref is not blank (must have at least pr_url or base_sha/head_sha)
+    const gitRef = body.gitRef || null
+    if (gitRef && !gitRef.pr_url && !gitRef.base_sha && !gitRef.head_sha) {
+      return json(res, 400, {
+        success: false,
+        error: 'git_ref must include at least pr_url or both base_sha and head_sha',
+      })
+    }
+
+    // Check for existing receipt with same content_checksum (deterministic/idempotent)
+    const { data: existingReceipt, error: existingReceiptError } = await supabase
+      .from('bundle_receipts')
+      .select('receipt_id, bundle_id')
+      .eq('content_checksum', contentChecksum)
+      .eq('repo_full_name', resolvedRepoFullName)
+      .eq('ticket_pk', resolvedTicketPk)
+      .eq('role', role)
+      .maybeSingle()
+
+    if (existingReceiptError && existingReceiptError.code !== 'PGRST116') {
+      // PGRST116 is "not found" which is fine, other errors are not
+      return json(res, 500, {
+        success: false,
+        error: `Failed to check for existing receipt: ${existingReceiptError.message}`,
+      })
+    }
+
+    // If receipt exists with same content_checksum, reuse it
+    if (existingReceipt) {
+      // Fetch the existing bundle
+      const { data: existingBundle, error: bundleError } = await supabase
+        .from('context_bundles')
+        .select('bundle_id, version, role, created_at')
+        .eq('bundle_id', existingReceipt.bundle_id)
+        .maybeSingle()
+
+      if (bundleError) {
+        return json(res, 500, {
+          success: false,
+          error: `Failed to fetch existing bundle: ${bundleError.message}`,
+        })
+      }
+
+      // Fetch the existing receipt
+      const { data: receiptData, error: receiptFetchError } = await supabase
+        .from('bundle_receipts')
+        .select('*')
+        .eq('receipt_id', existingReceipt.receipt_id)
+        .maybeSingle()
+
+      if (receiptFetchError || !receiptData) {
+        return json(res, 500, {
+          success: false,
+          error: `Failed to fetch existing receipt: ${receiptFetchError?.message || 'Not found'}`,
+        })
+      }
+
+      return json(res, 200, {
+        success: true,
+        bundle: existingBundle
+          ? {
+              bundle_id: existingBundle.bundle_id,
+              version: existingBundle.version,
+              role: existingBundle.role,
+              created_at: existingBundle.created_at,
+            }
+          : null,
+        receipt: {
+          receipt_id: receiptData.receipt_id,
+          content_checksum: receiptData.content_checksum,
+          bundle_checksum: receiptData.bundle_checksum,
+          section_metrics: receiptData.section_metrics,
+          total_characters: receiptData.total_characters,
+        },
+        reused: true, // Indicate this receipt was reused
+      })
+    }
 
     // Get user identifier from session (if available)
     let createdBy: string | undefined = 'system'
@@ -256,7 +335,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const sectionMetrics = calculateSectionMetrics(bundleForStorage)
     const totalCharacters = calculateTotalCharacters(sectionMetrics)
 
-    // Insert receipt
+    // Insert receipt with artifact references
     const { data: newReceipt, error: receiptError } = await supabase
       .from('bundle_receipts')
       .insert({
@@ -271,7 +350,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         total_characters: totalCharacters,
         red_reference: redReference,
         integration_manifest_reference: integrationManifestReference,
-        git_ref: body.gitRef || null,
+        git_ref: gitRef,
+        artifact_references: artifactReferences.length > 0 ? artifactReferences : null,
       })
       .select()
       .single()

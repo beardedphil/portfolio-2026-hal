@@ -27,6 +27,13 @@ interface BundleListResponse {
   error?: string
 }
 
+interface ArtifactReference {
+  artifact_id: string
+  artifact_title: string
+  artifact_version: string
+  snippet: string
+}
+
 interface BundleReceipt {
   receipt_id: string
   bundle_id: string
@@ -48,6 +55,7 @@ interface BundleReceipt {
     base_sha?: string
     head_sha?: string
   } | null
+  artifact_references: ArtifactReference[] | null
   created_at: string
   bundle: {
     bundle_id: string
@@ -673,7 +681,61 @@ export function ContextBundleModal({
                     </div>
                   </div>
 
-                  {/* Distilled Artifacts */}
+                  {/* Artifact References with Exact Snippets */}
+                  {receipt?.artifact_references && receipt.artifact_references.length > 0 && (
+                    <div>
+                      <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>Artifact References</h4>
+                      <p style={{ fontSize: '14px', color: 'var(--hal-text-muted)', marginBottom: '12px' }}>
+                        Exact selected snippets (verbatim) with pointers to source artifact/version:
+                      </p>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        {receipt.artifact_references.map((artifactRef) => (
+                          <div
+                            key={artifactRef.artifact_id}
+                            style={{
+                              border: '1px solid var(--hal-border)',
+                              borderRadius: '8px',
+                              padding: '12px',
+                              background: 'var(--hal-surface-alt)',
+                            }}
+                          >
+                            <div style={{ marginBottom: '8px' }}>
+                              <div style={{ fontWeight: '600', fontSize: '14px', marginBottom: '4px' }}>
+                                {artifactRef.artifact_title}
+                              </div>
+                              <div style={{ fontSize: '12px', color: 'var(--hal-text-muted)' }}>
+                                <strong>Artifact ID:</strong> {artifactRef.artifact_id}
+                                <span style={{ marginLeft: '12px' }}>
+                                  <strong>Version:</strong> {new Date(artifactRef.artifact_version).toISOString()}
+                                </span>
+                              </div>
+                            </div>
+                            <div>
+                              <div style={{ fontWeight: '600', fontSize: '13px', marginBottom: '4px' }}>Exact Snippet (Verbatim)</div>
+                              <div
+                                style={{
+                                  fontFamily: 'monospace',
+                                  fontSize: '12px',
+                                  background: 'var(--hal-surface)',
+                                  padding: '12px',
+                                  borderRadius: '4px',
+                                  border: '1px solid var(--hal-border)',
+                                  whiteSpace: 'pre-wrap',
+                                  wordBreak: 'break-word',
+                                  maxHeight: '300px',
+                                  overflowY: 'auto',
+                                }}
+                              >
+                                {artifactRef.snippet || '(Empty snippet)'}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Distilled Artifacts (if available from bundle JSON) */}
                   {bundleJson?.distilled_artifacts && bundleJson.distilled_artifacts.length > 0 && (
                     <div>
                       <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>Distilled Artifacts</h4>
@@ -761,15 +823,20 @@ export function ContextBundleModal({
                       )}
                       {receipt.integration_manifest_reference && (
                         <div style={{ fontSize: '14px' }}>
-                          <strong>Integration Manifest:</strong> Version {receipt.integration_manifest_reference.version} (Schema: {receipt.integration_manifest_reference.schema_version}, ID: {receipt.integration_manifest_reference.manifest_id.substring(0, 8)}...)
+                          <strong>Integration Manifest:</strong> Version {receipt.integration_manifest_reference.version} (ID: {receipt.integration_manifest_reference.manifest_id}, Schema: {receipt.integration_manifest_reference.schema_version})
+                        </div>
+                      )}
+                      {!receipt.integration_manifest_reference && (
+                        <div style={{ fontSize: '14px', color: 'var(--hal-text-muted)' }}>
+                          <strong>Integration Manifest:</strong> Not available
                         </div>
                       )}
                       {receipt.git_ref && (
                         <div style={{ fontSize: '14px' }}>
-                          <strong>Git Ref:</strong>{' '}
+                          <strong>Git Diff Reference:</strong>{' '}
                           {receipt.git_ref.pr_url ? (
                             <a href={receipt.git_ref.pr_url} target="_blank" rel="noopener noreferrer">
-                              PR #{receipt.git_ref.pr_number}
+                              PR #{receipt.git_ref.pr_number || 'N/A'}
                             </a>
                           ) : (
                             'N/A'
@@ -784,6 +851,11 @@ export function ContextBundleModal({
                               Head: {receipt.git_ref.head_sha.substring(0, 7)}...
                             </span>
                           )}
+                        </div>
+                      )}
+                      {!receipt.git_ref && (
+                        <div style={{ fontSize: '14px', color: 'var(--hal-text-muted)' }}>
+                          <strong>Git Diff Reference:</strong> Not available
                         </div>
                       )}
                       {!receipt.red_reference && !receipt.integration_manifest_reference && !receipt.git_ref && (
