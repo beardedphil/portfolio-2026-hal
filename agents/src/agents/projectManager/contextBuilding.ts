@@ -6,6 +6,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { exec } from 'child_process'
 import { promisify } from 'util'
+import { createClient } from '@supabase/supabase-js'
 
 export type ConversationTurn = { role: 'user' | 'assistant'; content: string }
 
@@ -22,6 +23,9 @@ export interface PmAgentConfig {
   workingMemoryText?: string
   /** OpenAI Responses API: continue from this response for continuity. */
   previousResponseId?: string
+  /** When set with supabaseAnonKey, enables create_ticket tool (store ticket to Supabase, then sync writes to repo). */
+  supabaseUrl?: string
+  supabaseAnonKey?: string
   /** Project identifier (e.g. repo full_name when connected via GitHub). */
   projectId?: string
   /** Repo full_name (owner/repo) when connected via GitHub. Enables read_file/search_files via GitHub API. */
@@ -72,54 +76,63 @@ export const PM_LOCAL_RULES = [
   'qa-audit-report.mdc',
 ] as const
 
-export function formatPmInputsSummary(config: PmAgentConfig): string {
-  const hasGitHubRepo =
-    typeof config.repoFullName === 'string' && config.repoFullName.trim() !== ''
+function hasNonEmptyString(value: unknown): boolean {
+  return typeof value === 'string' && value.trim() !== ''
+}
 
-  const hasConversationContextPack =
-    typeof config.conversationContextPack === 'string' &&
-    config.conversationContextPack.trim() !== ''
+function hasNonEmptyArray<T>(value: unknown): value is T[] {
+  return Array.isArray(value) && value.length > 0
+}
 
-  const hasConversationHistory = Array.isArray(config.conversationHistory) && config.conversationHistory.length > 0
+function isVisionModel(model: string): boolean {
+  return model.includes('vision') || model.includes('gpt-4o')
+}
 
-  const hasWorkingMemoryText =
-    typeof config.workingMemoryText === 'string' &&
-    config.workingMemoryText.trim() !== ''
+function getConversationSource(
+  hasContextPack: boolean,
+  hasHistory: boolean
+): string {
+  if (hasContextPack) return 'conversationContextPack (DB-derived)'
+  if (hasHistory) return 'conversationHistory (client-provided)'
+  return 'none'
+}
 
-  const imageCount = Array.isArray(config.images) ? config.images.length : 0
-  const openaiModel = String(config.openaiModel ?? '').trim()
-  const isVisionModel = openaiModel.includes('vision') || openaiModel.includes('gpt-4o')
-
-  const availableTools: Array<{ name: string; available: boolean }> = [
+function buildToolList(hasSupabase: boolean, imageCount: number): Array<{ name: string; available: boolean }> {
+  return [
     { name: 'get_instruction_set', available: true },
     { name: 'list_directory', available: true },
     { name: 'read_file', available: true },
     { name: 'search_files', available: true },
     { name: 'evaluate_ticket_ready', available: true },
-    // Ticket tools are always available; they call HAL API endpoints.
-    { name: 'create_ticket', available: true },
-    { name: 'fetch_ticket_content', available: true },
-    { name: 'update_ticket_body', available: true },
-    { name: 'kanban_move_ticket_to_todo', available: true },
-    { name: 'list_tickets_by_column', available: true },
-    { name: 'move_ticket_to_column', available: true },
-    { name: 'list_available_repos', available: true },
-    // Tools currently present but intentionally disabled (require missing HAL endpoints).
-    { name: 'sync_tickets', available: false },
-    { name: 'kanban_move_ticket_to_other_repo_todo', available: false },
-    { name: 'attach_image_to_ticket', available: false },
+    { name: 'create_ticket', available: hasSupabase },
+    { name: 'fetch_ticket_content', available: hasSupabase },
+    { name: 'update_ticket_body', available: hasSupabase },
+    { name: 'sync_tickets', available: hasSupabase },
+    { name: 'kanban_move_ticket_to_todo', available: hasSupabase },
+    { name: 'list_tickets_by_column', available: hasSupabase },
+    { name: 'move_ticket_to_column', available: hasSupabase },
+    { name: 'list_available_repos', available: hasSupabase },
+    { name: 'kanban_move_ticket_to_other_repo_todo', available: hasSupabase },
+    { name: 'attach_image_to_ticket', available: hasSupabase && imageCount > 0 },
   ]
+}
 
+export function formatPmInputsSummary(config: PmAgentConfig): string {
+  const hasSupabase = hasNonEmptyString(config.supabaseUrl) && hasNonEmptyString(config.supabaseAnonKey)
+  const hasGitHubRepo = hasNonEmptyString(config.repoFullName)
+  const hasConversationContextPack = hasNonEmptyString(config.conversationContextPack)
+  const hasConversationHistory = hasNonEmptyArray<ConversationTurn>(config.conversationHistory)
+  const hasWorkingMemoryText = hasNonEmptyString(config.workingMemoryText)
+
+  const imageCount = hasNonEmptyArray(config.images) ? config.images.length : 0
+  const openaiModel = String(config.openaiModel ?? '').trim()
+  const modelIsVision = isVisionModel(openaiModel)
+
+  const availableTools = buildToolList(hasSupabase, imageCount)
   const enabledTools = availableTools.filter((t) => t.available).map((t) => `- ${t.name}`)
-  const disabledTools = availableTools
-    .filter((t) => !t.available)
-    .map((t) => `- ${t.name}`)
+  const disabledTools = availableTools.filter((t) => !t.available).map((t) => `- ${t.name}`)
 
-  const conversationSource = hasConversationContextPack
-    ? 'conversationContextPack (DB-derived)'
-    : hasConversationHistory
-      ? 'conversationHistory (client-provided)'
-      : 'none'
+  const conversationSource = getConversationSource(hasConversationContextPack, hasConversationHistory)
 
   const lines: string[] = [
     '## Inputs (provided by HAL)',
@@ -128,10 +141,10 @@ export function formatPmInputsSummary(config: PmAgentConfig): string {
     `- **repoRoot**: ${String(config.repoRoot ?? '').trim() || '(not provided)'}`,
     `- **openaiModel**: ${openaiModel || '(not provided)'}`,
     `- **previousResponseId**: ${String(config.previousResponseId ?? '').trim() ? 'present' : 'absent'}`,
-    `- **ticket operations**: HAL API only (no direct DB access from agents)`,
+    `- **supabase**: ${hasSupabase ? 'available (ticket tools enabled)' : 'not provided (ticket tools disabled)'}`,
     `- **conversation context**: ${conversationSource}`,
     `- **working memory**: ${hasWorkingMemoryText ? 'present' : 'absent'}`,
-    `- **images**: ${imageCount} (${imageCount > 0 ? (isVisionModel ? 'included' : 'ignored by model') : 'none'})`,
+    `- **images**: ${imageCount} (${imageCount > 0 ? (modelIsVision ? 'included' : 'ignored by model') : 'none'})`,
     '',
     '## Tools available (this run)',
     '',
@@ -149,28 +162,49 @@ export function formatPmInputsSummary(config: PmAgentConfig): string {
   return lines.join('\n')
 }
 
-export async function buildContextPack(config: PmAgentConfig, userMessage: string): Promise<string> {
-  const rulesDir = config.rulesDir ?? '.cursor/rules'
-  const rulesPath = path.resolve(config.repoRoot, rulesDir)
+function addConversationSection(
+  sections: string[],
+  config: PmAgentConfig
+): boolean {
+  if (hasNonEmptyString(config.conversationContextPack)) {
+    sections.push('## Conversation so far\n\n' + (config.conversationContextPack ?? '').trim())
+    return true
+  }
 
-  const sections: string[] = []
+  if (hasNonEmptyArray<ConversationTurn>(config.conversationHistory)) {
+    const { recent, omitted } = recentTurnsWithinCharBudget(
+      config.conversationHistory,
+      CONVERSATION_RECENT_MAX_CHARS
+    )
+    const truncNote =
+      omitted > 0
+        ? `\n(older messages omitted; showing recent conversation within ${CONVERSATION_RECENT_MAX_CHARS.toLocaleString()} characters)\n\n`
+        : '\n\n'
+    const lines = recent.map((t) => `**${t.role}**: ${t.content}`)
+    sections.push('## Conversation so far' + truncNote + lines.join('\n\n'))
+    return true
+  }
 
-  // Always include a compact list of HAL-provided inputs and enabled tools (helps debugging while keeping context small).
-  sections.push(formatPmInputsSummary(config))
+  return false
+}
 
-  // Local-first: try loading rules from repo
-  let localLoaded = false
+async function tryLoadLocalRules(
+  repoRoot: string,
+  rulesPath: string
+): Promise<{
+  localLoaded: boolean
+  ticketTemplateContent: string | null
+  checklistContent: string | null
+  localRulesContent: string
+}> {
   let ticketTemplateContent: string | null = null
   let checklistContent: string | null = null
   let localRulesContent = ''
 
   try {
-    const templatePath =
-      path.join(config.repoRoot, 'docs/templates/ticket.template.md')
-    const templateAltPath =
-      path.join(config.repoRoot, 'projects/kanban/docs/templates/ticket.template.md')
-    const checklistPath =
-      path.join(config.repoRoot, 'docs/process/ready-to-start-checklist.md')
+    const templatePath = path.join(repoRoot, 'docs/templates/ticket.template.md')
+    const templateAltPath = path.join(repoRoot, 'projects/kanban/docs/templates/ticket.template.md')
+    const checklistPath = path.join(repoRoot, 'docs/process/ready-to-start-checklist.md')
 
     let templateContent: string | null = null
     try {
@@ -198,15 +232,31 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
           .catch(() => '')
         if (content) ruleParts.push(content)
       }
-      const halContractPath = path.join(config.repoRoot, 'docs/process/hal-tool-call-contract.mdc')
+      const halContractPath = path.join(repoRoot, 'docs/process/hal-tool-call-contract.mdc')
       const halContract = await fs.readFile(halContractPath, 'utf8').catch(() => '')
       if (halContract) ruleParts.push(halContract)
       localRulesContent = ruleParts.join('\n\n---\n\n')
-      localLoaded = true
+      return { localLoaded: true, ticketTemplateContent, checklistContent, localRulesContent }
     }
   } catch {
     // local load failed, will use HAL/Supabase fallback
   }
+
+  return { localLoaded: false, ticketTemplateContent, checklistContent, localRulesContent }
+}
+
+export async function buildContextPack(config: PmAgentConfig, userMessage: string): Promise<string> {
+  const rulesDir = config.rulesDir ?? '.cursor/rules'
+  const rulesPath = path.resolve(config.repoRoot, rulesDir)
+
+  const sections: string[] = []
+
+  // Always include a compact list of HAL-provided inputs and enabled tools (helps debugging while keeping context small).
+  sections.push(formatPmInputsSummary(config))
+
+  // Local-first: try loading rules from repo
+  const localRulesResult = await tryLoadLocalRules(config.repoRoot, rulesPath)
+  let { localLoaded, ticketTemplateContent, checklistContent, localRulesContent } = localRulesResult
 
   if (localLoaded) {
     sections.push(
@@ -228,28 +278,12 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
   }
 
   // Working Memory (0173: PM working memory) - include before conversation context
-  if (config.workingMemoryText && config.workingMemoryText.trim() !== '') {
-    sections.push(config.workingMemoryText.trim())
+  if (hasNonEmptyString(config.workingMemoryText)) {
+    sections.push((config.workingMemoryText ?? '').trim())
   }
 
   // Conversation so far: pre-built context pack (e.g. summary + recent from DB) or bounded history
-  let hasConversation = false
-  if (config.conversationContextPack && config.conversationContextPack.trim() !== '') {
-    sections.push('## Conversation so far\n\n' + config.conversationContextPack.trim())
-    hasConversation = true
-  } else {
-    const history = config.conversationHistory
-    if (history && history.length > 0) {
-      const { recent, omitted } = recentTurnsWithinCharBudget(history, CONVERSATION_RECENT_MAX_CHARS)
-      const truncNote =
-        omitted > 0
-          ? `\n(older messages omitted; showing recent conversation within ${CONVERSATION_RECENT_MAX_CHARS.toLocaleString()} characters)\n\n`
-          : '\n\n'
-      const lines = recent.map((t) => `**${t.role}**: ${t.content}`)
-      sections.push('## Conversation so far' + truncNote + lines.join('\n\n'))
-      hasConversation = true
-    }
-  }
+  const hasConversation = addConversationSection(sections, config)
 
   if (hasConversation) {
     sections.push('## User message (latest reply in the conversation above)\n\n' + userMessage)
@@ -332,7 +366,37 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
       }
     }
 
-    // mapSupabaseInstruction removed: agents must be API-only (no Supabase instruction fallback).
+    const mapSupabaseInstruction = (raw: Record<string, unknown>): InstructionRecord => {
+      const topicIdRaw = typeof raw.topic_id === 'string' ? raw.topic_id.trim() : ''
+      const filenameRaw = typeof raw.filename === 'string' ? raw.filename.trim() : ''
+      const titleRaw = typeof raw.title === 'string' ? raw.title.trim() : ''
+      const descriptionRaw = typeof raw.description === 'string' ? raw.description.trim() : ''
+      const contentMdRaw =
+        typeof raw.content_md === 'string'
+          ? raw.content_md
+          : typeof raw.content_body === 'string'
+            ? raw.content_body
+            : ''
+      const topicMeta = raw.topic_metadata as TopicMeta | undefined
+      const agentTypesRaw = Array.isArray(raw.agent_types)
+        ? raw.agent_types.filter((v): v is string => typeof v === 'string')
+        : []
+
+      const topicId = topicIdRaw || filenameRaw.replace(/\.mdc$/i, '')
+      const filename = filenameRaw || `${topicId || 'unknown'}.mdc`
+      return {
+        topicId,
+        filename,
+        title: titleRaw || filename.replace(/\.mdc$/i, '').replace(/-/g, ' '),
+        description: descriptionRaw || topicMeta?.description || 'No description',
+        contentMd: contentMdRaw,
+        alwaysApply: raw.always_apply === true,
+        agentTypes: agentTypesRaw,
+        isBasic: raw.is_basic === true,
+        isSituational: raw.is_situational === true,
+        topicMetadata: topicMeta,
+      }
+    }
 
     const appliesToAllAgents = (inst: InstructionRecord): boolean =>
       inst.alwaysApply || inst.agentTypes.includes('all')
@@ -521,7 +585,46 @@ export async function buildContextPack(config: PmAgentConfig, userMessage: strin
       }
     }
 
-    // No direct Supabase fallback: agents must be API-only.
+    // Direct Supabase fallback if HAL bootstrap loading failed.
+    if (!bootstrapLoaded && config.supabaseUrl && config.supabaseAnonKey) {
+      const supabase = createClient(config.supabaseUrl.trim(), config.supabaseAnonKey.trim())
+      const [basicQuery, situationalQuery] = await Promise.all([
+        supabase
+          .from('agent_instructions')
+          .select('*')
+          .eq('repo_full_name', repoFullName)
+          .eq('is_basic', true)
+          .order('filename'),
+        supabase
+          .from('agent_instructions')
+          .select('*')
+          .eq('repo_full_name', repoFullName)
+          .eq('is_situational', true)
+          .order('filename'),
+      ])
+
+      const basicInstructions: InstructionRecord[] =
+        !basicQuery.error && Array.isArray(basicQuery.data)
+          ? basicQuery.data.map((row) => mapSupabaseInstruction(row as Record<string, unknown>))
+          : []
+      const situationalInstructions: InstructionRecord[] =
+        !situationalQuery.error && Array.isArray(situationalQuery.data)
+          ? situationalQuery.data.map((row) =>
+              mapSupabaseInstruction(row as Record<string, unknown>)
+            )
+          : []
+
+      bootstrapLoaded = appendInstructionBootstrap(
+        'Direct Supabase fallback',
+        basicInstructions,
+        situationalInstructions,
+        USE_MINIMAL_BOOTSTRAP
+      )
+      const templateInst = basicInstructions.find((i) => i.topicId === 'ticket-template')
+      const checklistInst = basicInstructions.find((i) => i.topicId === 'ready-to-start-checklist')
+      if (templateInst?.contentMd) ticketTemplateContent = templateInst.contentMd
+      if (checklistInst?.contentMd) checklistContent = checklistInst.contentMd
+    }
 
     // Last resort: local entry point only (no topic content from filesystem).
     if (!bootstrapLoaded) {

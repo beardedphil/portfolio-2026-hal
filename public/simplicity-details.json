@@ -5,23 +5,19 @@
       "maintainability": 0
     },
     {
-      "file": "src/components/ContextBundleModal.tsx",
-      "maintainability": 0
-    },
-    {
-      "file": "src/hooks/useAgentRuns.ts",
-      "maintainability": 0
-    },
-    {
-      "file": "src/hooks/useKanban.ts",
-      "maintainability": 0
-    },
-    {
-      "file": "api/agent-runs/launch.ts",
-      "maintainability": 0
-    },
-    {
       "file": "api/agent-runs/status.ts",
+      "maintainability": 0
+    },
+    {
+      "file": "agents/src/agents/projectManager/contextBuilding.ts",
+      "maintainability": 0
+    },
+    {
+      "file": "agents/src/agents/projectManager/contextPack.ts",
+      "maintainability": 0
+    },
+    {
+      "file": "agents/src/agents/projectManager/runPmAgent.ts",
       "maintainability": 0
     },
     {
@@ -33,28 +29,12 @@
       "maintainability": 0
     },
     {
-      "file": "api/agent-runs/providers/openai.ts",
-      "maintainability": 1.13
-    },
-    {
-      "file": "agents/src/agents/projectManager/contextBuilding.ts",
-      "maintainability": 1.99
-    },
-    {
-      "file": "api/instructions/get-index.ts",
-      "maintainability": 7.99
-    },
-    {
       "file": "api/implementation-agent/run.ts",
       "maintainability": 12.23
     },
     {
-      "file": "src/hooks/useProcessReview.ts",
-      "maintainability": 18.54
-    },
-    {
-      "file": "api/auth/github/callback.ts",
-      "maintainability": 24.45
+      "file": "api/agent-runs/launch.ts",
+      "maintainability": 15.68
     },
     {
       "file": "projects/kanban/src/components/ArtifactReportViewer.tsx",
@@ -65,57 +45,65 @@
       "maintainability": 24.9
     },
     {
-      "file": "api/tickets/create-pr.ts",
-      "maintainability": 25.54
-    },
-    {
       "file": "api/instructions/migrate-process-docs.ts",
       "maintainability": 26.39
     },
     {
-      "file": "api/instructions/get-topic.ts",
-      "maintainability": 26.6
-    },
-    {
       "file": "api/conversations/working-memory/update.ts",
       "maintainability": 27.95
+    },
+    {
+      "file": "api/process-review/create-tickets.ts",
+      "maintainability": 29.07
+    },
+    {
+      "file": "projects/kanban/src/components/TicketDetailModal.tsx",
+      "maintainability": 30.65
+    },
+    {
+      "file": "api/artifacts/get.ts",
+      "maintainability": 32.38
+    },
+    {
+      "file": "api/agent-runs/_shared.ts",
+      "maintainability": 32.99
+    },
+    {
+      "file": "api/tickets/create-from-suggestion.ts",
+      "maintainability": 33.81
+    },
+    {
+      "file": "api/pm-agent/launch.ts",
+      "maintainability": 34.04
+    },
+    {
+      "file": "api/pm/working-memory.ts",
+      "maintainability": 35.13
     }
   ],
   "mostRecentImprovements": [
     {
-      "file": "api/agent-runs/providers/openai.ts",
-      "before": 1.13,
-      "after": 1.13,
+      "file": "api/artifacts/get.ts",
+      "before": 32.38,
+      "after": 32.38,
       "delta": 0
     },
     {
-      "file": "api/tickets/create-pr.ts",
-      "before": 25.54,
-      "after": 25.54,
+      "file": "api/pm/working-memory.ts",
+      "before": 35.13,
+      "after": 35.13,
       "delta": 0
     },
     {
-      "file": "api/auth/github/callback.ts",
-      "before": 24.45,
-      "after": 24.45,
+      "file": "api/tickets/create-from-suggestion.ts",
+      "before": 33.81,
+      "after": 33.81,
       "delta": 0
     },
     {
-      "file": "src/hooks/useProcessReview.ts",
-      "before": 18.54,
-      "after": 18.54,
-      "delta": 0
-    },
-    {
-      "file": "api/instructions/get-index.ts",
-      "before": 7.99,
-      "after": 7.99,
-      "delta": 0
-    },
-    {
-      "file": "api/instructions/get-topic.ts",
-      "before": 26.6,
-      "after": 26.6,
+      "file": "projects/kanban/src/components/TicketDetailModal.tsx",
+      "before": 30.65,
+      "after": 30.65,
       "delta": 0
     },
     {
@@ -131,8 +119,7 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-21T20:19:08.385Z",
-  "filesAnalyzed": 317,
-  "unroundedMaintainability": 39.6,
-  "unroundedSimplicity": 39.6
+  "generatedAt": "2026-02-16T21:45:59.015Z",
+  "filesAnalyzed": 247,
+  "unroundedSimplicity": 40.7
 }
