@@ -92,6 +92,7 @@ interface GenerateResponse {
     displayName: string
   }
   budgetExceeded?: boolean
+  sectionMetrics?: Record<string, number>
   characterCount?: number
   hardLimit?: number
   overage?: number
@@ -166,7 +167,6 @@ export function ContextBundleModal({
   const [bundleJson, setBundleJson] = useState<BundleJson | null>(null)
   const [previewBudget, setPreviewBudget] = useState<PreviewResponse['budget'] | null>(null)
   const [previewSectionMetrics, setPreviewSectionMetrics] = useState<Record<string, number> | null>(null)
-  const [previewLoading, setPreviewLoading] = useState(false)
   
   // Ticket selection state (if allowTicketSelection is true)
   const [selectedTicketId, setSelectedTicketId] = useState<string>(initialTicketId || '')
@@ -435,7 +435,7 @@ export function ContextBundleModal({
           const overage = data.overage || 0
           const sectionBreakdown = data.sectionMetrics 
             ? Object.entries(data.sectionMetrics)
-                .map(([section, count]) => `  ${section}: ${count.toLocaleString()} chars`)
+                .map(([section, count]) => `  ${section}: ${typeof count === 'number' ? count.toLocaleString() : String(count)} chars`)
                 .join('\n')
             : 'N/A'
           setError(
@@ -481,7 +481,6 @@ export function ContextBundleModal({
       return
     }
 
-    setPreviewLoading(true)
     setError(null)
 
     try {
@@ -517,8 +516,6 @@ export function ContextBundleModal({
       // Don't set error for preview failures - just clear preview
       setPreviewBudget(null)
       setPreviewSectionMetrics(null)
-    } finally {
-      setPreviewLoading(false)
     }
   }
 
