@@ -4,6 +4,8 @@ import {
   isAbortError,
   hasGitHubRepo,
   truncateForLogging,
+  createRedArtifactBody,
+  createRedArtifactTitle,
 } from './projectManager/helpers.js'
 
 /**
@@ -143,5 +145,28 @@ describe('projectManager GitHub repo detection', () => {
   it('returns false when repoFullName is undefined', () => {
     const githubReadFile = async () => ({ content: 'test' })
     expect(hasGitHubRepo(undefined, githubReadFile)).toBe(false)
+  })
+})
+
+describe('projectManager RED artifact helpers', () => {
+  it('creates RED artifact title with version and date', () => {
+    const createdAt = '2026-02-21T12:00:00.000Z'
+    const title = createRedArtifactTitle(1, createdAt)
+    expect(title).toBe('RED v1 — 2026-02-21')
+  })
+
+  it('creates RED artifact body with all required fields', () => {
+    const body = createRedArtifactBody(1, 'red-123', '2026-02-21T12:00:00.000Z', 'valid', { test: 'data' })
+    expect(body).toContain('# RED Document Version 1')
+    expect(body).toContain('RED ID: red-123')
+    expect(body).toContain('Created: 2026-02-21T12:00:00.000Z')
+    expect(body).toContain('Validation Status: valid')
+    expect(body).toContain('```json')
+    expect(body).toContain('"test": "data"')
+  })
+
+  it('handles version 0 correctly', () => {
+    const title = createRedArtifactTitle(0, '2026-02-21T12:00:00.000Z')
+    expect(title).toBe('RED v0 — 2026-02-21')
   })
 })

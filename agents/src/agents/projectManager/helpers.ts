@@ -66,3 +66,35 @@ export function hasGitHubRepo(
 export function truncateForLogging(input: string, maxLength: number = 500): string {
   return input.slice(0, maxLength) + (input.length > maxLength ? '...' : '')
 }
+
+/**
+ * Creates RED artifact body markdown from RED document data.
+ * Used to create mirrored RED artifacts for visibility in ticket Artifacts section.
+ */
+export function createRedArtifactBody(
+  version: number,
+  redId: string,
+  createdAt: string,
+  validationStatus: string,
+  redJson: unknown
+): string {
+  return `# RED Document Version ${version}
+
+RED ID: ${String(redId)}
+Created: ${createdAt}
+Validation Status: ${validationStatus}
+
+## Canonical RED JSON
+
+\`\`\`json
+${JSON.stringify(redJson, null, 2)}
+\`\`\`
+`
+}
+
+/**
+ * Creates RED artifact title from version and creation date.
+ */
+export function createRedArtifactTitle(version: number, createdAt: string): string {
+  return `RED v${version} — ${createdAt.split('T')[0]}`
+}
