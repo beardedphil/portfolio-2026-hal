@@ -46,43 +46,43 @@
     },
     {
       "file": "api/implementation-agent/run.ts",
-      "maintainability": 6.25
+      "maintainability": 6.15
     },
     {
       "file": "src/hooks/useProcessReview.ts",
-      "maintainability": 14.16
+      "maintainability": 14.04
     },
     {
       "file": "api/instructions/get-topic.ts",
-      "maintainability": 15.35
+      "maintainability": 15.27
     },
     {
       "file": "api/context-bundles/_builder.ts",
-      "maintainability": 15.37
+      "maintainability": 15.28
     },
     {
       "file": "api/tickets/create-pr.ts",
-      "maintainability": 15.59
+      "maintainability": 15.41
     },
     {
       "file": "api/instructions/migrate-process-docs.ts",
-      "maintainability": 15.79
+      "maintainability": 15.59
     },
     {
       "file": "api/auth/github/callback.ts",
-      "maintainability": 16.37
+      "maintainability": 16.29
     },
     {
       "file": "api/qa-agent/run.ts",
-      "maintainability": 16.85
+      "maintainability": 16.69
     },
     {
       "file": "api/process-review/create-tickets.ts",
-      "maintainability": 17.81
+      "maintainability": 17.61
     }
   ],
   "mostRecentImprovements": [],
-  "generatedAt": "2026-02-21T23:54:17.085Z",
+  "generatedAt": "2026-02-21T23:57:23.548Z",
   "filesAnalyzed": 324,
   "unroundedMaintainability": 33.9,
   "unroundedSimplicity": 33.9
