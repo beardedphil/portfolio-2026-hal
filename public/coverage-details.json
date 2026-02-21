@@ -73,45 +73,21 @@
       "coverage": 0
     },
     {
-      "file": "/workspace/api/agent-runs/status.ts",
+      "file": "/workspace/api/agent-runs/stream.ts",
       "coverage": 0
     },
     {
-      "file": "/workspace/api/agent-runs/stream.ts",
+      "file": "/workspace/api/agent-runs/sync-artifacts.ts",
       "coverage": 0
     }
   ],
   "mostRecentImprovements": [
     {
-      "file": "/workspace/agents/src/agents/projectManager/contextPack.ts",
+      "file": "/workspace/api/agent-runs/status.ts",
       "before": 0,
-      "after": 100,
-      "delta": 100
-    },
-    {
-      "file": "/workspace/agents/src/agents/projectManager/runPmAgent.ts",
-      "before": 0,
-      "after": 100,
-      "delta": 100
-    },
-    {
-      "file": "/workspace/agents/src/utils/redact.ts",
-      "before": 0,
-      "after": 26.3,
-      "delta": 26.3
-    },
-    {
-      "file": "/workspace/agents/src/agents/projectManager/responseHandling.ts",
-      "before": 0,
-      "after": 25,
-      "delta": 25
-    },
-    {
-      "file": "/workspace/agents/src/agents/projectManager.ts",
-      "before": 0,
-      "after": 14,
-      "delta": 14
+      "after": 27.8,
+      "delta": 27.8
     }
   ],
-  "generatedAt": "2026-02-21T20:24:10.914Z"
+  "generatedAt": "2026-02-21T22:54:15.124Z"
 }
