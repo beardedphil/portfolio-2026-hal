@@ -246,15 +246,19 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const sectionMetrics = calculateSectionMetrics(bundleJson)
     const totalCharacters = calculateTotalCharacters(sectionMetrics)
 
-    // Extract git ref from run if available
+    // Extract git ref from run if available (include base_sha and head_sha if available)
     const gitRef = run.pr_url
       ? {
           pr_url: run.pr_url,
           pr_number: run.ticket_number || null,
+          base_sha: run.base_sha || null,
+          head_sha: run.head_sha || null,
         }
       : null
 
-    // Insert receipt
+    // Note: build-from-run doesn't use the builder, so we don't have artifact references/snippets
+    // This endpoint builds bundles from agent runs, not from selected artifacts
+    // Insert receipt (artifact_references and selected_snippets will be null for agent-run bundles)
     const { data: newReceipt, error: receiptError } = await supabase
       .from('bundle_receipts')
       .insert({
@@ -270,6 +274,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         red_reference: null,
         integration_manifest_reference: integrationManifestReference,
         git_ref: gitRef,
+        artifact_references: null, // Agent-run bundles don't have artifact references
+        selected_snippets: null, // Agent-run bundles don't have selected snippets
       })
       .select()
       .single()
