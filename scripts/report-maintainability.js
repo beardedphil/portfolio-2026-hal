@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
 /**
- * Reports a single repo-wide Simplicity metric for QA reports.
+ * Reports a single repo-wide Maintainability metric for QA reports.
  * Uses TypeScript compiler API to compute a maintainability-index-like score per file, then averages
  * across the whole repo (same scope as test coverage: src, api, agents, projects).
- * Outputs "Simplicity: XX%" so QA report body_md can include it and the dashboard can parse it.
+ * Outputs "Maintainability: XX%" so QA report body_md can include it and the dashboard can parse it.
  */
 
 import fs from 'fs'
@@ -159,7 +159,7 @@ function calculateMaintainability(filePath) {
 
     // Simplified Maintainability Index calculation
     // MI = 171 - 5.2 * ln(Halstead Volume) - 0.23 * (Cyclomatic Complexity) - 16.2 * ln(LOC)
-    // For simplicity, we'll use a simplified formula:
+    // We use a simplified formula:
     // MI ≈ 171 - 0.23 * complexity - 16.2 * ln(LOC) - 0.1 * functionCount
     const halsteadVolume = Math.max(1, loc * 2) // Rough approximation
     const mi = 171 
@@ -193,7 +193,7 @@ function writeJson(filePath, data) {
 function main() {
   const filePaths = collectAllPaths()
   if (filePaths.length === 0) {
-    console.log('Simplicity: N/A')
+    console.log('Maintainability: N/A')
     process.exit(0)
   }
 
@@ -213,7 +213,7 @@ function main() {
   }
 
   if (count === 0) {
-    console.log('Simplicity: N/A')
+    console.log('Maintainability: N/A')
     process.exit(0)
   }
 
@@ -221,29 +221,24 @@ function main() {
   // Maintainability index is typically 0–171; scale to 0–100 and clamp
   const unroundedMaintainability = Math.min(100, Math.max(0, (overallAvg / 171) * 100))
   const maintainabilityPct = Math.round(unroundedMaintainability)
-  console.log(`Simplicity: ${maintainabilityPct}%`)
+  console.log(`Maintainability: ${maintainabilityPct}%`)
 
-  // Update repo metrics file for dashboard (no QA report parsing)
+  // Update repo metrics file for dashboard
   const metricsPath = path.join(ROOT_DIR, 'public', 'metrics.json')
   let metrics = { coverage: null, maintainability: null, updatedAt: null }
   try {
     const raw = fs.readFileSync(metricsPath, 'utf8')
     metrics = { ...metrics, ...JSON.parse(raw) }
   } catch (_) {}
-  // Write new field names
+  // Write maintainability fields
   metrics.maintainability = maintainabilityPct
-  metrics.unroundedMaintainability = Math.round(unroundedMaintainability * 10) / 10 // Round to 1 decimal place
-  // Keep legacy fields for backward compatibility during migration
-  metrics.simplicity = maintainabilityPct
-  metrics.unroundedSimplicity = Math.round(unroundedMaintainability * 10) / 10
+  metrics.unroundedMaintainability = Math.round(unroundedMaintainability * 10) / 10
   metrics.updatedAt = new Date().toISOString()
   fs.mkdirSync(path.dirname(metricsPath), { recursive: true })
   fs.writeFileSync(metricsPath, JSON.stringify(metrics, null, 2) + '\n', 'utf8')
 
   // Generate maintainability-details.json with top offenders and improvements
-  // Also write to simplicity-details.json for backward compatibility during migration
   const maintainabilityDetailsPath = path.join(ROOT_DIR, 'public', 'maintainability-details.json')
-  const simplicityDetailsPath = path.join(ROOT_DIR, 'public', 'simplicity-details.json')
   
   // Sort by maintainability (ascending) to get worst offenders first
   fileMaintainability.sort((a, b) => a.maintainability - b.maintainability)
@@ -251,15 +246,13 @@ function main() {
   // Top 20 offenders (lowest maintainability)
   const topOffenders = fileMaintainability.slice(0, 20).map((item) => ({
     file: item.file,
-    maintainability: Math.round(item.maintainability * 100) / 100, // Keep precision for maintainability index
+    maintainability: Math.round(item.maintainability * 100) / 100,
   }))
 
-  // Compare with previous maintainability-details.json or simplicity-details.json to find improvements
+  // Compare with previous maintainability-details.json to find improvements
   const previousMaintainabilityDetails = readJson(maintainabilityDetailsPath, null)
-  const previousSimplicityDetails = readJson(simplicityDetailsPath, null)
-  const previousDetails = previousMaintainabilityDetails ?? previousSimplicityDetails
-  const previousMaintainability = previousDetails?.topOffenders
-    ? new Map(previousDetails.topOffenders.map((item) => [item.file, item.maintainability]))
+  const previousMaintainability = previousMaintainabilityDetails?.topOffenders
+    ? new Map(previousMaintainabilityDetails.topOffenders.map((item) => [item.file, item.maintainability]))
     : null
 
   const improvements = fileMaintainability
@@ -284,14 +277,10 @@ function main() {
     mostRecentImprovements: improvements,
     generatedAt: new Date().toISOString(),
     filesAnalyzed: count,
-    unroundedMaintainability: Math.round(unroundedMaintainability * 10) / 10, // Round to 1 decimal place
-    // Legacy field for backward compatibility
-    unroundedSimplicity: Math.round(unroundedMaintainability * 10) / 10,
+    unroundedMaintainability: Math.round(unroundedMaintainability * 10) / 10,
   }
 
-  // Write to both files during migration
   writeJson(maintainabilityDetailsPath, maintainabilityDetails)
-  writeJson(simplicityDetailsPath, maintainabilityDetails) // Backward compatibility
 }
 
 main()

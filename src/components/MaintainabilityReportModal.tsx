@@ -14,8 +14,6 @@ interface MaintainabilityDetails {
   generatedAt: string
   filesAnalyzed?: number
   unroundedMaintainability?: number
-  // Legacy field for backward compatibility
-  unroundedSimplicity?: number
 }
 
 interface MaintainabilityReportModalProps {
@@ -33,11 +31,8 @@ export function MaintainabilityReportModal({ isOpen, onClose }: MaintainabilityR
 
     setLoading(true)
     setError(null)
-    // Try maintainability-details.json first, fall back to simplicity-details.json for backward compatibility
-    Promise.race([
-      fetch('/maintainability-details.json').then(res => res.ok ? res.json() : Promise.reject(new Error('Not found'))),
-      fetch('/simplicity-details.json').then(res => res.ok ? res.json() : Promise.reject(new Error('Not found')))
-    ])
+    fetch('/maintainability-details.json')
+      .then(res => res.ok ? res.json() : Promise.reject(new Error('Not found')))
       .then((data: MaintainabilityDetails) => {
         setDetails(data)
         setLoading(false)
@@ -53,8 +48,7 @@ export function MaintainabilityReportModal({ isOpen, onClose }: MaintainabilityR
   // Convert maintainability index (0-171) to percentage (0-100)
   const maintainabilityToPercent = (mi: number) => Math.round((mi / 171) * 100 * 10) / 10
 
-  // Support both new and legacy field names
-  const unroundedMaintainability = details?.unroundedMaintainability ?? details?.unroundedSimplicity
+  const unroundedMaintainability = details?.unroundedMaintainability
 
   return (
     <div className="conversation-modal-overlay" onClick={onClose}>

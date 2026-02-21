@@ -79,7 +79,7 @@ describe('QAMetricsCard', () => {
     render(<QAMetricsCard />)
 
     await waitFor(() => {
-      expect(screen.getByText('Run test:coverage and report:simplicity to update')).toBeInTheDocument()
+      expect(screen.getByText('Run test:coverage and report:maintainability to update')).toBeInTheDocument()
     })
   })
 
@@ -91,7 +91,7 @@ describe('QAMetricsCard', () => {
     await waitFor(() => {
       const naValues = screen.getAllByText('N/A')
       expect(naValues.length).toBeGreaterThanOrEqual(2)
-      expect(screen.getByText('Run test:coverage and report:simplicity to update')).toBeInTheDocument()
+      expect(screen.getByText('Run test:coverage and report:maintainability to update')).toBeInTheDocument()
     })
   })
 

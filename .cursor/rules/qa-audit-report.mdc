@@ -83,10 +83,10 @@ This runs vitest with coverage over the entire codebase and outputs a text summa
 Run the repo’s maintainability report (uses a maintainability library over the whole codebase):
 
 ```bash
-npm run report:simplicity
+npm run report:maintainability
 ```
 
-The script prints a single line: `Simplicity: XX%`. **IMPORTANT:** Even though the script output says "Simplicity", you **MUST** use the label **"Maintainability"** (not "Simplicity") in your QA report. The word "Simplicity" should **NOT** appear anywhere in the user-visible QA report text.
+The script prints a single line: `Maintainability: XX%`.
 
 **Maintainability section format:**
 
@@ -103,9 +103,8 @@ The maintainability metric measures code quality across the entire repository. H
 ```
 
 **CRITICAL:** 
-- Use the exact heading `## Maintainability` (not "Simplicity" or any variation)
+- Use the exact heading `## Maintainability`
 - Include all three bullets (Readability, Testability, Change safety) in your report
-- Do not mention "Simplicity" anywhere in the QA report body
 
 **Note:** Run this on the branch/commit being verified. The number is for the whole repo, not just the ticket’s changes.
 

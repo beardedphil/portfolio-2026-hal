@@ -5,9 +5,6 @@ export interface QAMetrics {
   coverage: number | null // 0-100 or null for N/A
   maintainability: number | null // 0-100 or null for N/A
   unroundedMaintainability?: number | null // Unrounded maintainability value (0-100) with 1 decimal place
-  // Legacy fields for backward compatibility
-  simplicity?: number | null // Deprecated: use maintainability
-  unroundedSimplicity?: number | null // Deprecated: use unroundedMaintainability
 }
 
 function formatPercentTenths(value: number) {
@@ -18,18 +15,12 @@ function parseMetrics(data: unknown): QAMetrics | null {
   if (!data || typeof data !== 'object') return null
   const o = data as Record<string, unknown>
   const coverage = o.coverage != null ? Math.min(100, Math.max(0, Number(o.coverage))) : null
-  // Support both new (maintainability) and legacy (simplicity) field names for migration
-  const maintainability = o.maintainability != null ? Math.min(100, Math.max(0, Number(o.maintainability))) : 
-                         (o.simplicity != null ? Math.min(100, Math.max(0, Number(o.simplicity))) : null)
-  const unroundedMaintainability = o.unroundedMaintainability != null ? Math.min(100, Math.max(0, Number(o.unroundedMaintainability))) :
-                                   (o.unroundedSimplicity != null ? Math.min(100, Math.max(0, Number(o.unroundedSimplicity))) : null)
+  const maintainability = o.maintainability != null ? Math.min(100, Math.max(0, Number(o.maintainability))) : null
+  const unroundedMaintainability = o.unroundedMaintainability != null ? Math.min(100, Math.max(0, Number(o.unroundedMaintainability))) : null
   return { 
     coverage: coverage ?? null, 
     maintainability: maintainability ?? null, 
-    unroundedMaintainability: unroundedMaintainability ?? null,
-    // Include legacy fields for backward compatibility
-    simplicity: maintainability,
-    unroundedSimplicity: unroundedMaintainability
+    unroundedMaintainability: unroundedMaintainability ?? null
   }
 }
 
@@ -53,7 +44,7 @@ interface QAMetricsCardProps {
 export function useQAMetrics() {
   const [qaMetrics, setQaMetrics] = useState<QAMetrics | null>(null)
 
-  // Load metrics on mount and poll so UI updates when metrics.json changes (CI or local report:simplicity)
+  // Load metrics on mount and poll so UI updates when metrics.json changes (CI or local report:maintainability)
   useEffect(() => {
     let cancelled = false
     const apply = (m: QAMetrics | null) => {
@@ -63,7 +54,7 @@ export function useQAMetrics() {
     fetchMetrics(false).then(apply)
 
     const isTest = import.meta.env.MODE === 'test'
-    const intervalMs = isTest ? 0 : import.meta.env.DEV ? 5_000 : 60_000 // dev: 5s so local report:simplicity shows quickly
+    const intervalMs = isTest ? 0 : import.meta.env.DEV ? 5_000 : 60_000 // dev: 5s so local report:maintainability shows quickly
     const id = intervalMs > 0 ? setInterval(() => fetchMetrics(true).then(apply), intervalMs) : 0
     return () => {
       cancelled = true
@@ -142,7 +133,7 @@ export function MaintainabilityBadge() {
 /**
  * Component that fetches and displays QA metrics (Coverage and Maintainability)
  * from /metrics.json. Handles missing metrics gracefully by showing "N/A".
- * Polls periodically so updates (e.g. from report:simplicity or CI) appear automatically.
+ * Polls periodically so updates (e.g. from report:maintainability or CI) appear automatically.
  * 
  * @deprecated Use CoverageBadge and MaintainabilityBadge separately instead.
  */
@@ -201,7 +192,7 @@ export function QAMetricsCard({ onCoverageClick, onMaintainabilityClick }: QAMet
         </span>
       </div>
       {qaMetrics === null && (
-        <span className="qa-metrics-hint">Run test:coverage and report:simplicity to update</span>
+        <span className="qa-metrics-hint">Run test:coverage and report:maintainability to update</span>
       )}
     </div>
   )

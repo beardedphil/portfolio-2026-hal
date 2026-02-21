@@ -35,7 +35,7 @@
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:install": "playwright install --with-deps chromium",
     "report:lines": "node scripts/report-lines.js",
-    "report:simplicity": "node scripts/report-simplicity.js",
+    "report:maintainability": "node scripts/report-maintainability.js",
     "check:lines": "node scripts/check-lines.js"
   },
   "dependencies": {
