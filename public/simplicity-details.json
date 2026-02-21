@@ -33,10 +33,6 @@
       "maintainability": 0
     },
     {
-      "file": "agents/src/agents/projectManager.ts",
-      "maintainability": 0
-    },
-    {
       "file": "projects/kanban/src/App.tsx",
       "maintainability": 0
     },
@@ -47,6 +43,10 @@
     {
       "file": "api/implementation-agent/run.ts",
       "maintainability": 12.23
+    },
+    {
+      "file": "agents/src/agents/projectManager/ticketTools.ts",
+      "maintainability": 17.55
     },
     {
       "file": "src/hooks/useProcessReview.ts",
@@ -83,6 +83,12 @@
   ],
   "mostRecentImprovements": [
     {
+      "file": "agents/src/agents/projectManager.ts",
+      "before": 0,
+      "after": 29.29,
+      "delta": 29.29
+    },
+    {
       "file": "api/tickets/create-pr.ts",
       "before": 25.54,
       "after": 25.54,
@@ -107,9 +113,9 @@
       "delta": 0
     },
     {
-      "file": "api/instructions/get-topic.ts",
-      "before": 26.6,
-      "after": 26.6,
+      "file": "agents/src/agents/projectManager/ticketTools.ts",
+      "before": 17.55,
+      "after": 17.55,
       "delta": 0
     },
     {
@@ -125,8 +131,8 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-21T22:56:00.814Z",
-  "filesAnalyzed": 323,
-  "unroundedMaintainability": 39.5,
-  "unroundedSimplicity": 39.5
+  "generatedAt": "2026-02-21T23:31:49.412Z",
+  "filesAnalyzed": 331,
+  "unroundedMaintainability": 39.3,
+  "unroundedSimplicity": 39.3
 }
