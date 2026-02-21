@@ -14,7 +14,8 @@ import {
 } from './_checksum.js'
 import { getLatestManifest } from '../_lib/integration-manifest/context-integration.js'
 import { getSession } from '../_lib/github/session.js'
-import { distillArtifact } from './_distill.js'
+import { buildContextBundleV0 } from './_builder.js'
+import { getServerSupabase } from '../agent-runs/_shared.js'
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []
@@ -71,7 +72,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const ticketId = typeof body.ticketId === 'string' ? body.ticketId.trim() || undefined : undefined
     const repoFullName = typeof body.repoFullName === 'string' ? body.repoFullName.trim() || undefined : undefined
     const role = typeof body.role === 'string' ? body.role.trim() || undefined : undefined
-    const bundleJson = body.bundleJson
     const selectedArtifactIds = Array.isArray(body.selectedArtifactIds)
       ? body.selectedArtifactIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
       : []
@@ -92,21 +92,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       })
     }
 
-    if (!bundleJson) {
-      return json(res, 400, {
-        success: false,
-        error: 'bundleJson is required.',
-      })
-    }
-
-    if (!supabaseUrl || !supabaseAnonKey) {
-      return json(res, 400, {
-        success: false,
-        error: 'Supabase credentials required (provide in request body or set SUPABASE_URL and SUPABASE_ANON_KEY in server environment).',
-      })
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseAnonKey)
+    // Use server-side Supabase if credentials not provided (for builder)
+    const supabase = supabaseUrl && supabaseAnonKey
+      ? createClient(supabaseUrl, supabaseAnonKey)
+      : getServerSupabase()
 
     // If we have ticketId but not ticketPk, fetch ticket to get ticketPk and repoFullName
     let resolvedTicketPk: string | undefined = ticketPk
@@ -165,6 +154,39 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       })
     }
 
+    // Get GitHub token from session or environment for PR diff fetching
+    let githubToken: string | undefined = undefined
+    try {
+      const session = await getSession(req, res)
+      githubToken = session.github?.access_token
+    } catch {
+      // Session not available, try environment variable
+      githubToken = process.env.GITHUB_TOKEN || process.env.GITHUB_ACCESS_TOKEN
+    }
+
+    // Get PR URL from gitRef if provided
+    const prUrl = body.gitRef?.pr_url
+
+    // Build bundle using builder
+    const buildResult = await buildContextBundleV0({
+      ticketPk: resolvedTicketPk,
+      ticketId: resolvedTicketId,
+      repoFullName: resolvedRepoFullName,
+      role,
+      supabase,
+      githubToken,
+      prUrl,
+    })
+
+    if (!buildResult.success) {
+      return json(res, 400, {
+        success: false,
+        error: buildResult.error,
+      })
+    }
+
+    const { bundle: builtBundle, redReference } = buildResult
+
     // Get latest version for this ticket and role
     const { data: latestBundles, error: latestError } = await supabase
       .from('context_bundles')
@@ -184,86 +206,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const nextVersion = latestBundles && latestBundles.length > 0 ? latestBundles[0].version + 1 : 1
 
-    // Distill selected artifacts if any
-    const distilledArtifacts: Array<{
-      artifact_id: string
-      artifact_title: string
-      summary: string
-      hard_facts: string[]
-      keywords: string[]
-      distillation_error?: string
-    }> = []
-    const distillationErrors: Array<{ artifact_id: string; error: string }> = []
+    // Use bundle from builder (already has content_checksum computed)
+    const finalBundleJson = builtBundle
 
-    if (selectedArtifactIds.length > 0) {
-      // Fetch artifacts
-      const { data: artifacts, error: artifactsError } = await supabase
-        .from('agent_artifacts')
-        .select('artifact_id, title, body_md')
-        .in('artifact_id', selectedArtifactIds)
-        .eq('ticket_pk', resolvedTicketPk)
-
-      if (artifactsError) {
-        return json(res, 500, {
-          success: false,
-          error: `Failed to fetch artifacts: ${artifactsError.message}`,
-        })
-      }
-
-      if (!artifacts || artifacts.length === 0) {
-        return json(res, 400, {
-          success: false,
-          error: 'No artifacts found for the selected artifact IDs.',
-        })
-      }
-
-      // Distill each artifact
-      for (const artifact of artifacts) {
-        const result = await distillArtifact(artifact.body_md || '', artifact.title || '')
-
-        if (!result.success || !result.distilled) {
-          distillationErrors.push({
-            artifact_id: artifact.artifact_id,
-            error: result.error || 'Distillation failed',
-          })
-          distilledArtifacts.push({
-            artifact_id: artifact.artifact_id,
-            artifact_title: artifact.title || 'Untitled',
-            summary: '',
-            hard_facts: [],
-            keywords: [],
-            distillation_error: result.error || 'Distillation failed',
-          })
-          continue
-        }
-
-        distilledArtifacts.push({
-          artifact_id: artifact.artifact_id,
-          artifact_title: artifact.title || 'Untitled',
-          summary: result.distilled.summary,
-          hard_facts: result.distilled.hard_facts,
-          keywords: result.distilled.keywords,
-        })
-      }
-    }
-
-    // Block bundle creation if any distillation failed
-    if (distillationErrors.length > 0) {
-      return json(res, 400, {
-        success: false,
-        error: `Distillation failed for ${distillationErrors.length} artifact(s). Bundle creation blocked until all distillations succeed.`,
-        distillation_errors: distillationErrors,
-      })
-    }
-
-    // Build final bundle JSON with distilled artifacts
-    const finalBundleJson = {
-      ...(typeof bundleJson === 'object' && bundleJson !== null ? bundleJson : {}),
-      distilled_artifacts: distilledArtifacts,
-    }
-
-    // Generate checksums
-    const contentChecksum = generateContentChecksum(finalBundleJson)
+    // Verify content checksum matches (builder already computed it)
+    const contentChecksum = builtBundle.meta.content_checksum || generateContentChecksum(finalBundleJson)
     const bundleChecksum = generateBundleChecksum(finalBundleJson, {
       repoFullName: resolvedRepoFullName,
       ticketPk: resolvedTicketPk,
@@ -334,7 +281,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         bundle_checksum: bundleChecksum,
         section_metrics: sectionMetrics,
         total_characters: totalCharacters,
-        red_reference: body.redReference || null,
+        red_reference: redReference,
         integration_manifest_reference: integrationManifestReference,
         git_ref: body.gitRef || null,
       })
