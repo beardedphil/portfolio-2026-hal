@@ -83,6 +83,12 @@
   ],
   "mostRecentImprovements": [
     {
+      "file": "api/agent-runs/providers/openai.ts",
+      "before": 1.13,
+      "after": 1.13,
+      "delta": 0
+    },
+    {
       "file": "api/tickets/create-pr.ts",
       "before": 25.54,
       "after": 25.54,
@@ -125,8 +131,8 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-21T16:27:11.775Z",
-  "filesAnalyzed": 298,
+  "generatedAt": "2026-02-21T16:36:29.978Z",
+  "filesAnalyzed": 299,
   "unroundedMaintainability": 40.3,
   "unroundedSimplicity": 40.3
 }
