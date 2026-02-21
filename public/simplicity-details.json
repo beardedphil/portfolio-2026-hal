@@ -73,15 +73,21 @@
       "maintainability": 26.6
     },
     {
-      "file": "src/components/PmChatWidget.tsx",
-      "maintainability": 27.41
-    },
-    {
       "file": "api/conversations/working-memory/update.ts",
       "maintainability": 27.95
+    },
+    {
+      "file": "api/process-review/create-tickets.ts",
+      "maintainability": 29.07
     }
   ],
   "mostRecentImprovements": [
+    {
+      "file": "src/components/PmChatWidget.tsx",
+      "before": 27.41,
+      "after": 37.07,
+      "delta": 9.66
+    },
     {
       "file": "api/tickets/create-pr.ts",
       "before": 25.54,
@@ -131,7 +137,7 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-21T16:08:19.548Z",
+  "generatedAt": "2026-02-21T16:12:19.796Z",
   "filesAnalyzed": 298,
   "unroundedMaintainability": 40.3,
   "unroundedSimplicity": 40.3
