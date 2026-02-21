@@ -1596,6 +1596,15 @@ export async function runPmAgent(
       promptText: fullPromptText,
     }
   } catch (err) {
+    // Important: `runPmAgent` is often executed under a time budget enforced by an AbortSignal.
+    // In that case we MUST let the abort propagate (throw) so the caller can treat it as
+    // "continue in the next work slice" rather than a hard failure.
+    const isAbort =
+      config.abortSignal?.aborted === true ||
+      (typeof (err as any)?.name === 'string' && String((err as any).name).toLowerCase() === 'aborterror') ||
+      (err instanceof Error && /aborted|abort/i.test(err.message))
+    if (isAbort) throw err
+
     return {
       reply: '',
       toolCalls,
