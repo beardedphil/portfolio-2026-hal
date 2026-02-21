@@ -83,12 +83,6 @@
   ],
   "mostRecentImprovements": [
     {
-      "file": "src/components/PmChatWidget.tsx",
-      "before": 27.41,
-      "after": 37.07,
-      "delta": 9.66
-    },
-    {
       "file": "api/tickets/create-pr.ts",
       "before": 25.54,
       "after": 25.54,
@@ -137,7 +131,7 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-21T16:12:19.796Z",
+  "generatedAt": "2026-02-21T16:14:32.870Z",
   "filesAnalyzed": 298,
   "unroundedMaintainability": 40.3,
   "unroundedSimplicity": 40.3
