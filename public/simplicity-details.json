@@ -45,6 +45,10 @@
       "maintainability": 12.23
     },
     {
+      "file": "src/components/ContextBundleModal.tsx",
+      "maintainability": 13.33
+    },
+    {
       "file": "src/hooks/useProcessReview.ts",
       "maintainability": 18.54
     },
@@ -75,10 +79,6 @@
     {
       "file": "api/conversations/working-memory/update.ts",
       "maintainability": 27.95
-    },
-    {
-      "file": "api/process-review/create-tickets.ts",
-      "maintainability": 29.07
     }
   ],
   "mostRecentImprovements": [
@@ -131,8 +131,8 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-21T19:31:41.925Z",
-  "filesAnalyzed": 306,
-  "unroundedMaintainability": 40.1,
-  "unroundedSimplicity": 40.1
+  "generatedAt": "2026-02-21T19:41:11.264Z",
+  "filesAnalyzed": 311,
+  "unroundedMaintainability": 39.9,
+  "unroundedSimplicity": 39.9
 }
