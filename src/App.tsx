@@ -9,6 +9,7 @@ import { PmChatWidget } from './components/PmChatWidget'
 import { GithubRepoPickerModal } from './components/GithubRepoPickerModal'
 import { DisconnectConfirmModal } from './components/DisconnectConfirmModal'
 import { PromptModal } from './components/PromptModal'
+import { IntegrationManifestModal } from './components/IntegrationManifestModal'
 import { ProcessReviewRecommendationsModal } from './components/ProcessReviewRecommendationsModal'
 import { HalHeader } from './components/HalHeader'
 import { KanbanErrorBanner } from './components/KanbanErrorBanner'
@@ -288,6 +289,8 @@ function App() {
   /** Coverage and Maintainability report modals (0693). */
   const [coverageReportOpen, setCoverageReportOpen] = useState<boolean>(false)
   const [maintainabilityReportOpen, setMaintainabilityReportOpen] = useState<boolean>(false)
+  /** Integration Manifest modal (0773). */
+  const [manifestModalOpen, setManifestModalOpen] = useState<boolean>(false)
 
   useEffect(() => {
     selectedChatTargetRef.current = selectedChatTarget
@@ -694,6 +697,7 @@ function App() {
         onAgentInstructionsClick={() => setAgentInstructionsOpen(true)}
         onCoverageReportClick={() => setCoverageReportOpen(true)}
         onMaintainabilityReportClick={() => setMaintainabilityReportOpen(true)}
+        onManifestRegenerateClick={() => setManifestModalOpen(true)}
         theme={theme}
         onThemeChange={setTheme}
       />
@@ -980,6 +984,15 @@ function App() {
 
       {/* Maintainability Report Modal (0693) */}
       <MaintainabilityReportModal isOpen={maintainabilityReportOpen} onClose={() => setMaintainabilityReportOpen(false)} />
+
+      {/* Integration Manifest Modal (0773) */}
+      <IntegrationManifestModal
+        isOpen={manifestModalOpen}
+        onClose={() => setManifestModalOpen(false)}
+        connectedRepo={connectedGithubRepo}
+        supabaseUrl={supabaseUrl}
+        supabaseAnonKey={supabaseAnonKey}
+      />
     </div>
   )
 }
