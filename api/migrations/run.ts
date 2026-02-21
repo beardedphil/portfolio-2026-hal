@@ -88,7 +88,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         // For now, we'll use a workaround: execute via REST API
         
         // Actually, the best approach is to use the Supabase Management API or
-        // create a temporary function. But for simplicity of implementation, let's use the REST API
+        // create a temporary function. But for ease of implementation, let's use the REST API
         // with a direct SQL execution endpoint if available
         
         // Alternative: Use psql via node, but that requires database connection string
