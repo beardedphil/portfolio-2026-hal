@@ -21,7 +21,7 @@
       "maintainability": 0
     },
     {
-      "file": "api/agent-runs/status.ts",
+      "file": "api/agent-runs/providers/openai.ts",
       "maintainability": 0
     },
     {
@@ -37,12 +37,12 @@
       "maintainability": 0
     },
     {
-      "file": "api/agent-runs/providers/openai.ts",
-      "maintainability": 1.13
-    },
-    {
       "file": "api/instructions/get-index.ts",
       "maintainability": 7.99
+    },
+    {
+      "file": "api/agent-runs/status.ts",
+      "maintainability": 11.85
     },
     {
       "file": "api/implementation-agent/run.ts",
@@ -51,6 +51,10 @@
     {
       "file": "src/hooks/useProcessReview.ts",
       "maintainability": 18.54
+    },
+    {
+      "file": "api/context-bundles/_builder.ts",
+      "maintainability": 24.4
     },
     {
       "file": "api/auth/github/callback.ts",
@@ -75,18 +79,14 @@
     {
       "file": "api/instructions/get-topic.ts",
       "maintainability": 26.6
-    },
-    {
-      "file": "api/conversations/working-memory/update.ts",
-      "maintainability": 27.95
     }
   ],
   "mostRecentImprovements": [
     {
-      "file": "api/agent-runs/providers/openai.ts",
-      "before": 1.13,
-      "after": 1.13,
-      "delta": 0
+      "file": "api/agent-runs/status.ts",
+      "before": 0,
+      "after": 11.85,
+      "delta": 11.85
     },
     {
       "file": "api/tickets/create-pr.ts",
@@ -131,8 +131,8 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-21T20:24:24.950Z",
-  "filesAnalyzed": 320,
-  "unroundedMaintainability": 39.5,
-  "unroundedSimplicity": 39.5
+  "generatedAt": "2026-02-21T22:45:34.746Z",
+  "filesAnalyzed": 325,
+  "unroundedMaintainability": 39.4,
+  "unroundedSimplicity": 39.4
 }
