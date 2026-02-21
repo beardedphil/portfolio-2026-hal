@@ -292,7 +292,7 @@ function App() {
     }
   }, [selectedChatTarget])
 
-  // Apply theme to document root on mount and when theme changes
+  // Apply theme to document root on mount and when theme changes (HAL-0745: added LCARS theme)
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
     try {
@@ -300,12 +300,6 @@ function App() {
     } catch {
       // Ignore localStorage errors
     }
-=======
-  // Apply theme to document root on mount and when theme changes (HAL-0745: added LCARS theme)
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme)
-    localStorage.setItem('hal-theme', theme)
->>>>>>> origin/ticket/0745-implementation
   }, [theme])
 
   // Restore connected GitHub repo from localStorage on load (0119: fix repo display after refresh)
