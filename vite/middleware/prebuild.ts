@@ -12,7 +12,13 @@ export function prebuildPlugin(): Plugin {
     name: 'hal-agents-prebuild',
     configureServer() {
       const repoRoot = path.resolve(__dirname, '../..')
-      spawn('npm', ['run', 'build:agents'], { cwd: repoRoot, stdio: ['ignore', 'ignore', 'ignore'] }).on('error', () => {})
+      const p = spawn('npm', ['run', 'build:agents'], { cwd: repoRoot, stdio: 'inherit' })
+      p.on('error', (err) => {
+        console.warn('[prebuild] build:agents spawn failed:', err instanceof Error ? err.message : String(err))
+      })
+      p.on('exit', (code) => {
+        if (code !== 0) console.warn(`[prebuild] build:agents exited with code ${code}. PM agent may run with stale agents/dist.`)
+      })
     },
   }
 }

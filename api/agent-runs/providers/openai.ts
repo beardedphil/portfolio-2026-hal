@@ -1,10 +1,75 @@
 import { createOpenAI } from '@ai-sdk/openai'
 import { streamText } from 'ai'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import fs from 'fs'
 import path from 'path'
+import { spawnSync } from 'child_process'
 import { pathToFileURL } from 'url'
 import { appendRunEvent } from '../runEvents.js'
 import type { AdvanceRunParams, AdvanceRunResult, HalAgentRunRow, RunProvider } from './types.js'
+
+let lastAgentsBuildAtMs = 0
+let agentsBuildOk = false
+
+function isVercelRuntime(): boolean {
+  return (process.env.VERCEL || '').trim() === '1' || (process.env.VERCEL || '').trim().length > 0
+}
+
+/**
+ * In local/dev, keep agents/dist in sync with agents/src so the PM agent toolset
+ * (create_ticket, update_ticket_body, etc.) doesn't silently regress due to stale builds.
+ *
+ * In Vercel/serverless runtime, do NOT attempt to spawn builds at request time.
+ */
+function maybeRebuildAgentsDist(repoRoot: string): void {
+  const disabled = (process.env.HAL_DISABLE_AGENT_AUTO_REBUILD || '').trim() === '1'
+  if (disabled) return
+
+  // Never rebuild in Vercel/serverless runtime (build should have happened at build time).
+  if (isVercelRuntime()) return
+
+  // Throttle rebuild checks to keep PM responses snappy.
+  const now = Date.now()
+  if (agentsBuildOk && now - lastAgentsBuildAtMs < 15_000) return
+
+  const srcPath = path.resolve(repoRoot, 'agents/src/agents/projectManager.ts')
+  const distPath = path.resolve(repoRoot, 'agents/dist/agents/projectManager.js')
+
+  let needsBuild = false
+  try {
+    const distStat = fs.statSync(distPath)
+    const srcStat = fs.statSync(srcPath)
+    // If src is newer than dist, rebuild.
+    if (srcStat.mtimeMs > distStat.mtimeMs) needsBuild = true
+  } catch {
+    // Missing src or dist (or stat failure) — attempt rebuild; errors handled below.
+    needsBuild = true
+  }
+
+  if (!needsBuild) {
+    agentsBuildOk = true
+    lastAgentsBuildAtMs = now
+    return
+  }
+
+  const npmExecPath = process.env.npm_execpath
+  if (!npmExecPath) {
+    // Can't reliably run npm if not under npm; just skip.
+    console.warn('[agent-runs/openai] npm_execpath missing; skipping auto rebuild of agents/dist.')
+    return
+  }
+
+  const r = spawnSync(process.execPath, [npmExecPath, 'run', 'build:agents'], {
+    cwd: repoRoot,
+    stdio: 'inherit',
+  })
+
+  agentsBuildOk = r.status === 0
+  lastAgentsBuildAtMs = now
+  if (!agentsBuildOk) {
+    console.warn('[agent-runs/openai] build:agents failed; continuing with existing agents/dist (may be stale).')
+  }
+}
 
 function capText(input: string, maxChars: number): string {
   if (input.length <= maxChars) return input
@@ -278,6 +343,12 @@ async function advanceProjectManagerOpenAI({ supabase, run, budgetMs }: AdvanceR
   const images = Array.isArray(input.images) ? (input.images as any[]) : undefined
 
   const repoRoot = process.cwd()
+  // Ensure agents/dist is present & fresh in local/dev (prevents "tools disabled" regressions).
+  try {
+    maybeRebuildAgentsDist(repoRoot)
+  } catch (e) {
+    console.warn('[agent-runs/openai] auto rebuild agents/dist threw:', e instanceof Error ? e.message : e)
+  }
   const distPath = path.resolve(repoRoot, 'agents/dist/agents/projectManager.js')
   let pmModule: { runPmAgent?: (message: string, config: unknown) => Promise<any> } | null = null
   try {
