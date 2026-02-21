@@ -29,12 +29,12 @@
       "maintainability": 0
     },
     {
-      "file": "agents/src/agents/projectManager/contextBuilding.ts",
-      "maintainability": 1.99
+      "file": "api/agent-runs/providers/openai.ts",
+      "maintainability": 1.13
     },
     {
-      "file": "api/agent-runs/providers/openai.ts",
-      "maintainability": 2.25
+      "file": "agents/src/agents/projectManager/contextBuilding.ts",
+      "maintainability": 1.99
     },
     {
       "file": "api/instructions/get-index.ts",
@@ -119,19 +119,13 @@
       "delta": 0
     },
     {
-      "file": "api/agent-runs/providers/openai.ts",
-      "before": 2.25,
-      "after": 2.25,
-      "delta": 0
-    },
-    {
       "file": "api/instructions/migrate-process-docs.ts",
       "before": 26.39,
       "after": 26.39,
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-21T16:25:16.445Z",
+  "generatedAt": "2026-02-21T16:27:11.775Z",
   "filesAnalyzed": 298,
   "unroundedMaintainability": 40.3,
   "unroundedSimplicity": 40.3
