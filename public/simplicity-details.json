@@ -34,7 +34,7 @@
     },
     {
       "file": "api/agent-runs/providers/openai.ts",
-      "maintainability": 3.5
+      "maintainability": 2.25
     },
     {
       "file": "api/instructions/get-index.ts",
@@ -125,7 +125,7 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-21T15:37:26.699Z",
+  "generatedAt": "2026-02-21T15:43:40.973Z",
   "filesAnalyzed": 298,
   "unroundedMaintainability": 40.3,
   "unroundedSimplicity": 40.3
