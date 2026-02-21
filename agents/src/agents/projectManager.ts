@@ -19,9 +19,14 @@ import {
   slugFromTitle,
   parseTicketNumber,
   evaluateTicketReady,
-  PLACEHOLDER_RE,
   type ReadyCheckResult,
 } from '../lib/projectManagerHelpers.js'
+import {
+  validateNoPlaceholders,
+  isAbortError as isAbortErrorHelper,
+  hasGitHubRepo as hasGitHubRepoHelper,
+  truncateForLogging,
+} from './projectManager/helpers.js'
 import {
   listDirectory,
   readFile,
@@ -218,10 +223,7 @@ export async function runPmAgent(
 
   const halBaseUrl = (process.env.HAL_API_BASE_URL || 'https://portfolio-2026-hal.vercel.app').trim()
 
-  const isAbortError = (err: unknown) =>
-    config.abortSignal?.aborted === true ||
-    (typeof (err as any)?.name === 'string' && String((err as any).name).toLowerCase() === 'aborterror') ||
-    (err instanceof Error && /aborted|abort/i.test(err.message))
+  const isAbortError = (err: unknown) => isAbortErrorHelper(err, config.abortSignal)
 
   const halFetchJson = async (
     path: string,
@@ -294,13 +296,12 @@ export async function runPmAgent(
       let out: CreateResult
       try {
         let bodyMdTrimmed = input.body_md.trim()
-        const placeholders = bodyMdTrimmed.match(PLACEHOLDER_RE) ?? []
-        if (placeholders.length > 0) {
-          const uniquePlaceholders = [...new Set(placeholders)]
+        const placeholderCheck = validateNoPlaceholders(bodyMdTrimmed)
+        if (placeholderCheck.hasPlaceholders) {
           out = {
             success: false,
-            error: `Ticket creation rejected: unresolved template placeholder tokens detected. Detected placeholders: ${uniquePlaceholders.join(', ')}.`,
-            detectedPlaceholders: uniquePlaceholders,
+            error: `Ticket creation rejected: ${placeholderCheck.errorMessage}`,
+            detectedPlaceholders: placeholderCheck.uniquePlaceholders,
           }
           toolCalls.push({ name: 'create_ticket', input, output: out })
           return out
@@ -489,7 +490,7 @@ export async function runPmAgent(
     }),
     execute: async (input: { body_md: string }) => {
       const out = evaluateTicketReady(input.body_md)
-      toolCalls.push({ name: 'evaluate_ticket_ready', input: { body_md: input.body_md.slice(0, 500) + (input.body_md.length > 500 ? '...' : '') }, output: out })
+      toolCalls.push({ name: 'evaluate_ticket_ready', input: { body_md: truncateForLogging(input.body_md) }, output: out })
       return out
     },
   })
@@ -508,13 +509,12 @@ export async function runPmAgent(
       let out: UpdateResult
       try {
         let bodyMdTrimmed = input.body_md.trim()
-        const placeholders = bodyMdTrimmed.match(PLACEHOLDER_RE) ?? []
-        if (placeholders.length > 0) {
-          const uniquePlaceholders = [...new Set(placeholders)]
+        const placeholderCheck = validateNoPlaceholders(bodyMdTrimmed)
+        if (placeholderCheck.hasPlaceholders) {
           out = {
             success: false,
-            error: `Ticket update rejected: unresolved template placeholder tokens detected. Detected placeholders: ${uniquePlaceholders.join(', ')}.`,
-            detectedPlaceholders: uniquePlaceholders,
+            error: `Ticket update rejected: ${placeholderCheck.errorMessage}`,
+            detectedPlaceholders: placeholderCheck.uniquePlaceholders,
           }
           toolCalls.push({ name: 'update_ticket_body', input, output: out })
           return out
@@ -1076,10 +1076,7 @@ ${JSON.stringify(redJsonForArtifact, null, 2)}
   })
 
   // Helper: use GitHub API when githubReadFile is provided (Connect GitHub Repo); otherwise use HAL repo (direct FS)
-  const hasGitHubRepo =
-    typeof config.repoFullName === 'string' &&
-    config.repoFullName.trim() !== '' &&
-    typeof config.githubReadFile === 'function'
+  const hasGitHubRepo = hasGitHubRepoHelper(config.repoFullName, config.githubReadFile)
   
   // Track which repo is being used for debugging (0119)
   const repoUsage: Array<{ tool: string; usedGitHub: boolean; path?: string }> = []
