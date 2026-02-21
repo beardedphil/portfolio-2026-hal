@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { getSupabaseClient } from '../lib/supabase'
 
 interface ContextBundleModalProps {
   isOpen: boolean
@@ -8,11 +9,10 @@ interface ContextBundleModalProps {
   repoFullName: string | null
   supabaseUrl: string | null
   supabaseAnonKey: string | null
-  // Allow ticket selection via input if not provided
   allowTicketSelection?: boolean
 }
 
-interface Bundle {
+interface BundleListItem {
   bundle_id: string
   ticket_id: string
   role: string
@@ -21,10 +21,15 @@ interface Bundle {
   created_by: string | null
 }
 
-interface BundleListResponse {
-  success: boolean
-  bundles?: Bundle[]
-  error?: string
+interface BundleContent {
+  bundle_id: string
+  ticket_id: string
+  role: string
+  version: number
+  created_at: string
+  bundle_json: unknown
+  content_checksum: string
+  bundle_checksum: string
 }
 
 interface BundleReceipt {
@@ -36,24 +41,9 @@ interface BundleReceipt {
   bundle_checksum: string
   section_metrics: Record<string, number>
   total_characters: number
-  budget?: {
-    characterCount: number
-    hardLimit: number
-    role: string
-    displayName: string
-  } | null
   red_reference: { red_id: string; version: number } | null
-  integration_manifest_reference: {
-    manifest_id: string
-    version: number
-    schema_version: string
-  } | null
-  git_ref: {
-    pr_url?: string
-    pr_number?: number
-    base_sha?: string
-    head_sha?: string
-  } | null
+  integration_manifest_reference: { manifest_id: string; version: number; schema_version: string } | null
+  git_ref: { pr_url?: string; pr_number?: number; base_sha?: string; head_sha?: string } | null
   created_at: string
   bundle: {
     bundle_id: string
@@ -64,43 +54,7 @@ interface BundleReceipt {
   } | null
 }
 
-interface ReceiptResponse {
-  success: boolean
-  receipt?: BundleReceipt
-  error?: string
-}
-
-interface GenerateResponse {
-  success: boolean
-  bundle?: {
-    bundle_id: string
-    version: number
-    role: string
-    created_at: string
-  }
-  receipt?: {
-    receipt_id: string
-    content_checksum: string
-    bundle_checksum: string
-    section_metrics: Record<string, number>
-    total_characters: number
-  }
-  budget?: {
-    characterCount: number
-    hardLimit: number
-    role: string
-    displayName: string
-  }
-  budgetExceeded?: boolean
-  sectionMetrics?: Record<string, number>
-  characterCount?: number
-  hardLimit?: number
-  overage?: number
-  distillation_errors?: Array<{ artifact_id: string; error: string }>
-  error?: string
-}
-
-interface PreviewResponse {
+interface PreviewResult {
   success: boolean
   budget?: {
     characterCount: number
@@ -111,36 +65,18 @@ interface PreviewResponse {
     overage: number
   }
   sectionMetrics?: Record<string, number>
+  bundle?: unknown // Bundle content for preview
   error?: string
 }
 
-interface Artifact {
-  artifact_id: string
-  title: string
-  agent_type: string
-  created_at: string
-}
+type RoleOption = 'project-manager' | 'implementation-agent' | 'qa-agent' | 'process-review'
 
-interface ArtifactsResponse {
-  success: boolean
-  artifacts?: Artifact[]
-  error?: string
-}
-
-interface DistilledArtifact {
-  artifact_id: string
-  artifact_title: string
-  summary: string
-  hard_facts: string[]
-  keywords: string[]
-  distillation_error?: string
-}
-
-interface BundleJson {
-  distilled_artifacts?: DistilledArtifact[]
-  distillation_errors?: Array<{ artifact_id: string; error: string }>
-  [key: string]: unknown
-}
+const ROLE_OPTIONS: Array<{ value: RoleOption; label: string }> = [
+  { value: 'project-manager', label: 'PM' },
+  { value: 'implementation-agent', label: 'Dev' },
+  { value: 'qa-agent', label: 'QA' },
+  { value: 'process-review', label: 'Process Review' },
+]
 
 export function ContextBundleModal({
   isOpen,
@@ -152,830 +88,575 @@ export function ContextBundleModal({
   supabaseAnonKey,
   allowTicketSelection = false,
 }: ContextBundleModalProps) {
-  const apiBaseUrl = import.meta.env.VITE_HAL_API_BASE_URL || window.location.origin
-  const [bundles, setBundles] = useState<Bundle[]>([])
+  const [ticketPk, setTicketPk] = useState<string | null>(initialTicketPk)
+  const [ticketId, setTicketId] = useState<string | null>(initialTicketId)
+  const [repoFullName, setRepoFullName] = useState<string | null>(initialRepoFullName)
+  const [selectedRole, setSelectedRole] = useState<RoleOption>('project-manager')
+  const [bundles, setBundles] = useState<BundleListItem[]>([])
+  const [selectedBundleId, setSelectedBundleId] = useState<string | null>(null)
+  const [bundleContent, setBundleContent] = useState<BundleContent | null>(null)
+  const [receipt, setReceipt] = useState<BundleReceipt | null>(null)
+  const [preview, setPreview] = useState<PreviewResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [selectedBundleId, setSelectedBundleId] = useState<string | null>(null)
-  const [receipt, setReceipt] = useState<BundleReceipt | null>(null)
-  const [receiptLoading, setReceiptLoading] = useState(false)
-  const [generating, setGenerating] = useState(false)
-  const [generateRole, setGenerateRole] = useState<string>('implementation-agent')
-  const [artifacts, setArtifacts] = useState<Artifact[]>([])
-  const [loadingArtifacts, setLoadingArtifacts] = useState(false)
-  const [selectedArtifactIds, setSelectedArtifactIds] = useState<Set<string>>(new Set())
-  const [bundleJson, setBundleJson] = useState<BundleJson | null>(null)
-  const [previewBudget, setPreviewBudget] = useState<PreviewResponse['budget'] | null>(null)
-  const [previewSectionMetrics, setPreviewSectionMetrics] = useState<Record<string, number> | null>(null)
-  
-  // Ticket selection state (if allowTicketSelection is true)
-  const [selectedTicketId, setSelectedTicketId] = useState<string>(initialTicketId || '')
-  const [selectedTicketPk, setSelectedTicketPk] = useState<string | null>(initialTicketPk)
-  const [selectedRepoFullName, setSelectedRepoFullName] = useState<string | null>(initialRepoFullName)
-  const [loadingTicket, setLoadingTicket] = useState(false)
+  const [showReceipt, setShowReceipt] = useState(false)
+  const [showBreakdown, setShowBreakdown] = useState(false)
+  const [bundlePreviewText, setBundlePreviewText] = useState<string>('')
+  const apiBaseUrlRef = useRef<string>('')
 
-  // Load bundles and artifacts when modal opens
+  // Load API base URL
   useEffect(() => {
-    if (isOpen && selectedTicketPk && supabaseUrl && supabaseAnonKey) {
-      loadBundles()
-      loadArtifacts()
-    }
-  }, [isOpen, selectedTicketPk, supabaseUrl, supabaseAnonKey])
-
-  // Preview budget when role or artifacts change
-  useEffect(() => {
-    if (isOpen && selectedTicketPk && selectedRepoFullName && supabaseUrl && supabaseAnonKey && selectedArtifactIds.size > 0) {
-      previewBundleBudget()
-    } else {
-      setPreviewBudget(null)
-      setPreviewSectionMetrics(null)
-    }
-  }, [isOpen, selectedTicketPk, selectedRepoFullName, generateRole, selectedArtifactIds, supabaseUrl, supabaseAnonKey])
-  
-  // Sync initial values when they change
-  useEffect(() => {
-    if (initialTicketId) setSelectedTicketId(initialTicketId)
-    if (initialTicketPk) setSelectedTicketPk(initialTicketPk)
-    if (initialRepoFullName) setSelectedRepoFullName(initialRepoFullName)
-  }, [initialTicketId, initialTicketPk, initialRepoFullName])
-
-  // Reset state when modal closes
-  useEffect(() => {
-    if (!isOpen) {
-      setBundles([])
-      setError(null)
-      setSelectedBundleId(null)
-      setReceipt(null)
-      setGenerateRole('implementation-agent')
-      setArtifacts([])
-      setSelectedArtifactIds(new Set())
-      setBundleJson(null)
-      setPreviewBudget(null)
-      setPreviewSectionMetrics(null)
-      if (!allowTicketSelection) {
-        setSelectedTicketId(initialTicketId || '')
-        setSelectedTicketPk(initialTicketPk)
-        setSelectedRepoFullName(initialRepoFullName)
-      }
-    }
-  }, [isOpen, allowTicketSelection, initialTicketId, initialTicketPk, initialRepoFullName])
-  
-  const loadTicketInfo = async (ticketId: string) => {
-    if (!supabaseUrl || !supabaseAnonKey) return
-    
-    setLoadingTicket(true)
-    setError(null)
-    
-    try {
-      // Use the tickets API endpoint to get ticket info
-      const response = await fetch(`${apiBaseUrl}/api/tickets/get`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          ticketId,
-          supabaseUrl,
-          supabaseAnonKey,
-        }),
-      })
-      
-      const data = (await response.json()) as {
-        success: boolean
-        ticket?: {
-          pk: string
-          id: string
-          repo_full_name: string
+    async function loadApiBaseUrl() {
+      try {
+        const response = await fetch('/.hal/api-base-url')
+        if (response.ok) {
+          const url = (await response.text()).trim()
+          apiBaseUrlRef.current = url || window.location.origin
+        } else {
+          apiBaseUrlRef.current = window.location.origin
         }
-        error?: string
+      } catch {
+        apiBaseUrlRef.current = window.location.origin
       }
-      
-      if (!response.ok || !data.success || !data.ticket) {
-        setError(data.error || `Ticket ${ticketId} not found`)
-        return
+    }
+    loadApiBaseUrl()
+  }, [])
+
+  // Reset state when modal opens/closes
+  useEffect(() => {
+    if (isOpen) {
+      setTicketPk(initialTicketPk)
+      setTicketId(initialTicketId)
+      setRepoFullName(initialRepoFullName)
+      setSelectedBundleId(null)
+      setBundleContent(null)
+      setReceipt(null)
+      setPreview(null)
+      setError(null)
+      setShowReceipt(false)
+      setShowBreakdown(false)
+      setBundlePreviewText('')
+      if (repoFullName) {
+        loadBundles()
       }
-      
-      setSelectedTicketPk(data.ticket.pk)
-      setSelectedRepoFullName(data.ticket.repo_full_name)
-      setSelectedTicketId(data.ticket.id)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error')
-    } finally {
-      setLoadingTicket(false)
     }
-  }
-  
-  const handleTicketIdSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (selectedTicketId.trim()) {
-      await loadTicketInfo(selectedTicketId.trim())
+  }, [isOpen, initialTicketPk, initialTicketId, initialRepoFullName])
+
+  // Load bundles when repo changes
+  useEffect(() => {
+    if (isOpen && repoFullName && supabaseUrl && supabaseAnonKey) {
+      loadBundles()
     }
-  }
+  }, [isOpen, repoFullName, supabaseUrl, supabaseAnonKey])
 
-  const loadArtifacts = async () => {
-    if (!selectedTicketPk || !supabaseUrl || !supabaseAnonKey) return
-
-    setLoadingArtifacts(true)
-    setError(null)
-
-    try {
-      const response = await fetch(`${apiBaseUrl}/api/artifacts/get`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          ticketPk: selectedTicketPk,
-          ticketId: selectedTicketId,
-          supabaseUrl,
-          supabaseAnonKey,
-        }),
-      })
-
-      const data = (await response.json()) as ArtifactsResponse
-
-      if (!response.ok || !data.success) {
-        setError(data.error || 'Failed to load artifacts')
-        return
+  // Load preview when role or bundle changes (requires ticket info from selected bundle)
+  useEffect(() => {
+    if (isOpen && selectedBundleId && bundles.length > 0 && repoFullName && supabaseUrl && supabaseAnonKey) {
+      const bundle = bundles.find((b) => b.bundle_id === selectedBundleId)
+      // Use ticket info from selected bundle for preview
+      const bundleTicketId = bundle?.ticket_id
+      if (bundleTicketId) {
+        loadPreview(bundleTicketId)
       }
-
-      setArtifacts(data.artifacts || [])
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error')
-    } finally {
-      setLoadingArtifacts(false)
     }
-  }
+  }, [isOpen, selectedRole, selectedBundleId, bundles, repoFullName, supabaseUrl, supabaseAnonKey])
+
+  // Load bundle content when bundle is selected
+  useEffect(() => {
+    if (isOpen && selectedBundleId && supabaseUrl && supabaseAnonKey) {
+      loadBundleContent()
+      loadReceipt()
+    }
+  }, [isOpen, selectedBundleId, supabaseUrl, supabaseAnonKey])
 
   const loadBundles = async () => {
-    if (!selectedTicketPk || !supabaseUrl || !supabaseAnonKey) return
+    if (!repoFullName || !supabaseUrl || !supabaseAnonKey) return
 
     setLoading(true)
     setError(null)
 
     try {
+      const apiBaseUrl = apiBaseUrlRef.current || window.location.origin
       const response = await fetch(`${apiBaseUrl}/api/context-bundles/list`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ticketPk: selectedTicketPk,
-          ticketId: selectedTicketId,
-          repoFullName: selectedRepoFullName,
+          repoFullName,
+          ticketPk: ticketPk || undefined,
+          ticketId: ticketId || undefined,
           supabaseUrl,
           supabaseAnonKey,
         }),
       })
 
-      const data = (await response.json()) as BundleListResponse
+      const data = (await response.json()) as { success: boolean; bundles?: BundleListItem[]; error?: string }
 
-      if (!response.ok || !data.success) {
-        setError(data.error || 'Failed to load bundles')
-        return
+      if (!data.success || !data.bundles) {
+        throw new Error(data.error || 'Failed to load bundles')
       }
 
-      setBundles(data.bundles || [])
+      setBundles(data.bundles)
+
+      // Try to restore selected bundle from localStorage, or select most recent
+      if (data.bundles.length > 0) {
+        const storageKey = `context-bundle-selected-${repoFullName}`
+        const storedBundleId = localStorage.getItem(storageKey)
+        const bundleExists = storedBundleId && data.bundles.some((b) => b.bundle_id === storedBundleId)
+        
+        if (bundleExists) {
+          setSelectedBundleId(storedBundleId)
+        } else {
+          const mostRecent = data.bundles[0].bundle_id
+          setSelectedBundleId(mostRecent)
+          localStorage.setItem(storageKey, mostRecent)
+        }
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error')
+      setError(err instanceof Error ? err.message : 'Failed to load bundles')
     } finally {
       setLoading(false)
     }
   }
 
-  const loadReceipt = async (bundleId: string) => {
-    if (!supabaseUrl || !supabaseAnonKey) return
+  const loadBundleContent = async () => {
+    if (!selectedBundleId || !supabaseUrl || !supabaseAnonKey) return
 
-    setReceiptLoading(true)
+    setLoading(true)
     setError(null)
 
     try {
+      const apiBaseUrl = apiBaseUrlRef.current || window.location.origin
+      const response = await fetch(`${apiBaseUrl}/api/context-bundles/get`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bundleId: selectedBundleId,
+          supabaseUrl,
+          supabaseAnonKey,
+        }),
+      })
+
+      const data = (await response.json()) as { success: boolean; bundle?: BundleContent; error?: string }
+
+      if (!data.success || !data.bundle) {
+        throw new Error(data.error || 'Failed to load bundle content')
+      }
+
+      setBundleContent(data.bundle)
+
+      // Generate preview text from bundle JSON
+      const previewText = JSON.stringify(data.bundle.bundle_json, null, 2)
+      setBundlePreviewText(previewText)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load bundle content')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadReceipt = async () => {
+    if (!selectedBundleId || !supabaseUrl || !supabaseAnonKey) return
+
+    try {
+      const apiBaseUrl = apiBaseUrlRef.current || window.location.origin
       const response = await fetch(`${apiBaseUrl}/api/context-bundles/get-receipt`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          bundleId,
+          bundleId: selectedBundleId,
           supabaseUrl,
           supabaseAnonKey,
         }),
       })
 
-      const data = (await response.json()) as ReceiptResponse
+      const data = (await response.json()) as { success: boolean; receipt?: BundleReceipt; error?: string }
 
-      if (!response.ok || !data.success) {
-        setError(data.error || 'Failed to load receipt')
-        return
-      }
-
-      setReceipt(data.receipt || null)
-      setSelectedBundleId(bundleId)
-
-      // Also fetch the bundle JSON to get distilled artifacts
-      const { createClient } = await import('@supabase/supabase-js')
-      const supabase = createClient(supabaseUrl, supabaseAnonKey)
-      const { data: bundleData, error: bundleError } = await supabase
-        .from('context_bundles')
-        .select('bundle_json')
-        .eq('bundle_id', bundleId)
-        .maybeSingle()
-
-      if (!bundleError && bundleData) {
-        setBundleJson(bundleData.bundle_json as BundleJson)
+      if (data.success && data.receipt) {
+        setReceipt(data.receipt)
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error')
-    } finally {
-      setReceiptLoading(false)
+      console.error('Failed to load receipt:', err)
     }
   }
 
-  const handleGenerate = async () => {
-    if (!selectedTicketPk || !selectedRepoFullName || !supabaseUrl || !supabaseAnonKey) {
-      setError('Missing required information to generate bundle')
-      return
-    }
+  const loadPreview = async (previewTicketId?: string) => {
+    const ticketIdToUse = previewTicketId || ticketId
+    if (!repoFullName || !ticketIdToUse || !supabaseUrl || !supabaseAnonKey) return
 
-    if (selectedArtifactIds.size === 0) {
-      setError('Please select at least one artifact to include in the bundle')
-      return
-    }
-
-    setGenerating(true)
+    setLoading(true)
     setError(null)
 
     try {
-      const response = await fetch(`${apiBaseUrl}/api/context-bundles/generate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          ticketPk: selectedTicketPk,
-          ticketId: selectedTicketId,
-          repoFullName: selectedRepoFullName,
-          role: generateRole,
-          selectedArtifactIds: Array.from(selectedArtifactIds),
-          supabaseUrl,
-          supabaseAnonKey,
-        }),
-      })
-
-      const data = (await response.json()) as GenerateResponse
-
-      if (!response.ok || !data.success) {
-        // Check if this is a budget exceeded error
-        if (data.budgetExceeded && data.budget) {
-          const overage = data.overage || 0
-          const sectionBreakdown = data.sectionMetrics 
-            ? Object.entries(data.sectionMetrics)
-                .map(([section, count]) => `  ${section}: ${typeof count === 'number' ? count.toLocaleString() : String(count)} chars`)
-                .join('\n')
-            : 'N/A'
-          setError(
-            `Bundle exceeds character budget for ${data.budget.displayName}:\n` +
-            `  Current: ${data.characterCount?.toLocaleString() || 'N/A'} chars\n` +
-            `  Limit: ${data.hardLimit?.toLocaleString() || 'N/A'} chars\n` +
-            `  Overage: ${overage.toLocaleString()} chars\n\n` +
-            `Per-section breakdown:\n${sectionBreakdown}\n\n` +
-            `Please reduce the bundle size by:\n` +
-            `  - Selecting fewer artifacts\n` +
-            `  - Reducing artifact content\n` +
-            `  - Using a different role with a higher limit`
-          )
-        } else if (data.distillation_errors && data.distillation_errors.length > 0) {
-          // Check if this is a distillation error
-          const errorMessages = data.distillation_errors.map((e) => {
-            const artifact = artifacts.find((a) => a.artifact_id === e.artifact_id)
-            return `${artifact?.title || e.artifact_id}: ${e.error}`
-          }).join('\n')
-          setError(`Bundle generation blocked: Some artifacts failed to distill. Please resolve these errors:\n${errorMessages}`)
-        } else {
-          setError(data.error || 'Failed to generate bundle')
-        }
-        return
-      }
-
-      // Reload bundles to show the new one
-      await loadBundles()
-
-      // If a bundle was created, show its receipt
-      if (data.bundle?.bundle_id) {
-        await loadReceipt(data.bundle.bundle_id)
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error')
-    } finally {
-      setGenerating(false)
-    }
-  }
-
-  const previewBundleBudget = async () => {
-    if (!selectedTicketPk || !selectedRepoFullName || !supabaseUrl || !supabaseAnonKey || selectedArtifactIds.size === 0) {
-      return
-    }
-
-    setError(null)
-
-    try {
+      const apiBaseUrl = apiBaseUrlRef.current || window.location.origin
       const response = await fetch(`${apiBaseUrl}/api/context-bundles/preview`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ticketPk: selectedTicketPk,
-          ticketId: selectedTicketId,
-          repoFullName: selectedRepoFullName,
-          role: generateRole,
-          selectedArtifactIds: Array.from(selectedArtifactIds),
+          ticketId: ticketIdToUse,
+          repoFullName,
+          role: selectedRole,
           supabaseUrl,
           supabaseAnonKey,
         }),
       })
 
-      const data = (await response.json()) as PreviewResponse
+      const data = (await response.json()) as PreviewResult
 
-      if (!response.ok || !data.success) {
-        // Don't set error for preview failures - just clear preview
-        setPreviewBudget(null)
-        setPreviewSectionMetrics(null)
-        return
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to preview bundle')
       }
 
-      setPreviewBudget(data.budget || null)
-      setPreviewSectionMetrics(data.sectionMetrics || null)
+      setPreview(data)
+
+      // Generate preview text from preview bundle if available
+      if (data.bundle) {
+        const previewText = JSON.stringify(data.bundle, null, 2)
+        setBundlePreviewText(previewText)
+      }
     } catch (err) {
-      // Don't set error for preview failures - just clear preview
-      setPreviewBudget(null)
-      setPreviewSectionMetrics(null)
+      setError(err instanceof Error ? err.message : 'Failed to preview bundle')
+      setPreview(null)
+    } finally {
+      setLoading(false)
     }
   }
 
-  const toggleArtifactSelection = (artifactId: string) => {
-    const newSelection = new Set(selectedArtifactIds)
-    if (newSelection.has(artifactId)) {
-      newSelection.delete(artifactId)
-    } else {
-      newSelection.add(artifactId)
+  const handleUseBundle = () => {
+    if (!preview || preview.budget?.exceeds) {
+      return
     }
-    setSelectedArtifactIds(newSelection)
+
+    // TODO: Implement "Use this bundle" functionality
+    // This would typically trigger an agent run with the selected bundle
+    console.log('Use bundle:', selectedBundleId, selectedRole)
+    alert('"Use this bundle" functionality will be implemented to trigger agent run with selected bundle.')
   }
 
-  const formatRole = (role: string): string => {
-    return role
-      .split('-')
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ')
+  const formatNumber = (num: number): string => {
+    return new Intl.NumberFormat().format(num)
   }
 
-  const formatTimestamp = (timestamp: string): string => {
-    return new Date(timestamp).toLocaleString()
+  const formatBytes = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   }
 
   if (!isOpen) return null
 
-  if (!supabaseUrl || !supabaseAnonKey) {
-    return (
-      <div className="modal-overlay" onClick={onClose}>
-        <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-          <div className="modal-header">
-            <h2>Context Bundles</h2>
-            <button type="button" className="modal-close" onClick={onClose}>
-              ×
-            </button>
-          </div>
-          <div className="modal-body">
-            <p>Supabase connection required to view context bundles.</p>
-          </div>
-        </div>
-      </div>
-    )
-  }
-  
-  const needsTicketSelection = !selectedTicketPk && allowTicketSelection
+  const selectedBundle = bundles.find((b) => b.bundle_id === selectedBundleId)
+  const isWithinBudget = preview?.budget ? !preview.budget.exceeds : false
+  const previewTicketId = selectedBundle?.ticket_id || ticketId
+  const characterCount = preview?.budget?.characterCount || 0
+  const characterLimit = preview?.budget?.hardLimit || 0
+  const sectionMetrics = preview?.sectionMetrics || receipt?.section_metrics || {}
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" style={{ maxWidth: '900px', maxHeight: '90vh' }} onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal-content"
+        style={{ maxWidth: '1200px', maxHeight: '90vh', width: '95%' }}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="modal-header">
-          <h2>Context Bundles {selectedTicketId ? `- ${selectedTicketId}` : ''}</h2>
+          <h2>Context Bundle {selectedBundle ? `- ${selectedBundle.ticket_id || 'Bundle'}` : ''}</h2>
           <button type="button" className="modal-close" onClick={onClose}>
             ×
           </button>
         </div>
+
         <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px', overflow: 'auto' }}>
-          {error && (
-            <div style={{ padding: '12px', background: 'var(--hal-status-error, #c62828)', color: 'white', borderRadius: '4px' }}>
-              {error}
+          {!supabaseUrl || !supabaseAnonKey ? (
+            <div style={{ padding: '16px', background: 'var(--hal-surface-alt)', borderRadius: '8px' }}>
+              <p>Supabase connection required to view context bundles.</p>
             </div>
-          )}
-
-          {/* Ticket Selection (if allowTicketSelection is true) */}
-          {needsTicketSelection && (
-            <div style={{ border: '1px solid var(--hal-border)', borderRadius: '8px', padding: '16px' }}>
-              <h3 style={{ margin: '0 0 12px 0', fontSize: '18px' }}>Select Ticket</h3>
-              <form onSubmit={handleTicketIdSubmit} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <label>
-                  Ticket ID:
-                  <input
-                    type="text"
-                    value={selectedTicketId}
-                    onChange={(e) => setSelectedTicketId(e.target.value)}
-                    placeholder="e.g., HAL-0761"
-                    style={{ marginLeft: '8px', padding: '4px 8px', minWidth: '150px' }}
-                  />
-                </label>
-                <button type="submit" className="btn-standard" disabled={loadingTicket || !selectedTicketId.trim()}>
-                  {loadingTicket ? 'Loading...' : 'Load'}
-                </button>
-              </form>
+          ) : !repoFullName ? (
+            <div style={{ padding: '16px', background: 'var(--hal-surface-alt)', borderRadius: '8px' }}>
+              <p>Repository selection required to view context bundles.</p>
             </div>
-          )}
-
-          {!needsTicketSelection && selectedTicketPk && (
+          ) : (
             <>
-              {/* Generate Bundle Section */}
-          <div style={{ border: '1px solid var(--hal-border)', borderRadius: '8px', padding: '16px' }}>
-            <h3 style={{ margin: '0 0 12px 0', fontSize: '18px' }}>Generate New Bundle</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-                <label>
-                  Role:
-                  <select
-                    value={generateRole}
-                    onChange={(e) => setGenerateRole(e.target.value)}
-                    style={{ marginLeft: '8px', padding: '4px 8px' }}
-                  >
-                    <option value="implementation-agent">Implementation Agent</option>
-                    <option value="qa-agent">QA Agent</option>
-                    <option value="project-manager">Project Manager</option>
-                  </select>
-                </label>
-                <button
-                  type="button"
-                  className="btn-standard"
-                  onClick={handleGenerate}
-                  disabled={generating || selectedArtifactIds.size === 0 || (previewBudget?.exceeds ?? false)}
-                  style={{ marginLeft: 'auto' }}
-                  title={previewBudget?.exceeds ? 'Bundle exceeds character budget. Please reduce bundle size before generating.' : undefined}
-                >
-                  {generating ? 'Generating...' : 'Generate Bundle'}
-                </button>
+              {/* Repository and Ticket Info */}
+              <div style={{ padding: '12px', background: 'var(--hal-surface-alt)', borderRadius: '8px', fontSize: '14px' }}>
+                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                  <div>
+                    <strong>Repository:</strong> {repoFullName}
+                  </div>
+                  {previewTicketId && (
+                    <div>
+                      <strong>Ticket:</strong> {previewTicketId}
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Budget Preview */}
-              {previewBudget && (
-                <div style={{ 
-                  border: `2px solid ${previewBudget.exceeds ? 'var(--hal-status-error, #c62828)' : 'var(--hal-border)'}`, 
-                  borderRadius: '8px', 
-                  padding: '16px',
-                  background: previewBudget.exceeds ? 'var(--hal-status-error-bg, #ffebee)' : 'var(--hal-surface-alt)',
-                }}>
-                  <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', color: previewBudget.exceeds ? 'var(--hal-status-error, #c62828)' : 'inherit' }}>
-                    Character Budget: {previewBudget.displayName}
-                  </h4>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '14px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span>Total Characters:</span>
-                      <span style={{ fontFamily: 'monospace', fontWeight: '600' }}>
-                        {previewBudget.characterCount.toLocaleString()} / {previewBudget.hardLimit.toLocaleString()}
-                      </span>
-                    </div>
-                    {previewBudget.exceeds && (
-                      <div style={{ 
-                        padding: '8px', 
-                        background: 'var(--hal-surface)', 
-                        borderRadius: '4px',
-                        color: 'var(--hal-status-error, #c62828)',
-                        fontWeight: '600',
-                      }}>
-                        ⚠️ Exceeds limit by {previewBudget.overage.toLocaleString()} characters
-                      </div>
-                    )}
-                    {previewSectionMetrics && (
-                      <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid var(--hal-border)' }}>
-                        <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '4px' }}>Per-Section Breakdown:</div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px' }}>
-                          {Object.entries(previewSectionMetrics).map(([section, count]) => (
-                            <div key={section} style={{ display: 'flex', justifyContent: 'space-between' }}>
-                              <span>{section}:</span>
-                              <span style={{ fontFamily: 'monospace' }}>{count.toLocaleString()} chars</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
+              {/* Bundle Selection */}
+              {bundles.length > 0 && (
+                <div style={{ border: '1px solid var(--hal-border)', borderRadius: '8px', padding: '16px' }}>
+                  <h3 style={{ margin: '0 0 12px 0', fontSize: '16px' }}>Select Bundle</h3>
+                  <select
+                    value={selectedBundleId || ''}
+                    onChange={(e) => {
+                      const newBundleId = e.target.value
+                      setSelectedBundleId(newBundleId)
+                      // Persist selection
+                      if (repoFullName) {
+                        localStorage.setItem(`context-bundle-selected-${repoFullName}`, newBundleId)
+                      }
+                    }}
+                    style={{ width: '100%', padding: '8px', fontSize: '14px' }}
+                  >
+                    {bundles.map((bundle) => (
+                      <option key={bundle.bundle_id} value={bundle.bundle_id}>
+                        {bundle.ticket_id} - {bundle.role} (v{bundle.version}) - {new Date(bundle.created_at).toLocaleString()}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               )}
 
-              {/* Artifact Selection */}
-              <div>
-                <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>Select Artifacts to Distill</h4>
-                {loadingArtifacts ? (
-                  <p>Loading artifacts...</p>
-                ) : artifacts.length === 0 ? (
-                  <p style={{ color: 'var(--hal-text-muted)', fontSize: '14px' }}>No artifacts found for this ticket.</p>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '200px', overflowY: 'auto' }}>
-                    {artifacts.map((artifact) => (
-                      <label
-                        key={artifact.artifact_id}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '8px',
-                          padding: '8px',
-                          border: '1px solid var(--hal-border)',
-                          borderRadius: '4px',
-                          cursor: 'pointer',
-                          background: selectedArtifactIds.has(artifact.artifact_id) ? 'var(--hal-surface-alt)' : 'var(--hal-surface)',
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedArtifactIds.has(artifact.artifact_id)}
-                          onChange={() => toggleArtifactSelection(artifact.artifact_id)}
-                        />
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontWeight: '500', fontSize: '14px' }}>{artifact.title}</div>
-                          <div style={{ fontSize: '12px', color: 'var(--hal-text-muted)' }}>
-                            {artifact.agent_type} • {new Date(artifact.created_at).toLocaleDateString()}
-                          </div>
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                )}
-                {selectedArtifactIds.size > 0 && (
-                  <p style={{ marginTop: '8px', fontSize: '14px', color: 'var(--hal-text-muted)' }}>
-                    {selectedArtifactIds.size} artifact{selectedArtifactIds.size !== 1 ? 's' : ''} selected
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
+              {loading && bundles.length === 0 && <p>Loading bundles...</p>}
 
-          {/* Bundle List */}
-          <div>
-            <h3 style={{ margin: '0 0 12px 0', fontSize: '18px' }}>Bundles</h3>
-            {loading ? (
-              <p>Loading bundles...</p>
-            ) : bundles.length === 0 ? (
-              <p style={{ color: 'var(--hal-text-muted)' }}>No bundles generated yet.</p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {bundles.map((bundle) => (
-                  <div
-                    key={bundle.bundle_id}
-                    style={{
-                      border: '1px solid var(--hal-border)',
-                      borderRadius: '4px',
-                      padding: '12px',
-                      cursor: 'pointer',
-                      background: selectedBundleId === bundle.bundle_id ? 'var(--hal-surface-alt)' : 'var(--hal-surface)',
-                    }}
-                    onClick={() => loadReceipt(bundle.bundle_id)}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <div style={{ fontWeight: '600', marginBottom: '4px' }}>
-                          {formatRole(bundle.role)} - Version {bundle.version}
-                        </div>
-                        <div style={{ fontSize: '14px', color: 'var(--hal-text-muted)' }}>
-                          {formatTimestamp(bundle.created_at)}
+              {error && (
+                <div style={{ padding: '12px', background: 'var(--hal-status-error, #c62828)', color: 'white', borderRadius: '4px' }}>
+                  <strong>Error:</strong> {error}
+                </div>
+              )}
+
+              {bundles.length === 0 && !loading && !error && (
+                <div style={{ padding: '16px', background: 'var(--hal-surface-alt)', borderRadius: '8px' }}>
+                  <p>No bundles found for this repository. Generate a bundle first.</p>
+                </div>
+              )}
+
+              {selectedBundleId && (
+                <>
+                  {/* Role Selector */}
+                  <div style={{ border: '1px solid var(--hal-border)', borderRadius: '8px', padding: '16px' }}>
+                    <h3 style={{ margin: '0 0 12px 0', fontSize: '16px' }}>Agent Role</h3>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      {ROLE_OPTIONS.map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setSelectedRole(option.value)}
+                          style={{
+                            padding: '8px 16px',
+                            borderRadius: '4px',
+                            border: '1px solid var(--hal-border)',
+                            background: selectedRole === option.value ? 'var(--hal-primary, #1976d2)' : 'transparent',
+                            color: selectedRole === option.value ? 'white' : 'var(--hal-text)',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                          }}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Budget Status */}
+                  {preview?.budget && (
+                    <div
+                      style={{
+                        padding: '16px',
+                        background: isWithinBudget ? 'var(--hal-status-success, #2e7d32)' : 'var(--hal-status-error, #c62828)',
+                        color: 'white',
+                        borderRadius: '8px',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <strong style={{ fontSize: '18px' }}>
+                          {isWithinBudget ? '✓ Within Budget' : '✗ Over Budget'}
+                        </strong>
+                        <div style={{ fontSize: '14px' }}>
+                          {formatNumber(characterCount)} / {formatNumber(characterLimit)} characters
                         </div>
                       </div>
+                      {!isWithinBudget && preview.budget.overage > 0 && (
+                        <div style={{ fontSize: '14px', opacity: 0.9 }}>
+                          {formatNumber(preview.budget.overage)} characters over limit
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Section Breakdown */}
+                  <div style={{ border: '1px solid var(--hal-border)', borderRadius: '8px', padding: '16px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                      <h3 style={{ margin: 0, fontSize: '16px' }}>Section Breakdown</h3>
                       <button
                         type="button"
-                        className="btn-standard"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          loadReceipt(bundle.bundle_id)
+                        onClick={() => setShowBreakdown(!showBreakdown)}
+                        style={{
+                          padding: '4px 8px',
+                          fontSize: '12px',
+                          border: '1px solid var(--hal-border)',
+                          borderRadius: '4px',
+                          background: 'transparent',
+                          cursor: 'pointer',
                         }}
                       >
-                        View Receipt
+                        {showBreakdown ? 'Hide' : 'Show'}
                       </button>
                     </div>
+                    {showBreakdown && (
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+                          <thead>
+                            <tr style={{ borderBottom: '1px solid var(--hal-border)' }}>
+                              <th style={{ textAlign: 'left', padding: '8px' }}>Section</th>
+                              <th style={{ textAlign: 'right', padding: '8px' }}>Characters</th>
+                              <th style={{ textAlign: 'right', padding: '8px' }}>Percentage</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Object.entries(sectionMetrics).map(([section, count]) => {
+                              const percentage = characterCount > 0 ? ((count / characterCount) * 100).toFixed(1) : '0.0'
+                              return (
+                                <tr key={section} style={{ borderBottom: '1px solid var(--hal-border)' }}>
+                                  <td style={{ padding: '8px' }}>{section}</td>
+                                  <td style={{ textAlign: 'right', padding: '8px' }}>{formatNumber(count)}</td>
+                                  <td style={{ textAlign: 'right', padding: '8px' }}>{percentage}%</td>
+                                </tr>
+                              )
+                            })}
+                            <tr style={{ borderTop: '2px solid var(--hal-border)', fontWeight: 'bold' }}>
+                              <td style={{ padding: '8px' }}>Total</td>
+                              <td style={{ textAlign: 'right', padding: '8px' }}>{formatNumber(characterCount)}</td>
+                              <td style={{ textAlign: 'right', padding: '8px' }}>100%</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
 
-          {/* Receipt View */}
-          {selectedBundleId && (
-            <div style={{ border: '1px solid var(--hal-border)', borderRadius: '8px', padding: '16px' }}>
-              <h3 style={{ margin: '0 0 12px 0', fontSize: '18px' }}>Bundle Receipt</h3>
-              {receiptLoading ? (
-                <p>Loading receipt...</p>
-              ) : receipt ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  {/* Checksums */}
-                  <div>
-                    <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>Checksums</h4>
-                    <div style={{ fontFamily: 'monospace', fontSize: '12px', background: 'var(--hal-surface-alt)', padding: '8px', borderRadius: '4px' }}>
-                      <div style={{ marginBottom: '4px' }}>
-                        <strong>Content Checksum:</strong> {receipt.content_checksum}
-                      </div>
-                      <div>
-                        <strong>Bundle Checksum:</strong> {receipt.bundle_checksum}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Budget Information */}
-                  {receipt.budget && (
-                    <div>
-                      <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>Character Budget</h4>
-                      <div style={{ background: 'var(--hal-surface-alt)', padding: '8px', borderRadius: '4px', fontSize: '14px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                          <span>Role:</span>
-                          <span style={{ fontWeight: '600' }}>{receipt.budget.displayName}</span>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                          <span>Character Count:</span>
-                          <span style={{ fontFamily: 'monospace' }}>{receipt.budget.characterCount.toLocaleString()} / {receipt.budget.hardLimit.toLocaleString()}</span>
-                        </div>
-                        {receipt.budget.characterCount > receipt.budget.hardLimit && (
-                          <div style={{ 
-                            marginTop: '8px', 
-                            padding: '8px', 
-                            background: 'var(--hal-status-error-bg, #ffebee)', 
-                            borderRadius: '4px',
-                            color: 'var(--hal-status-error, #c62828)',
-                            fontWeight: '600',
-                          }}>
-                            ⚠️ Exceeds limit by {(receipt.budget.characterCount - receipt.budget.hardLimit).toLocaleString()} characters
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Section Metrics */}
-                  <div>
-                    <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>Character Breakdown</h4>
-                    <div style={{ background: 'var(--hal-surface-alt)', padding: '8px', borderRadius: '4px' }}>
-                      {Object.entries(receipt.section_metrics).map(([section, count]) => (
-                        <div key={section} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                          <span>{section}:</span>
-                          <span style={{ fontFamily: 'monospace' }}>{count.toLocaleString()} chars</span>
-                        </div>
-                      ))}
+                  {/* Bundle Preview */}
+                  {(bundlePreviewText || preview?.bundle) && (
+                    <div style={{ border: '1px solid var(--hal-border)', borderRadius: '8px', padding: '16px' }}>
+                      <h3 style={{ margin: '0 0 12px 0', fontSize: '16px' }}>
+                        Bundle Preview ({ROLE_OPTIONS.find((r) => r.value === selectedRole)?.label || selectedRole})
+                      </h3>
                       <div
                         style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          marginTop: '8px',
-                          paddingTop: '8px',
-                          borderTop: '1px solid var(--hal-border)',
-                          fontWeight: '600',
+                          background: 'var(--hal-surface-alt)',
+                          padding: '12px',
+                          borderRadius: '4px',
+                          maxHeight: '400px',
+                          overflow: 'auto',
+                          fontFamily: 'monospace',
+                          fontSize: '12px',
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-word',
                         }}
                       >
-                        <span>Total:</span>
-                        <span style={{ fontFamily: 'monospace' }}>{receipt.total_characters.toLocaleString()} chars</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Distilled Artifacts */}
-                  {bundleJson?.distilled_artifacts && bundleJson.distilled_artifacts.length > 0 && (
-                    <div>
-                      <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>Distilled Artifacts</h4>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                        {bundleJson.distilled_artifacts.map((distilled) => (
-                          <div
-                            key={distilled.artifact_id}
-                            style={{
-                              border: '1px solid var(--hal-border)',
-                              borderRadius: '8px',
-                              padding: '12px',
-                              background: distilled.distillation_error ? 'var(--hal-status-error-bg, #ffebee)' : 'var(--hal-surface-alt)',
-                            }}
-                          >
-                            <div style={{ marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <div>
-                                <div style={{ fontWeight: '600', fontSize: '14px' }}>{distilled.artifact_title}</div>
-                                <div style={{ fontSize: '12px', color: 'var(--hal-text-muted)', marginTop: '2px' }}>
-                                  Artifact ID: {distilled.artifact_id.substring(0, 8)}... • Version: {receipt?.bundle?.version || 'N/A'}
-                                </div>
-                              </div>
-                              {distilled.distillation_error && (
-                                <div style={{ fontSize: '12px', color: 'var(--hal-status-error, #c62828)', fontWeight: '600' }}>
-                                  Distillation Failed
-                                </div>
-                              )}
-                            </div>
-                            {distilled.distillation_error ? (
-                              <div style={{ padding: '8px', background: 'var(--hal-surface)', borderRadius: '4px', fontSize: '14px', color: 'var(--hal-status-error, #c62828)' }}>
-                                <strong>Error:</strong> {distilled.distillation_error}
-                              </div>
-                            ) : (
-                              <>
-                                <div style={{ marginBottom: '8px' }}>
-                                  <div style={{ fontWeight: '600', fontSize: '13px', marginBottom: '4px' }}>Summary</div>
-                                  <div style={{ fontSize: '14px', lineHeight: '1.5' }}>{distilled.summary || 'No summary available'}</div>
-                                </div>
-                                {distilled.hard_facts.length > 0 && (
-                                  <div style={{ marginBottom: '8px' }}>
-                                    <div style={{ fontWeight: '600', fontSize: '13px', marginBottom: '4px' }}>Hard Facts</div>
-                                    <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '14px', lineHeight: '1.5' }}>
-                                      {distilled.hard_facts.map((fact, idx) => (
-                                        <li key={idx}>{fact}</li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                )}
-                                {distilled.keywords.length > 0 && (
-                                  <div>
-                                    <div style={{ fontWeight: '600', fontSize: '13px', marginBottom: '4px' }}>Keywords</div>
-                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                                      {distilled.keywords.map((keyword, idx) => (
-                                        <span
-                                          key={idx}
-                                          style={{
-                                            padding: '2px 8px',
-                                            background: 'var(--hal-surface)',
-                                            borderRadius: '4px',
-                                            fontSize: '12px',
-                                            border: '1px solid var(--hal-border)',
-                                          }}
-                                        >
-                                          {keyword}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                              </>
-                            )}
-                          </div>
-                        ))}
+                        {bundlePreviewText ? (
+                          <>
+                            {bundlePreviewText.substring(0, 10000)}
+                            {bundlePreviewText.length > 10000 && '... (truncated)'}
+                          </>
+                        ) : preview?.bundle ? (
+                          <>
+                            {JSON.stringify(preview.bundle, null, 2).substring(0, 10000)}
+                            {JSON.stringify(preview.bundle, null, 2).length > 10000 && '... (truncated)'}
+                          </>
+                        ) : null}
                       </div>
                     </div>
                   )}
 
-                  {/* References */}
-                  <div>
-                    <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>References</h4>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {receipt.red_reference && (
-                        <div style={{ fontSize: '14px' }}>
-                          <strong>RED:</strong> Version {receipt.red_reference.version} (ID: {receipt.red_reference.red_id.substring(0, 8)}...)
-                        </div>
-                      )}
-                      {receipt.integration_manifest_reference && (
-                        <div style={{ fontSize: '14px' }}>
-                          <strong>Integration Manifest:</strong> Version {receipt.integration_manifest_reference.version} (Schema: {receipt.integration_manifest_reference.schema_version}, ID: {receipt.integration_manifest_reference.manifest_id.substring(0, 8)}...)
-                        </div>
-                      )}
-                      {receipt.git_ref && (
-                        <div style={{ fontSize: '14px' }}>
-                          <strong>Git Ref:</strong>{' '}
-                          {receipt.git_ref.pr_url ? (
-                            <a href={receipt.git_ref.pr_url} target="_blank" rel="noopener noreferrer">
-                              PR #{receipt.git_ref.pr_number}
-                            </a>
-                          ) : (
-                            'N/A'
+                  {/* Receipt Panel */}
+                  {receipt && (
+                    <div style={{ border: '1px solid var(--hal-border)', borderRadius: '8px', padding: '16px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                        <h3 style={{ margin: 0, fontSize: '16px' }}>Receipt</h3>
+                        <button
+                          type="button"
+                          onClick={() => setShowReceipt(!showReceipt)}
+                          style={{
+                            padding: '4px 8px',
+                            fontSize: '12px',
+                            border: '1px solid var(--hal-border)',
+                            borderRadius: '4px',
+                            background: 'transparent',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {showReceipt ? 'Hide' : 'Show'}
+                        </button>
+                      </div>
+                      {showReceipt && (
+                        <div style={{ fontSize: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          <div>
+                            <strong>Content Checksum (stable):</strong>{' '}
+                            <code style={{ fontSize: '12px', fontFamily: 'monospace' }}>{receipt.content_checksum}</code>
+                          </div>
+                          <div>
+                            <strong>Bundle Checksum:</strong>{' '}
+                            <code style={{ fontSize: '12px', fontFamily: 'monospace' }}>{receipt.bundle_checksum}</code>
+                          </div>
+                          {receipt.red_reference && (
+                            <div>
+                              <strong>RED Reference:</strong> {receipt.red_reference.red_id} (v{receipt.red_reference.version})
+                            </div>
                           )}
-                          {receipt.git_ref.base_sha && (
-                            <span style={{ marginLeft: '8px', fontFamily: 'monospace', fontSize: '12px' }}>
-                              Base: {receipt.git_ref.base_sha.substring(0, 7)}...
-                            </span>
+                          {receipt.integration_manifest_reference && (
+                            <div>
+                              <strong>Integration Manifest:</strong> {receipt.integration_manifest_reference.manifest_id} (v
+                              {receipt.integration_manifest_reference.version}, schema {receipt.integration_manifest_reference.schema_version})
+                            </div>
                           )}
-                          {receipt.git_ref.head_sha && (
-                            <span style={{ marginLeft: '8px', fontFamily: 'monospace', fontSize: '12px' }}>
-                              Head: {receipt.git_ref.head_sha.substring(0, 7)}...
-                            </span>
+                          {receipt.git_ref && (
+                            <div>
+                              <strong>Git Reference:</strong>{' '}
+                              {receipt.git_ref.pr_url ? (
+                                <a href={receipt.git_ref.pr_url} target="_blank" rel="noopener noreferrer">
+                                  PR #{receipt.git_ref.pr_number}
+                                </a>
+                              ) : (
+                                <>
+                                  {receipt.git_ref.base_sha?.substring(0, 8)}... → {receipt.git_ref.head_sha?.substring(0, 8)}...
+                                </>
+                              )}
+                            </div>
                           )}
+                          <div>
+                            <strong>Created:</strong> {new Date(receipt.created_at).toLocaleString()}
+                          </div>
                         </div>
-                      )}
-                      {!receipt.red_reference && !receipt.integration_manifest_reference && !receipt.git_ref && (
-                        <div style={{ fontSize: '14px', color: 'var(--hal-text-muted)' }}>No references</div>
                       )}
                     </div>
-                  </div>
-                </div>
-              ) : (
-                <p style={{ color: 'var(--hal-text-muted)' }}>Receipt not found.</p>
-              )}
-            </div>
-          )}
-            </>
-          )}
+                  )}
 
-          {!selectedTicketPk && !needsTicketSelection && (
-            <p style={{ color: 'var(--hal-text-muted)' }}>No ticket selected. Please provide a ticket ID.</p>
+                  {/* Use Bundle Button */}
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', paddingTop: '8px' }}>
+                    <button type="button" className="btn-standard" onClick={onClose}>
+                      Close
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      onClick={handleUseBundle}
+                      disabled={!preview || preview.budget?.exceeds || !isWithinBudget}
+                      style={{
+                        opacity: !preview || preview.budget?.exceeds || !isWithinBudget ? 0.5 : 1,
+                        cursor: !preview || preview.budget?.exceeds || !isWithinBudget ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      Use this bundle
+                    </button>
+                  </div>
+
+                  {!isWithinBudget && preview?.budget && (
+                    <div style={{ padding: '12px', background: 'var(--hal-surface-alt)', borderRadius: '4px', fontSize: '14px' }}>
+                      <strong>Cannot proceed:</strong> Bundle exceeds character budget for {preview.budget.displayName}. Reduce bundle size or select a different role.
+                    </div>
+                  )}
+                </>
+              )}
+            </>
           )}
         </div>
       </div>

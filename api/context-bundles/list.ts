@@ -56,13 +56,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const { supabaseUrl, supabaseAnonKey } = parseSupabaseCredentials(body)
 
-    if (!ticketPk && !ticketId) {
-      return json(res, 400, {
-        success: false,
-        error: 'ticketPk (preferred) or ticketId is required.',
-      })
-    }
-
     if (!supabaseUrl || !supabaseAnonKey) {
       return json(res, 400, {
         success: false,
@@ -70,11 +63,18 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       })
     }
 
+    if (!repoFullName) {
+      return json(res, 400, {
+        success: false,
+        error: 'repoFullName is required.',
+      })
+    }
+
     const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-    // If we have ticketId but not ticketPk, fetch ticket to get ticketPk and repoFullName
+    // If we have ticketId but not ticketPk, fetch ticket to get ticketPk
     let resolvedTicketPk: string | undefined = ticketPk
-    let resolvedRepoFullName: string | undefined = repoFullName
+    let resolvedRepoFullName: string = repoFullName
 
     if (!resolvedTicketPk && ticketId) {
       const { data: ticket, error: ticketError } = await supabase
@@ -119,20 +119,17 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       }
     }
 
-    if (!resolvedTicketPk || !resolvedRepoFullName) {
-      return json(res, 400, {
-        success: false,
-        error: 'Could not resolve ticket_pk and repo_full_name. Please provide ticketPk and repoFullName, or ticketId.',
-      })
-    }
-
-    // Build query
+    // Build query - ticket is optional (can list all bundles for a repo)
     let query = supabase
       .from('context_bundles')
       .select('bundle_id, ticket_id, role, version, created_at, created_by')
       .eq('repo_full_name', resolvedRepoFullName)
-      .eq('ticket_pk', resolvedTicketPk)
       .order('created_at', { ascending: false })
+
+    // Filter by ticket if provided
+    if (resolvedTicketPk) {
+      query = query.eq('ticket_pk', resolvedTicketPk)
+    }
 
     if (role) {
       query = query.eq('role', role)
@@ -150,7 +147,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return json(res, 200, {
       success: true,
       bundles: bundles || [],
-      ticket_pk: resolvedTicketPk,
+      ticket_pk: resolvedTicketPk || null,
       repo_full_name: resolvedRepoFullName,
     })
   } catch (err) {

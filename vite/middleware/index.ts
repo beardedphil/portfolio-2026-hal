@@ -22,6 +22,11 @@ export function getAllMiddlewarePlugins(): Plugin[] {
     createSimpleMiddlewarePlugin('agent-runs-status-endpoint', '/api/agent-runs/status', { method: 'GET', allowOptions: false }),
     createSimpleMiddlewarePlugin('agent-runs-sync-artifacts-endpoint', '/api/agent-runs/sync-artifacts', { method: 'POST', allowOptions: false }),
     createSimpleMiddlewarePlugin('context-bundles-build-from-run-endpoint', '/api/context-bundles/build-from-run', { method: 'POST', allowOptions: false }),
+    createSimpleMiddlewarePlugin('context-bundles-list-endpoint', '/api/context-bundles/list', { method: 'POST', allowOptions: false }),
+    createSimpleMiddlewarePlugin('context-bundles-get-endpoint', '/api/context-bundles/get', { method: 'POST', allowOptions: false }),
+    createSimpleMiddlewarePlugin('context-bundles-get-receipt-endpoint', '/api/context-bundles/get-receipt', { method: 'POST', allowOptions: false }),
+    createSimpleMiddlewarePlugin('context-bundles-generate-endpoint', '/api/context-bundles/generate', { method: 'POST', allowOptions: false }),
+    createSimpleMiddlewarePlugin('context-bundles-preview-endpoint', '/api/context-bundles/preview', { method: 'POST', allowOptions: false }),
     createSimpleMiddlewarePlugin('conversations-working-memory-get-endpoint', '/api/conversations/working-memory/get'),
     createSimpleMiddlewarePlugin('conversations-working-memory-update-endpoint', '/api/conversations/working-memory/update'),
     // TODO: Extract remaining complex middleware plugins:
