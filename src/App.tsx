@@ -16,6 +16,7 @@ import { PmChatWidgetButton } from './components/PmChatWidgetButton'
 import { CoverageReportModal } from './components/CoverageReportModal'
 import { MaintainabilityReportModal } from './components/MaintainabilityReportModal'
 import { IntegrationManifestModal } from './components/IntegrationManifestModal'
+import { ContextBundleModal } from './components/ContextBundleModal'
 import { NoPrModal } from './components/NoPrModal'
 import type { ChatTarget, ToolCallRecord, TicketCreationResult } from './types/app'
 import { CHAT_OPTIONS } from './types/app'
@@ -291,6 +292,9 @@ function App() {
   const [maintainabilityReportOpen, setMaintainabilityReportOpen] = useState<boolean>(false)
   /** Integration Manifest modal (0773). */
   const [integrationManifestOpen, setIntegrationManifestOpen] = useState<boolean>(false)
+  const [contextBundleModalOpen, setContextBundleModalOpen] = useState<boolean>(false)
+  const [contextBundleTicketPk, setContextBundleTicketPk] = useState<string | null>(null)
+  const [contextBundleTicketId, setContextBundleTicketId] = useState<string | null>(null)
 
   useEffect(() => {
     selectedChatTargetRef.current = selectedChatTarget
@@ -698,6 +702,12 @@ function App() {
         onCoverageReportClick={() => setCoverageReportOpen(true)}
         onMaintainabilityReportClick={() => setMaintainabilityReportOpen(true)}
         onIntegrationManifestClick={() => setIntegrationManifestOpen(true)}
+        onContextBundleClick={() => {
+          setContextBundleModalOpen(true)
+          // Clear ticket selection to allow user to enter ticket ID
+          setContextBundleTicketPk(null)
+          setContextBundleTicketId(null)
+        }}
         theme={theme}
         onThemeChange={setTheme}
       />
@@ -991,6 +1001,18 @@ function App() {
         onClose={() => setIntegrationManifestOpen(false)}
         repoFullName={connectedGithubRepo?.fullName || null}
         defaultBranch={connectedGithubRepo?.defaultBranch || 'main'}
+      />
+
+      {/* Context Bundle Modal (0761) */}
+      <ContextBundleModal
+        isOpen={contextBundleModalOpen}
+        onClose={() => setContextBundleModalOpen(false)}
+        ticketPk={contextBundleTicketPk}
+        ticketId={contextBundleTicketId}
+        repoFullName={connectedGithubRepo?.fullName || null}
+        supabaseUrl={supabaseUrl}
+        supabaseAnonKey={supabaseAnonKey}
+        allowTicketSelection={true}
       />
     </div>
   )

@@ -16,6 +16,7 @@ interface HalHeaderProps {
   onCoverageReportClick: () => void
   onMaintainabilityReportClick: () => void
   onIntegrationManifestClick: () => void
+  onContextBundleClick?: () => void
   theme: Theme
   onThemeChange: (theme: Theme) => void
 }
@@ -32,6 +33,7 @@ export function HalHeader({
   onCoverageReportClick,
   onMaintainabilityReportClick,
   onIntegrationManifestClick,
+  onContextBundleClick,
   theme,
   onThemeChange,
 }: HalHeaderProps) {
@@ -118,15 +120,28 @@ export function HalHeader({
           Agent Instructions
         </button>
         {connectedProject && connectedGithubRepo && (
-          <button
-            type="button"
-            className="integration-manifest-btn btn-standard"
-            onClick={onIntegrationManifestClick}
-            aria-label="Regenerate Integration Manifest"
-            title="Regenerate Integration Manifest"
-          >
-            Regenerate Integration Manifest
-          </button>
+          <>
+            <button
+              type="button"
+              className="integration-manifest-btn btn-standard"
+              onClick={onIntegrationManifestClick}
+              aria-label="Regenerate Integration Manifest"
+              title="Regenerate Integration Manifest"
+            >
+              Regenerate Integration Manifest
+            </button>
+            {onContextBundleClick && (
+              <button
+                type="button"
+                className="context-bundle-btn btn-standard"
+                onClick={onContextBundleClick}
+                aria-label="View Context Bundles"
+                title="View Context Bundles"
+              >
+                Context Bundles
+              </button>
+            )}
+          </>
         )}
       </div>
     </header>
