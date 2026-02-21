@@ -93,6 +93,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           status: 'created',
           current_stage: 'preparing',
           progress: initialProgress,
+          context_bundle_id: null, // PM runs don't require context bundles (no ticket)
           input_json: {
             message,
             conversationId: conversationId || null,
@@ -127,6 +128,41 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const displayId = (ticket as any).display_id ?? String(ticketNumber).padStart(4, '0')
     const bodyMd = String((ticket as any).body_md ?? '')
     const currentColumnId = (ticket as any).kanban_column_id as string | null
+
+    // HAL-0748: Require context bundle for deterministic execution
+    // Determine role based on agent type
+    const bundleRole = agentType === 'implementation' ? 'implementation' : agentType === 'qa' ? 'qa' : agentType === 'process-review' ? 'process-review' : null
+    
+    let contextBundleId: string | null = null
+    let contextBundleChecksum: string | null = null
+    
+    if (bundleRole) {
+      // Query for latest context bundle for this ticket and role
+      const { data: latestBundles, error: bundleErr } = await supabase
+        .rpc('get_latest_context_bundle', {
+          p_repo_full_name: repoFullName,
+          p_ticket_pk: ticketPk,
+          p_role: bundleRole,
+        })
+      
+      if (bundleErr) {
+        json(res, 500, { error: `Failed to check for context bundle: ${bundleErr.message}` })
+        return
+      }
+      
+      const latestBundle = Array.isArray(latestBundles) && latestBundles.length > 0 ? latestBundles[0] : null
+      
+      if (!latestBundle || !latestBundle.bundle_id) {
+        json(res, 400, { 
+          error: `No context bundle found for ticket ${displayId} with role "${bundleRole}". Please build a context bundle before launching the agent run.`,
+          missingContextBundle: true,
+        })
+        return
+      }
+      
+      contextBundleId = latestBundle.bundle_id as string
+      contextBundleChecksum = latestBundle.content_checksum as string | null
+    }
 
     const halApiBaseUrl = getOrigin(req)
 
@@ -189,6 +225,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           status: 'created',
           current_stage: 'preparing',
           progress: initialProgress,
+          context_bundle_id: contextBundleId,
         })
         .select('run_id')
         .maybeSingle()
@@ -322,6 +359,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         status: 'launching',
         current_stage: 'preparing',
         progress: initialProgress,
+        context_bundle_id: contextBundleId,
       })
       .select('run_id')
       .maybeSingle()

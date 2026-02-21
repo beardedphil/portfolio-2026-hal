@@ -166,7 +166,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const supabase = getServerSupabase()
     const { data: run, error: runErr } = await supabase
       .from('hal_agent_runs')
-      .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, cursor_agent_id, cursor_status, pr_url, summary, error, status, current_stage, progress')
+      .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, cursor_agent_id, cursor_status, pr_url, summary, error, status, current_stage, progress, context_bundle_id')
       .eq('run_id', runId)
       .maybeSingle()
 
@@ -462,6 +462,25 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       }
     }
 
+    // HAL-0748: Fetch context bundle checksum if bundle_id exists
+    let contextBundleChecksum: string | null = null
+    const contextBundleId = (run as any)?.context_bundle_id as string | null | undefined
+    if (contextBundleId) {
+      try {
+        const { data: bundle, error: bundleErr } = await supabase
+          .from('context_bundles')
+          .select('content_checksum')
+          .eq('bundle_id', contextBundleId)
+          .maybeSingle()
+        if (!bundleErr && bundle) {
+          contextBundleChecksum = bundle.content_checksum as string | null
+        }
+      } catch (e) {
+        // Log but don't fail - checksum is informational
+        console.warn('[agent-runs/status] Failed to fetch bundle checksum:', e instanceof Error ? e.message : e)
+      }
+    }
+
     const { data: updated, error: updErr } = await supabase
       .from('hal_agent_runs')
       .update({
@@ -475,7 +494,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         ...(finishedAt ? { finished_at: finishedAt } : {}),
       })
       .eq('run_id', runId)
-      .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, cursor_agent_id, cursor_status, pr_url, summary, error, status, current_stage, progress, created_at, updated_at, finished_at')
+      .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, cursor_agent_id, cursor_status, pr_url, summary, error, status, current_stage, progress, created_at, updated_at, finished_at, context_bundle_id')
       .maybeSingle()
 
     if (updErr) {
@@ -484,11 +503,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     const payload = updated ?? run
-    if (processReviewSuggestions != null) {
-      json(res, 200, { ...(payload as object), suggestions: processReviewSuggestions })
-      return
+    const responsePayload = {
+      ...(payload as object),
+      ...(contextBundleChecksum ? { context_bundle_checksum: contextBundleChecksum } : {}),
+      ...(processReviewSuggestions != null ? { suggestions: processReviewSuggestions } : {}),
     }
-    json(res, 200, payload)
+    json(res, 200, responsePayload)
   } catch (err) {
     json(res, 500, { error: err instanceof Error ? err.message : String(err) })
   }

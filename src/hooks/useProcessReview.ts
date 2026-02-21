@@ -148,7 +148,11 @@ export function useProcessReview({
           throw new Error(msg)
         }
         if (!launchRes.ok || !launchData.runId) {
-          throw new Error(launchData.error ?? `Launch failed (HTTP ${launchRes.status})`)
+          const isMissingBundle = (launchData as any).missingContextBundle === true
+          const errorMsg = isMissingBundle
+            ? `Cannot launch agent run: No context bundle found for this ticket. Please build a context bundle first using the "Build Context Bundle" option. Agent runs require a deterministic Context Bundle JSON and cannot use chat history.`
+            : launchData.error ?? `Launch failed (HTTP ${launchRes.status})`
+          throw new Error(errorMsg)
         }
 
         const runId = launchData.runId
