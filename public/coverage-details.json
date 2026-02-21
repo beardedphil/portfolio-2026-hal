@@ -25,10 +25,6 @@
       "coverage": 0
     },
     {
-      "file": "/workspace/agents/src/agents/projectManager/contextBuilding.ts",
-      "coverage": 0
-    },
-    {
       "file": "/workspace/agents/src/agents/projectManager/respond.ts",
       "coverage": 0
     },
@@ -79,6 +75,10 @@
     {
       "file": "/workspace/api/agent-runs/status.ts",
       "coverage": 0
+    },
+    {
+      "file": "/workspace/api/agent-runs/sync-artifacts.ts",
+      "coverage": 0
     }
   ],
   "mostRecentImprovements": [
@@ -93,7 +93,13 @@
       "before": 0,
       "after": 100,
       "delta": 100
+    },
+    {
+      "file": "/workspace/agents/src/agents/projectManager/contextBuilding.ts",
+      "before": 0,
+      "after": 17.7,
+      "delta": 17.7
     }
   ],
-  "generatedAt": "2026-02-19T18:36:00.107Z"
+  "generatedAt": "2026-02-19T18:33:05.559Z"
 }
