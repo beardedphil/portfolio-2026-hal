@@ -53,6 +53,10 @@
       "maintainability": 18.54
     },
     {
+      "file": "api/context-bundles/_builder.ts",
+      "maintainability": 24.4
+    },
+    {
       "file": "api/auth/github/callback.ts",
       "maintainability": 24.45
     },
@@ -75,10 +79,6 @@
     {
       "file": "api/instructions/get-topic.ts",
       "maintainability": 26.6
-    },
-    {
-      "file": "api/conversations/working-memory/update.ts",
-      "maintainability": 27.95
     }
   ],
   "mostRecentImprovements": [
@@ -125,8 +125,8 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-21T20:49:48.377Z",
-  "filesAnalyzed": 318,
-  "unroundedMaintainability": 39.6,
-  "unroundedSimplicity": 39.6
+  "generatedAt": "2026-02-21T21:04:41.194Z",
+  "filesAnalyzed": 319,
+  "unroundedMaintainability": 39.5,
+  "unroundedSimplicity": 39.5
 }
