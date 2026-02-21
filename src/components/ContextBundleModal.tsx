@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react'
-import { getSupabaseClient } from '../lib/supabase'
 
 interface ContextBundleModalProps {
   isOpen: boolean
@@ -9,7 +8,6 @@ interface ContextBundleModalProps {
   repoFullName: string | null
   supabaseUrl: string | null
   supabaseAnonKey: string | null
-  allowTicketSelection?: boolean
 }
 
 interface BundleListItem {
@@ -86,7 +84,6 @@ export function ContextBundleModal({
   repoFullName: initialRepoFullName,
   supabaseUrl,
   supabaseAnonKey,
-  allowTicketSelection = false,
 }: ContextBundleModalProps) {
   const [ticketPk, setTicketPk] = useState<string | null>(initialTicketPk)
   const [ticketId, setTicketId] = useState<string | null>(initialTicketId)
@@ -94,7 +91,6 @@ export function ContextBundleModal({
   const [selectedRole, setSelectedRole] = useState<RoleOption>('project-manager')
   const [bundles, setBundles] = useState<BundleListItem[]>([])
   const [selectedBundleId, setSelectedBundleId] = useState<string | null>(null)
-  const [bundleContent, setBundleContent] = useState<BundleContent | null>(null)
   const [receipt, setReceipt] = useState<BundleReceipt | null>(null)
   const [preview, setPreview] = useState<PreviewResult | null>(null)
   const [loading, setLoading] = useState(false)
@@ -129,7 +125,6 @@ export function ContextBundleModal({
       setTicketId(initialTicketId)
       setRepoFullName(initialRepoFullName)
       setSelectedBundleId(null)
-      setBundleContent(null)
       setReceipt(null)
       setPreview(null)
       setError(null)
@@ -242,8 +237,6 @@ export function ContextBundleModal({
         throw new Error(data.error || 'Failed to load bundle content')
       }
 
-      setBundleContent(data.bundle)
-
       // Generate preview text from bundle JSON
       const previewText = JSON.stringify(data.bundle.bundle_json, null, 2)
       setBundlePreviewText(previewText)
@@ -334,12 +327,6 @@ export function ContextBundleModal({
 
   const formatNumber = (num: number): string => {
     return new Intl.NumberFormat().format(num)
-  }
-
-  const formatBytes = (bytes: number): string => {
-    if (bytes < 1024) return `${bytes} B`
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   }
 
   if (!isOpen) return null

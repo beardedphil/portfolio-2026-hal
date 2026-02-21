@@ -990,7 +990,6 @@ function App() {
         repoFullName={connectedGithubRepo?.fullName || null}
         supabaseUrl={supabaseUrl}
         supabaseAnonKey={supabaseAnonKey}
-        allowTicketSelection={true}
       />
       {/* Agent Run Bundle Builder Modal (0756) */}
       <AgentRunBundleModal
