@@ -104,8 +104,12 @@ The AC confirmation checklist must be written so a human can verify it **purely 
 1. Complete all implementation work
 2. Store all required artifacts
 3. **Perform AC Confirmation Checklist** (this step)
-4. If all ACs are met: Move ticket to "Ready for QA" and send completion summary
+4. If all ACs are met: 
+   - **FIRST:** Move ticket to "Ready for QA" (using HAL API)
+   - **THEN:** Send completion summary
 5. If any AC is not met: Do not move ticket; update plan or create follow-up ticket
+
+**CRITICAL:** The ticket move must happen BEFORE the completion summary. Do not send the summary until the ticket has been moved.
 
 ### For QA Agents:
 

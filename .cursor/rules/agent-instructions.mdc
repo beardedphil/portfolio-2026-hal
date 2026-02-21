@@ -85,7 +85,9 @@ if (!result.success) {
 2. ✅ After all 8 required artifacts are stored (plan, worklog, changed-files, decisions, verification, pm-review, git-diff, instructions-used)
 3. ✅ **Automatically call get_artifacts** (or POST /api/artifacts/get) and confirm all 8 required implementation artifacts are present with substantive content
 4. ✅ **AUTOMATICALLY MOVE THE TICKET TO READY FOR QA** (use the API call above) - **DO THIS AUTOMATICALLY, DO NOT ASK USER**
-5. ✅ **THEN** send your final "implementation complete" summary message
+5. ✅ **ONLY AFTER THE TICKET HAS BEEN MOVED** - send your final "implementation complete" summary message
+
+**CRITICAL ORDERING:** The ticket move MUST happen BEFORE the summary message. Do not send any completion summary until you have successfully moved the ticket to Ready for QA.
 
 **Error Handling for Ticket Move:**
 - **If move returns success: false with missingArtifacts:** Automatically store each listed artifact via POST /api/artifacts/insert-implementation with the corresponding artifactType, then automatically retry POST /api/tickets/move. The move API will not allow moving to Ready for QA until all 8 artifacts are present.
@@ -93,11 +95,13 @@ if (!result.success) {
 
 **CRITICAL WORKFLOW RULES:** 
 - **ALWAYS move the ticket automatically** - never ask the user for permission or wait for confirmation
+- **MOVE THE TICKET FIRST, THEN SEND SUMMARY** - The ticket move must happen BEFORE any completion summary message
 - **DO NOT** send a completion summary or "done" message without first moving the ticket to Ready for QA
 - **DO NOT** mark the ticket as complete in your message if you haven't moved it
 - The ticket move is **part of the completion workflow**, not an optional step
 - **If the move fails, retry automatically** - do not give up after one failure
 - **The system is designed to handle failures** - if a move fails, it's okay, just note it and move on
+- **Order matters:** Commit → Push → Store artifacts → Move ticket → Send summary (in that exact order)
 
 **Available column IDs:**
 - `col-unassigned` - Unassigned
