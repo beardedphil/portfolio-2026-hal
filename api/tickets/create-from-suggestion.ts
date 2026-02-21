@@ -19,7 +19,7 @@ function json(res: ServerResponse, statusCode: number, body: unknown) {
 }
 
 /** Slug for ticket filename: lowercase, spaces to hyphens, strip non-alphanumeric except hyphen. */
-function slugFromTitle(title: string): string {
+export function slugFromTitle(title: string): string {
   return title
     .trim()
     .toLowerCase()
@@ -29,7 +29,7 @@ function slugFromTitle(title: string): string {
     .replace(/^-|-$/g, '') || 'ticket'
 }
 
-function repoHintPrefix(repoFullName: string): string {
+export function repoHintPrefix(repoFullName: string): string {
   const repo = repoFullName.split('/').pop() ?? repoFullName
   const tokens = repo
     .toLowerCase()
@@ -46,141 +46,145 @@ function repoHintPrefix(repoFullName: string): string {
   return (letters.slice(0, 4) || 'PRJ').toUpperCase()
 }
 
-function isUniqueViolation(err: { code?: string; message?: string } | null): boolean {
+export function isUniqueViolation(err: { code?: string; message?: string } | null): boolean {
   if (!err) return false
   if (err.code === '23505') return true
   const msg = (err.message ?? '').toLowerCase()
   return msg.includes('duplicate key') || msg.includes('unique constraint')
 }
 
-export default async function handler(req: IncomingMessage, res: ServerResponse) {
-  // CORS: Allow cross-origin requests
-  res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+interface RequestBody {
+  sourceTicketId?: string
+  sourceTicketPk?: string
+  suggestion?: string
+  justification?: string
+  reviewId?: string
+  suggestionIndex?: number
+  supabaseUrl?: string
+  supabaseAnonKey?: string
+}
 
-  if (req.method === 'OPTIONS') {
-    res.statusCode = 204
-    res.end()
-    return
+interface ParsedRequest {
+  sourceTicketPk?: string
+  sourceTicketId?: string
+  suggestion: string
+  justification?: string
+  reviewId?: string
+  suggestionIndex?: number
+  supabaseUrl: string
+  supabaseAnonKey: string
+}
+
+function parseRequestBody(body: unknown): ParsedRequest | null {
+  const b = body as RequestBody
+  const sourceTicketPk = typeof b.sourceTicketPk === 'string' ? b.sourceTicketPk.trim() : undefined
+  const sourceTicketId = typeof b.sourceTicketId === 'string' ? b.sourceTicketId.trim() : undefined
+  const suggestion = typeof b.suggestion === 'string' ? b.suggestion.trim() : undefined
+  const justification = typeof b.justification === 'string' ? b.justification.trim() : undefined
+  const reviewId = typeof b.reviewId === 'string' ? b.reviewId.trim() : undefined
+  const suggestionIndex = typeof b.suggestionIndex === 'number' ? b.suggestionIndex : undefined
+
+  const supabaseUrl =
+    (typeof b.supabaseUrl === 'string' ? b.supabaseUrl.trim() : undefined) ||
+    process.env.SUPABASE_URL?.trim() ||
+    process.env.VITE_SUPABASE_URL?.trim() ||
+    undefined
+  const supabaseAnonKey =
+    (typeof b.supabaseAnonKey === 'string' ? b.supabaseAnonKey.trim() : undefined) ||
+    process.env.SUPABASE_ANON_KEY?.trim() ||
+    process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
+    undefined
+
+  if ((!sourceTicketPk && !sourceTicketId) || !supabaseUrl || !supabaseAnonKey) {
+    return null
   }
 
-  if (req.method !== 'POST') {
-    res.statusCode = 405
-    res.end('Method Not Allowed')
-    return
+  if (!suggestion || suggestion.length === 0) {
+    return null
   }
 
+  return {
+    sourceTicketPk,
+    sourceTicketId,
+    suggestion,
+    justification,
+    reviewId,
+    suggestionIndex,
+    supabaseUrl,
+    supabaseAnonKey,
+  }
+}
+
+async function fetchSourceTicket(
+  supabase: ReturnType<typeof createClient>,
+  sourceTicketPk?: string,
+  sourceTicketId?: string
+) {
+  const query = sourceTicketPk
+    ? await supabase.from('tickets').select('pk, id, display_id, title, repo_full_name').eq('pk', sourceTicketPk).maybeSingle()
+    : await supabase.from('tickets').select('pk, id, display_id, title, repo_full_name').eq('id', sourceTicketId!).maybeSingle()
+
+  if (query.error || !query.data) {
+    return null
+  }
+
+  return query.data
+}
+
+async function checkExistingTicket(
+  supabase: ReturnType<typeof createClient>,
+  reviewId: string | undefined,
+  suggestionIndex: number | undefined
+) {
+  if (reviewId === undefined || suggestionIndex === undefined) {
+    return null
+  }
+
+  const { data: existingTickets } = await supabase
+    .from('tickets')
+    .select('pk, id, display_id')
+    .like('body_md', `%review_id: ${reviewId}%`)
+    .like('body_md', `%suggestion_index: ${suggestionIndex}%`)
+    .limit(1)
+
+  return existingTickets && existingTickets.length > 0 ? existingTickets[0] : null
+}
+
+async function getNextTicketNumber(
+  supabase: ReturnType<typeof createClient>,
+  repoFullName: string
+): Promise<number> {
   try {
-    const body = (await readJsonBody(req)) as {
-      sourceTicketId?: string
-      sourceTicketPk?: string
-      suggestion?: string
-      justification?: string
-      reviewId?: string
-      suggestionIndex?: number
-      supabaseUrl?: string
-      supabaseAnonKey?: string
+    const { data: existingRows, error: fetchError } = await supabase
+      .from('tickets')
+      .select('ticket_number')
+      .eq('repo_full_name', repoFullName)
+      .order('ticket_number', { ascending: false })
+      .limit(1)
+
+    if (!fetchError && existingRows && existingRows.length > 0) {
+      const maxNum = (existingRows[0] as { ticket_number?: number }).ticket_number ?? 0
+      return maxNum + 1
     }
+  } catch {
+    // Fallback to 1 if query fails
+  }
+  return 1
+}
 
-    const sourceTicketPk = typeof body.sourceTicketPk === 'string' ? body.sourceTicketPk.trim() : undefined
-    const sourceTicketId = typeof body.sourceTicketId === 'string' ? body.sourceTicketId.trim() : undefined
-    const suggestion = typeof body.suggestion === 'string' ? body.suggestion.trim() : undefined
-    const justification = typeof body.justification === 'string' ? body.justification.trim() : undefined
-    const reviewId = typeof body.reviewId === 'string' ? body.reviewId.trim() : undefined
-    const suggestionIndex = typeof body.suggestionIndex === 'number' ? body.suggestionIndex : undefined
+function generateTicketBody(
+  sourceRef: string,
+  suggestion: string,
+  justification: string | undefined,
+  reviewId: string | undefined,
+  suggestionIndex: number | undefined
+): string {
+  const linkageSection = reviewId
+    ? `\n- **Review ID**: ${reviewId}${suggestionIndex !== undefined ? `\n- **Suggestion Index**: ${suggestionIndex}` : ''}`
+    : ''
+  const justificationSection = justification ? `\n\n**Justification**: ${justification}` : ''
 
-    // Use credentials from request body if provided, otherwise fall back to server environment variables
-    const supabaseUrl =
-      (typeof body.supabaseUrl === 'string' ? body.supabaseUrl.trim() : undefined) ||
-      process.env.SUPABASE_URL?.trim() ||
-      process.env.VITE_SUPABASE_URL?.trim() ||
-      undefined
-    const supabaseAnonKey =
-      (typeof body.supabaseAnonKey === 'string' ? body.supabaseAnonKey.trim() : undefined) ||
-      process.env.SUPABASE_ANON_KEY?.trim() ||
-      process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
-      undefined
-
-    if ((!sourceTicketPk && !sourceTicketId) || !supabaseUrl || !supabaseAnonKey) {
-      json(res, 400, {
-        success: false,
-        error: 'sourceTicketPk (preferred) or sourceTicketId, and Supabase credentials are required.',
-      })
-      return
-    }
-
-    if (!suggestion || suggestion.length === 0) {
-      json(res, 400, {
-        success: false,
-        error: 'suggestion is required and must be non-empty.',
-      })
-      return
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseAnonKey)
-
-    // Fetch source ticket to get repo info
-    const sourceTicketQuery = sourceTicketPk
-      ? await supabase.from('tickets').select('pk, id, display_id, title, repo_full_name').eq('pk', sourceTicketPk).maybeSingle()
-      : await supabase.from('tickets').select('pk, id, display_id, title, repo_full_name').eq('id', sourceTicketId!).maybeSingle()
-
-    if (sourceTicketQuery.error || !sourceTicketQuery.data) {
-      json(res, 200, {
-        success: false,
-        error: `Source ticket not found: ${sourceTicketQuery.error?.message || 'Unknown error'}`,
-      })
-      return
-    }
-
-    const sourceTicket = sourceTicketQuery.data
-    const repoFullName = sourceTicket.repo_full_name || 'legacy/unknown'
-    const prefix = repoHintPrefix(repoFullName)
-
-    // Check for existing ticket with same review_id and suggestion_index (idempotency)
-    if (reviewId !== undefined && suggestionIndex !== undefined) {
-      const { data: existingTickets } = await supabase
-        .from('tickets')
-        .select('pk, id, display_id')
-        .like('body_md', `%review_id: ${reviewId}%`)
-        .like('body_md', `%suggestion_index: ${suggestionIndex}%`)
-        .limit(1)
-
-      if (existingTickets && existingTickets.length > 0) {
-        json(res, 200, {
-          success: true,
-          ticketId: existingTickets[0].display_id || existingTickets[0].id,
-          id: existingTickets[0].id,
-          pk: existingTickets[0].pk,
-          skipped: true,
-          reason: 'Ticket already exists for this suggestion',
-        })
-        return
-      }
-    }
-
-    // Determine next ticket number (repo-scoped)
-    let startNum = 1
-    try {
-      const { data: existingRows, error: fetchError } = await supabase
-        .from('tickets')
-        .select('ticket_number')
-        .eq('repo_full_name', repoFullName)
-        .order('ticket_number', { ascending: false })
-        .limit(1)
-
-      if (!fetchError && existingRows && existingRows.length > 0) {
-        const maxNum = (existingRows[0] as { ticket_number?: number }).ticket_number ?? 0
-        startNum = maxNum + 1
-      }
-    } catch {
-      // Fallback to 1 if query fails
-    }
-
-    // Generate ticket content from single suggestion
-    const sourceRef = sourceTicket.display_id || sourceTicket.id
-    const title = suggestion.length > 80 ? `${suggestion.slice(0, 77)}...` : suggestion
-    const bodyMd = `# Ticket
+  return `# Ticket
 
 - **ID**: (auto-assigned)
 - **Title**: (auto-assigned)
@@ -190,7 +194,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
 ## Linkage (for tracking)
 
-- **Proposed from**: ${sourceRef} — Process Review${reviewId ? `\n- **Review ID**: ${reviewId}${suggestionIndex !== undefined ? `\n- **Suggestion Index**: ${suggestionIndex}` : ''}` : ''}
+- **Proposed from**: ${sourceRef} — Process Review${linkageSection}
 
 ## Goal (one sentence)
 
@@ -218,72 +222,145 @@ Updated agent rules, templates, or process documentation that addresses the sugg
 
 ## Suggestion details
 
-${suggestion}
-
-${justification ? `\n**Justification**: ${justification}` : ''}
+${suggestion}${justificationSection}
 
 ## Implementation notes (optional)
 
 This ticket was automatically created from Process Review suggestion for ticket ${sourceRef}. Review the suggestion above and implement the appropriate improvements to agent instructions, rules, or process documentation.
 `
+}
 
-    // Try to create ticket with retries for ID collisions
-    const MAX_RETRIES = 10
-    let lastInsertError: { code?: string; message?: string } | null = null
+async function createTicketWithRetry(
+  supabase: ReturnType<typeof createClient>,
+  repoFullName: string,
+  prefix: string,
+  startNum: number,
+  title: string,
+  bodyMd: string
+): Promise<{ success: true; ticketId: string; id: string; pk: string } | { success: false; error: string }> {
+  const MAX_RETRIES = 10
+  let lastInsertError: { code?: string; message?: string } | null = null
 
-    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-      const candidateNum = startNum + attempt
-      const displayId = `${prefix}-${String(candidateNum).padStart(4, '0')}`
-      const id = String(candidateNum)
-      const filename = `${String(candidateNum).padStart(4, '0')}-${slugFromTitle(title)}.md`
-      const now = new Date().toISOString()
-      const ticketPk = crypto.randomUUID()
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const candidateNum = startNum + attempt
+    const displayId = `${prefix}-${String(candidateNum).padStart(4, '0')}`
+    const id = String(candidateNum)
+    const filename = `${String(candidateNum).padStart(4, '0')}-${slugFromTitle(title)}.md`
+    const now = new Date().toISOString()
+    const ticketPk = crypto.randomUUID()
 
-      try {
-        // Try new schema first (repo-scoped)
-        const insert = await supabase.from('tickets').insert({
-          pk: ticketPk,
-          repo_full_name: repoFullName,
-          ticket_number: candidateNum,
-          display_id: displayId,
-          id,
-          filename,
-          title: `${displayId} — ${title}`,
-          body_md: bodyMd,
-          kanban_column_id: 'col-unassigned',
-          kanban_position: 0,
-          kanban_moved_at: now,
-        })
+    try {
+      const insert = await supabase.from('tickets').insert({
+        pk: ticketPk,
+        repo_full_name: repoFullName,
+        ticket_number: candidateNum,
+        display_id: displayId,
+        id,
+        filename,
+        title: `${displayId} — ${title}`,
+        body_md: bodyMd,
+        kanban_column_id: 'col-unassigned',
+        kanban_position: 0,
+        kanban_moved_at: now,
+      })
 
-        if (!insert.error) {
-          json(res, 200, {
-            success: true,
-            ticketId: displayId,
-            id,
-            pk: ticketPk,
-          })
-          return
-        }
-
-        // Check if it's a unique violation (we can retry)
-        if (!isUniqueViolation(insert.error)) {
-          json(res, 200, {
-            success: false,
-            error: `Failed to create ticket: ${insert.error.message}`,
-          })
-          return
-        }
-
-        lastInsertError = insert.error
-      } catch (err) {
-        lastInsertError = err as { code?: string; message?: string }
+      if (!insert.error) {
+        return { success: true, ticketId: displayId, id, pk: ticketPk }
       }
+
+      if (!isUniqueViolation(insert.error)) {
+        return { success: false, error: `Failed to create ticket: ${insert.error.message}` }
+      }
+
+      lastInsertError = insert.error
+    } catch (err) {
+      lastInsertError = err as { code?: string; message?: string }
+    }
+  }
+
+  return {
+    success: false,
+    error: `Could not create ticket after ${MAX_RETRIES} attempts (ID collision). Last error: ${lastInsertError?.message || 'unknown'}`,
+  }
+}
+
+export default async function handler(req: IncomingMessage, res: ServerResponse) {
+  // CORS: Allow cross-origin requests
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+
+  if (req.method === 'OPTIONS') {
+    res.statusCode = 204
+    res.end()
+    return
+  }
+
+  if (req.method !== 'POST') {
+    res.statusCode = 405
+    res.end('Method Not Allowed')
+    return
+  }
+
+  try {
+    const body = await readJsonBody(req)
+    const parsed = parseRequestBody(body)
+
+    if (!parsed) {
+      json(res, 400, {
+        success: false,
+        error: 'sourceTicketPk (preferred) or sourceTicketId, Supabase credentials, and non-empty suggestion are required.',
+      })
+      return
     }
 
-    json(res, 200, {
-      success: false,
-      error: `Could not create ticket after ${MAX_RETRIES} attempts (ID collision). Last error: ${lastInsertError?.message || 'unknown'}`,
-    })
+    const supabase = createClient(parsed.supabaseUrl, parsed.supabaseAnonKey)
+
+    const sourceTicket = await fetchSourceTicket(supabase, parsed.sourceTicketPk, parsed.sourceTicketId)
+    if (!sourceTicket) {
+      json(res, 200, {
+        success: false,
+        error: 'Source ticket not found',
+      })
+      return
+    }
+
+    const repoFullName = sourceTicket.repo_full_name || 'legacy/unknown'
+    const prefix = repoHintPrefix(repoFullName)
+
+    const existingTicket = await checkExistingTicket(supabase, parsed.reviewId, parsed.suggestionIndex)
+    if (existingTicket) {
+      json(res, 200, {
+        success: true,
+        ticketId: existingTicket.display_id || existingTicket.id,
+        id: existingTicket.id,
+        pk: existingTicket.pk,
+        skipped: true,
+        reason: 'Ticket already exists for this suggestion',
+      })
+      return
+    }
+
+    const startNum = await getNextTicketNumber(supabase, repoFullName)
+    const sourceRef = sourceTicket.display_id || sourceTicket.id
+    const title = parsed.suggestion.length > 80 ? `${parsed.suggestion.slice(0, 77)}...` : parsed.suggestion
+    const bodyMd = generateTicketBody(sourceRef, parsed.suggestion, parsed.justification, parsed.reviewId, parsed.suggestionIndex)
+
+    const result = await createTicketWithRetry(supabase, repoFullName, prefix, startNum, title, bodyMd)
+
+    if (result.success) {
+      json(res, 200, {
+        success: true,
+        ticketId: result.ticketId,
+        id: result.id,
+        pk: result.pk,
+      })
+    } else {
+      json(res, 200, {
+        success: false,
+        error: result.error,
+      })
+    }
   } catch (err) {
     json(res, 500, {
       success: false,
