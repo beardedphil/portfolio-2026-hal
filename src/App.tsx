@@ -16,6 +16,7 @@ import { CoverageReportModal } from './components/CoverageReportModal'
 import { MaintainabilityReportModal } from './components/MaintainabilityReportModal'
 import { IntegrationManifestModal } from './components/IntegrationManifestModal'
 import { ContextBundleModal } from './components/ContextBundleModal'
+import { ContextBundleView } from './components/ContextBundleView'
 import { AgentRunBundleModal } from './components/AgentRunBundleModal'
 import { NoPrModal } from './components/NoPrModal'
 import type { ChatTarget, ToolCallRecord, TicketCreationResult } from './types/app'
@@ -285,6 +286,15 @@ function App() {
   const [contextBundleModalOpen, setContextBundleModalOpen] = useState<boolean>(false)
   const [contextBundleTicketPk] = useState<string | null>(null)
   const [contextBundleTicketId] = useState<string | null>(null)
+  const [contextBundleViewOpen, setContextBundleViewOpen] = useState<boolean>(() => {
+    // Restore from localStorage on mount
+    try {
+      const stored = localStorage.getItem('hal-context-bundle-view-open')
+      return stored === 'true'
+    } catch {
+      return false
+    }
+  })
   /** Agent Run Bundle Builder modal (0756). */
   const [agentRunBundleModalOpen, setAgentRunBundleModalOpen] = useState<boolean>(false)
   const [agentRunBundleRunId, setAgentRunBundleRunId] = useState<string | null>(null)
@@ -301,6 +311,15 @@ function App() {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', 'dark')
   }, [])
+
+  // Persist context bundle view state
+  useEffect(() => {
+    try {
+      localStorage.setItem('hal-context-bundle-view-open', String(contextBundleViewOpen))
+    } catch {
+      // Ignore localStorage errors
+    }
+  }, [contextBundleViewOpen])
 
   // Restore connected GitHub repo from localStorage on load (0119: fix repo display after refresh)
   // The repo state is restored for UI display; Kanban will receive the connection message when the iframe loads
@@ -688,6 +707,7 @@ function App() {
         disconnectButtonRef={disconnectButtonRef}
         onCoverageReportClick={() => setCoverageReportOpen(true)}
         onMaintainabilityReportClick={() => setMaintainabilityReportOpen(true)}
+        onContextBundleViewClick={() => setContextBundleViewOpen(true)}
       />
 
       {githubConnectError && (
@@ -791,8 +811,52 @@ function App() {
       />
 
       <main className="hal-main">
+        {/* Context Bundle View */}
+        {contextBundleViewOpen && (
+          <div style={{ 
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, 
+            background: 'var(--hal-surface)', 
+            zIndex: 1000,
+            overflow: 'auto',
+          }}>
+            <div style={{ 
+              position: 'sticky', 
+              top: 0, 
+              background: 'var(--hal-surface)', 
+              borderBottom: '1px solid var(--hal-border)',
+              padding: '12px 24px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              zIndex: 1001,
+            }}>
+              <h2 style={{ margin: 0, fontSize: '20px' }}>Context Bundle View</h2>
+              <button
+                type="button"
+                className="btn-standard"
+                onClick={() => setContextBundleViewOpen(false)}
+                style={{ padding: '6px 12px' }}
+              >
+                Close
+              </button>
+            </div>
+            <ContextBundleView
+              repoFullName={connectedGithubRepo?.fullName || null}
+              supabaseUrl={supabaseUrl}
+              supabaseAnonKey={supabaseAnonKey}
+              onUseBundle={(bundleId, role) => {
+                // Handle "Use this bundle" action
+                // For now, just close the view and show a message
+                alert(`Using bundle ${bundleId} for role ${role}. This will be implemented to launch the agent with this bundle.`)
+                setContextBundleViewOpen(false)
+              }}
+            />
+          </div>
+        )}
+
         {/* Left column: Kanban board */}
-        <section className="hal-kanban-region" aria-label="Kanban board">
+        {!contextBundleViewOpen && (
+          <section className="hal-kanban-region" aria-label="Kanban board">
           {githubConnectError && (
             <div className="connect-error" role="alert">
               {githubConnectError}
@@ -813,9 +877,10 @@ function App() {
             <KanbanBoard {...kanbanBoardProps} />
           </div>
         </section>
+        )}
 
         {/* Floating PM Chat Widget (0698) */}
-        {connectedProject && (
+        {connectedProject && !contextBundleViewOpen && (
           <>
             {!pmChatWidgetOpen && (
               <PmChatWidgetButton
