@@ -15,6 +15,7 @@ import { KanbanErrorBanner } from './components/KanbanErrorBanner'
 import { PmChatWidgetButton } from './components/PmChatWidgetButton'
 import { CoverageReportModal } from './components/CoverageReportModal'
 import { MaintainabilityReportModal } from './components/MaintainabilityReportModal'
+import { IntegrationManifestModal } from './components/IntegrationManifestModal'
 import { NoPrModal } from './components/NoPrModal'
 import type { ChatTarget, ToolCallRecord, TicketCreationResult } from './types/app'
 import { CHAT_OPTIONS } from './types/app'
@@ -288,6 +289,7 @@ function App() {
   /** Coverage and Maintainability report modals (0693). */
   const [coverageReportOpen, setCoverageReportOpen] = useState<boolean>(false)
   const [maintainabilityReportOpen, setMaintainabilityReportOpen] = useState<boolean>(false)
+  const [integrationManifestOpen, setIntegrationManifestOpen] = useState<boolean>(false)
 
   useEffect(() => {
     selectedChatTargetRef.current = selectedChatTarget
@@ -694,6 +696,7 @@ function App() {
         onAgentInstructionsClick={() => setAgentInstructionsOpen(true)}
         onCoverageReportClick={() => setCoverageReportOpen(true)}
         onMaintainabilityReportClick={() => setMaintainabilityReportOpen(true)}
+        onIntegrationManifestClick={() => setIntegrationManifestOpen(true)}
         theme={theme}
         onThemeChange={setTheme}
       />
@@ -980,6 +983,14 @@ function App() {
 
       {/* Maintainability Report Modal (0693) */}
       <MaintainabilityReportModal isOpen={maintainabilityReportOpen} onClose={() => setMaintainabilityReportOpen(false)} />
+
+      {/* Integration Manifest Modal (0773) */}
+      <IntegrationManifestModal
+        isOpen={integrationManifestOpen}
+        onClose={() => setIntegrationManifestOpen(false)}
+        repoFullName={connectedGithubRepo?.fullName || null}
+        defaultBranch={connectedGithubRepo?.defaultBranch || null}
+      />
     </div>
   )
 }
