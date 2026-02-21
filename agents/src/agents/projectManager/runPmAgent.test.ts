@@ -37,6 +37,22 @@ vi.mock('../tools.js', () => ({
   listDirectory: vi.fn(),
 }))
 
+// Mock the extracted modules
+vi.mock('./toolDefinitions.js', () => ({
+  createTools: vi.fn(() => ({})),
+}))
+
+vi.mock('./promptBuilding.js', () => ({
+  buildPrompt: vi.fn(() => ({
+    prompt: 'test prompt',
+    fullPromptText: 'full prompt text',
+  })),
+}))
+
+vi.mock('./toolExecution.js', () => ({
+  executeTools: vi.fn(),
+}))
+
 describe('runPmAgent', () => {
   const baseConfig: PmAgentConfig = {
     repoRoot: '/test/repo',
@@ -239,20 +255,114 @@ describe('runPmAgent', () => {
   describe('tool call recording', () => {
     it('records tool calls in result', async () => {
       const { buildContextPack } = await import('./contextBuilding.js')
+      const { executeTools } = await import('./toolExecution.js')
+      
       vi.mocked(buildContextPack).mockResolvedValue('context pack')
-
-      const mockTextStream = async function* () {
-        yield 'test reply'
-      }
-      vi.mocked(streamText).mockResolvedValue({
-        textStream: mockTextStream(),
-        providerMetadata: {},
-      } as any)
+      vi.mocked(executeTools).mockResolvedValue({
+        reply: 'test reply',
+        toolCalls: [],
+        outboundRequest: {},
+      })
 
       const result = await runPmAgent('test message', baseConfig)
 
       expect(result.toolCalls).toBeDefined()
       expect(Array.isArray(result.toolCalls)).toBe(true)
+      expect(result.reply).toBe('test reply')
+    })
+  })
+
+  describe('tool creation and execution flow', () => {
+    it('creates tools using extracted module', async () => {
+      const { buildContextPack } = await import('./contextBuilding.js')
+      const { createTools } = await import('./toolDefinitions.js')
+      const { executeTools } = await import('./toolExecution.js')
+      
+      vi.mocked(buildContextPack).mockResolvedValue('context pack')
+      vi.mocked(createTools).mockReturnValue({ test_tool: {} })
+      vi.mocked(executeTools).mockResolvedValue({
+        reply: 'reply',
+        toolCalls: [],
+        outboundRequest: {},
+      })
+
+      await runPmAgent('test message', baseConfig)
+
+      expect(createTools).toHaveBeenCalled()
+      const createToolsCall = vi.mocked(createTools).mock.calls[0][0]
+      expect(createToolsCall).toHaveProperty('toolCalls')
+      expect(createToolsCall).toHaveProperty('halFetchJson')
+      expect(createToolsCall).toHaveProperty('config')
+      expect(createToolsCall).toHaveProperty('isAbortError')
+    })
+
+    it('builds prompt using extracted module', async () => {
+      const { buildContextPack } = await import('./contextBuilding.js')
+      const { buildPrompt } = await import('./promptBuilding.js')
+      const { executeTools } = await import('./toolExecution.js')
+      
+      vi.mocked(buildContextPack).mockResolvedValue('context pack')
+      vi.mocked(buildPrompt).mockReturnValue({
+        prompt: 'built prompt',
+        fullPromptText: 'full prompt',
+      })
+      vi.mocked(executeTools).mockResolvedValue({
+        reply: 'reply',
+        toolCalls: [],
+        outboundRequest: {},
+      })
+
+      await runPmAgent('test message', baseConfig)
+
+      expect(buildPrompt).toHaveBeenCalled()
+      const buildPromptCall = vi.mocked(buildPrompt).mock.calls[0][0]
+      expect(buildPromptCall).toHaveProperty('contextPack', 'context pack')
+      expect(buildPromptCall).toHaveProperty('systemInstructions')
+      expect(buildPromptCall).toHaveProperty('openaiModel')
+    })
+
+    it('executes tools using extracted module', async () => {
+      const { buildContextPack } = await import('./contextBuilding.js')
+      const { executeTools } = await import('./toolExecution.js')
+      
+      vi.mocked(buildContextPack).mockResolvedValue('context pack')
+      vi.mocked(executeTools).mockResolvedValue({
+        reply: 'executed reply',
+        toolCalls: [{ name: 'test_tool', input: {}, output: {} }],
+        outboundRequest: { test: 'request' },
+        responseId: 'test-response-id',
+      })
+
+      const result = await runPmAgent('test message', baseConfig)
+
+      expect(executeTools).toHaveBeenCalled()
+      expect(result.reply).toBe('executed reply')
+      expect(result.toolCalls).toHaveLength(1)
+      expect(result.outboundRequest).toEqual({ test: 'request' })
+      expect(result.responseId).toBe('test-response-id')
+    })
+
+    it('includes repo usage and prompt text in result', async () => {
+      const { buildContextPack } = await import('./contextBuilding.js')
+      const { executeTools } = await import('./toolExecution.js')
+      
+      vi.mocked(buildContextPack).mockResolvedValue('context pack')
+      vi.mocked(executeTools).mockResolvedValue({
+        reply: 'reply',
+        toolCalls: [],
+        outboundRequest: {},
+      })
+
+      const config = {
+        ...baseConfig,
+        repoFullName: 'test/repo',
+        githubReadFile: vi.fn(),
+      }
+
+      const result = await runPmAgent('test message', config)
+
+      expect(result).toHaveProperty('_repoUsage')
+      expect(result).toHaveProperty('promptText')
     })
   })
 })
