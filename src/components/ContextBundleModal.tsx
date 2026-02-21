@@ -167,6 +167,11 @@ export function ContextBundleModal({
   const [bundleJson, setBundleJson] = useState<BundleJson | null>(null)
   const [previewBudget, setPreviewBudget] = useState<PreviewResponse['budget'] | null>(null)
   const [previewSectionMetrics, setPreviewSectionMetrics] = useState<Record<string, number> | null>(null)
+  const [viewRole, setViewRole] = useState<string>('implementation-agent')
+  const [viewBudget, setViewBudget] = useState<PreviewResponse['budget'] | null>(null)
+  const [viewSectionMetrics, setViewSectionMetrics] = useState<Record<string, number> | null>(null)
+  const [bundlePreviewContent, setBundlePreviewContent] = useState<string | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
   
   // Ticket selection state (if allowTicketSelection is true)
   const [selectedTicketId, setSelectedTicketId] = useState<string>(initialTicketId || '')
@@ -181,6 +186,29 @@ export function ContextBundleModal({
       loadArtifacts()
     }
   }, [isOpen, selectedTicketPk, supabaseUrl, supabaseAnonKey])
+
+  // Auto-select most recent bundle when bundles load
+  useEffect(() => {
+    if (bundles.length > 0 && !selectedBundleId && !receiptLoading) {
+      // Find the most recent bundle for the current view role, or just the most recent
+      const roleBundle = bundles.find(b => b.role === viewRole)
+      const bundleToLoad = roleBundle || bundles[0]
+      if (bundleToLoad) {
+        loadReceipt(bundleToLoad.bundle_id)
+      }
+    }
+  }, [bundles.length, viewRole]) // Only depend on length and viewRole to avoid infinite loops
+
+  // Update bundle preview when view role changes or when artifacts are selected
+  useEffect(() => {
+    if (isOpen && selectedTicketPk && selectedRepoFullName && supabaseUrl && supabaseAnonKey && selectedArtifactIds.size > 0) {
+      updateBundlePreview()
+    } else {
+      setBundlePreviewContent(null)
+      setViewBudget(null)
+      setViewSectionMetrics(null)
+    }
+  }, [viewRole, selectedArtifactIds.size, isOpen, selectedTicketPk, selectedRepoFullName, supabaseUrl, supabaseAnonKey])
 
   // Preview budget when role or artifacts change
   useEffect(() => {
@@ -207,11 +235,16 @@ export function ContextBundleModal({
       setSelectedBundleId(null)
       setReceipt(null)
       setGenerateRole('implementation-agent')
+      setViewRole('implementation-agent')
       setArtifacts([])
       setSelectedArtifactIds(new Set())
       setBundleJson(null)
       setPreviewBudget(null)
       setPreviewSectionMetrics(null)
+      setViewBudget(null)
+      setViewSectionMetrics(null)
+      setBundlePreviewContent(null)
+      setPreviewLoading(false)
       if (!allowTicketSelection) {
         setSelectedTicketId(initialTicketId || '')
         setSelectedTicketPk(initialTicketPk)
@@ -381,12 +414,16 @@ export function ContextBundleModal({
       const supabase = createClient(supabaseUrl, supabaseAnonKey)
       const { data: bundleData, error: bundleError } = await supabase
         .from('context_bundles')
-        .select('bundle_json')
+        .select('bundle_json, role')
         .eq('bundle_id', bundleId)
         .maybeSingle()
 
       if (!bundleError && bundleData) {
         setBundleJson(bundleData.bundle_json as BundleJson)
+        // Update view role to match the bundle's role
+        if (bundleData.role) {
+          setViewRole(bundleData.role)
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
@@ -519,6 +556,78 @@ export function ContextBundleModal({
     }
   }
 
+  const updateBundlePreview = async () => {
+    if (!selectedTicketPk || !selectedRepoFullName || !supabaseUrl || !supabaseAnonKey) {
+      setBundlePreviewContent(null)
+      setViewBudget(null)
+      setViewSectionMetrics(null)
+      return
+    }
+
+    // If no artifacts selected, clear preview
+    if (selectedArtifactIds.size === 0) {
+      setBundlePreviewContent(null)
+      setViewBudget(null)
+      setViewSectionMetrics(null)
+      return
+    }
+
+    setPreviewLoading(true)
+    setError(null)
+
+    try {
+      // Use preview API to get bundle budget and section metrics for the selected role
+      const response = await fetch(`${apiBaseUrl}/api/context-bundles/preview`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          ticketPk: selectedTicketPk,
+          ticketId: selectedTicketId,
+          repoFullName: selectedRepoFullName,
+          role: viewRole,
+          selectedArtifactIds: Array.from(selectedArtifactIds),
+          supabaseUrl,
+          supabaseAnonKey,
+        }),
+      })
+
+      const data = (await response.json()) as PreviewResponse
+
+      if (!response.ok || !data.success) {
+        setBundlePreviewContent(null)
+        setViewBudget(null)
+        setViewSectionMetrics(null)
+        return
+      }
+
+      setViewBudget(data.budget || null)
+      setViewSectionMetrics(data.sectionMetrics || null)
+      
+      // Format a preview of the bundle structure
+      if (data.budget && data.sectionMetrics) {
+        const previewText = `Context Bundle Preview for ${data.budget.displayName}\n\n` +
+          `Character Count: ${data.budget.characterCount.toLocaleString()} / ${data.budget.hardLimit.toLocaleString()}\n` +
+          `Status: ${data.budget.exceeds ? 'Over Budget' : 'Within Budget'}\n\n` +
+          `Section Breakdown:\n` +
+          Object.entries(data.sectionMetrics)
+            .map(([section, count]) => `  ${section}: ${typeof count === 'number' ? count.toLocaleString() : String(count)} chars`)
+            .join('\n')
+        setBundlePreviewContent(previewText)
+      } else {
+        setBundlePreviewContent(null)
+      }
+    } catch (err) {
+      setBundlePreviewContent(null)
+      setViewBudget(null)
+      setViewSectionMetrics(null)
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+
   const toggleArtifactSelection = (artifactId: string) => {
     const newSelection = new Set(selectedArtifactIds)
     if (newSelection.has(artifactId)) {
@@ -617,6 +726,7 @@ export function ContextBundleModal({
                     <option value="implementation-agent">Implementation Agent</option>
                     <option value="qa-agent">QA Agent</option>
                     <option value="project-manager">Project Manager</option>
+                    <option value="process-review">Process Review</option>
                   </select>
                 </label>
                 <button
@@ -724,9 +834,123 @@ export function ContextBundleModal({
             </div>
           </div>
 
+          {/* Bundle View Section */}
+          <div style={{ border: '1px solid var(--hal-border)', borderRadius: '8px', padding: '16px' }}>
+            <h3 style={{ margin: '0 0 12px 0', fontSize: '18px' }}>View Bundle</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <label>
+                  Role:
+                  <select
+                    value={viewRole}
+                    onChange={(e) => setViewRole(e.target.value)}
+                    style={{ marginLeft: '8px', padding: '4px 8px' }}
+                  >
+                    <option value="implementation-agent">Implementation Agent</option>
+                    <option value="qa-agent">QA Agent</option>
+                    <option value="project-manager">Project Manager</option>
+                    <option value="process-review">Process Review</option>
+                  </select>
+                </label>
+              </div>
+
+              {/* Bundle Preview Content */}
+              {previewLoading ? (
+                <p>Loading preview...</p>
+              ) : bundlePreviewContent ? (
+                <div style={{ 
+                  border: '1px solid var(--hal-border)', 
+                  borderRadius: '8px', 
+                  padding: '16px',
+                  background: 'var(--hal-surface-alt)',
+                  maxHeight: '300px',
+                  overflowY: 'auto',
+                }}>
+                  <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>Bundle Preview</h4>
+                  <pre style={{ 
+                    margin: 0, 
+                    fontSize: '12px', 
+                    fontFamily: 'monospace',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                  }}>
+                    {bundlePreviewContent}
+                  </pre>
+                </div>
+              ) : (
+                <p style={{ color: 'var(--hal-text-muted)', fontSize: '14px' }}>
+                  Select artifacts above to preview bundle content for {formatRole(viewRole)}.
+                </p>
+              )}
+
+              {/* Budget Status */}
+              {viewBudget && (
+                <div style={{ 
+                  border: `2px solid ${viewBudget.exceeds ? 'var(--hal-status-error, #c62828)' : 'var(--hal-status-success, #2e7d32)'}`, 
+                  borderRadius: '8px', 
+                  padding: '16px',
+                  background: viewBudget.exceeds ? 'var(--hal-status-error-bg, #ffebee)' : 'var(--hal-status-success-bg, #e8f5e9)',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <h4 style={{ margin: 0, fontSize: '16px', color: viewBudget.exceeds ? 'var(--hal-status-error, #c62828)' : 'var(--hal-status-success, #2e7d32)' }}>
+                      {viewBudget.exceeds ? '⚠️ Over Budget' : '✅ Within Budget'}
+                    </h4>
+                    <span style={{ 
+                      fontFamily: 'monospace', 
+                      fontWeight: '600',
+                      fontSize: '14px',
+                    }}>
+                      {viewBudget.characterCount.toLocaleString()} / {viewBudget.hardLimit.toLocaleString()} chars
+                    </span>
+                  </div>
+                  {viewBudget.exceeds && (
+                    <p style={{ margin: '8px 0 0 0', fontSize: '14px', color: 'var(--hal-status-error, #c62828)' }}>
+                      Bundle exceeds limit by {viewBudget.overage.toLocaleString()} characters. Please reduce bundle size before using.
+                    </p>
+                  )}
+                  {viewSectionMetrics && (
+                    <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--hal-border)' }}>
+                      <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '8px' }}>Per-Section Breakdown:</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px' }}>
+                        {Object.entries(viewSectionMetrics).map(([section, count]) => (
+                          <div key={section} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span>{section}:</span>
+                            <span style={{ fontFamily: 'monospace' }}>{typeof count === 'number' ? count.toLocaleString() : String(count)} chars</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Use This Bundle Button */}
+              {viewBudget && (
+                <button
+                  type="button"
+                  className="btn-standard"
+                  onClick={() => {
+                    // TODO: Implement "Use this bundle" functionality
+                    alert(`Using bundle for ${formatRole(viewRole)}. This will launch the agent with this bundle.`)
+                  }}
+                  disabled={viewBudget.exceeds || previewLoading}
+                  style={{ 
+                    width: '100%',
+                    padding: '12px',
+                    fontSize: '16px',
+                    fontWeight: '600',
+                  }}
+                  title={viewBudget.exceeds ? 'Bundle exceeds character budget. Cannot use this bundle.' : 'Launch agent with this bundle'}
+                >
+                  {viewBudget.exceeds ? 'Bundle Over Budget - Cannot Use' : 'Use This Bundle'}
+                </button>
+              )}
+            </div>
+          </div>
+
           {/* Bundle List */}
           <div>
-            <h3 style={{ margin: '0 0 12px 0', fontSize: '18px' }}>Bundles</h3>
+            <h3 style={{ margin: '0 0 12px 0', fontSize: '18px' }}>Generated Bundles</h3>
             {loading ? (
               <p>Loading bundles...</p>
             ) : bundles.length === 0 ? (
@@ -784,7 +1008,7 @@ export function ContextBundleModal({
                     <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>Checksums</h4>
                     <div style={{ fontFamily: 'monospace', fontSize: '12px', background: 'var(--hal-surface-alt)', padding: '8px', borderRadius: '4px' }}>
                       <div style={{ marginBottom: '4px' }}>
-                        <strong>Content Checksum:</strong> {receipt.content_checksum}
+                        <strong>Content Checksum (stable):</strong> {receipt.content_checksum}
                       </div>
                       <div>
                         <strong>Bundle Checksum:</strong> {receipt.bundle_checksum}
