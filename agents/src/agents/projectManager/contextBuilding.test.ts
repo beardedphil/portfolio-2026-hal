@@ -92,7 +92,8 @@ describe('formatPmInputsSummary', () => {
     }
     const result = formatPmInputsSummary(config)
     expect(result).toContain('owner/repo')
-    expect(result).toContain('available (ticket tools enabled)')
+    expect(result).toContain('HAL API base URL')
+    expect(result).toContain('present (bootstrap fallback only)')
     expect(result).toContain('conversationHistory (client-provided)')
     expect(result).toContain('present')
   })
@@ -105,7 +106,8 @@ describe('formatPmInputsSummary', () => {
     }
     const result = formatPmInputsSummary(config)
     expect(result).toContain('(not provided)')
-    expect(result).toContain('not provided (ticket tools disabled)')
+    expect(result).toContain('supabase client creds (legacy)')
+    expect(result).toContain('absent')
     expect(result).toContain('none')
   })
 
@@ -141,6 +143,7 @@ describe('formatPmInputsSummary', () => {
     }
     const result = formatPmInputsSummary(config)
     expect(result).toContain('create_ticket')
+    expect(result).toContain('create_red_document_v2')
     expect(result).toContain('Tools available')
   })
 

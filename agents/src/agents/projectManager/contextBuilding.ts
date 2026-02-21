@@ -23,7 +23,7 @@ export interface PmAgentConfig {
   workingMemoryText?: string
   /** OpenAI Responses API: continue from this response for continuity. */
   previousResponseId?: string
-  /** When set with supabaseAnonKey, enables create_ticket tool (store ticket to Supabase, then sync writes to repo). */
+  /** Legacy: optional direct Supabase creds (only used for instruction bootstrap fallback). */
   supabaseUrl?: string
   supabaseAnonKey?: string
   /** Project identifier (e.g. repo full_name when connected via GitHub). */
@@ -97,42 +97,46 @@ function getConversationSource(
   return 'none'
 }
 
-function buildToolList(hasSupabase: boolean, imageCount: number): Array<{ name: string; available: boolean }> {
+function buildToolList(imageCount: number): Array<{ name: string; available: boolean }> {
   return [
     { name: 'get_instruction_set', available: true },
     { name: 'list_directory', available: true },
     { name: 'read_file', available: true },
     { name: 'search_files', available: true },
     { name: 'evaluate_ticket_ready', available: true },
-    { name: 'create_ticket', available: hasSupabase },
-    { name: 'fetch_ticket_content', available: hasSupabase },
-    { name: 'update_ticket_body', available: hasSupabase },
-    { name: 'sync_tickets', available: hasSupabase },
-    { name: 'kanban_move_ticket_to_todo', available: hasSupabase },
-    { name: 'list_tickets_by_column', available: hasSupabase },
-    { name: 'move_ticket_to_column', available: hasSupabase },
-    { name: 'list_available_repos', available: hasSupabase },
-    { name: 'kanban_move_ticket_to_other_repo_todo', available: hasSupabase },
-    { name: 'attach_image_to_ticket', available: hasSupabase && imageCount > 0 },
+    // Ticket operations are endpoint-only (HAL API); no direct Supabase creds required in the PM agent runtime.
+    { name: 'create_ticket', available: true },
+    { name: 'fetch_ticket_content', available: true },
+    { name: 'update_ticket_body', available: true },
+    { name: 'create_red_document_v2', available: true },
+    { name: 'sync_tickets', available: true },
+    { name: 'kanban_move_ticket_to_todo', available: true },
+    { name: 'list_tickets_by_column', available: true },
+    { name: 'move_ticket_to_column', available: true },
+    { name: 'list_available_repos', available: true },
+    { name: 'kanban_move_ticket_to_other_repo_todo', available: true },
+    // Image attachment is still gated by having an image in the message, but the endpoint is not implemented yet.
+    { name: 'attach_image_to_ticket', available: imageCount > 0 },
   ]
 }
 
 export function formatPmInputsSummary(config: PmAgentConfig): string {
-  const hasSupabase = hasNonEmptyString(config.supabaseUrl) && hasNonEmptyString(config.supabaseAnonKey)
   const hasGitHubRepo = hasNonEmptyString(config.repoFullName)
   const hasConversationContextPack = hasNonEmptyString(config.conversationContextPack)
   const hasConversationHistory = hasNonEmptyArray<ConversationTurn>(config.conversationHistory)
   const hasWorkingMemoryText = hasNonEmptyString(config.workingMemoryText)
+  const hasSupabaseClientCreds = hasNonEmptyString(config.supabaseUrl) && hasNonEmptyString(config.supabaseAnonKey)
 
   const imageCount = hasNonEmptyArray(config.images) ? config.images.length : 0
   const openaiModel = String(config.openaiModel ?? '').trim()
   const modelIsVision = isVisionModel(openaiModel)
 
-  const availableTools = buildToolList(hasSupabase, imageCount)
+  const availableTools = buildToolList(imageCount)
   const enabledTools = availableTools.filter((t) => t.available).map((t) => `- ${t.name}`)
   const disabledTools = availableTools.filter((t) => !t.available).map((t) => `- ${t.name}`)
 
   const conversationSource = getConversationSource(hasConversationContextPack, hasConversationHistory)
+  const halApiBaseUrl = (process.env.HAL_API_BASE_URL || process.env.APP_ORIGIN || 'https://portfolio-2026-hal.vercel.app').trim()
 
   const lines: string[] = [
     '## Inputs (provided by HAL)',
@@ -141,7 +145,8 @@ export function formatPmInputsSummary(config: PmAgentConfig): string {
     `- **repoRoot**: ${String(config.repoRoot ?? '').trim() || '(not provided)'}`,
     `- **openaiModel**: ${openaiModel || '(not provided)'}`,
     `- **previousResponseId**: ${String(config.previousResponseId ?? '').trim() ? 'present' : 'absent'}`,
-    `- **supabase**: ${hasSupabase ? 'available (ticket tools enabled)' : 'not provided (ticket tools disabled)'}`,
+    `- **HAL API base URL**: ${halApiBaseUrl || '(not provided)'}`,
+    `- **supabase client creds (legacy)**: ${hasSupabaseClientCreds ? 'present (bootstrap fallback only)' : 'absent'}`,
     `- **conversation context**: ${conversationSource}`,
     `- **working memory**: ${hasWorkingMemoryText ? 'present' : 'absent'}`,
     `- **images**: ${imageCount} (${imageCount > 0 ? (modelIsVision ? 'included' : 'ignored by model') : 'none'})`,
@@ -150,13 +155,7 @@ export function formatPmInputsSummary(config: PmAgentConfig): string {
     '',
     ...(enabledTools.length > 0 ? enabledTools : ['- (none)']),
     '',
-    ...(disabledTools.length > 0
-      ? [
-          '## Tools not available (missing required inputs)',
-          '',
-          ...disabledTools,
-        ]
-      : []),
+    ...(disabledTools.length > 0 ? ['## Tools not available (not enabled in this run)', '', ...disabledTools] : []),
   ]
 
   return lines.join('\n')
