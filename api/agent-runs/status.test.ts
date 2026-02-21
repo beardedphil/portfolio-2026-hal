@@ -7,8 +7,8 @@ import { describe, it, expect } from 'vitest'
 import {
   capText,
   isPlaceholderSummary,
-  getLastAssistantMessage,
-  parseProcessReviewSuggestionsFromText,
+  getLastAssistantMessageFromConversation as getLastAssistantMessage,
+  parseProcessReviewSuggestions as parseProcessReviewSuggestionsFromText,
 } from './status.js'
 
 describe('capText', () => {
