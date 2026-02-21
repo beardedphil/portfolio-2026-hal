@@ -228,9 +228,13 @@ function main() {
   let metrics = { coverage: null, maintainability: null, updatedAt: null }
   try {
     const raw = fs.readFileSync(metricsPath, 'utf8')
-    metrics = { ...metrics, ...JSON.parse(raw) }
+    const parsed = JSON.parse(raw)
+    // Remove any legacy simplicity fields
+    delete parsed.simplicity
+    delete parsed.unroundedSimplicity
+    metrics = { ...metrics, ...parsed }
   } catch (_) {}
-  // Write maintainability fields
+  // Write maintainability fields only
   metrics.maintainability = maintainabilityPct
   metrics.unroundedMaintainability = Math.round(unroundedMaintainability * 10) / 10
   metrics.updatedAt = new Date().toISOString()

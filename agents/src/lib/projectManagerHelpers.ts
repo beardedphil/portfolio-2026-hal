@@ -1,5 +1,5 @@
 /**
- * Pure helper functions extracted from projectManager.ts to improve simplicity and testability.
+ * Pure helper functions extracted from projectManager.ts to improve maintainability and testability.
  * These utilities are used for ticket processing, parsing, and readiness evaluation.
  */
 
