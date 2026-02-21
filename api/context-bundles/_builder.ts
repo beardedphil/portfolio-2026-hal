@@ -93,6 +93,19 @@ export interface BuilderResult {
     version: number
     schema_version: string
   } | null
+  artifactReferences?: Array<{
+    artifact_id: string
+    artifact_title: string
+    version: string // created_at ISO string as version identifier
+    created_at: string
+  }>
+  selectedSnippets?: Array<{
+    artifact_id: string
+    artifact_version: string // created_at ISO string
+    snippet_text: string // Full artifact body_md as snippet (verbatim)
+    snippet_start_line?: number
+    snippet_end_line?: number
+  }>
   error?: string
 }
 
@@ -164,12 +177,13 @@ export async function buildContextBundleV0(
       last_known_good_commit: gitRef?.base_sha || null,
     }
 
-    // 6. Get relevant artifacts (distilled)
-    const relevantArtifacts = await getRelevantArtifacts(
+    // 6. Get relevant artifacts (distilled) with references and snippets
+    const artifactsResult = await getRelevantArtifacts(
       supabase,
       ticketPk,
       selectedArtifactIds
     )
+    const relevantArtifacts = artifactsResult.artifacts
 
     // 7. Get instructions (role-specific)
     const instructions = await getRoleSpecificInstructions(supabase, repoFullName, role)
@@ -201,6 +215,8 @@ export async function buildContextBundleV0(
       bundle,
       redReference,
       integrationManifestReference,
+      artifactReferences: artifactsResult.references,
+      selectedSnippets: artifactsResult.snippets,
     }
   } catch (err) {
     return {
@@ -393,26 +409,41 @@ async function getRelevantArtifacts(
   supabase: ReturnType<typeof createClient>,
   ticketPk: string,
   selectedArtifactIds: string[]
-): Promise<Array<{
-  artifact_id: string
-  artifact_title: string
-  summary: string
-  hard_facts: string[]
-  keywords: string[]
-}>> {
+): Promise<{
+  artifacts: Array<{
+    artifact_id: string
+    artifact_title: string
+    summary: string
+    hard_facts: string[]
+    keywords: string[]
+  }>
+  references: Array<{
+    artifact_id: string
+    artifact_title: string
+    version: string
+    created_at: string
+  }>
+  snippets: Array<{
+    artifact_id: string
+    artifact_version: string
+    snippet_text: string
+    snippet_start_line?: number
+    snippet_end_line?: number
+  }>
+}> {
   if (selectedArtifactIds.length === 0) {
-    return []
+    return { artifacts: [], references: [], snippets: [] }
   }
 
-  // Fetch artifacts
+  // Fetch artifacts with created_at for version tracking
   const { data: artifacts, error: artifactsError } = await supabase
     .from('agent_artifacts')
-    .select('artifact_id, title, body_md')
+    .select('artifact_id, title, body_md, created_at')
     .in('artifact_id', selectedArtifactIds)
     .eq('ticket_pk', ticketPk)
 
   if (artifactsError || !artifacts || artifacts.length === 0) {
-    return []
+    return { artifacts: [], references: [], snippets: [] }
   }
 
   // Distill each artifact
@@ -424,7 +455,42 @@ async function getRelevantArtifacts(
     keywords: string[]
   }> = []
 
+  // Build artifact references and snippets
+  const artifactReferences: Array<{
+    artifact_id: string
+    artifact_title: string
+    version: string
+    created_at: string
+  }> = []
+
+  const selectedSnippets: Array<{
+    artifact_id: string
+    artifact_version: string
+    snippet_text: string
+    snippet_start_line?: number
+    snippet_end_line?: number
+  }> = []
+
   for (const artifact of artifacts) {
+    const artifactVersion = artifact.created_at || new Date().toISOString()
+    
+    // Add artifact reference
+    artifactReferences.push({
+      artifact_id: artifact.artifact_id,
+      artifact_title: artifact.title || 'Untitled',
+      version: artifactVersion,
+      created_at: artifactVersion,
+    })
+
+    // Add selected snippet (full artifact body as verbatim snippet)
+    selectedSnippets.push({
+      artifact_id: artifact.artifact_id,
+      artifact_version: artifactVersion,
+      snippet_text: artifact.body_md || '',
+      // No line numbers for full artifact body
+    })
+
+    // Distill for bundle inclusion
     const result = await distillArtifact(artifact.body_md || '', artifact.title || '')
 
     if (result.success && result.distilled) {
@@ -438,7 +504,11 @@ async function getRelevantArtifacts(
     }
   }
 
-  return distilledArtifacts
+  return {
+    artifacts: distilledArtifacts,
+    references: artifactReferences,
+    snippets: selectedSnippets,
+  }
 }
 
 /**

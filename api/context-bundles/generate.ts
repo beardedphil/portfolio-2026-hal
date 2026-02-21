@@ -256,7 +256,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const sectionMetrics = calculateSectionMetrics(bundleForStorage)
     const totalCharacters = calculateTotalCharacters(sectionMetrics)
 
-    // Insert receipt
+    // Insert receipt with artifact references and snippets
     const { data: newReceipt, error: receiptError } = await supabase
       .from('bundle_receipts')
       .insert({
@@ -272,6 +272,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         red_reference: redReference,
         integration_manifest_reference: integrationManifestReference,
         git_ref: body.gitRef || null,
+        artifact_references: builderResult.artifactReferences || null,
+        selected_snippets: builderResult.selectedSnippets || null,
       })
       .select()
       .single()
