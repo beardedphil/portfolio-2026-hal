@@ -27,6 +27,20 @@ interface BundleListResponse {
   error?: string
 }
 
+interface ArtifactReference {
+  artifact_id: string
+  artifact_title: string
+  created_at: string
+}
+
+interface ArtifactSnippet {
+  artifact_id: string
+  artifact_title: string
+  created_at: string
+  snippet: string
+  source_pointer: string
+}
+
 interface BundleReceipt {
   receipt_id: string
   bundle_id: string
@@ -48,6 +62,8 @@ interface BundleReceipt {
     base_sha?: string
     head_sha?: string
   } | null
+  artifact_references?: ArtifactReference[]
+  artifact_snippets?: ArtifactSnippet[]
   created_at: string
   bundle: {
     bundle_id: string
@@ -633,7 +649,135 @@ export function ContextBundleModal({
               {receiptLoading ? (
                 <p>Loading receipt...</p>
               ) : receipt ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  {/* Integration Manifest Reference */}
+                  {receipt.integration_manifest_reference && (
+                    <div>
+                      <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>Integration Manifest</h4>
+                      <div style={{ background: 'var(--hal-surface-alt)', padding: '8px', borderRadius: '4px', fontSize: '14px' }}>
+                        <div style={{ marginBottom: '4px' }}>
+                          <strong>Version:</strong> {receipt.integration_manifest_reference.version}
+                        </div>
+                        <div style={{ marginBottom: '4px' }}>
+                          <strong>Schema Version:</strong> {receipt.integration_manifest_reference.schema_version}
+                        </div>
+                        <div style={{ fontFamily: 'monospace', fontSize: '12px', color: 'var(--hal-text-muted)' }}>
+                          ID: {receipt.integration_manifest_reference.manifest_id.substring(0, 8)}...
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Artifact References */}
+                  {receipt.artifact_references && receipt.artifact_references.length > 0 && (
+                    <div>
+                      <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>Artifact References</h4>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {receipt.artifact_references.map((ref) => (
+                          <div
+                            key={ref.artifact_id}
+                            style={{
+                              border: '1px solid var(--hal-border)',
+                              borderRadius: '4px',
+                              padding: '8px',
+                              background: 'var(--hal-surface-alt)',
+                              fontSize: '14px',
+                            }}
+                          >
+                            <div style={{ fontWeight: '600', marginBottom: '4px' }}>{ref.artifact_title}</div>
+                            <div style={{ fontFamily: 'monospace', fontSize: '12px', color: 'var(--hal-text-muted)' }}>
+                              ID: {ref.artifact_id.substring(0, 8)}... • Created: {new Date(ref.created_at).toLocaleString()}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Artifact Snippets */}
+                  {receipt.artifact_snippets && receipt.artifact_snippets.length > 0 && (
+                    <div>
+                      <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>Selected Snippets (Verbatim)</h4>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        {receipt.artifact_snippets.map((snippet) => (
+                          <div
+                            key={snippet.artifact_id}
+                            style={{
+                              border: '1px solid var(--hal-border)',
+                              borderRadius: '8px',
+                              padding: '12px',
+                              background: 'var(--hal-surface-alt)',
+                            }}
+                          >
+                            <div style={{ marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div>
+                                <div style={{ fontWeight: '600', fontSize: '14px' }}>{snippet.artifact_title}</div>
+                                <div style={{ fontSize: '12px', color: 'var(--hal-text-muted)', marginTop: '2px' }}>
+                                  Source: {snippet.source_pointer}
+                                </div>
+                              </div>
+                              <div style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--hal-text-muted)' }}>
+                                {snippet.artifact_id.substring(0, 8)}...
+                              </div>
+                            </div>
+                            <div
+                              style={{
+                                background: 'var(--hal-surface)',
+                                padding: '12px',
+                                borderRadius: '4px',
+                                fontFamily: 'monospace',
+                                fontSize: '12px',
+                                whiteSpace: 'pre-wrap',
+                                wordBreak: 'break-word',
+                                maxHeight: '300px',
+                                overflowY: 'auto',
+                                border: '1px solid var(--hal-border)',
+                              }}
+                            >
+                              {snippet.snippet}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Git Reference */}
+                  {receipt.git_ref && (
+                    <div>
+                      <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>Git Diff Reference</h4>
+                      <div style={{ background: 'var(--hal-surface-alt)', padding: '8px', borderRadius: '4px', fontSize: '14px' }}>
+                        {receipt.git_ref.pr_url ? (
+                          <div style={{ marginBottom: '4px' }}>
+                            <strong>Pull Request:</strong>{' '}
+                            <a href={receipt.git_ref.pr_url} target="_blank" rel="noopener noreferrer">
+                              PR #{receipt.git_ref.pr_number || 'N/A'}
+                            </a>
+                          </div>
+                        ) : null}
+                        {receipt.git_ref.base_sha ? (
+                          <div style={{ marginBottom: '4px' }}>
+                            <strong>Base SHA:</strong>{' '}
+                            <span style={{ fontFamily: 'monospace', fontSize: '12px' }}>
+                              {receipt.git_ref.base_sha}
+                            </span>
+                          </div>
+                        ) : null}
+                        {receipt.git_ref.head_sha ? (
+                          <div>
+                            <strong>Head SHA:</strong>{' '}
+                            <span style={{ fontFamily: 'monospace', fontSize: '12px' }}>
+                              {receipt.git_ref.head_sha}
+                            </span>
+                          </div>
+                        ) : null}
+                        {!receipt.git_ref.pr_url && !receipt.git_ref.base_sha && !receipt.git_ref.head_sha && (
+                          <div style={{ color: 'var(--hal-text-muted)' }}>No git reference available</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Checksums */}
                   <div>
                     <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>Checksums</h4>
@@ -750,47 +894,20 @@ export function ContextBundleModal({
                     </div>
                   )}
 
-                  {/* References */}
-                  <div>
-                    <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>References</h4>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {receipt.red_reference && (
-                        <div style={{ fontSize: '14px' }}>
-                          <strong>RED:</strong> Version {receipt.red_reference.version} (ID: {receipt.red_reference.red_id.substring(0, 8)}...)
+                  {/* RED Reference */}
+                  {receipt.red_reference && (
+                    <div>
+                      <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>RED Reference</h4>
+                      <div style={{ background: 'var(--hal-surface-alt)', padding: '8px', borderRadius: '4px', fontSize: '14px' }}>
+                        <div style={{ marginBottom: '4px' }}>
+                          <strong>Version:</strong> {receipt.red_reference.version}
                         </div>
-                      )}
-                      {receipt.integration_manifest_reference && (
-                        <div style={{ fontSize: '14px' }}>
-                          <strong>Integration Manifest:</strong> Version {receipt.integration_manifest_reference.version} (Schema: {receipt.integration_manifest_reference.schema_version}, ID: {receipt.integration_manifest_reference.manifest_id.substring(0, 8)}...)
+                        <div style={{ fontFamily: 'monospace', fontSize: '12px', color: 'var(--hal-text-muted)' }}>
+                          ID: {receipt.red_reference.red_id.substring(0, 8)}...
                         </div>
-                      )}
-                      {receipt.git_ref && (
-                        <div style={{ fontSize: '14px' }}>
-                          <strong>Git Ref:</strong>{' '}
-                          {receipt.git_ref.pr_url ? (
-                            <a href={receipt.git_ref.pr_url} target="_blank" rel="noopener noreferrer">
-                              PR #{receipt.git_ref.pr_number}
-                            </a>
-                          ) : (
-                            'N/A'
-                          )}
-                          {receipt.git_ref.base_sha && (
-                            <span style={{ marginLeft: '8px', fontFamily: 'monospace', fontSize: '12px' }}>
-                              Base: {receipt.git_ref.base_sha.substring(0, 7)}...
-                            </span>
-                          )}
-                          {receipt.git_ref.head_sha && (
-                            <span style={{ marginLeft: '8px', fontFamily: 'monospace', fontSize: '12px' }}>
-                              Head: {receipt.git_ref.head_sha.substring(0, 7)}...
-                            </span>
-                          )}
-                        </div>
-                      )}
-                      {!receipt.red_reference && !receipt.integration_manifest_reference && !receipt.git_ref && (
-                        <div style={{ fontSize: '14px', color: 'var(--hal-text-muted)' }}>No references</div>
-                      )}
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               ) : (
                 <p style={{ color: 'var(--hal-text-muted)' }}>Receipt not found.</p>

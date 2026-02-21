@@ -213,6 +213,73 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const integrationManifestReference = builderResult.integrationManifestReference || null
     const redReference = builderResult.redReference || null
+    const artifactReferences = builderResult.artifactReferences || []
+    const artifactSnippets = builderResult.artifactSnippets || []
+
+    // Check for existing receipt with same content_checksum (idempotent creation)
+    const { data: existingReceipt, error: existingReceiptError } = await supabase
+      .from('bundle_receipts')
+      .select('bundle_id, receipt_id')
+      .eq('content_checksum', contentChecksum)
+      .eq('repo_full_name', resolvedRepoFullName)
+      .eq('ticket_pk', resolvedTicketPk)
+      .eq('role', role)
+      .maybeSingle()
+
+    if (existingReceiptError && existingReceiptError.code !== 'PGRST116') {
+      // PGRST116 is "not found" which is fine, other errors are not
+      return json(res, 500, {
+        success: false,
+        error: `Failed to check for existing receipt: ${existingReceiptError.message}`,
+      })
+    }
+
+    // If receipt exists, return existing bundle
+    if (existingReceipt) {
+      const { data: existingBundle, error: bundleError } = await supabase
+        .from('context_bundles')
+        .select('bundle_id, version, role, created_at')
+        .eq('bundle_id', existingReceipt.bundle_id)
+        .maybeSingle()
+
+      if (bundleError || !existingBundle) {
+        return json(res, 500, {
+          success: false,
+          error: 'Existing receipt found but bundle not found',
+        })
+      }
+
+      const { data: existingReceiptFull, error: receiptFullError } = await supabase
+        .from('bundle_receipts')
+        .select('receipt_id, content_checksum, bundle_checksum, section_metrics, total_characters')
+        .eq('receipt_id', existingReceipt.receipt_id)
+        .maybeSingle()
+
+      if (receiptFullError || !existingReceiptFull) {
+        return json(res, 500, {
+          success: false,
+          error: 'Failed to fetch existing receipt',
+        })
+      }
+
+      return json(res, 200, {
+        success: true,
+        bundle: {
+          bundle_id: existingBundle.bundle_id,
+          version: existingBundle.version,
+          role: existingBundle.role,
+          created_at: existingBundle.created_at,
+        },
+        receipt: {
+          receipt_id: existingReceiptFull.receipt_id,
+          content_checksum: existingReceiptFull.content_checksum,
+          bundle_checksum: existingReceiptFull.bundle_checksum,
+          section_metrics: existingReceiptFull.section_metrics,
+          total_characters: existingReceiptFull.total_characters,
+        },
+        reused: true,
+      })
+    }
 
     // Get user identifier from session (if available)
     let createdBy: string | undefined = 'system'
@@ -256,7 +323,17 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const sectionMetrics = calculateSectionMetrics(bundleForStorage)
     const totalCharacters = calculateTotalCharacters(sectionMetrics)
 
-    // Insert receipt
+    // Ensure git_ref includes base_sha and head_sha if available
+    const gitRef = body.gitRef
+      ? {
+          pr_url: body.gitRef.pr_url || null,
+          pr_number: body.gitRef.pr_number || null,
+          base_sha: body.gitRef.base_sha || null,
+          head_sha: body.gitRef.head_sha || null,
+        }
+      : null
+
+    // Insert receipt with artifact references and snippets
     const { data: newReceipt, error: receiptError } = await supabase
       .from('bundle_receipts')
       .insert({
@@ -271,7 +348,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         total_characters: totalCharacters,
         red_reference: redReference,
         integration_manifest_reference: integrationManifestReference,
-        git_ref: body.gitRef || null,
+        git_ref: gitRef,
+        artifact_references: artifactReferences,
+        artifact_snippets: artifactSnippets,
       })
       .select()
       .single()

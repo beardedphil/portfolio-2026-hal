@@ -246,13 +246,30 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const sectionMetrics = calculateSectionMetrics(bundleJson)
     const totalCharacters = calculateTotalCharacters(sectionMetrics)
 
-    // Extract git ref from run if available
+    // Extract git ref from run if available (include base_sha and head_sha if present)
     const gitRef = run.pr_url
       ? {
           pr_url: run.pr_url,
           pr_number: run.ticket_number || null,
+          base_sha: (run.input_json as { base_sha?: string })?.base_sha || null,
+          head_sha: (run.input_json as { head_sha?: string })?.head_sha || null,
         }
       : null
+
+    // For build-from-run, we don't have artifact selection, so set empty arrays
+    // Artifacts would need to be fetched separately if needed
+    const artifactReferences: Array<{
+      artifact_id: string
+      artifact_title: string
+      created_at: string
+    }> = []
+    const artifactSnippets: Array<{
+      artifact_id: string
+      artifact_title: string
+      created_at: string
+      snippet: string
+      source_pointer: string
+    }> = []
 
     // Insert receipt
     const { data: newReceipt, error: receiptError } = await supabase
@@ -270,6 +287,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         red_reference: null,
         integration_manifest_reference: integrationManifestReference,
         git_ref: gitRef,
+        artifact_references: artifactReferences,
+        artifact_snippets: artifactSnippets,
       })
       .select()
       .single()

@@ -84,6 +84,20 @@ export interface ContextBundleV0 {
   }
 }
 
+export interface ArtifactReference {
+  artifact_id: string
+  artifact_title: string
+  created_at: string
+}
+
+export interface ArtifactSnippet {
+  artifact_id: string
+  artifact_title: string
+  created_at: string
+  snippet: string
+  source_pointer: string
+}
+
 export interface BuilderResult {
   success: boolean
   bundle?: ContextBundleV0
@@ -93,6 +107,8 @@ export interface BuilderResult {
     version: number
     schema_version: string
   } | null
+  artifactReferences?: ArtifactReference[]
+  artifactSnippets?: ArtifactSnippet[]
   error?: string
 }
 
@@ -165,7 +181,7 @@ export async function buildContextBundleV0(
     }
 
     // 6. Get relevant artifacts (distilled)
-    const relevantArtifacts = await getRelevantArtifacts(
+    const { artifacts: relevantArtifacts, artifactReferences, artifactSnippets } = await getRelevantArtifacts(
       supabase,
       ticketPk,
       selectedArtifactIds
@@ -201,6 +217,8 @@ export async function buildContextBundleV0(
       bundle,
       redReference,
       integrationManifestReference,
+      artifactReferences: artifactReferences || [],
+      artifactSnippets: artifactSnippets || [],
     }
   } catch (err) {
     return {
@@ -387,33 +405,50 @@ async function getRepoContext(
 }
 
 /**
- * Gets relevant artifacts (distilled).
+ * Gets relevant artifacts (distilled) and returns references/snippets for receipt.
  */
 async function getRelevantArtifacts(
   supabase: ReturnType<typeof createClient>,
   ticketPk: string,
   selectedArtifactIds: string[]
-): Promise<Array<{
-  artifact_id: string
-  artifact_title: string
-  summary: string
-  hard_facts: string[]
-  keywords: string[]
-}>> {
+): Promise<{
+  artifacts: Array<{
+    artifact_id: string
+    artifact_title: string
+    summary: string
+    hard_facts: string[]
+    keywords: string[]
+  }>
+  artifactReferences: ArtifactReference[]
+  artifactSnippets: ArtifactSnippet[]
+}> {
   if (selectedArtifactIds.length === 0) {
-    return []
+    return {
+      artifacts: [],
+      artifactReferences: [],
+      artifactSnippets: [],
+    }
   }
 
-  // Fetch artifacts
+  // Fetch artifacts with created_at for version tracking
   const { data: artifacts, error: artifactsError } = await supabase
     .from('agent_artifacts')
-    .select('artifact_id, title, body_md')
+    .select('artifact_id, title, body_md, created_at')
     .in('artifact_id', selectedArtifactIds)
     .eq('ticket_pk', ticketPk)
+    .order('created_at', { ascending: false })
 
   if (artifactsError || !artifacts || artifacts.length === 0) {
-    return []
+    return {
+      artifacts: [],
+      artifactReferences: [],
+      artifactSnippets: [],
+    }
   }
+
+  // Build artifact references and snippets for receipt
+  const artifactReferences: ArtifactReference[] = []
+  const artifactSnippets: ArtifactSnippet[] = []
 
   // Distill each artifact
   const distilledArtifacts: Array<{
@@ -425,7 +460,25 @@ async function getRelevantArtifacts(
   }> = []
 
   for (const artifact of artifacts) {
-    const result = await distillArtifact(artifact.body_md || '', artifact.title || '')
+    // Add to artifact references
+    artifactReferences.push({
+      artifact_id: artifact.artifact_id,
+      artifact_title: artifact.title || 'Untitled',
+      created_at: artifact.created_at,
+    })
+
+    // Store full body_md as snippet (verbatim) with pointer
+    const snippet = artifact.body_md || ''
+    artifactSnippets.push({
+      artifact_id: artifact.artifact_id,
+      artifact_title: artifact.title || 'Untitled',
+      created_at: artifact.created_at,
+      snippet: snippet,
+      source_pointer: `artifact:${artifact.artifact_id}@${artifact.created_at}`,
+    })
+
+    // Distill for bundle content
+    const result = await distillArtifact(snippet, artifact.title || '')
 
     if (result.success && result.distilled) {
       distilledArtifacts.push({
@@ -438,7 +491,11 @@ async function getRelevantArtifacts(
     }
   }
 
-  return distilledArtifacts
+  return {
+    artifacts: distilledArtifacts,
+    artifactReferences,
+    artifactSnippets,
+  }
 }
 
 /**
