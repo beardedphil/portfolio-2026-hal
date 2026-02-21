@@ -634,7 +634,9 @@ export async function runPmAgent(
           return out
         }
         const ticketIdToMove = String(ticket.display_id || input.ticket_id)
-        const position = input.position ?? 'bottom'
+        // Default to 'top' for "Prepare top ticket" workflow (primary use case)
+        // If position is explicitly 'bottom', use that; otherwise default to 'top'
+        const position = input.position === 'bottom' ? 'bottom' : input.position ?? 'top'
         const { json: moved } = await halFetchJson(
           '/api/tickets/move',
           { ticketId: ticketIdToMove, columnId: COL_TODO, position },
