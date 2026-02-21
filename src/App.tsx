@@ -17,6 +17,7 @@ import { CoverageReportModal } from './components/CoverageReportModal'
 import { MaintainabilityReportModal } from './components/MaintainabilityReportModal'
 import { IntegrationManifestModal } from './components/IntegrationManifestModal'
 import { ContextBundleModal } from './components/ContextBundleModal'
+import { ContextBundleView } from './components/ContextBundleView'
 import { AgentRunBundleModal } from './components/AgentRunBundleModal'
 import { NoPrModal } from './components/NoPrModal'
 import type { ChatTarget, ToolCallRecord, TicketCreationResult } from './types/app'
@@ -296,6 +297,8 @@ function App() {
   const [contextBundleModalOpen, setContextBundleModalOpen] = useState<boolean>(false)
   const [contextBundleTicketPk] = useState<string | null>(null)
   const [contextBundleTicketId] = useState<string | null>(null)
+  /** Context Bundle View (0763): view and use existing bundles */
+  const [contextBundleViewOpen, setContextBundleViewOpen] = useState<boolean>(false)
   /** Agent Run Bundle Builder modal (0756). */
   const [agentRunBundleModalOpen, setAgentRunBundleModalOpen] = useState<boolean>(false)
   const [agentRunBundleRunId, setAgentRunBundleRunId] = useState<string | null>(null)
@@ -704,6 +707,7 @@ function App() {
         disconnectButtonRef={disconnectButtonRef}
         onCoverageReportClick={() => setCoverageReportOpen(true)}
         onMaintainabilityReportClick={() => setMaintainabilityReportOpen(true)}
+        onContextBundleViewClick={() => setContextBundleViewOpen(true)}
         theme={theme}
         onThemeChange={setTheme}
       />
@@ -1009,6 +1013,14 @@ function App() {
         supabaseUrl={supabaseUrl}
         supabaseAnonKey={supabaseAnonKey}
         allowTicketSelection={true}
+      />
+      {/* Context Bundle View (0763) */}
+      <ContextBundleView
+        isOpen={contextBundleViewOpen}
+        onClose={() => setContextBundleViewOpen(false)}
+        repoFullName={connectedGithubRepo?.fullName || null}
+        supabaseUrl={supabaseUrl}
+        supabaseAnonKey={supabaseAnonKey}
       />
       {/* Agent Run Bundle Builder Modal (0756) */}
       <AgentRunBundleModal
