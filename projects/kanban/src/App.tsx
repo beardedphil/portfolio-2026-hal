@@ -272,12 +272,16 @@ function App() {
     }
     const columnIds = new Set(sourceColumnsRows.map((c) => c.id))
     const firstColumnId = sourceColumnsRows[0].id
-    const byColumn: Record<string, { id: string; position: number }[]> = {}
+    const byColumn: Record<
+      string,
+      { id: string; position: number | null; movedAt: string | null; stableIndex: number }[]
+    > = {}
     for (const c of sourceColumnsRows) {
       byColumn[c.id] = []
     }
     const unknownIds: string[] = []
-    for (const t of sourceTickets) {
+    for (let stableIndex = 0; stableIndex < sourceTickets.length; stableIndex++) {
+      const t = sourceTickets[stableIndex]
       const colId =
         t.kanban_column_id == null || t.kanban_column_id === ''
           ? firstColumnId
@@ -286,8 +290,17 @@ function App() {
             : (unknownIds.push(t.pk), firstColumnId)
       // Use optimistic position if available (for same-column reorder to prevent @dnd-kit revert)
       const optimisticPos = optimisticTicketPositionsRef.current.get(t.pk)
-      const pos = optimisticPos !== undefined ? optimisticPos : (typeof t.kanban_position === 'number' ? t.kanban_position : 0)
-      byColumn[colId].push({ id: t.pk, position: pos })
+      const basePos =
+        typeof t.kanban_position === 'number' && Number.isFinite(t.kanban_position)
+          ? t.kanban_position
+          : null
+      const pos = optimisticPos !== undefined ? optimisticPos : basePos
+      byColumn[colId].push({
+        id: t.pk,
+        position: typeof pos === 'number' && Number.isFinite(pos) ? pos : null,
+        movedAt: t.kanban_moved_at ?? null,
+        stableIndex,
+      })
     }
     // If optimisticItems has a new order for a column, use that order instead of sorting by position
     for (const [colId, optimisticOrder] of Object.entries(optimisticItems)) {
@@ -304,7 +317,22 @@ function App() {
     // Sort columns that don't have optimistic items
     for (const id of Object.keys(byColumn)) {
       if (!(id in optimisticItems)) {
-        byColumn[id].sort((a, b) => a.position - b.position)
+        const NULL_POS_SENTINEL = 1_000_000_000
+        byColumn[id].sort((a, b) => {
+          const pa = a.position === null ? NULL_POS_SENTINEL : a.position
+          const pb = b.position === null ? NULL_POS_SENTINEL : b.position
+          if (pa !== pb) return pa - pb
+
+          // If both positions are null, use movedAt (newer first) as a non-ID tiebreaker.
+          if (a.position === null && b.position === null) {
+            const ta = a.movedAt ? Date.parse(a.movedAt) : 0
+            const tb = b.movedAt ? Date.parse(b.movedAt) : 0
+            if (ta !== tb) return tb - ta
+          }
+
+          // Final tiebreaker: preserve incoming (stable) order; never sort by ticket number.
+          return a.stableIndex - b.stableIndex
+        })
       }
     }
     // CRITICAL: Always create new array references to ensure @dnd-kit sees items as changed
@@ -377,7 +405,11 @@ function App() {
           .from('tickets')
           .select('pk, id, repo_full_name, ticket_number, display_id, filename, title, body_md, kanban_column_id, kanban_position, kanban_moved_at, updated_at')
           .eq('repo_full_name', connectedRepoFullName)
-          .order('ticket_number', { ascending: true })
+          // Do NOT order by ticket_number: Kanban order is owned by kanban_position (plus moved_at as a non-ID tiebreaker).
+          .order('kanban_column_id', { ascending: true })
+          .order('kanban_position', { ascending: true })
+          .order('kanban_moved_at', { ascending: false })
+          .order('pk', { ascending: true })
         rows = (r.data ?? null) as unknown[] | null
         error = (r.error as typeof error) ?? null
       } else {
@@ -1169,7 +1201,11 @@ function App() {
           .from('tickets')
           .select('pk, id, repo_full_name, ticket_number, display_id, filename, title, body_md, kanban_column_id, kanban_position, kanban_moved_at, updated_at')
           .eq('repo_full_name', connectedRepoFullName)
-          .order('ticket_number', { ascending: true })
+          // Do NOT order by ticket_number: Kanban order is owned by kanban_position (plus moved_at as a non-ID tiebreaker).
+          .order('kanban_column_id', { ascending: true })
+          .order('kanban_position', { ascending: true })
+          .order('kanban_moved_at', { ascending: false })
+          .order('pk', { ascending: true })
         rows = (r.data ?? null) as unknown[] | null
         error = (r.error as typeof error) ?? null
       } else {

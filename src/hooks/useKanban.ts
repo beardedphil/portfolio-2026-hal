@@ -56,7 +56,11 @@ export function useKanban(
         .from('tickets')
         .select('pk, id, repo_full_name, ticket_number, display_id, filename, title, body_md, kanban_column_id, kanban_position, kanban_moved_at, updated_at')
         .eq('repo_full_name', connectedProject)
-        .order('ticket_number', { ascending: true })
+        // Do NOT order by ticket_number: Kanban order is owned by kanban_position (plus moved_at as a non-ID tiebreaker).
+        .order('kanban_column_id', { ascending: true })
+        .order('kanban_position', { ascending: true })
+        .order('kanban_moved_at', { ascending: false })
+        .order('pk', { ascending: true })
       const { data: colRows } = await supabase
         .from('kanban_columns')
         .select('id, title, position, created_at, updated_at')
@@ -194,14 +198,19 @@ export function useKanban(
             setKanbanTickets((prev) => {
               // Prevent duplicates by checking if ticket already exists
               if (prev.some((t) => t.pk === newTicket.pk)) return prev
-              return [...prev, newTicket].sort((a, b) => (a.ticket_number ?? 0) - (b.ticket_number ?? 0))
+              // Preserve existing UI order (never auto-sort by ticket number).
+              return [...prev, newTicket]
             })
           } else if (payload.eventType === 'UPDATE' && payload.new) {
             const updatedTicket = payload.new as KanbanTicketRow
             setKanbanTickets((prev) => {
               // Replace ticket by pk to prevent duplicates
-              const filtered = prev.filter((t) => t.pk !== updatedTicket.pk)
-              return [...filtered, updatedTicket].sort((a, b) => (a.ticket_number ?? 0) - (b.ticket_number ?? 0))
+              const idx = prev.findIndex((t) => t.pk === updatedTicket.pk)
+              if (idx === -1) return [...prev, updatedTicket]
+              const next = [...prev]
+              next[idx] = updatedTicket
+              // Preserve existing UI order (never auto-sort by ticket number).
+              return next
             })
           } else if (payload.eventType === 'DELETE' && payload.old) {
             const deletedTicket = payload.old as { pk: string }
@@ -333,7 +342,8 @@ export function useKanban(
                 }
               : t
           )
-          return reverted.sort((a, b) => (a.ticket_number ?? 0) - (b.ticket_number ?? 0))
+          // Preserve existing UI order (never auto-sort by ticket number).
+          return reverted
         })
       }
 
@@ -349,7 +359,8 @@ export function useKanban(
               }
             : t
         )
-        return updated.sort((a, b) => (a.ticket_number ?? 0) - (b.ticket_number ?? 0))
+        // Preserve existing UI order (never auto-sort by ticket number).
+        return updated
       })
       setKanbanMoveError(null) // Clear any previous error
 
