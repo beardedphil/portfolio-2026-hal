@@ -81,19 +81,6 @@
       "coverage": 0
     }
   ],
-  "mostRecentImprovements": [
-    {
-      "file": "/workspace/agents/src/agents/projectManager/contextPack.ts",
-      "before": 0,
-      "after": 100,
-      "delta": 100
-    },
-    {
-      "file": "/workspace/agents/src/agents/projectManager/runPmAgent.ts",
-      "before": 0,
-      "after": 100,
-      "delta": 100
-    }
-  ],
-  "generatedAt": "2026-02-21T22:33:55.059Z"
+  "mostRecentImprovements": [],
+  "generatedAt": "2026-02-21T22:22:45.241Z"
 }

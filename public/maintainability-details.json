@@ -46,7 +46,7 @@
     },
     {
       "file": "api/implementation-agent/run.ts",
-      "maintainability": 18.07
+      "maintainability": 8.95
     },
     {
       "file": "src/hooks/useProcessReview.ts",
@@ -83,6 +83,12 @@
   ],
   "mostRecentImprovements": [
     {
+      "file": "api/implementation-agent/run.ts",
+      "before": 1.19,
+      "after": 8.95,
+      "delta": 7.76
+    },
+    {
       "file": "api/tickets/create-pr.ts",
       "before": 25.54,
       "after": 25.54,
@@ -98,12 +104,6 @@
       "file": "src/hooks/useProcessReview.ts",
       "before": 18.54,
       "after": 18.54,
-      "delta": 0
-    },
-    {
-      "file": "api/implementation-agent/run.ts",
-      "before": 18.07,
-      "after": 18.07,
       "delta": 0
     },
     {
@@ -131,8 +131,8 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-21T22:34:03.603Z",
-  "filesAnalyzed": 323,
+  "generatedAt": "2026-02-21T22:22:29.996Z",
+  "filesAnalyzed": 322,
   "unroundedMaintainability": 39.5,
   "unroundedSimplicity": 39.5
 }
