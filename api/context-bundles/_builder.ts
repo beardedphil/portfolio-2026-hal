@@ -93,6 +93,18 @@ export interface BuilderResult {
     version: number
     schema_version: string
   } | null
+  artifactReferences?: Array<{
+    artifact_id: string
+    artifact_title: string
+    created_at: string
+  }>
+  selectedSnippets?: Array<{
+    artifact_id: string
+    snippet_text: string
+    snippet_start: number
+    snippet_end: number
+    artifact_title: string
+  }>
   error?: string
 }
 
@@ -164,12 +176,12 @@ export async function buildContextBundleV0(
       last_known_good_commit: gitRef?.base_sha || null,
     }
 
-    // 6. Get relevant artifacts (distilled)
-    const relevantArtifacts = await getRelevantArtifacts(
-      supabase,
-      ticketPk,
-      selectedArtifactIds
-    )
+    // 6. Get relevant artifacts (distilled) and capture references/snippets for receipt
+    const {
+      distilledArtifacts: relevantArtifacts,
+      artifactReferences,
+      selectedSnippets,
+    } = await getRelevantArtifacts(supabase, ticketPk, selectedArtifactIds)
 
     // 7. Get instructions (role-specific)
     const instructions = await getRoleSpecificInstructions(supabase, repoFullName, role)
@@ -201,6 +213,8 @@ export async function buildContextBundleV0(
       bundle,
       redReference,
       integrationManifestReference,
+      artifactReferences,
+      selectedSnippets,
     }
   } catch (err) {
     return {
@@ -388,34 +402,57 @@ async function getRepoContext(
 
 /**
  * Gets relevant artifacts (distilled).
+ * Returns both the distilled artifacts for the bundle and metadata for the receipt.
  */
 async function getRelevantArtifacts(
   supabase: ReturnType<typeof createClient>,
   ticketPk: string,
   selectedArtifactIds: string[]
-): Promise<Array<{
-  artifact_id: string
-  artifact_title: string
-  summary: string
-  hard_facts: string[]
-  keywords: string[]
-}>> {
+): Promise<{
+  distilledArtifacts: Array<{
+    artifact_id: string
+    artifact_title: string
+    summary: string
+    hard_facts: string[]
+    keywords: string[]
+  }>
+  artifactReferences: Array<{
+    artifact_id: string
+    artifact_title: string
+    created_at: string
+  }>
+  selectedSnippets: Array<{
+    artifact_id: string
+    snippet_text: string
+    snippet_start: number
+    snippet_end: number
+    artifact_title: string
+  }>
+}> {
   if (selectedArtifactIds.length === 0) {
-    return []
+    return {
+      distilledArtifacts: [],
+      artifactReferences: [],
+      selectedSnippets: [],
+    }
   }
 
-  // Fetch artifacts
+  // Fetch artifacts with created_at for version tracking
   const { data: artifacts, error: artifactsError } = await supabase
     .from('agent_artifacts')
-    .select('artifact_id, title, body_md')
+    .select('artifact_id, title, body_md, created_at')
     .in('artifact_id', selectedArtifactIds)
     .eq('ticket_pk', ticketPk)
 
   if (artifactsError || !artifacts || artifacts.length === 0) {
-    return []
+    return {
+      distilledArtifacts: [],
+      artifactReferences: [],
+      selectedSnippets: [],
+    }
   }
 
-  // Distill each artifact
+  // Distill each artifact and capture snippets
   const distilledArtifacts: Array<{
     artifact_id: string
     artifact_title: string
@@ -424,13 +461,55 @@ async function getRelevantArtifacts(
     keywords: string[]
   }> = []
 
+  const artifactReferences: Array<{
+    artifact_id: string
+    artifact_title: string
+    created_at: string
+  }> = []
+
+  const selectedSnippets: Array<{
+    artifact_id: string
+    snippet_text: string
+    snippet_start: number
+    snippet_end: number
+    artifact_title: string
+  }> = []
+
   for (const artifact of artifacts) {
-    const result = await distillArtifact(artifact.body_md || '', artifact.title || '')
+    const artifactId = artifact.artifact_id
+    const artifactTitle = artifact.title || 'Untitled'
+    const bodyMd = artifact.body_md || ''
+    const createdAt = artifact.created_at
+
+    // Store artifact reference for receipt
+    artifactReferences.push({
+      artifact_id: artifactId,
+      artifact_title: artifactTitle,
+      created_at: createdAt,
+    })
+
+    // Extract snippet: first 1000 characters of body_md (verbatim)
+    // This represents the "selected snippet" that was included in the bundle
+    const snippetLength = Math.min(1000, bodyMd.length)
+    const snippetText = bodyMd.substring(0, snippetLength)
+    
+    if (snippetText.length > 0) {
+      selectedSnippets.push({
+        artifact_id: artifactId,
+        snippet_text: snippetText,
+        snippet_start: 0,
+        snippet_end: snippetLength,
+        artifact_title: artifactTitle,
+      })
+    }
+
+    // Distill artifact for bundle content
+    const result = await distillArtifact(bodyMd, artifactTitle)
 
     if (result.success && result.distilled) {
       distilledArtifacts.push({
-        artifact_id: artifact.artifact_id,
-        artifact_title: artifact.title || 'Untitled',
+        artifact_id: artifactId,
+        artifact_title: artifactTitle,
         summary: result.distilled.summary,
         hard_facts: result.distilled.hard_facts,
         keywords: result.distilled.keywords,
@@ -438,7 +517,11 @@ async function getRelevantArtifacts(
     }
   }
 
-  return distilledArtifacts
+  return {
+    distilledArtifacts,
+    artifactReferences,
+    selectedSnippets,
+  }
 }
 
 /**

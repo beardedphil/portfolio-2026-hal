@@ -247,14 +247,25 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const totalCharacters = calculateTotalCharacters(sectionMetrics)
 
     // Extract git ref from run if available
+    // Note: build-from-run doesn't use artifacts, so artifact_references and selected_snippets will be empty
     const gitRef = run.pr_url
       ? {
           pr_url: run.pr_url,
           pr_number: run.ticket_number || null,
+          base_sha: null, // Not available from run
+          head_sha: null, // Not available from run
         }
       : null
 
-    // Insert receipt
+    // Validate git_ref is not blank (required by AC)
+    if (!gitRef || (!gitRef.pr_url && !gitRef.base_sha && !gitRef.head_sha)) {
+      return json(res, 400, {
+        success: false,
+        error: 'git_ref is required and cannot be blank. Agent run must have pr_url or git ref information.',
+      })
+    }
+
+    // Insert receipt (build-from-run doesn't use artifacts, so artifact fields are empty)
     const { data: newReceipt, error: receiptError } = await supabase
       .from('bundle_receipts')
       .insert({
@@ -270,6 +281,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         red_reference: null,
         integration_manifest_reference: integrationManifestReference,
         git_ref: gitRef,
+        artifact_references: [], // build-from-run doesn't use artifacts
+        selected_snippets: [], // build-from-run doesn't use artifacts
       })
       .select()
       .single()

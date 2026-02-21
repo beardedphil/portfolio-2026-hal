@@ -213,6 +213,64 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const integrationManifestReference = builderResult.integrationManifestReference || null
     const redReference = builderResult.redReference || null
+    const artifactReferences = builderResult.artifactReferences || []
+    const selectedSnippets = builderResult.selectedSnippets || []
+
+    // Check for existing bundle with same content_checksum (idempotent receipt creation)
+    const { data: existingBundle, error: existingError } = await supabase
+      .from('context_bundles')
+      .select('bundle_id, version, role')
+      .eq('repo_full_name', resolvedRepoFullName)
+      .eq('ticket_pk', resolvedTicketPk)
+      .eq('role', role)
+      .eq('content_checksum', contentChecksum)
+      .order('version', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (existingError && existingError.code !== 'PGRST116') {
+      // PGRST116 is "not found" which is fine
+      return json(res, 500, {
+        success: false,
+        error: `Failed to check for existing bundle: ${existingError.message}`,
+      })
+    }
+
+    // If bundle with same content_checksum exists, return existing bundle and receipt
+    if (existingBundle) {
+      const { data: existingReceipt, error: receiptError } = await supabase
+        .from('bundle_receipts')
+        .select('*')
+        .eq('bundle_id', existingBundle.bundle_id)
+        .maybeSingle()
+
+      if (receiptError && receiptError.code !== 'PGRST116') {
+        return json(res, 500, {
+          success: false,
+          error: `Failed to fetch existing receipt: ${receiptError.message}`,
+        })
+      }
+
+      if (existingReceipt) {
+        return json(res, 200, {
+          success: true,
+          bundle: {
+            bundle_id: existingBundle.bundle_id,
+            version: existingBundle.version,
+            role: existingBundle.role,
+            created_at: existingBundle.bundle_id, // Use bundle_id as placeholder
+          },
+          receipt: {
+            receipt_id: existingReceipt.receipt_id,
+            content_checksum: existingReceipt.content_checksum,
+            bundle_checksum: existingReceipt.bundle_checksum,
+            section_metrics: existingReceipt.section_metrics,
+            total_characters: existingReceipt.total_characters,
+          },
+          reused: true, // Indicate this is a reused receipt
+        })
+      }
+    }
 
     // Get user identifier from session (if available)
     let createdBy: string | undefined = 'system'
@@ -227,6 +285,15 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     // Set bundle_id in meta (will be set after insert)
     const bundleForStorage = { ...bundle }
+
+    // Validate git_ref is not blank (required by AC)
+    const gitRef = body.gitRef || null
+    if (!gitRef || (!gitRef.pr_url && !gitRef.base_sha && !gitRef.head_sha)) {
+      return json(res, 400, {
+        success: false,
+        error: 'git_ref is required and cannot be blank. Must include at least pr_url or base_sha/head_sha.',
+      })
+    }
 
     // Insert bundle
     const { data: newBundle, error: insertError } = await supabase
@@ -256,7 +323,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const sectionMetrics = calculateSectionMetrics(bundleForStorage)
     const totalCharacters = calculateTotalCharacters(sectionMetrics)
 
-    // Insert receipt
+    // Insert receipt with artifact references and snippets
     const { data: newReceipt, error: receiptError } = await supabase
       .from('bundle_receipts')
       .insert({
@@ -271,7 +338,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         total_characters: totalCharacters,
         red_reference: redReference,
         integration_manifest_reference: integrationManifestReference,
-        git_ref: body.gitRef || null,
+        git_ref: gitRef,
+        artifact_references: artifactReferences,
+        selected_snippets: selectedSnippets,
       })
       .select()
       .single()

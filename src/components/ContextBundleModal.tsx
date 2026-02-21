@@ -48,6 +48,18 @@ interface BundleReceipt {
     base_sha?: string
     head_sha?: string
   } | null
+  artifact_references?: Array<{
+    artifact_id: string
+    artifact_title: string
+    created_at: string
+  }>
+  selected_snippets?: Array<{
+    artifact_id: string
+    snippet_text: string
+    snippet_start: number
+    snippet_end: number
+    artifact_title: string
+  }>
   created_at: string
   bundle: {
     bundle_id: string
@@ -750,23 +762,92 @@ export function ContextBundleModal({
                     </div>
                   )}
 
+                  {/* Artifact References */}
+                  {receipt.artifact_references && receipt.artifact_references.length > 0 && (
+                    <div>
+                      <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>Artifact References</h4>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {receipt.artifact_references.map((ref, idx) => (
+                          <div
+                            key={idx}
+                            style={{
+                              border: '1px solid var(--hal-border)',
+                              borderRadius: '4px',
+                              padding: '8px',
+                              background: 'var(--hal-surface-alt)',
+                            }}
+                          >
+                            <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '4px' }}>
+                              {ref.artifact_title}
+                            </div>
+                            <div style={{ fontSize: '12px', color: 'var(--hal-text-muted)', fontFamily: 'monospace' }}>
+                              ID: {ref.artifact_id.substring(0, 8)}... • Version: {new Date(ref.created_at).toISOString()}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Selected Snippets */}
+                  {receipt.selected_snippets && receipt.selected_snippets.length > 0 && (
+                    <div>
+                      <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>Selected Snippets (Verbatim)</h4>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        {receipt.selected_snippets.map((snippet, idx) => (
+                          <div
+                            key={idx}
+                            style={{
+                              border: '1px solid var(--hal-border)',
+                              borderRadius: '8px',
+                              padding: '12px',
+                              background: 'var(--hal-surface-alt)',
+                            }}
+                          >
+                            <div style={{ marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div style={{ fontWeight: '600', fontSize: '14px' }}>{snippet.artifact_title}</div>
+                              <div style={{ fontSize: '12px', color: 'var(--hal-text-muted)', fontFamily: 'monospace' }}>
+                                Artifact: {snippet.artifact_id.substring(0, 8)}... • Chars {snippet.snippet_start}-{snippet.snippet_end}
+                              </div>
+                            </div>
+                            <div
+                              style={{
+                                fontFamily: 'monospace',
+                                fontSize: '12px',
+                                background: 'var(--hal-surface)',
+                                padding: '8px',
+                                borderRadius: '4px',
+                                whiteSpace: 'pre-wrap',
+                                wordBreak: 'break-word',
+                                maxHeight: '200px',
+                                overflowY: 'auto',
+                              }}
+                            >
+                              {snippet.snippet_text}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* References */}
                   <div>
                     <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>References</h4>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {receipt.red_reference && (
-                        <div style={{ fontSize: '14px' }}>
-                          <strong>RED:</strong> Version {receipt.red_reference.version} (ID: {receipt.red_reference.red_id.substring(0, 8)}...)
-                        </div>
-                      )}
                       {receipt.integration_manifest_reference && (
                         <div style={{ fontSize: '14px' }}>
                           <strong>Integration Manifest:</strong> Version {receipt.integration_manifest_reference.version} (Schema: {receipt.integration_manifest_reference.schema_version}, ID: {receipt.integration_manifest_reference.manifest_id.substring(0, 8)}...)
                         </div>
                       )}
+                      {receipt.red_reference && (
+                        <div style={{ fontSize: '14px' }}>
+                          <strong>RED:</strong> Version {receipt.red_reference.version} (ID: {receipt.red_reference.red_id.substring(0, 8)}...)
+                        </div>
+                      )}
                       {receipt.git_ref && (
                         <div style={{ fontSize: '14px' }}>
-                          <strong>Git Ref:</strong>{' '}
+                          <strong>Git Diff Reference:</strong>{' '}
                           {receipt.git_ref.pr_url ? (
                             <a href={receipt.git_ref.pr_url} target="_blank" rel="noopener noreferrer">
                               PR #{receipt.git_ref.pr_number}
@@ -787,8 +868,8 @@ export function ContextBundleModal({
                         </div>
                       )}
                       {!receipt.red_reference && !receipt.integration_manifest_reference && !receipt.git_ref && (
-                        <div style={{ fontSize: '14px', color: 'var(--hal-text-muted)' }}>No references</div>
-                      )}
+                          <div style={{ fontSize: '14px', color: 'var(--hal-text-muted)' }}>No references</div>
+                        )}
                     </div>
                   </div>
                 </div>
