@@ -474,6 +474,38 @@ body {
 [data-theme="lcars"] .hal-header {
   background: var(--hal-lcars-dark-gray);
   border-bottom: 3px solid var(--hal-lcars-orange);
+  position: relative;
+}
+
+/* LCARS header accent: segmented orange/yellow bar at top */
+[data-theme="lcars"] .hal-header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 8px;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--hal-lcars-orange) 0px,
+    var(--hal-lcars-orange) 20px,
+    var(--hal-lcars-yellow) 20px,
+    var(--hal-lcars-yellow) 40px
+  );
+  z-index: 1;
+}
+
+/* LCARS header corner pill accent (top-right) */
+[data-theme="lcars"] .hal-header::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 60px;
+  height: 60px;
+  background: var(--hal-lcars-orange);
+  border-radius: 0 0 0 100%;
+  z-index: 1;
 }
 
 [data-theme="lcars"] .hal-header h1 {
@@ -514,6 +546,16 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   font-weight: 600;
+}
+
+/* LCARS theme: Ensure all interactive elements have visible keyboard focus indicators */
+[data-theme="lcars"] input:focus-visible,
+[data-theme="lcars"] textarea:focus-visible,
+[data-theme="lcars"] select:focus-visible,
+[data-theme="lcars"] button:focus-visible,
+[data-theme="lcars"] a:focus-visible {
+  outline: 2px solid var(--hal-lcars-yellow);
+  outline-offset: 2px;
 }
 
 /* Arrested Development theme adjustments for header and theme selector */
@@ -591,6 +633,26 @@ body {
   background: var(--hal-surface);
   overflow: visible;
   overflow-x: hidden;
+}
+
+/* LCARS theme: Kanban container panel treatment */
+[data-theme="lcars"] .hal-kanban-region {
+  border: 4px solid var(--hal-lcars-orange);
+  border-radius: 0 20px 0 0; /* Distinctive LCARS corner shape */
+  position: relative;
+}
+
+/* LCARS Kanban panel corner accent */
+[data-theme="lcars"] .hal-kanban-region::before {
+  content: '';
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  width: 40px;
+  height: 40px;
+  background: var(--hal-lcars-yellow);
+  border-radius: 0 0 100% 0;
+  z-index: 1;
 }
 
 .kanban-header {
