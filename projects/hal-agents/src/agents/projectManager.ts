@@ -6,7 +6,6 @@
 import { createOpenAI } from '@ai-sdk/openai'
 import { generateText, tool } from 'ai'
 import { z } from 'zod'
-import fs from 'fs/promises'
 import path from 'path'
 import { exec } from 'child_process'
 import { promisify } from 'util'
@@ -449,104 +448,7 @@ function isUniqueViolation(err: { code?: string; message?: string } | null): boo
   const msg = (err.message ?? '').toLowerCase()
   return msg.includes('duplicate key') || msg.includes('unique constraint')
 }
-/** Cap on character count for "recent conversation" so long technical messages don't dominate. (~3k tokens) */
-const CONVERSATION_RECENT_MAX_CHARS = 12_000
-
-function recentTurnsWithinCharBudget(
-  turns: ConversationTurn[],
-  maxChars: number
-): { recent: ConversationTurn[]; omitted: number } {
-  if (turns.length === 0) return { recent: [], omitted: 0 }
-  let len = 0
-  const recent: ConversationTurn[] = []
-  for (let i = turns.length - 1; i >= 0; i--) {
-    const t = turns[i]
-    const lineLen = (t.role?.length ?? 0) + (t.content?.length ?? 0) + 12
-    if (len + lineLen > maxChars && recent.length > 0) break
-    recent.unshift(t)
-    len += lineLen
-  }
-  return { recent, omitted: turns.length - recent.length }
-}
-
-async function buildContextPack(config: PmAgentConfig, userMessage: string): Promise<string> {
-  const rulesDir = config.rulesDir ?? '.cursor/rules'
-  const rulesPath = path.resolve(config.repoRoot, rulesDir)
-
-  const sections: string[] = []
-
-  // Conversation so far: pre-built context pack (e.g. summary + recent from DB) or bounded history
-  let hasConversation = false
-  if (config.conversationContextPack && config.conversationContextPack.trim() !== '') {
-    sections.push('## Conversation so far\n\n' + config.conversationContextPack.trim())
-    hasConversation = true
-  } else {
-    const history = config.conversationHistory
-    if (history && history.length > 0) {
-      const { recent, omitted } = recentTurnsWithinCharBudget(history, CONVERSATION_RECENT_MAX_CHARS)
-      const truncNote =
-        omitted > 0
-          ? `\n(older messages omitted; showing recent conversation within ${CONVERSATION_RECENT_MAX_CHARS.toLocaleString()} characters)\n\n`
-          : '\n\n'
-      const lines = recent.map((t) => `**${t.role}**: ${t.content}`)
-      sections.push('## Conversation so far' + truncNote + lines.join('\n\n'))
-      hasConversation = true
-    }
-  }
-
-  if (hasConversation) {
-    sections.push('## User message (latest reply in the conversation above)\n\n' + userMessage)
-  } else {
-    sections.push('## User message\n\n' + userMessage)
-  }
-
-  sections.push('## Repo rules (from .cursor/rules/)')
-  try {
-    const entries = await fs.readdir(rulesPath)
-    const mdcFiles = entries.filter((e: string) => e.endsWith('.mdc'))
-    for (const f of mdcFiles) {
-      const content = await fs.readFile(path.join(rulesPath, f), 'utf8')
-      sections.push(`### ${f}\n\n${content}`)
-    }
-    if (mdcFiles.length === 0) sections.push('(no .mdc files found)')
-  } catch {
-    sections.push('(rules directory not found or not readable)')
-  }
-
-  sections.push('## Ticket template (required structure for create_ticket)')
-  try {
-    const templatePath = path.resolve(config.repoRoot, 'docs/templates/ticket.template.md')
-    const templateContent = await fs.readFile(templatePath, 'utf8')
-    sections.push(
-      templateContent +
-        '\n\nWhen creating a ticket, use this exact section structure. Replace every placeholder in angle brackets (e.g. `<what we want to achieve>`, `<AC 1>`) with concrete content—the resulting ticket must pass the Ready-to-start checklist (no unresolved placeholders, all required sections filled).'
-    )
-  } catch {
-    sections.push('(docs/templates/ticket.template.md not found)')
-  }
-
-  sections.push('## Ready-to-start checklist (Definition of Ready)')
-  try {
-    const checklistPath = path.resolve(config.repoRoot, 'docs/process/ready-to-start-checklist.md')
-    const content = await fs.readFile(checklistPath, 'utf8')
-    sections.push(content)
-  } catch {
-    sections.push('(docs/process/ready-to-start-checklist.md not found)')
-  }
-
-  sections.push('## Git status (git status -sb)')
-  try {
-    const { stdout } = await execAsync('git status -sb', {
-      cwd: config.repoRoot,
-      encoding: 'utf8',
-    })
-    sections.push('```\n' + stdout.trim() + '\n```')
-  } catch {
-    sections.push('(git status failed)')
-  }
-
-  return sections.join('\n\n')
-}
+import { buildContextPack } from './projectManager/contextBuilding.js'
 
 export async function runPmAgent(
   message: string,
