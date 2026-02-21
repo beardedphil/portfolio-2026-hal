@@ -37,8 +37,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   }
 
   if (req.method !== 'POST') {
-    res.statusCode = 405
-    res.end('Method Not Allowed')
+    json(res, 405, { success: false, error: 'Method Not Allowed' })
     return
   }
 

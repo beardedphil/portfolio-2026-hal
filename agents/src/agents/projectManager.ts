@@ -243,7 +243,19 @@ export async function runPmAgent(
         signal: controller.signal,
       })
       const text = await res.text()
-      const json = text ? JSON.parse(text) : {}
+      let json: any = {}
+      if (text) {
+        try {
+          json = JSON.parse(text)
+        } catch (e) {
+          const contentType = res.headers.get('content-type') || 'unknown'
+          const prefix = text.slice(0, 200)
+          json = {
+            success: false,
+            error: `Non-JSON response from ${path} (HTTP ${res.status}, content-type: ${contentType}): ${prefix}`,
+          }
+        }
+      }
       return { ok: res.ok, json }
     } finally {
       clearTimeout(t)
@@ -876,12 +888,11 @@ export async function runPmAgent(
       let out: CreateRedResult
       try {
         // Fetch ticket to get ticketPk and repoFullName
-        const fetchRes = await fetch(`${halBaseUrl}/api/tickets/get`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ticketId: input.ticket_id }),
-        })
-        const fetched = (await fetchRes.json()) as any
+        const { json: fetched } = await halFetchJson(
+          '/api/tickets/get',
+          { ticketId: input.ticket_id },
+          { timeoutMs: 20_000, progressMessage: `Fetching ticket ${input.ticket_id} for RED…` }
+        )
         if (!fetched?.success || !fetched?.ticket) {
           out = { success: false, error: fetched?.error || `Ticket ${input.ticket_id} not found.` }
           toolCalls.push({ name: 'create_red_document_v2', input, output: out })
@@ -914,19 +925,17 @@ export async function runPmAgent(
         }
 
         // Create RED document via HAL API
-        const createRes = await fetch(`${halBaseUrl}/api/red/insert`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        const { json: created } = await halFetchJson(
+          '/api/red/insert',
+          {
             ticketPk,
             repoFullName,
             redJson: redJsonParsed,
             validationStatus: 'pending',
             createdBy: 'pm-agent',
-          }),
-        })
-
-        const created = (await createRes.json()) as any
+          },
+          { timeoutMs: 25_000, progressMessage: `Creating RED for ${input.ticket_id}…` }
+        )
         if (!created?.success || !created?.red_document) {
           out = { success: false, error: created?.error || 'Failed to create RED document' }
         } else {
