@@ -216,6 +216,7 @@ export function useAgentRuns(params: UseAgentRunsParams) {
             const es = new EventSource(`/api/agent-runs/stream?runId=${encodeURIComponent(runId)}`)
             let closed = false
             let statusCheckInFlight = false
+            let terminalReceived = false
             const close = () => {
               if (closed) return
               closed = true
@@ -224,7 +225,7 @@ export function useAgentRuns(params: UseAgentRunsParams) {
             }
 
             const checkStatusAndCloseIfTerminal = async () => {
-              if (closed || statusCheckInFlight) return
+              if (closed || statusCheckInFlight || terminalReceived) return
               statusCheckInFlight = true
               try {
                 const r = await fetch(`/api/agent-runs/status?runId=${encodeURIComponent(runId)}`, {
@@ -241,6 +242,7 @@ export function useAgentRuns(params: UseAgentRunsParams) {
                 if (status === 'completed' || status === 'finished') {
                   const summary = typeof statusJson?.summary === 'string' ? statusJson.summary : ''
                   if (summary.trim()) upsertMessage(convId, 'project-manager', summary.trim(), assistantId)
+                  terminalReceived = true
                   close()
                   return
                 }
@@ -249,6 +251,7 @@ export function useAgentRuns(params: UseAgentRunsParams) {
                   setOpenaiLastError(msg)
                   setLastAgentError(msg)
                   addMessage(convId, 'project-manager', `[PM] Error: ${msg}`)
+                  terminalReceived = true
                   close()
                 }
               } finally {
@@ -257,6 +260,8 @@ export function useAgentRuns(params: UseAgentRunsParams) {
             }
 
             const finalize = async (finalText: string) => {
+              if (terminalReceived) return
+              terminalReceived = true
               const reply = finalText.trim()
               upsertMessage(convId, 'project-manager', reply, assistantId)
               setOpenaiLastError(null)
@@ -280,6 +285,7 @@ export function useAgentRuns(params: UseAgentRunsParams) {
             }
 
             es.addEventListener('text_delta', (evt) => {
+              if (terminalReceived) return
               try {
                 const data = JSON.parse((evt as MessageEvent).data) as any
                 const delta = String(data?.payload?.text ?? '')
@@ -289,6 +295,7 @@ export function useAgentRuns(params: UseAgentRunsParams) {
               }
             })
             es.addEventListener('progress', (evt) => {
+              if (terminalReceived) return
               try {
                 const data = JSON.parse((evt as MessageEvent).data) as any
                 const msg = String(data?.payload?.message ?? '')
@@ -298,6 +305,7 @@ export function useAgentRuns(params: UseAgentRunsParams) {
               }
             })
             es.addEventListener('stage', (evt) => {
+              if (terminalReceived) return
               try {
                 const data = JSON.parse((evt as MessageEvent).data) as any
                 const stage = String(data?.payload?.stage ?? '')
@@ -307,6 +315,7 @@ export function useAgentRuns(params: UseAgentRunsParams) {
               }
             })
             es.addEventListener('done', (evt) => {
+              if (terminalReceived) return
               try {
                 const data = JSON.parse((evt as MessageEvent).data) as any
                 const summary = String(data?.payload?.summary ?? '')
@@ -318,6 +327,7 @@ export function useAgentRuns(params: UseAgentRunsParams) {
             es.addEventListener('error', (evt) => {
               // Note: EventSource 'error' fires for disconnects too. The server persists events and
               // EventSource will auto-reconnect with Last-Event-ID, so only surface an error if the run fails.
+              if (terminalReceived) return
               try {
                 const dataText = (evt as any)?.data
                 if (typeof dataText === 'string' && dataText.trim()) {
@@ -326,6 +336,7 @@ export function useAgentRuns(params: UseAgentRunsParams) {
                   setOpenaiLastError(msg)
                   setLastAgentError(msg)
                   addMessage(convId, 'project-manager', `[PM] Error: ${msg}`)
+                  terminalReceived = true
                   close()
                   return
                 }
