@@ -317,16 +317,7 @@ async function updateWorklogArtifact(
   }
 }
 
-async function handleCompletedStatus(
-  supabase: any,
-  req: IncomingMessage,
-  res: ServerResponse,
-  repoFullName: string,
-  ticketPk: string | null,
-  displayId: string,
-  summary: string | null,
-  prUrl: string | null
-): Promise<void> {
+async function moveTicketToQa(supabase: any, repoFullName: string, ticketPk: string | null): Promise<void> {
   try {
     const { data: inColumn } = await supabase
       .from('tickets')
@@ -344,22 +335,45 @@ async function handleCompletedStatus(
   } catch {
     // ignore
   }
+}
 
+async function fetchPrFiles(
+  req: IncomingMessage,
+  res: ServerResponse,
+  prUrl: string | null
+): Promise<{ files: Array<{ filename: string; status: string; additions: number; deletions: number }> | null; error: string | null }> {
   try {
     const ghToken =
       process.env.GITHUB_TOKEN?.trim() ||
       (await getSession(req, res).catch(() => null))?.github?.accessToken
-    let prFiles: Array<{ filename: string; status: string; additions: number; deletions: number }> | null = null
-    let prFilesError: string | null = null
-    if (ghToken && prUrl && /\/pull\/\d+/i.test(prUrl)) {
-      const filesResult = await fetchPullRequestFiles(ghToken, prUrl)
-      if ('files' in filesResult) {
-        prFiles = filesResult.files
-      } else if ('error' in filesResult) {
-        prFilesError = filesResult.error
-        console.warn('[agent-runs] fetch PR files failed:', prFilesError)
-      }
+    if (!ghToken || !prUrl || !/\/pull\/\d+/i.test(prUrl)) {
+      return { files: null, error: null }
     }
+    const filesResult = await fetchPullRequestFiles(ghToken, prUrl)
+    if ('files' in filesResult) {
+      return { files: filesResult.files, error: null }
+    } else if ('error' in filesResult) {
+      console.warn('[agent-runs] fetch PR files failed:', filesResult.error)
+      return { files: null, error: filesResult.error }
+    }
+    return { files: null, error: null }
+  } catch (e) {
+    console.warn('[agent-runs] fetch PR files error:', e instanceof Error ? e.message : e)
+    return { files: null, error: e instanceof Error ? e.message : 'Unknown error' }
+  }
+}
+
+async function upsertImplementationArtifacts(
+  supabase: any,
+  displayId: string,
+  summary: string | null,
+  prUrl: string | null,
+  prFiles: Array<{ filename: string; status: string; additions: number; deletions: number }> | null,
+  prFilesError: string | null,
+  ticketPk: string | null,
+  repoFullName: string
+): Promise<void> {
+  try {
     const { artifacts, errors } = generateImplementationArtifacts(
       displayId,
       summary ?? '',
@@ -383,6 +397,200 @@ async function handleCompletedStatus(
   }
 }
 
+async function handleCompletedStatus(
+  supabase: any,
+  req: IncomingMessage,
+  res: ServerResponse,
+  repoFullName: string,
+  ticketPk: string | null,
+  displayId: string,
+  summary: string | null,
+  prUrl: string | null
+): Promise<void> {
+  await moveTicketToQa(supabase, repoFullName, ticketPk)
+  const { files: prFiles, error: prFilesError } = await fetchPrFiles(req, res, prUrl)
+  await upsertImplementationArtifacts(supabase, displayId, summary, prUrl, prFiles, prFilesError, ticketPk, repoFullName)
+}
+
+async function fetchRunFromDatabase(supabase: any, runId: string): Promise<{ run: any; error: string | null }> {
+  const { data: run, error: runErr } = await supabase
+    .from('hal_agent_runs')
+    .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, cursor_agent_id, cursor_status, pr_url, summary, error, status, current_stage, progress')
+    .eq('run_id', runId)
+    .maybeSingle()
+
+  if (runErr) {
+    return { run: null, error: `Supabase fetch failed: ${runErr.message}` }
+  }
+  if (!run) {
+    return { run: null, error: 'Unknown runId' }
+  }
+  return { run, error: null }
+}
+
+function shouldReturnEarly(status: string, cursorAgentId: string | null, summary: string | null): boolean {
+  const shouldEnrichTerminalSummary =
+    (status === 'finished' || status === 'completed') &&
+    !!cursorAgentId &&
+    isPlaceholderSummary(summary)
+
+  if ((status === 'finished' || status === 'completed' || status === 'failed') && !shouldEnrichTerminalSummary) {
+    return true
+  }
+  if (!cursorAgentId) {
+    return true
+  }
+  return false
+}
+
+async function fetchCursorAgentStatus(cursorAgentId: string, auth: string): Promise<{ statusData: any; error: string | null }> {
+  const statusRes = await fetch(`https://api.cursor.com/v0/agents/${cursorAgentId}`, {
+    method: 'GET',
+    headers: { Authorization: `Basic ${auth}` },
+  })
+  const statusText = await statusRes.text()
+  
+  if (!statusRes.ok) {
+    return { statusData: null, error: humanReadableCursorError(statusRes.status, statusText) }
+  }
+
+  try {
+    const statusData = JSON.parse(statusText) as { status?: string; summary?: string; target?: { prUrl?: string; pr_url?: string; branchName?: string } }
+    return { statusData, error: null }
+  } catch {
+    return { statusData: null, error: 'Invalid response when polling agent status.' }
+  }
+}
+
+async function handleCursorApiError(
+  supabase: any,
+  runId: string,
+  run: any,
+  error: string,
+  res: ServerResponse
+): Promise<void> {
+  const nextProgress = appendProgress((run as any).progress, `Poll failed: ${error}`)
+  await supabase
+    .from('hal_agent_runs')
+    .update({ status: 'failed', current_stage: 'failed', error, progress: nextProgress, finished_at: new Date().toISOString() })
+    .eq('run_id', runId)
+  json(res, 200, { ...(run as any), status: 'failed', error, progress: nextProgress })
+}
+
+function processFinishedStatus(
+  statusData: any,
+  existingPrUrl: string | null,
+  repoFullName: string,
+  agentType: AgentType
+): { summary: string | null; prUrl: string | null } {
+  const summary = statusData.summary ?? null
+  const prUrl = buildPrUrl(statusData, existingPrUrl, repoFullName)
+  if (!prUrl && agentType === 'implementation') {
+    console.warn('[agent-runs] FINISHED but no prUrl in Cursor response. target=', JSON.stringify(statusData.target))
+  }
+  return { summary, prUrl }
+}
+
+async function enrichSummaryFromConversation(
+  summary: string | null,
+  agentType: AgentType,
+  cursorAgentId: string,
+  auth: string
+): Promise<string | null> {
+  if (!needsConversationFetch(agentType, summary)) {
+    return summary
+  }
+
+  const conversationText = await fetchConversationText(cursorAgentId, auth)
+  if (isPlaceholderSummary(summary) && conversationText) {
+    const lastAssistant = getLastAssistantMessage(conversationText)
+    if (lastAssistant) return lastAssistant
+  }
+  if (isPlaceholderSummary(summary)) return 'Completed.'
+  return summary
+}
+
+function processStatusUpdate(
+  cursorStatus: string,
+  statusData: any,
+  agentType: AgentType,
+  currentStage: string | null,
+  repoFullName: string,
+  existingPrUrl: string | null
+): {
+  nextStatus: string
+  nextStage: string | null
+  summary: string | null
+  prUrl: string | null
+  errMsg: string | null
+  finishedAt: string | null
+} {
+  if (cursorStatus === 'FINISHED') {
+    const { summary, prUrl } = processFinishedStatus(statusData, existingPrUrl, repoFullName, agentType)
+    return {
+      nextStatus: 'finished',
+      nextStage: 'completed',
+      summary,
+      prUrl,
+      errMsg: null,
+      finishedAt: new Date().toISOString(),
+    }
+  } else if (cursorStatus === 'FAILED' || cursorStatus === 'CANCELLED' || cursorStatus === 'ERROR') {
+    return {
+      nextStatus: 'failed',
+      nextStage: 'failed',
+      summary: null,
+      prUrl: existingPrUrl,
+      errMsg: statusData.summary ?? `Agent ended with status ${cursorStatus}.`,
+      finishedAt: new Date().toISOString(),
+    }
+  } else {
+    const nextStage = determineNextStage(cursorStatus, agentType, currentStage)
+    return {
+      nextStatus: 'polling',
+      nextStage,
+      summary: null,
+      prUrl: existingPrUrl,
+      errMsg: null,
+      finishedAt: null,
+    }
+  }
+}
+
+async function updateRunInDatabase(
+  supabase: any,
+  runId: string,
+  cursorStatus: string,
+  nextStatus: string,
+  nextStage: string | null,
+  summary: string | null,
+  prUrl: string | null,
+  errMsg: string | null,
+  progress: ProgressEntry[],
+  finishedAt: string | null
+): Promise<{ updated: any; error: string | null }> {
+  const { data: updated, error: updErr } = await supabase
+    .from('hal_agent_runs')
+    .update({
+      cursor_status: cursorStatus,
+      status: nextStatus,
+      ...(nextStage != null ? { current_stage: nextStage } : {}),
+      ...(summary != null ? { summary } : {}),
+      ...(prUrl != null ? { pr_url: prUrl } : {}),
+      ...(errMsg != null ? { error: errMsg } : {}),
+      progress,
+      ...(finishedAt ? { finished_at: finishedAt } : {}),
+    })
+    .eq('run_id', runId)
+    .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, cursor_agent_id, cursor_status, pr_url, summary, error, status, current_stage, progress, created_at, updated_at, finished_at')
+    .maybeSingle()
+
+  if (updErr) {
+    return { updated: null, error: `Supabase update failed: ${updErr.message}` }
+  }
+  return { updated, error: null }
+}
+
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   if (!validateMethod(req, res, 'GET')) {
     return
@@ -396,39 +604,18 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     const supabase = getServerSupabase()
-    const { data: run, error: runErr } = await supabase
-      .from('hal_agent_runs')
-      .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, cursor_agent_id, cursor_status, pr_url, summary, error, status, current_stage, progress')
-      .eq('run_id', runId)
-      .maybeSingle()
-
-    if (runErr) {
-      json(res, 500, { error: `Supabase fetch failed: ${runErr.message}` })
-      return
-    }
-    if (!run) {
-      json(res, 404, { error: 'Unknown runId' })
+    const { run, error: runError } = await fetchRunFromDatabase(supabase, runId)
+    if (runError) {
+      json(res, run ? 500 : 404, { error: runError })
       return
     }
 
     const status = (run as any).status as string
     const cursorAgentId = (run as any).cursor_agent_id as string | null
     const agentType = (run as any).agent_type as AgentType
+    const summary = (run as any).summary as string | null
 
-    // Terminal states: return without calling Cursor (unless we need to enrich a placeholder summary)
-    // For all agent types, if summary is placeholder, fetch conversation to extract last assistant message
-    // Note: 'completed' is the new terminal status (replaces 'finished') (0690)
-    const shouldEnrichTerminalSummary =
-      (status === 'finished' || status === 'completed') &&
-      !!cursorAgentId &&
-      isPlaceholderSummary((run as any).summary as string | null)
-
-    if ((status === 'finished' || status === 'completed' || status === 'failed') && !shouldEnrichTerminalSummary) {
-      json(res, 200, run)
-      return
-    }
-
-    if (!cursorAgentId) {
+    if (shouldReturnEarly(status, cursorAgentId, summary)) {
       json(res, 200, run)
       return
     }
@@ -436,33 +623,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const cursorKey = getCursorApiKey()
     const auth = Buffer.from(`${cursorKey}:`).toString('base64')
 
-    const statusRes = await fetch(`https://api.cursor.com/v0/agents/${cursorAgentId}`, {
-      method: 'GET',
-      headers: { Authorization: `Basic ${auth}` },
-    })
-    const statusText = await statusRes.text()
-    if (!statusRes.ok) {
-      const msg = humanReadableCursorError(statusRes.status, statusText)
-      const nextProgress = appendProgress((run as any).progress, `Poll failed: ${msg}`)
-      await supabase
-        .from('hal_agent_runs')
-        .update({ status: 'failed', current_stage: 'failed', error: msg, progress: nextProgress, finished_at: new Date().toISOString() })
-        .eq('run_id', runId)
-      json(res, 200, { ...(run as any), status: 'failed', error: msg, progress: nextProgress })
-      return
-    }
-
-    let statusData: { status?: string; summary?: string; target?: { prUrl?: string; pr_url?: string; branchName?: string } }
-    try {
-      statusData = JSON.parse(statusText) as typeof statusData
-    } catch {
-      const msg = 'Invalid response when polling agent status.'
-      const nextProgress = appendProgress((run as any).progress, msg)
-      await supabase
-        .from('hal_agent_runs')
-        .update({ status: 'failed', current_stage: 'failed', error: msg, progress: nextProgress, finished_at: new Date().toISOString() })
-        .eq('run_id', runId)
-      json(res, 200, { ...(run as any), status: 'failed', error: msg, progress: nextProgress })
+    const { statusData, error: cursorError } = await fetchCursorAgentStatus(cursorAgentId!, auth)
+    if (cursorError) {
+      await handleCursorApiError(supabase, runId, run, cursorError, res)
       return
     }
 
@@ -470,53 +633,81 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const repoFullName = (run as any).repo_full_name as string
     const ticketPk = (run as any).ticket_pk as string | null
     const displayId = ((run as any).display_id as string) ?? ''
-    let nextStatus = 'polling'
-    let nextStage: string | null = null
-    let summary: string | null = null
-    let prUrl: string | null = (run as any).pr_url ?? null
-    let errMsg: string | null = null
-    let finishedAt: string | null = null
-    let processReviewSuggestions: Array<{ text: string; justification: string }> | null = null
-    let conversationText: string | null = null
+    const currentStage = (run as any).current_stage as string | null
+    const existingPrUrl = (run as any).pr_url ?? null
 
+    const statusUpdate = processStatusUpdate(
+      cursorStatus,
+      statusData,
+      agentType,
+      currentStage,
+      repoFullName,
+      existingPrUrl
+    )
+
+    let finalSummary = statusUpdate.summary
+    let finalPrUrl = statusUpdate.prUrl
     if (cursorStatus === 'FINISHED') {
-      nextStatus = 'finished'
-      nextStage = 'completed'
-      summary = statusData.summary ?? null
-      prUrl = buildPrUrl(statusData, prUrl, repoFullName)
-      if (!prUrl && agentType === 'implementation') {
-        console.warn('[agent-runs] FINISHED but no prUrl in Cursor response. target=', JSON.stringify(statusData.target))
-      }
-      finishedAt = new Date().toISOString()
+      finalSummary = await enrichSummaryFromConversation(finalSummary, agentType, cursorAgentId!, auth)
+      finalSummary = capText(finalSummary, MAX_RUN_SUMMARY_CHARS)
 
-      if (needsConversationFetch(agentType, summary)) {
-        conversationText = await fetchConversationText(cursorAgentId, auth)
-      }
+      const conversationText = needsConversationFetch(agentType, summary)
+        ? await fetchConversationText(cursorAgentId!, auth)
+        : null
 
-      if (isPlaceholderSummary(summary) && conversationText) {
-        const lastAssistant = getLastAssistantMessage(conversationText)
-        if (lastAssistant) summary = lastAssistant
-      }
-      if (isPlaceholderSummary(summary)) summary = 'Completed.'
-
-      summary = capText(summary, MAX_RUN_SUMMARY_CHARS)
-
-      processReviewSuggestions = await handleProcessReviewSuggestions(
+      const processReviewSuggestions = await handleProcessReviewSuggestions(
         supabase,
         agentType,
         ticketPk,
-        summary,
+        finalSummary,
         conversationText,
         repoFullName
       )
-    } else if (cursorStatus === 'FAILED' || cursorStatus === 'CANCELLED' || cursorStatus === 'ERROR') {
-      nextStatus = 'failed'
-      nextStage = 'failed'
-      errMsg = statusData.summary ?? `Agent ended with status ${cursorStatus}.`
-      finishedAt = new Date().toISOString()
-    } else {
-      const currentStage = (run as any).current_stage as string | null
-      nextStage = determineNextStage(cursorStatus, agentType, currentStage)
+
+      const progress = appendProgress((run as any).progress, `Status: ${cursorStatus}`) as ProgressEntry[]
+
+      await updateWorklogArtifact(
+        supabase,
+        agentType,
+        repoFullName,
+        ticketPk,
+        displayId,
+        progress,
+        cursorStatus,
+        finalSummary,
+        statusUpdate.errMsg,
+        finalPrUrl
+      )
+
+      if (statusUpdate.nextStatus === 'completed') {
+        await handleCompletedStatus(supabase, req, res, repoFullName, ticketPk, displayId, finalSummary, finalPrUrl)
+      }
+
+      const { updated, error: updateError } = await updateRunInDatabase(
+        supabase,
+        runId,
+        cursorStatus,
+        statusUpdate.nextStatus,
+        statusUpdate.nextStage,
+        finalSummary,
+        finalPrUrl,
+        statusUpdate.errMsg,
+        progress,
+        statusUpdate.finishedAt
+      )
+
+      if (updateError) {
+        json(res, 500, { error: updateError })
+        return
+      }
+
+      const payload = updated ?? run
+      if (processReviewSuggestions != null) {
+        json(res, 200, { ...(payload as object), suggestions: processReviewSuggestions })
+        return
+      }
+      json(res, 200, payload)
+      return
     }
 
     const progress = appendProgress((run as any).progress, `Status: ${cursorStatus}`) as ProgressEntry[]
@@ -529,42 +720,30 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       displayId,
       progress,
       cursorStatus,
-      summary,
-      errMsg,
+      statusUpdate.summary,
+      statusUpdate.errMsg,
       prUrl
     )
 
-    if (nextStatus === 'completed') {
-      await handleCompletedStatus(supabase, req, res, repoFullName, ticketPk, displayId, summary, prUrl)
-    }
+    const { updated, error: updateError } = await updateRunInDatabase(
+      supabase,
+      runId,
+      cursorStatus,
+      statusUpdate.nextStatus,
+      statusUpdate.nextStage,
+      statusUpdate.summary,
+      prUrl,
+      statusUpdate.errMsg,
+      progress,
+      statusUpdate.finishedAt
+    )
 
-    const { data: updated, error: updErr } = await supabase
-      .from('hal_agent_runs')
-      .update({
-        cursor_status: cursorStatus,
-        status: nextStatus,
-        ...(nextStage != null ? { current_stage: nextStage } : {}),
-        ...(summary != null ? { summary } : {}),
-        ...(prUrl != null ? { pr_url: prUrl } : {}),
-        ...(errMsg != null ? { error: errMsg } : {}),
-        progress,
-        ...(finishedAt ? { finished_at: finishedAt } : {}),
-      })
-      .eq('run_id', runId)
-      .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, cursor_agent_id, cursor_status, pr_url, summary, error, status, current_stage, progress, created_at, updated_at, finished_at')
-      .maybeSingle()
-
-    if (updErr) {
-      json(res, 500, { error: `Supabase update failed: ${updErr.message}` })
+    if (updateError) {
+      json(res, 500, { error: updateError })
       return
     }
 
-    const payload = updated ?? run
-    if (processReviewSuggestions != null) {
-      json(res, 200, { ...(payload as object), suggestions: processReviewSuggestions })
-      return
-    }
-    json(res, 200, payload)
+    json(res, 200, updated ?? run)
   } catch (err) {
     json(res, 500, { error: err instanceof Error ? err.message : String(err) })
   }
