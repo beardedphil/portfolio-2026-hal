@@ -3,8 +3,7 @@
  * Uses canonical JSON serialization to ensure the same logical JSON produces the same checksum.
  */
 
-import { sha256 } from '@noble/hashes/sha256'
-import { bytesToHex } from '@noble/hashes/utils'
+import { createHash } from 'crypto'
 
 /**
  * Generates a deterministic checksum for a JSON object.
@@ -22,10 +21,7 @@ export function generateRedChecksum(json: unknown): string {
   const canonical = canonicalizeJson(json)
   
   // Hash the canonical string
-  const hash = sha256(new TextEncoder().encode(canonical))
-  
-  // Return as hex string
-  return bytesToHex(hash)
+  return createHash('sha256').update(canonical, 'utf8').digest('hex')
 }
 
 /**
