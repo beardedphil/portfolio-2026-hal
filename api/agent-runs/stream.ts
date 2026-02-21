@@ -62,6 +62,8 @@ async function streamLoop(args: StreamArgs, write: (chunk: string) => void, isCl
   const supabase = getServerSupabase()
   let afterId = args.afterEventId
   let lastKeepAliveAt = Date.now()
+  let workPromise: Promise<void> | null = null
+  let lastStatusCheckAt = 0
 
   write(sseEncode({ comment: 'ok' }))
 
@@ -86,40 +88,55 @@ async function streamLoop(args: StreamArgs, write: (chunk: string) => void, isCl
       continue
     }
 
-    const runRes = await fetchRunStatus(supabase, args.runId)
-    if (!runRes.ok) {
-      write(sseEncode({ event: 'error', data: { message: runRes.error } }))
-      break
-    }
-    const run = runRes.run
-    if (!run) {
-      write(sseEncode({ event: 'error', data: { message: 'Unknown runId' } }))
-      break
-    }
+    // If work is already running, don't block the stream while it runs.
+    // Keep polling events so the client sees tool progress / deltas in near real-time.
+    if (workPromise) {
+      await Promise.race([workPromise, sleep(500)])
+    } else {
+      // Avoid hitting run status on every loop tick if the stream is quiet.
+      const nowStatus = Date.now()
+      if (nowStatus - lastStatusCheckAt > 1_500) {
+        lastStatusCheckAt = nowStatus
+        const runRes = await fetchRunStatus(supabase, args.runId)
+        if (!runRes.ok) {
+          write(sseEncode({ event: 'error', data: { message: runRes.error } }))
+          break
+        }
+        const run = runRes.run
+        if (!run) {
+          write(sseEncode({ event: 'error', data: { message: 'Unknown runId' } }))
+          break
+        }
 
-    const status = String(run.status ?? '')
-    if (status === 'completed' || status === 'failed') {
-      // If the provider completed without writing a terminal event, write one so the client always sees closure.
-      await ensureTerminalEvent(supabase, args.runId)
-      const final = await fetchEventsAfter(supabase, args.runId, afterId)
-      if (final.ok && final.events.length) continue
-      break
-    }
+        const status = String(run.status ?? '')
+        if (status === 'completed' || status === 'failed') {
+          // If the provider completed without writing a terminal event, write one so the client always sees closure.
+          await ensureTerminalEvent(supabase, args.runId)
+          const final = await fetchEventsAfter(supabase, args.runId, afterId)
+          if (final.ok && final.events.length) continue
+          break
+        }
 
-    // Kick work in budgeted slices. OpenAI runs need a larger slice to avoid endless abort/retry loops.
-    const budgetMs =
-      run.agent_type === 'implementation' || run.agent_type === 'qa'
-        ? 12_000
-        : 55_000
-    await advanceRunWithProvider({ supabase, run, budgetMs }).catch(() => null)
+        // Kick work in budgeted slices. OpenAI runs need a larger slice to avoid endless abort/retry loops.
+        const budgetMs =
+          run.agent_type === 'implementation' || run.agent_type === 'qa'
+            ? 12_000
+            : 55_000
+        workPromise = advanceRunWithProvider({ supabase, run, budgetMs })
+          .catch(() => null)
+          .then(() => {
+            workPromise = null
+          })
+      } else {
+        await sleep(500)
+      }
+    }
 
     const now = Date.now()
     if (now - lastKeepAliveAt > 15_000) {
       lastKeepAliveAt = now
       write(sseEncode({ comment: 'keep-alive' }))
     }
-
-    await sleep(500)
   }
 }
 
