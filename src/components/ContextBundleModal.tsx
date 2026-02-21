@@ -36,6 +36,12 @@ interface BundleReceipt {
   bundle_checksum: string
   section_metrics: Record<string, number>
   total_characters: number
+  budget?: {
+    characterCount: number
+    hardLimit: number
+    role: string
+    displayName: string
+  } | null
   red_reference: { red_id: string; version: number } | null
   integration_manifest_reference: {
     manifest_id: string
@@ -79,7 +85,31 @@ interface GenerateResponse {
     section_metrics: Record<string, number>
     total_characters: number
   }
+  budget?: {
+    characterCount: number
+    hardLimit: number
+    role: string
+    displayName: string
+  }
+  budgetExceeded?: boolean
+  characterCount?: number
+  hardLimit?: number
+  overage?: number
   distillation_errors?: Array<{ artifact_id: string; error: string }>
+  error?: string
+}
+
+interface PreviewResponse {
+  success: boolean
+  budget?: {
+    characterCount: number
+    hardLimit: number
+    role: string
+    displayName: string
+    exceeds: boolean
+    overage: number
+  }
+  sectionMetrics?: Record<string, number>
   error?: string
 }
 
@@ -134,6 +164,9 @@ export function ContextBundleModal({
   const [loadingArtifacts, setLoadingArtifacts] = useState(false)
   const [selectedArtifactIds, setSelectedArtifactIds] = useState<Set<string>>(new Set())
   const [bundleJson, setBundleJson] = useState<BundleJson | null>(null)
+  const [previewBudget, setPreviewBudget] = useState<PreviewResponse['budget'] | null>(null)
+  const [previewSectionMetrics, setPreviewSectionMetrics] = useState<Record<string, number> | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
   
   // Ticket selection state (if allowTicketSelection is true)
   const [selectedTicketId, setSelectedTicketId] = useState<string>(initialTicketId || '')
@@ -148,6 +181,16 @@ export function ContextBundleModal({
       loadArtifacts()
     }
   }, [isOpen, selectedTicketPk, supabaseUrl, supabaseAnonKey])
+
+  // Preview budget when role or artifacts change
+  useEffect(() => {
+    if (isOpen && selectedTicketPk && selectedRepoFullName && supabaseUrl && supabaseAnonKey && selectedArtifactIds.size > 0) {
+      previewBundleBudget()
+    } else {
+      setPreviewBudget(null)
+      setPreviewSectionMetrics(null)
+    }
+  }, [isOpen, selectedTicketPk, selectedRepoFullName, generateRole, selectedArtifactIds, supabaseUrl, supabaseAnonKey])
   
   // Sync initial values when they change
   useEffect(() => {
@@ -167,6 +210,8 @@ export function ContextBundleModal({
       setArtifacts([])
       setSelectedArtifactIds(new Set())
       setBundleJson(null)
+      setPreviewBudget(null)
+      setPreviewSectionMetrics(null)
       if (!allowTicketSelection) {
         setSelectedTicketId(initialTicketId || '')
         setSelectedTicketPk(initialTicketPk)
@@ -365,14 +410,6 @@ export function ContextBundleModal({
     setError(null)
 
     try {
-      const bundleJsonData = {
-        ticket: `Ticket ${selectedTicketId || selectedTicketPk}`,
-        repo_context: `Repository: ${selectedRepoFullName}`,
-        instructions: 'Agent instructions would go here',
-        role: generateRole,
-        generated_at: new Date().toISOString(),
-      }
-
       const response = await fetch(`${apiBaseUrl}/api/context-bundles/generate`, {
         method: 'POST',
         headers: {
@@ -384,7 +421,6 @@ export function ContextBundleModal({
           ticketId: selectedTicketId,
           repoFullName: selectedRepoFullName,
           role: generateRole,
-          bundleJson: bundleJsonData,
           selectedArtifactIds: Array.from(selectedArtifactIds),
           supabaseUrl,
           supabaseAnonKey,
@@ -394,8 +430,27 @@ export function ContextBundleModal({
       const data = (await response.json()) as GenerateResponse
 
       if (!response.ok || !data.success) {
-        // Check if this is a distillation error
-        if (data.distillation_errors && data.distillation_errors.length > 0) {
+        // Check if this is a budget exceeded error
+        if (data.budgetExceeded && data.budget) {
+          const overage = data.overage || 0
+          const sectionBreakdown = data.sectionMetrics 
+            ? Object.entries(data.sectionMetrics)
+                .map(([section, count]) => `  ${section}: ${count.toLocaleString()} chars`)
+                .join('\n')
+            : 'N/A'
+          setError(
+            `Bundle exceeds character budget for ${data.budget.displayName}:\n` +
+            `  Current: ${data.characterCount?.toLocaleString() || 'N/A'} chars\n` +
+            `  Limit: ${data.hardLimit?.toLocaleString() || 'N/A'} chars\n` +
+            `  Overage: ${overage.toLocaleString()} chars\n\n` +
+            `Per-section breakdown:\n${sectionBreakdown}\n\n` +
+            `Please reduce the bundle size by:\n` +
+            `  - Selecting fewer artifacts\n` +
+            `  - Reducing artifact content\n` +
+            `  - Using a different role with a higher limit`
+          )
+        } else if (data.distillation_errors && data.distillation_errors.length > 0) {
+          // Check if this is a distillation error
           const errorMessages = data.distillation_errors.map((e) => {
             const artifact = artifacts.find((a) => a.artifact_id === e.artifact_id)
             return `${artifact?.title || e.artifact_id}: ${e.error}`
@@ -418,6 +473,52 @@ export function ContextBundleModal({
       setError(err instanceof Error ? err.message : 'Unknown error')
     } finally {
       setGenerating(false)
+    }
+  }
+
+  const previewBundleBudget = async () => {
+    if (!selectedTicketPk || !selectedRepoFullName || !supabaseUrl || !supabaseAnonKey || selectedArtifactIds.size === 0) {
+      return
+    }
+
+    setPreviewLoading(true)
+    setError(null)
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/context-bundles/preview`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          ticketPk: selectedTicketPk,
+          ticketId: selectedTicketId,
+          repoFullName: selectedRepoFullName,
+          role: generateRole,
+          selectedArtifactIds: Array.from(selectedArtifactIds),
+          supabaseUrl,
+          supabaseAnonKey,
+        }),
+      })
+
+      const data = (await response.json()) as PreviewResponse
+
+      if (!response.ok || !data.success) {
+        // Don't set error for preview failures - just clear preview
+        setPreviewBudget(null)
+        setPreviewSectionMetrics(null)
+        return
+      }
+
+      setPreviewBudget(data.budget || null)
+      setPreviewSectionMetrics(data.sectionMetrics || null)
+    } catch (err) {
+      // Don't set error for preview failures - just clear preview
+      setPreviewBudget(null)
+      setPreviewSectionMetrics(null)
+    } finally {
+      setPreviewLoading(false)
     }
   }
 
@@ -525,12 +626,59 @@ export function ContextBundleModal({
                   type="button"
                   className="btn-standard"
                   onClick={handleGenerate}
-                  disabled={generating || selectedArtifactIds.size === 0}
+                  disabled={generating || selectedArtifactIds.size === 0 || (previewBudget?.exceeds ?? false)}
                   style={{ marginLeft: 'auto' }}
+                  title={previewBudget?.exceeds ? 'Bundle exceeds character budget. Please reduce bundle size before generating.' : undefined}
                 >
                   {generating ? 'Generating...' : 'Generate Bundle'}
                 </button>
               </div>
+
+              {/* Budget Preview */}
+              {previewBudget && (
+                <div style={{ 
+                  border: `2px solid ${previewBudget.exceeds ? 'var(--hal-status-error, #c62828)' : 'var(--hal-border)'}`, 
+                  borderRadius: '8px', 
+                  padding: '16px',
+                  background: previewBudget.exceeds ? 'var(--hal-status-error-bg, #ffebee)' : 'var(--hal-surface-alt)',
+                }}>
+                  <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', color: previewBudget.exceeds ? 'var(--hal-status-error, #c62828)' : 'inherit' }}>
+                    Character Budget: {previewBudget.displayName}
+                  </h4>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>Total Characters:</span>
+                      <span style={{ fontFamily: 'monospace', fontWeight: '600' }}>
+                        {previewBudget.characterCount.toLocaleString()} / {previewBudget.hardLimit.toLocaleString()}
+                      </span>
+                    </div>
+                    {previewBudget.exceeds && (
+                      <div style={{ 
+                        padding: '8px', 
+                        background: 'var(--hal-surface)', 
+                        borderRadius: '4px',
+                        color: 'var(--hal-status-error, #c62828)',
+                        fontWeight: '600',
+                      }}>
+                        ⚠️ Exceeds limit by {previewBudget.overage.toLocaleString()} characters
+                      </div>
+                    )}
+                    {previewSectionMetrics && (
+                      <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid var(--hal-border)' }}>
+                        <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '4px' }}>Per-Section Breakdown:</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px' }}>
+                          {Object.entries(previewSectionMetrics).map(([section, count]) => (
+                            <div key={section} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span>{section}:</span>
+                              <span style={{ fontFamily: 'monospace' }}>{count.toLocaleString()} chars</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Artifact Selection */}
               <div>
@@ -646,6 +794,35 @@ export function ContextBundleModal({
                       </div>
                     </div>
                   </div>
+
+                  {/* Budget Information */}
+                  {receipt.budget && (
+                    <div>
+                      <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>Character Budget</h4>
+                      <div style={{ background: 'var(--hal-surface-alt)', padding: '8px', borderRadius: '4px', fontSize: '14px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                          <span>Role:</span>
+                          <span style={{ fontWeight: '600' }}>{receipt.budget.displayName}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                          <span>Character Count:</span>
+                          <span style={{ fontFamily: 'monospace' }}>{receipt.budget.characterCount.toLocaleString()} / {receipt.budget.hardLimit.toLocaleString()}</span>
+                        </div>
+                        {receipt.budget.characterCount > receipt.budget.hardLimit && (
+                          <div style={{ 
+                            marginTop: '8px', 
+                            padding: '8px', 
+                            background: 'var(--hal-status-error-bg, #ffebee)', 
+                            borderRadius: '4px',
+                            color: 'var(--hal-status-error, #c62828)',
+                            fontWeight: '600',
+                          }}>
+                            ⚠️ Exceeds limit by {(receipt.budget.characterCount - receipt.budget.hardLimit).toLocaleString()} characters
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Section Metrics */}
                   <div>

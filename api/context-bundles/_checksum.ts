@@ -107,6 +107,7 @@ function canonicalizeJson(value: unknown): string {
 
 /**
  * Calculates per-section character counts from a context bundle.
+ * Uses deterministic JSON serialization to match the exact payload that will be sent.
  * 
  * @param bundleJson - The bundle JSON object
  * @returns Object mapping section names to character counts
@@ -117,38 +118,42 @@ export function calculateSectionMetrics(bundleJson: unknown): Record<string, num
   if (typeof bundleJson === 'object' && bundleJson !== null) {
     const bundle = bundleJson as Record<string, unknown>
     
-    // Common sections in context bundles
+    // All sections in ContextBundleV0 structure
     const sectionKeys = [
+      'meta',
+      'project_manifest',
       'ticket',
-      'repo_context',
-      'instructions',
-      'conversation',
       'state_snapshot',
-      'manifest',
-      'red',
-      'git_status',
+      'recent_deltas',
+      'repo_context',
+      'relevant_artifacts',
+      'instructions',
     ]
     
+    // Calculate character count for each section using deterministic JSON serialization
     for (const key of sectionKeys) {
       if (key in bundle) {
         const section = bundle[key]
-        if (typeof section === 'string') {
-          metrics[key] = section.length
-        } else if (section !== null && section !== undefined) {
-          // Convert to JSON string and count characters
-          metrics[key] = JSON.stringify(section).length
+        if (section !== null && section !== undefined) {
+          // Use canonical JSON serialization to match exact payload size
+          // This ensures the count matches what will actually be sent
+          const serialized = JSON.stringify(section)
+          metrics[key] = serialized.length
+        } else {
+          metrics[key] = 0
         }
       }
     }
     
-    // Also count any other top-level keys
+    // Also count any other top-level keys (for forward compatibility)
     for (const key of Object.keys(bundle)) {
       if (!sectionKeys.includes(key) && !metrics[key]) {
         const value = bundle[key]
-        if (typeof value === 'string') {
-          metrics[key] = value.length
-        } else if (value !== null && value !== undefined) {
-          metrics[key] = JSON.stringify(value).length
+        if (value !== null && value !== undefined) {
+          const serialized = JSON.stringify(value)
+          metrics[key] = serialized.length
+        } else {
+          metrics[key] = 0
         }
       }
     }
@@ -165,4 +170,18 @@ export function calculateSectionMetrics(bundleJson: unknown): Record<string, num
  */
 export function calculateTotalCharacters(sectionMetrics: Record<string, number>): number {
   return Object.values(sectionMetrics).reduce((sum, count) => sum + count, 0)
+}
+
+/**
+ * Calculates total character count directly from bundle JSON.
+ * Uses deterministic JSON serialization to match the exact payload that will be sent.
+ * 
+ * @param bundleJson - The bundle JSON object
+ * @returns Total character count of the serialized bundle
+ */
+export function calculateTotalCharactersFromBundle(bundleJson: unknown): number {
+  // Serialize the entire bundle to get the exact character count
+  // This matches what will be sent in the actual payload
+  const serialized = JSON.stringify(bundleJson)
+  return serialized.length
 }

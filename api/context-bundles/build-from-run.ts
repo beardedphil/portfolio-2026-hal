@@ -11,7 +11,9 @@ import {
   generateBundleChecksum,
   calculateSectionMetrics,
   calculateTotalCharacters,
+  calculateTotalCharactersFromBundle,
 } from './_checksum.js'
+import { getRoleBudget } from './_budgets.js'
 import { getLatestManifest } from '../_lib/integration-manifest/context-integration.js'
 import { getSession } from '../_lib/github/session.js'
 import { readJsonBody, json } from '../agent-runs/_shared.js'
@@ -242,9 +244,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       })
     }
 
-    // Calculate section metrics
+    // Calculate section metrics and total characters
     const sectionMetrics = calculateSectionMetrics(bundleJson)
-    const totalCharacters = calculateTotalCharacters(sectionMetrics)
+    const totalCharacters = calculateTotalCharactersFromBundle(bundleJson)
+    
+    // Get role budget
+    const budget = getRoleBudget(role)
 
     // Extract git ref from run if available
     const gitRef = run.pr_url
@@ -254,7 +259,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         }
       : null
 
-    // Insert receipt
+    // Insert receipt with budget information
     const { data: newReceipt, error: receiptError } = await supabase
       .from('bundle_receipts')
       .insert({
@@ -270,6 +275,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         red_reference: null,
         integration_manifest_reference: integrationManifestReference,
         git_ref: gitRef,
+        budget: budget
+          ? {
+              characterCount: totalCharacters,
+              hardLimit: budget.hardLimit,
+              role: budget.role,
+              displayName: budget.displayName,
+            }
+          : null,
       })
       .select()
       .single()

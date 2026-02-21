@@ -1,20 +1,15 @@
 /**
- * API endpoint to generate and store a Context Bundle for a ticket.
- * Creates both the bundle and its receipt with checksums and metrics.
+ * API endpoint to preview a Context Bundle without saving it.
+ * Returns budget information and section metrics for UI validation.
  */
 
 import type { IncomingMessage, ServerResponse } from 'http'
 import { createClient } from '@supabase/supabase-js'
 import { parseSupabaseCredentials } from '../tickets/_shared.js'
 import {
-  generateContentChecksum,
-  generateBundleChecksum,
   calculateSectionMetrics,
-  calculateTotalCharacters,
   calculateTotalCharactersFromBundle,
 } from './_checksum.js'
-import { getLatestManifest } from '../_lib/integration-manifest/context-integration.js'
-import { getSession } from '../_lib/github/session.js'
 import { buildContextBundleV0 } from './_builder.js'
 import { getRoleBudget, exceedsBudget, calculateOverage } from './_budgets.js'
 
@@ -56,11 +51,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       ticketId?: string
       repoFullName?: string
       role?: string
-      bundleJson?: unknown // Deprecated: builder now assembles bundle from authoritative sources
       selectedArtifactIds?: string[]
       supabaseUrl?: string
       supabaseAnonKey?: string
-      redReference?: { red_id: string; version: number } | null // Deprecated: builder fetches RED automatically
       gitRef?: {
         pr_url?: string
         pr_number?: number
@@ -159,26 +152,16 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       })
     }
 
-    // Get latest version for this ticket and role
-    const { data: latestBundles, error: latestError } = await supabase
-      .from('context_bundles')
-      .select('version')
-      .eq('repo_full_name', resolvedRepoFullName)
-      .eq('ticket_pk', resolvedTicketPk)
-      .eq('role', role)
-      .order('version', { ascending: false })
-      .limit(1)
-
-    if (latestError) {
-      return json(res, 500, {
+    // Get role budget
+    const budget = getRoleBudget(role)
+    if (!budget) {
+      return json(res, 400, {
         success: false,
-        error: `Failed to query existing bundles: ${latestError.message}`,
+        error: `Unknown role: ${role}. Valid roles: implementation-agent, qa-agent, project-manager, process-review`,
       })
     }
 
-    const nextVersion = latestBundles && latestBundles.length > 0 ? latestBundles[0].version + 1 : 1
-
-    // Build bundle using the v0 builder
+    // Build bundle (without saving)
     const builderResult = await buildContextBundleV0({
       ticketPk: resolvedTicketPk,
       ticketId: resolvedTicketId,
@@ -201,151 +184,24 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     // Calculate character count from exact JSON payload (deterministic)
     const totalCharacters = calculateTotalCharactersFromBundle(bundle)
-
-    // Check if bundle exceeds role budget
-    const budget = getRoleBudget(role)
-    if (!budget) {
-      return json(res, 400, {
-        success: false,
-        error: `Unknown role: ${role}. Valid roles: implementation-agent, qa-agent, project-manager, process-review`,
-      })
-    }
-
-    if (exceedsBudget(role, totalCharacters)) {
-      const overage = calculateOverage(role, totalCharacters)
-      const sectionMetrics = calculateSectionMetrics(bundle)
-      
-      return json(res, 400, {
-        success: false,
-        error: `Bundle exceeds character budget for ${budget.displayName}`,
-        budgetExceeded: true,
-        characterCount: totalCharacters,
-        hardLimit: budget.hardLimit,
-        overage,
-        sectionMetrics,
-      })
-    }
-
-    // Generate checksums (before setting them in meta)
-    const contentChecksum = generateContentChecksum(bundle)
-    const bundleChecksum = generateBundleChecksum(bundle, {
-      repoFullName: resolvedRepoFullName,
-      ticketPk: resolvedTicketPk,
-      ticketId: resolvedTicketId,
-      role,
-      version: nextVersion,
-    })
-
-    // Set checksums in meta
-    bundle.meta.content_checksum = contentChecksum
-    bundle.meta.bundle_checksum = bundleChecksum
-
-    const integrationManifestReference = builderResult.integrationManifestReference || null
-    const redReference = builderResult.redReference || null
-
-    // Get user identifier from session (if available)
-    let createdBy: string | undefined = 'system'
-    try {
-      const session = await getSession(req, res)
-      if (session.github?.user?.login) {
-        createdBy = `user:${session.github.user.login}`
-      }
-    } catch {
-      // Session not available, use default
-    }
-
-    // Set bundle_id in meta (will be set after insert)
-    const bundleForStorage = { ...bundle }
-
-    // Insert bundle
-    const { data: newBundle, error: insertError } = await supabase
-      .from('context_bundles')
-      .insert({
-        repo_full_name: resolvedRepoFullName,
-        ticket_pk: resolvedTicketPk,
-        ticket_id: resolvedTicketId,
-        role,
-        version: nextVersion,
-        bundle_json: bundleForStorage,
-        content_checksum: contentChecksum,
-        bundle_checksum: bundleChecksum,
-        created_by: createdBy,
-      })
-      .select()
-      .single()
-
-    if (insertError) {
-      return json(res, 500, {
-        success: false,
-        error: `Failed to store bundle: ${insertError.message}`,
-      })
-    }
-
-    // Calculate section metrics (already calculated totalCharacters above, but recalculate for consistency)
-    const sectionMetrics = calculateSectionMetrics(bundleForStorage)
-    const totalCharactersFromMetrics = calculateTotalCharacters(sectionMetrics)
-    
-    // Use the exact payload calculation (more accurate)
-    // totalCharacters was already calculated above from the exact JSON payload
-
-    // Insert receipt with budget information
-    const { data: newReceipt, error: receiptError } = await supabase
-      .from('bundle_receipts')
-      .insert({
-        bundle_id: newBundle.bundle_id,
-        repo_full_name: resolvedRepoFullName,
-        ticket_pk: resolvedTicketPk,
-        ticket_id: resolvedTicketId,
-        role,
-        content_checksum: contentChecksum,
-        bundle_checksum: bundleChecksum,
-        section_metrics: sectionMetrics,
-        total_characters: totalCharacters,
-        red_reference: redReference,
-        integration_manifest_reference: integrationManifestReference,
-        git_ref: body.gitRef || null,
-        budget: {
-          characterCount: totalCharacters,
-          hardLimit: budget.hardLimit,
-          role: budget.role,
-          displayName: budget.displayName,
-        },
-      })
-      .select()
-
-    if (receiptError) {
-      // Bundle was created but receipt failed - this is a problem
-      // We could rollback, but for now just return an error
-      return json(res, 500, {
-        success: false,
-        error: `Bundle created but failed to store receipt: ${receiptError.message}`,
-      })
-    }
+    const sectionMetrics = calculateSectionMetrics(bundle)
+    const exceeds = exceedsBudget(role, totalCharacters)
+    const overage = exceeds ? calculateOverage(role, totalCharacters) : 0
 
     return json(res, 200, {
       success: true,
-      bundle: {
-        bundle_id: newBundle.bundle_id,
-        version: newBundle.version,
-        role: newBundle.role,
-        created_at: newBundle.created_at,
-      },
-      receipt: {
-        receipt_id: newReceipt.receipt_id,
-        content_checksum: newReceipt.content_checksum,
-        bundle_checksum: newReceipt.bundle_checksum,
-        section_metrics: newReceipt.section_metrics,
-        total_characters: newReceipt.total_characters,
-      },
       budget: {
         characterCount: totalCharacters,
         hardLimit: budget.hardLimit,
         role: budget.role,
         displayName: budget.displayName,
+        exceeds,
+        overage,
       },
+      sectionMetrics,
     })
   } catch (err) {
-    console.error('Error in generate context bundle handler:', err)
+    console.error('Error in preview context bundle handler:', err)
     return json(res, 500, {
       success: false,
       error: err instanceof Error ? err.message : 'Internal server error',
