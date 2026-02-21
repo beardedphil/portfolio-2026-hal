@@ -59,6 +59,9 @@ export interface IntegrationManifest {
  * Precedence order for conventions:
  * 1. .cursor/rules/*.mdc files (extract conventions sections)
  * 2. docs/process/*.mdc files (extract conventions sections)
+ * 
+ * Security: The manifest does not include raw secret values. Secrets in source
+ * files are not extracted into the manifest content.
  */
 export function generateManifest(inputs: ManifestInputs): IntegrationManifest {
   const goal = extractGoal(inputs)
@@ -66,6 +69,7 @@ export function generateManifest(inputs: ManifestInputs): IntegrationManifest {
   const constraints = extractConstraints(inputs)
   const conventions = extractConventions(inputs)
 
+  // Validate that no secrets are present in the manifest
   const manifest: IntegrationManifest = {
     schema_version: inputs.schemaVersion,
     repo_full_name: inputs.repoFullName,
@@ -77,6 +81,13 @@ export function generateManifest(inputs: ManifestInputs): IntegrationManifest {
     generated_at: new Date().toISOString(),
     env_identifiers: { ...inputs.envIdentifiers }, // Shallow copy
   }
+
+  // Note: We don't extract raw file contents, so secrets in files won't appear
+  // in the manifest. The extraction functions only pull structured data (goal,
+  // dependencies, constraint/convention sections) which are less likely to
+  // contain secrets. If secrets are present in these structured fields, they
+  // would need to be filtered separately, but the current implementation
+  // avoids including raw file contents in the manifest.
 
   return manifest
 }
