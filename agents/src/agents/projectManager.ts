@@ -13,12 +13,7 @@ import {
   evaluateTicketReady,
   type ReadyCheckResult,
 } from '../lib/projectManagerHelpers.js'
-import {
-  listDirectory,
-  readFile,
-  searchFiles,
-  type ToolContext,
-} from './tools.js'
+import { type ToolContext } from './tools.js'
 import { type CheckUnassignedResult } from './projectManager/ticketOperations.js'
 import {
   respond,
@@ -50,6 +45,10 @@ import {
   buildPromptForModel,
 } from './projectManager/promptBuilding.js'
 import { createTicketTools } from './projectManager/ticketTools.js'
+import { createHalFetchJson, type HalFetchJson } from './projectManager/halApiClient.js'
+import { createRepositoryTools } from './projectManager/repositoryTools.js'
+import { createKanbanTools } from './projectManager/kanbanTools.js'
+import { createRedDocumentTool } from './projectManager/redTools.js'
 
 // Re-export for backward compatibility
 export type { ReadyCheckResult }
@@ -224,49 +223,7 @@ export async function runPmAgent(
 
   const isAbortError = (err: unknown) => isAbortErrorHelper(err, config.abortSignal)
 
-  const halFetchJson = async (
-    path: string,
-    body: unknown,
-    opts?: { timeoutMs?: number; progressMessage?: string }
-  ) => {
-    const timeoutMs = Math.max(1_000, Math.floor(opts?.timeoutMs ?? 20_000))
-    const controller = new AbortController()
-    const t = setTimeout(() => controller.abort(new Error('HAL request timeout')), timeoutMs)
-    const onAbort = () => controller.abort(config.abortSignal?.reason ?? new Error('Aborted'))
-    try {
-      const progress = String(opts?.progressMessage ?? '').trim()
-      if (progress) await config.onProgress?.(progress)
-      if (config.abortSignal) config.abortSignal.addEventListener('abort', onAbort, { once: true })
-      const res = await fetch(`${halBaseUrl}${path}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body ?? {}),
-        signal: controller.signal,
-      })
-      const text = await res.text()
-      let json: any = {}
-      if (text) {
-        try {
-          json = JSON.parse(text)
-        } catch (e) {
-          const contentType = res.headers.get('content-type') || 'unknown'
-          const prefix = text.slice(0, 200)
-          json = {
-            success: false,
-            error: `Non-JSON response from ${path} (HTTP ${res.status}, content-type: ${contentType}): ${prefix}`,
-          }
-        }
-      }
-      return { ok: res.ok, json }
-    } finally {
-      clearTimeout(t)
-      try {
-        if (config.abortSignal) config.abortSignal.removeEventListener('abort', onAbort)
-      } catch {
-        // ignore
-      }
-    }
-  }
+  const halFetchJson: HalFetchJson = createHalFetchJson(config, halBaseUrl)
 
   // Create ticket-related tools using extracted module
   const ticketTools = createTicketTools(toolCalls, config, halFetchJson, isAbortError)
@@ -308,426 +265,11 @@ export async function runPmAgent(
     },
   })
 
-  const listTicketsByColumnTool = tool({
-    description:
-      'List all tickets in a given Kanban column via the HAL API (server-side Supabase secret key).',
-    parameters: z.object({
-      column_id: z
-        .string()
-        .describe('Kanban column ID (e.g. "col-qa", "col-todo", "col-unassigned", "col-human-in-the-loop").'),
-    }),
-    execute: async (input: { column_id: string }) => {
-      type ListResult =
-        | {
-            success: true
-            column_id: string
-            tickets: Array<{ id: string; title: string; column: string }>
-            count: number
-          }
-        | { success: false; error: string }
-      let out: ListResult
-      try {
-        const repoFullName =
-          typeof config.projectId === 'string' && config.projectId.trim() ? config.projectId.trim() : undefined
-        const res = await fetch(`${halBaseUrl}/api/tickets/list-by-column`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ columnId: input.column_id, ...(repoFullName ? { repoFullName } : {}) }),
-        })
-        const data = (await res.json()) as any
-        if (!data?.success) {
-          out = { success: false, error: data?.error || 'Failed to list tickets' }
-          toolCalls.push({ name: 'list_tickets_by_column', input, output: out })
-          return out
-        }
-        const tickets = (Array.isArray(data.tickets) ? data.tickets : []).map((t: any) => ({
-          id: t.display_id ?? t.id,
-          title: t.title ?? '',
-          column: input.column_id,
-        }))
-        out = { success: true, column_id: input.column_id, tickets, count: tickets.length }
-      } catch (err) {
-        out = { success: false, error: err instanceof Error ? err.message : String(err) }
-      }
-      toolCalls.push({ name: 'list_tickets_by_column', input, output: out })
-      return out
-    },
-  })
+  // Create kanban-related tools using extracted module
+  const kanbanTools = createKanbanTools(toolCalls, halBaseUrl, halFetchJson, config)
 
-  const moveTicketToColumnTool = (() => {
-      return tool({
-        description:
-          'Move a ticket to a specified Kanban column by name (e.g. "Ready to Do", "QA", "Human in the Loop", "Will Not Implement") or column ID. Optionally specify position: "top", "bottom", or a numeric index (0-based). The Kanban UI will reflect the change within ~10 seconds. Use when the user asks to move a ticket to a named column or reorder within a column. For bulk moves, call this once per ticket (max 5 per request).',
-        parameters: z
-          .object({
-            ticket_id: z.string().describe('Ticket ID (e.g. "HAL-0121", "0121", or "121").'),
-            column_name: z
-              .union([z.string(), z.null()])
-              .describe(
-                'Column name (e.g. "Ready to Do", "To Do", "QA", "Human in the Loop"). Pass null when using column_id.'
-              ),
-            column_id: z
-              .union([z.string(), z.null()])
-              .describe(
-                'Column ID (e.g. "col-todo", "col-qa", "col-human-in-the-loop"). Pass null when using column_name.'
-              ),
-            position: z
-              .union([z.string(), z.number(), z.null()])
-              .describe(
-                'Position in column: "top" (move to top), "bottom" (move to bottom, default), or a number (0-based index, e.g. 0 for first, 1 for second). Pass null for the default ("bottom").'
-              ),
-          })
-          .refine(
-            (input) =>
-              (typeof input.column_name === 'string' && input.column_name.trim().length > 0) ||
-              (typeof input.column_id === 'string' && input.column_id.trim().length > 0),
-            {
-              message: 'Either column_name or column_id must be provided.',
-              path: ['column_name'],
-            }
-          ),
-        execute: async (input: {
-          ticket_id: string
-          column_name: string | null
-          column_id: string | null
-          position: string | number | null
-        }) => {
-          type MoveResult =
-            | {
-                success: true
-                ticket_id: string
-                column_id: string
-                column_name?: string
-                position: number
-                moved_at: string
-              }
-            | { success: false; error: string }
-          let out: MoveResult
-          try {
-            const baseUrl = process.env.HAL_API_BASE_URL || 'https://portfolio-2026-hal.vercel.app'
-            const columnName =
-              typeof input.column_name === 'string' && input.column_name.trim().length > 0
-                ? input.column_name
-                : undefined
-            const columnId =
-              typeof input.column_id === 'string' && input.column_id.trim().length > 0
-                ? input.column_id
-                : undefined
-            const position = input.position ?? undefined
-
-            const response = await fetch(`${baseUrl}/api/tickets/move`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                ticketId: input.ticket_id,
-                columnId,
-                columnName,
-                position,
-              }),
-            })
-
-            const result = await response.json()
-            if (result.success) {
-              out = {
-                success: true,
-                ticket_id: input.ticket_id,
-                column_id: result.columnId,
-                ...(result.columnName && { column_name: result.columnName }),
-                position: result.position,
-                moved_at: result.movedAt,
-              }
-            } else {
-              out = { success: false, error: result.error || 'Failed to move ticket' }
-            }
-          } catch (err) {
-            out = {
-              success: false,
-              error: err instanceof Error ? err.message : String(err),
-            }
-          }
-          toolCalls.push({ name: 'move_ticket_to_column', input, output: out })
-          return out
-        },
-      })
-    })()
-
-  const listAvailableReposTool = tool({
-    description:
-      'List all repositories (repo_full_name) that have tickets in the database via the HAL API.',
-    parameters: z.object({}),
-    execute: async () => {
-      type ListReposResult =
-        | { success: true; repos: Array<{ repo_full_name: string }>; count: number }
-        | { success: false; error: string }
-      let out: ListReposResult
-      try {
-        const res = await fetch(`${halBaseUrl}/api/tickets/list-repos`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
-        })
-        const data = (await res.json()) as any
-        if (!data?.success) {
-          out = { success: false, error: data?.error || 'Failed to list repos' }
-        } else {
-          out = {
-            success: true,
-            repos: Array.isArray(data.repos) ? data.repos : [],
-            count: typeof data.count === 'number' ? data.count : (Array.isArray(data.repos) ? data.repos.length : 0),
-          }
-        }
-      } catch (err) {
-        out = { success: false, error: err instanceof Error ? err.message : String(err) }
-      }
-      toolCalls.push({ name: 'list_available_repos', input: {}, output: out })
-      return out
-    },
-  })
-
-  const kanbanMoveTicketToOtherRepoTodoTool = tool({
-    description:
-      "Move a ticket to another repository's To Do. Disabled for PM agent until a dedicated HAL API endpoint exists (PM agent must be endpoint-only).",
-    parameters: z.object({
-      ticket_id: z.string().describe('Ticket id (e.g. "HAL-0012", "0012", or "12").'),
-      target_repo_full_name: z.string().describe('Target repository full name (e.g. "owner/other-repo").'),
-    }),
-    execute: async (input: { ticket_id: string; target_repo_full_name: string }) => {
-      const out = {
-        success: false as const,
-        error:
-          'kanban_move_ticket_to_other_repo_todo is disabled: PM agent must not access Supabase directly, and there is not yet a HAL API endpoint for cross-repo moves.',
-      }
-      toolCalls.push({ name: 'kanban_move_ticket_to_other_repo_todo', input, output: out })
-      return out
-    },
-  })
-
-  type CreateRedDocumentInput = {
-    ticket_id: string
-    red_json_content: string
-  }
-
-  const createRedDocumentTool = tool({
-    description:
-      'Create a Requirement Expansion Document (RED) for a ticket via the HAL API. RED documents are required before a ticket can be moved to To Do.',
-    parameters: jsonSchema<CreateRedDocumentInput>({
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        ticket_id: {
-          type: 'string',
-          description: 'Ticket id (e.g. "HAL-0012", "0012", or "12").',
-        },
-        red_json_content: {
-          type: 'string',
-          description:
-            'RED document content as a JSON string. Should contain expanded requirements, use cases, edge cases, and other detailed information. Will be parsed as JSON.',
-        },
-      },
-      // OpenAI tool schema validation requires `required` to include every key in `properties`
-      required: ['ticket_id', 'red_json_content'],
-    }),
-    execute: async (input: CreateRedDocumentInput) => {
-      type CreateRedResult =
-        | {
-            success: true
-            red_document: {
-              red_id: string
-              version: number
-              ticket_pk: string
-              repo_full_name: string
-            }
-          }
-        | { success: false; error: string }
-      let out: CreateRedResult
-      try {
-        // Fetch ticket to get ticketPk and repoFullName
-        const { json: fetched } = await halFetchJson(
-          '/api/tickets/get',
-          { ticketId: input.ticket_id },
-          { timeoutMs: 20_000, progressMessage: `Fetching ticket ${input.ticket_id} for RED…` }
-        )
-        if (!fetched?.success || !fetched?.ticket) {
-          out = { success: false, error: fetched?.error || `Ticket ${input.ticket_id} not found.` }
-          toolCalls.push({ name: 'create_red_document_v2', input, output: out })
-          return out
-        }
-
-        const ticket = fetched.ticket as any
-        const ticketPk = typeof ticket.pk === 'string' ? ticket.pk : undefined
-        const repoFullName = typeof ticket.repo_full_name === 'string' ? ticket.repo_full_name : undefined
-
-        if (!ticketPk || !repoFullName) {
-          out = {
-            success: false,
-            error: `Could not determine ticket_pk or repo_full_name for ticket ${input.ticket_id}.`,
-          }
-          toolCalls.push({ name: 'create_red_document_v2', input, output: out })
-          return out
-        }
-
-        // Idempotency: if a RED already exists, reuse it instead of creating new versions.
-        const { json: existing } = await halFetchJson(
-          '/api/red/list',
-          { ticketPk, repoFullName },
-          { timeoutMs: 20_000, progressMessage: `Checking existing REDs for ${input.ticket_id}…` }
-        )
-        if (existing?.success && Array.isArray(existing.red_versions) && existing.red_versions.length > 0) {
-          const latest = existing.red_versions[0] as any
-          // Best-effort: ensure it's validated for "latest-valid" gates
-          try {
-            await halFetchJson(
-              '/api/red/validate',
-              {
-                redId: latest.red_id,
-                result: 'valid',
-                createdBy: 'pm-agent',
-                notes: 'Auto-validated existing RED for To Do gate.',
-              },
-              { timeoutMs: 20_000, progressMessage: `Validating existing RED for ${input.ticket_id}…` }
-            )
-          } catch {
-            // Non-fatal
-          }
-
-          // Best-effort: create/update mirrored RED artifact for visibility in ticket Artifacts.
-          try {
-            const vNum = Number(latest.version ?? 0) || 0
-            const { json: redGet } = await halFetchJson(
-              '/api/red/get',
-              { ticketPk, ticketId: input.ticket_id, repoFullName, version: vNum },
-              { timeoutMs: 20_000, progressMessage: `Loading latest RED JSON for ${input.ticket_id}…` }
-            )
-            const redDoc = redGet?.success ? redGet.red_document : null
-            const redJsonForArtifact = redDoc?.red_json ?? null
-            if (redJsonForArtifact != null) {
-              const createdAt = typeof redDoc?.created_at === 'string' ? redDoc.created_at : new Date().toISOString()
-              const validationStatus =
-                typeof redDoc?.validation_status === 'string' ? redDoc.validation_status : 'pending'
-              const artifactTitle = `RED v${vNum || redDoc?.version || 0} — ${createdAt.split('T')[0]}`
-              const artifactBody = `# RED Document Version ${vNum || redDoc?.version || 0}
-
-RED ID: ${String(latest.red_id)}
-Created: ${createdAt}
-Validation Status: ${validationStatus}
-
-## Canonical RED JSON
-
-\`\`\`json
-${JSON.stringify(redJsonForArtifact, null, 2)}
-\`\`\`
-`
-              await halFetchJson(
-                '/api/artifacts/insert-implementation',
-                { ticketId: ticketPk, artifactType: 'red', title: artifactTitle, body_md: artifactBody },
-                { timeoutMs: 25_000, progressMessage: `Saving RED artifact for ${input.ticket_id}…` }
-              )
-            }
-          } catch {
-            // Non-fatal
-          }
-          out = {
-            success: true,
-            red_document: {
-              red_id: String(latest.red_id),
-              version: Number(latest.version ?? 0) || 0,
-              ticket_pk: ticketPk,
-              repo_full_name: repoFullName,
-            },
-          }
-          toolCalls.push({ name: 'create_red_document_v2', input, output: out })
-          return out
-        }
-
-        let redJsonParsed: unknown
-        try {
-          redJsonParsed = JSON.parse(input.red_json_content)
-        } catch (parseErr) {
-          out = {
-            success: false,
-            error: `Invalid JSON in red_json_content: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
-          }
-          toolCalls.push({ name: 'create_red_document_v2', input, output: out })
-          return out
-        }
-
-        // Create RED document via HAL API
-        const { json: created } = await halFetchJson(
-          '/api/red/insert',
-          {
-            ticketPk,
-            repoFullName,
-            redJson: redJsonParsed,
-            validationStatus: 'pending',
-            createdBy: 'pm-agent',
-          },
-          { timeoutMs: 25_000, progressMessage: `Creating RED for ${input.ticket_id}…` }
-        )
-        if (!created?.success || !created?.red_document) {
-          out = { success: false, error: created?.error || 'Failed to create RED document' }
-        } else {
-          // Option A: validate via separate table (immutable RED rows)
-          try {
-            await halFetchJson(
-              '/api/red/validate',
-              {
-                redId: created.red_document.red_id,
-                result: 'valid',
-                createdBy: 'pm-agent',
-                notes: 'Auto-validated for To Do gate (PM-generated RED).',
-              },
-              { timeoutMs: 20_000, progressMessage: `Validating RED for ${input.ticket_id}…` }
-            )
-          } catch {
-            // Non-fatal: RED exists but may not satisfy latest-valid gates until validated.
-          }
-
-          // Best-effort: create/update mirrored RED artifact for visibility in ticket Artifacts.
-          try {
-            const savedRED = created.red_document as any
-            const version = Number(savedRED?.version ?? 0) || 0
-            const createdAt = typeof savedRED?.created_at === 'string' ? savedRED.created_at : new Date().toISOString()
-            const validationStatus =
-              typeof savedRED?.validation_status === 'string' ? savedRED.validation_status : 'pending'
-            const redJsonForArtifact = savedRED?.red_json ?? redJsonParsed
-            const artifactTitle = `RED v${version} — ${createdAt.split('T')[0]}`
-            const artifactBody = `# RED Document Version ${version}
-
-RED ID: ${String(savedRED?.red_id ?? '')}
-Created: ${createdAt}
-Validation Status: ${validationStatus}
-
-## Canonical RED JSON
-
-\`\`\`json
-${JSON.stringify(redJsonForArtifact, null, 2)}
-\`\`\`
-`
-            await halFetchJson(
-              '/api/artifacts/insert-implementation',
-              { ticketId: ticketPk, artifactType: 'red', title: artifactTitle, body_md: artifactBody },
-              { timeoutMs: 25_000, progressMessage: `Saving RED artifact for ${input.ticket_id}…` }
-            )
-          } catch {
-            // Non-fatal
-          }
-          out = {
-            success: true,
-            red_document: {
-              red_id: created.red_document.red_id,
-              version: created.red_document.version,
-              ticket_pk: ticketPk,
-              repo_full_name: repoFullName,
-            },
-          }
-        }
-      } catch (err) {
-        out = { success: false, error: err instanceof Error ? err.message : String(err) }
-      }
-      toolCalls.push({ name: 'create_red_document_v2', input, output: out })
-      return out
-    },
-  })
+  // Create RED document tool using extracted module
+  const createRedDocumentToolInstance = createRedDocumentTool(toolCalls, halFetchJson)
 
   // Helper: use GitHub API when githubReadFile is provided (Connect GitHub Repo); otherwise use HAL repo (direct FS)
   const hasGitHubRepo =
@@ -743,36 +285,8 @@ ${JSON.stringify(redJsonForArtifact, null, 2)}
     console.warn(`[PM Agent] hasGitHubRepo=${hasGitHubRepo}, repoFullName=${config.repoFullName || 'NOT SET'}, hasGithubReadFile=${typeof config.githubReadFile === 'function'}, hasGithubSearchCode=${typeof config.githubSearchCode === 'function'}`)
   }
 
-  const readFileTool = tool({
-    description: hasGitHubRepo
-      ? 'Read file contents from the connected GitHub repo. Path is relative to repo root. Max 500 lines. Uses committed code on default branch.'
-      : 'Read file contents from HAL repo. Path is relative to repo root. Max 500 lines.',
-    parameters: z.object({
-      path: z.string().describe('File path (relative to repo/project root)'),
-    }),
-    execute: async (input) => {
-      let out: { content: string } | { error: string }
-      const usedGitHub = !!(hasGitHubRepo && config.githubReadFile)
-      repoUsage.push({ tool: 'read_file', usedGitHub, path: input.path })
-      if (hasGitHubRepo && config.githubReadFile) {
-        // Debug: log when using GitHub API (0119)
-        if (typeof console !== 'undefined' && console.log) {
-          console.log(`[PM Agent] Using GitHub API to read: ${config.repoFullName}/${input.path}`)
-        }
-        out = await config.githubReadFile(input.path, 500)
-      } else {
-        // Debug: log when falling back to HAL repo (0119)
-        if (typeof console !== 'undefined' && console.warn) {
-          console.warn(`[PM Agent] Falling back to HAL repo for: ${input.path} (hasGitHubRepo=${hasGitHubRepo}, hasGithubReadFile=${typeof config.githubReadFile === 'function'})`)
-        }
-        out = await readFile(ctx, input)
-      }
-      toolCalls.push({ name: 'read_file', input, output: out })
-      return typeof (out as { error?: string }).error === 'string'
-        ? JSON.stringify(out)
-        : out
-    },
-  })
+  // Create repository access tools using extracted module
+  const repositoryTools = createRepositoryTools(toolCalls, config, ctx, hasGitHubRepo, repoUsage)
 
   const getInstructionSetTool = tool({
     description:
@@ -835,72 +349,11 @@ ${JSON.stringify(redJsonForArtifact, null, 2)}
     },
   })
 
-  const searchFilesTool = tool({
-    description: hasGitHubRepo
-      ? 'Search code in the connected GitHub repo. Pattern is used as search term (GitHub does not support full regex).'
-      : 'Regex search across files in HAL repo. Pattern is JavaScript regex.',
-    parameters: z.object({
-      pattern: z.string().describe('Regex pattern to search for'),
-      glob: z.string().describe('Glob pattern to filter files (e.g. "**/*" for all, "**/*.ts" for TypeScript)'),
-    }),
-    execute: async (input) => {
-      let out: { matches: Array<{ path: string; line: number; text: string }> } | { error: string }
-      const usedGitHub = !!(hasGitHubRepo && config.githubSearchCode)
-      repoUsage.push({ tool: 'search_files', usedGitHub, path: input.pattern })
-      if (hasGitHubRepo && config.githubSearchCode) {
-        // Debug: log when using GitHub API (0119)
-        if (typeof console !== 'undefined' && console.log) {
-          console.log(`[PM Agent] Using GitHub API to search: ${config.repoFullName} pattern: ${input.pattern}`)
-        }
-        out = await config.githubSearchCode(input.pattern, input.glob)
-      } else {
-        // Debug: log when falling back to HAL repo (0119)
-        if (typeof console !== 'undefined' && console.warn) {
-          console.warn(`[PM Agent] Falling back to HAL repo for search: ${input.pattern} (hasGitHubRepo=${hasGitHubRepo}, hasGithubSearchCode=${typeof config.githubSearchCode === 'function'})`)
-        }
-        out = await searchFiles(ctx, { pattern: input.pattern, glob: input.glob })
-      }
-      toolCalls.push({ name: 'search_files', input, output: out })
-      return typeof (out as { error?: string }).error === 'string'
-        ? JSON.stringify(out)
-        : out
-    },
-  })
-
   const tools = {
     get_instruction_set: getInstructionSetTool,
-    list_directory: tool({
-      description: hasGitHubRepo
-        ? 'List files in a directory in the connected GitHub repo. Path is relative to repo root.'
-        : 'List files in a directory in HAL repo. Path is relative to repo root.',
-      parameters: z.object({
-        path: z.string().describe('Directory path (relative to repo/project root)'),
-      }),
-      execute: async (input) => {
-        let out: { entries: string[] } | { error: string }
-        const usedGitHub = !!(hasGitHubRepo && config.githubListDirectory)
-        repoUsage.push({ tool: 'list_directory', usedGitHub, path: input.path })
-        if (hasGitHubRepo && config.githubListDirectory) {
-          // Debug: log when using GitHub API (0119)
-          if (typeof console !== 'undefined' && console.log) {
-            console.log(`[PM Agent] Using GitHub API to list directory: ${config.repoFullName}/${input.path}`)
-          }
-          out = await config.githubListDirectory(input.path)
-        } else {
-          // Debug: log when falling back to HAL repo (0119)
-          if (typeof console !== 'undefined' && console.warn) {
-            console.warn(`[PM Agent] Falling back to HAL repo for list_directory: ${input.path} (hasGitHubRepo=${hasGitHubRepo}, hasGithubListDirectory=${typeof config.githubListDirectory === 'function'})`)
-          }
-          out = await listDirectory(ctx, input)
-        }
-        toolCalls.push({ name: 'list_directory', input, output: out })
-        return typeof (out as { error?: string }).error === 'string'
-          ? JSON.stringify(out)
-          : out
-      },
-    }),
-    read_file: readFileTool,
-    search_files: searchFilesTool,
+    list_directory: repositoryTools.list_directory,
+    read_file: repositoryTools.read_file,
+    search_files: repositoryTools.search_files,
     ...(ticketTools.create_ticket ? { create_ticket: ticketTools.create_ticket } : {}),
     ...(ticketTools.fetch_ticket_content ? { fetch_ticket_content: ticketTools.fetch_ticket_content } : {}),
     ...(attachImageToTicketTool ? { attach_image_to_ticket: attachImageToTicketTool } : {}),
@@ -908,13 +361,13 @@ ${JSON.stringify(redJsonForArtifact, null, 2)}
     ...(ticketTools.update_ticket_body ? { update_ticket_body: ticketTools.update_ticket_body } : {}),
     ...(syncTicketsTool ? { sync_tickets: syncTicketsTool } : {}),
     ...(ticketTools.kanban_move_ticket_to_todo ? { kanban_move_ticket_to_todo: ticketTools.kanban_move_ticket_to_todo } : {}),
-    ...(listTicketsByColumnTool ? { list_tickets_by_column: listTicketsByColumnTool } : {}),
-    ...(moveTicketToColumnTool ? { move_ticket_to_column: moveTicketToColumnTool } : {}),
-    ...(listAvailableReposTool ? { list_available_repos: listAvailableReposTool } : {}),
-    ...(kanbanMoveTicketToOtherRepoTodoTool
-      ? { kanban_move_ticket_to_other_repo_todo: kanbanMoveTicketToOtherRepoTodoTool }
+    ...(kanbanTools.list_tickets_by_column ? { list_tickets_by_column: kanbanTools.list_tickets_by_column } : {}),
+    ...(kanbanTools.move_ticket_to_column ? { move_ticket_to_column: kanbanTools.move_ticket_to_column } : {}),
+    ...(kanbanTools.list_available_repos ? { list_available_repos: kanbanTools.list_available_repos } : {}),
+    ...(kanbanTools.kanban_move_ticket_to_other_repo_todo
+      ? { kanban_move_ticket_to_other_repo_todo: kanbanTools.kanban_move_ticket_to_other_repo_todo }
       : {}),
-    ...(createRedDocumentTool ? { create_red_document_v2: createRedDocumentTool } : {}),
+    ...(createRedDocumentToolInstance ? { create_red_document_v2: createRedDocumentToolInstance } : {}),
   }
 
   const promptBase = `${contextPack}\n\n---\n\nRespond to the user message above using the tools as needed.`
