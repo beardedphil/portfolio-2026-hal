@@ -151,11 +151,13 @@ export function ArtifactsSection({
         {sortedArtifacts.map((artifact) => {
           // Use artifact title directly, or fall back to agent type display name
           const displayName = artifact.title || getAgentTypeDisplayName(artifact.agent_type)
+          // Check if this is an Integration Manifest artifact
+          const isIntegrationManifest = (artifact.title?.toLowerCase().includes('integration manifest') ?? false)
           return (
             <li key={artifact.artifact_id} className="artifacts-item">
               <button
                 type="button"
-                className="artifacts-item-button"
+                className={`artifacts-item-button ${isIntegrationManifest ? 'artifacts-item-integration-manifest' : ''}`}
                 onClick={() => onOpenArtifact(artifact)}
                 aria-label={`Open ${displayName}`}
               >

@@ -85,11 +85,38 @@ export async function getManifestByVersion(
 }
 
 /**
+ * Gets manifest reference information for inclusion in Context Bundles and Receipts.
+ * 
+ * @param repoFullName - Repository full name (owner/repo)
+ * @param schemaVersion - Schema version (default: 'v0')
+ * @returns Manifest reference with version and ID, or null if not found
+ */
+export async function getManifestReference(
+  repoFullName: string,
+  schemaVersion: string = 'v0'
+): Promise<{ manifest_id: string; version: number; schema_version: string } | null> {
+  const manifest = await getLatestManifest(repoFullName, schemaVersion)
+  if (!manifest) {
+    return null
+  }
+  return {
+    manifest_id: manifest.manifest_id,
+    version: manifest.version,
+    schema_version: manifest.schema_version,
+  }
+}
+
+/**
  * Example structure for including manifest in Context Bundle (T7):
  * 
  * ```typescript
  * interface ContextBundle {
  *   manifest: IntegrationManifestV0  // Latest manifest for the repo
+ *   manifest_reference: {
+ *     manifest_id: string
+ *     version: number
+ *     schema_version: string
+ *   } | null
  *   ticket: Ticket
  *   state_snapshot: StateSnapshot
  *   // ... other bundle contents
@@ -99,11 +126,18 @@ export async function getManifestByVersion(
  * Usage:
  * ```typescript
  * const manifest = await getLatestManifest(repoFullName)
+ * const manifestRef = await getManifestReference(repoFullName)
  * const bundle: ContextBundle = {
  *   manifest: manifest?.manifest_json || null,
+ *   manifest_reference: manifestRef,
  *   // ... other bundle contents
  * }
  * ```
+ * 
+ * **IMPORTANT:** When displaying Context Bundle details in the UI, show:
+ * - Manifest Version: {manifest_reference.version}
+ * - Manifest ID: {manifest_reference.manifest_id}
+ * - Schema Version: {manifest_reference.schema_version}
  */
 
 /**
@@ -112,8 +146,11 @@ export async function getManifestByVersion(
  * ```typescript
  * interface ContextReceipt {
  *   checksum: string
- *   manifest_version: number  // Version of manifest used
- *   manifest_id: string        // ID of manifest record
+ *   manifest_reference: {
+ *     manifest_id: string
+ *     version: number
+ *     schema_version: string
+ *   } | null
  *   artifact_versions: string[]
  *   snippet_references: SnippetReference[]
  * }
@@ -121,12 +158,16 @@ export async function getManifestByVersion(
  * 
  * Usage:
  * ```typescript
- * const manifest = await getLatestManifest(repoFullName)
+ * const manifestRef = await getManifestReference(repoFullName)
  * const receipt: ContextReceipt = {
  *   checksum: bundleChecksum,
- *   manifest_version: manifest?.version || null,
- *   manifest_id: manifest?.manifest_id || null,
+ *   manifest_reference: manifestRef,
  *   // ... other receipt contents
  * }
  * ```
+ * 
+ * **IMPORTANT:** When displaying Bundle Receipt in the UI, show:
+ * - Integration Manifest Version: {manifest_reference.version}
+ * - Integration Manifest ID: {manifest_reference.manifest_id}
+ * - Schema Version: {manifest_reference.schema_version}
  */

@@ -32,6 +32,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       defaultBranch?: string
       envIdentifiers?: Record<string, string>
       schemaVersion?: string
+      projectId?: string
     }
 
     if (!body.repoFullName || !body.defaultBranch) {
@@ -55,7 +56,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       token,
       body.repoFullName,
       body.defaultBranch,
-      body.envIdentifiers || {}
+      body.envIdentifiers || {},
+      body.projectId
     )
 
     if ('error' in manifestResult) {

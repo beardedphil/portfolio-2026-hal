@@ -13,11 +13,14 @@ interface ManifestResponse {
     schema_version: string
     repo_full_name: string
     default_branch: string
+    project_id: string
     env_identifiers: Record<string, string>
-    goal: string
-    stack: Record<string, string[]>
-    constraints: Record<string, string>
-    conventions: Record<string, string>
+    project_manifest: {
+      goal: string
+      stack: Record<string, string[]>
+      constraints: Record<string, string>
+      conventions: Record<string, string>
+    }
     generated_at: string
   }
   manifest_id?: string
@@ -159,28 +162,34 @@ export function IntegrationManifestModal({
               <div className="manifest-content">
                 <h3>Manifest Contents</h3>
                 <div className="manifest-section">
+                  <h4>Repository Information</h4>
+                  <p><strong>Repository:</strong> {result.manifest.repo_full_name}</p>
+                  <p><strong>Default Branch:</strong> {result.manifest.default_branch}</p>
+                  <p><strong>Project ID:</strong> {result.manifest.project_id}</p>
+                </div>
+                <div className="manifest-section">
                   <h4>Goal</h4>
-                  <p>{result.manifest.goal}</p>
+                  <p>{result.manifest.project_manifest?.goal}</p>
                 </div>
 
-                {Object.keys(result.manifest.stack).length > 0 && (
+                {Object.keys(result.manifest.project_manifest?.stack || {}).length > 0 && (
                   <div className="manifest-section">
                     <h4>Stack</h4>
-                    <pre>{JSON.stringify(result.manifest.stack, null, 2)}</pre>
+                    <pre>{JSON.stringify(result.manifest.project_manifest.stack, null, 2)}</pre>
                   </div>
                 )}
 
-                {Object.keys(result.manifest.constraints).length > 0 && (
+                {Object.keys(result.manifest.project_manifest?.constraints || {}).length > 0 && (
                   <div className="manifest-section">
                     <h4>Constraints</h4>
-                    <pre>{JSON.stringify(result.manifest.constraints, null, 2)}</pre>
+                    <pre>{JSON.stringify(result.manifest.project_manifest.constraints, null, 2)}</pre>
                   </div>
                 )}
 
-                {Object.keys(result.manifest.conventions).length > 0 && (
+                {Object.keys(result.manifest.project_manifest?.conventions || {}).length > 0 && (
                   <div className="manifest-section">
                     <h4>Conventions</h4>
-                    <pre>{JSON.stringify(result.manifest.conventions, null, 2)}</pre>
+                    <pre>{JSON.stringify(result.manifest.project_manifest.conventions, null, 2)}</pre>
                   </div>
                 )}
 
