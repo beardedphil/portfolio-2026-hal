@@ -217,6 +217,37 @@ export async function runPmAgent(
 
   const halBaseUrl = (process.env.HAL_API_BASE_URL || 'https://portfolio-2026-hal.vercel.app').trim()
 
+  const isAbortError = (err: unknown) =>
+    config.abortSignal?.aborted === true ||
+    (typeof (err as any)?.name === 'string' && String((err as any).name).toLowerCase() === 'aborterror') ||
+    (err instanceof Error && /aborted|abort/i.test(err.message))
+
+  const halFetchJson = async (path: string, body: unknown, opts?: { timeoutMs?: number }) => {
+    const timeoutMs = Math.max(1_000, Math.floor(opts?.timeoutMs ?? 20_000))
+    const controller = new AbortController()
+    const t = setTimeout(() => controller.abort(new Error('HAL request timeout')), timeoutMs)
+    const onAbort = () => controller.abort(config.abortSignal?.reason ?? new Error('Aborted'))
+    try {
+      if (config.abortSignal) config.abortSignal.addEventListener('abort', onAbort, { once: true })
+      const res = await fetch(`${halBaseUrl}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body ?? {}),
+        signal: controller.signal,
+      })
+      const text = await res.text()
+      const json = text ? JSON.parse(text) : {}
+      return { ok: res.ok, json }
+    } finally {
+      clearTimeout(t)
+      try {
+        if (config.abortSignal) config.abortSignal.removeEventListener('abort', onAbort)
+      } catch {
+        // ignore
+      }
+    }
+  }
+
   const createTicketTool = tool({
     description:
       'Create a new ticket via the HAL API (server-side Supabase secret key). The ticket is created in Unassigned; if it already passes the Ready-to-start checklist, HAL may auto-move it to To Do.',
@@ -263,17 +294,16 @@ export async function runPmAgent(
             ? config.projectId.trim()
             : 'beardedphil/portfolio-2026-hal'
 
-        const createRes = await fetch(`${halBaseUrl}/api/tickets/create-general`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        const { json: created } = await halFetchJson(
+          '/api/tickets/create-general',
+          {
             title: input.title.trim(),
             body_md: bodyMdTrimmed,
             repo_full_name: repoFullName,
             kanban_column_id: COL_UNASSIGNED,
-          }),
-        })
-        const created = (await createRes.json()) as any
+          },
+          { timeoutMs: 25_000 }
+        )
         if (!created?.success || !created?.ticketId) {
           out = { success: false, error: created?.error || 'Failed to create ticket' }
           toolCalls.push({ name: 'create_ticket', input, output: out })
@@ -290,14 +320,14 @@ export async function runPmAgent(
         const normalizedBodyMd = normalizeTitleLineInBody(bodyMdTrimmed, displayId)
         // Persist normalized Title line (and strip QA blocks server-side).
         try {
-          await fetch(`${halBaseUrl}/api/tickets/update`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+          await halFetchJson(
+            '/api/tickets/update',
+            {
               ...(ticketPk ? { ticketPk } : { ticketId: displayId }),
               body_md: normalizedBodyMd,
-            }),
-          })
+            },
+            { timeoutMs: 20_000 }
+          )
         } catch {
           // Non-fatal: ticket is still created.
         }
@@ -307,12 +337,11 @@ export async function runPmAgent(
         let movedToTodo = false
         let moveError: string | undefined
         if (readiness.ready) {
-          const moveRes = await fetch(`${halBaseUrl}/api/tickets/move`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ticketId: displayId, columnId: COL_TODO, position: 'bottom' }),
-          })
-          const moved = (await moveRes.json()) as any
+          const { json: moved } = await halFetchJson(
+            '/api/tickets/move',
+            { ticketId: displayId, columnId: COL_TODO, position: 'bottom' },
+            { timeoutMs: 25_000 }
+          )
           if (moved?.success) movedToTodo = true
           else moveError = moved?.error || 'Failed to move to To Do'
         }
@@ -331,6 +360,7 @@ export async function runPmAgent(
           ...(moveError ? { moveError } : {}),
         }
       } catch (err) {
+        if (isAbortError(err)) throw err
         out = { success: false, error: err instanceof Error ? err.message : String(err) }
       }
 
@@ -375,12 +405,11 @@ export async function runPmAgent(
 
       let out: FetchResult
       try {
-        const res = await fetch(`${halBaseUrl}/api/tickets/get`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ticketId: input.ticket_id }),
-        })
-        const data = (await res.json()) as any
+        const { json: data } = await halFetchJson(
+          '/api/tickets/get',
+          { ticketId: input.ticket_id },
+          { timeoutMs: 20_000 }
+        )
         if (!data?.success || !data?.ticket) {
           out = { success: false, error: data?.error || `Ticket ${input.ticket_id} not found.` }
           toolCalls.push({ name: 'fetch_ticket_content', input, output: out })
@@ -402,6 +431,7 @@ export async function runPmAgent(
           ticket,
         }
       } catch (err) {
+        if (isAbortError(err)) throw err
         out = { success: false, error: err instanceof Error ? err.message : String(err) }
       }
 
@@ -474,12 +504,11 @@ export async function runPmAgent(
         bodyMdTrimmed = normalizeBodyForReady(bodyMdTrimmed)
 
         // Fetch ticket to get display_id / pk for robust update.
-        const fetchRes = await fetch(`${halBaseUrl}/api/tickets/get`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ticketId: input.ticket_id }),
-        })
-        const fetched = (await fetchRes.json()) as any
+        const { json: fetched } = await halFetchJson(
+          '/api/tickets/get',
+          { ticketId: input.ticket_id },
+          { timeoutMs: 20_000 }
+        )
         if (!fetched?.success || !fetched?.ticket) {
           out = { success: false, error: fetched?.error || `Ticket ${input.ticket_id} not found.` }
           toolCalls.push({ name: 'update_ticket_body', input, output: out })
@@ -491,15 +520,14 @@ export async function runPmAgent(
         const ticketPk = typeof ticket.pk === 'string' ? ticket.pk : undefined
         const normalizedBodyMd = normalizeTitleLineInBody(bodyMdTrimmed, displayId)
 
-        const updateRes = await fetch(`${halBaseUrl}/api/tickets/update`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        const { json: updated } = await halFetchJson(
+          '/api/tickets/update',
+          {
             ...(ticketPk ? { ticketPk } : { ticketId: displayId }),
             body_md: normalizedBodyMd,
-          }),
-        })
-        const updated = (await updateRes.json()) as any
+          },
+          { timeoutMs: 20_000 }
+        )
         if (!updated?.success) {
           out = { success: false, error: updated?.error || 'Failed to update ticket' }
           toolCalls.push({ name: 'update_ticket_body', input, output: out })
@@ -514,6 +542,7 @@ export async function runPmAgent(
           ...(readiness.missingItems.length > 0 ? { missingItems: readiness.missingItems } : {}),
         }
       } catch (err) {
+        if (isAbortError(err)) throw err
         out = { success: false, error: err instanceof Error ? err.message : String(err) }
       }
       toolCalls.push({ name: 'update_ticket_body', input, output: out })
@@ -564,12 +593,11 @@ export async function runPmAgent(
       let out: MoveResult
       try {
         // Fetch current column and preferred display id
-        const fetchRes = await fetch(`${halBaseUrl}/api/tickets/get`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ticketId: input.ticket_id }),
-        })
-        const fetched = (await fetchRes.json()) as any
+        const { json: fetched } = await halFetchJson(
+          '/api/tickets/get',
+          { ticketId: input.ticket_id },
+          { timeoutMs: 20_000 }
+        )
         if (!fetched?.success || !fetched?.ticket) {
           out = { success: false, error: fetched?.error || `Ticket ${input.ticket_id} not found.` }
           toolCalls.push({ name: 'kanban_move_ticket_to_todo', input, output: out })
@@ -588,18 +616,18 @@ export async function runPmAgent(
         }
         const ticketIdToMove = String(ticket.display_id || input.ticket_id)
         const position = input.position ?? 'bottom'
-        const moveRes = await fetch(`${halBaseUrl}/api/tickets/move`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ticketId: ticketIdToMove, columnId: COL_TODO, position }),
-        })
-        const moved = (await moveRes.json()) as any
+        const { json: moved } = await halFetchJson(
+          '/api/tickets/move',
+          { ticketId: ticketIdToMove, columnId: COL_TODO, position },
+          { timeoutMs: 25_000 }
+        )
         if (!moved?.success) {
           out = { success: false, error: moved?.error || 'Failed to move ticket' }
         } else {
           out = { success: true, ticketId: ticketIdToMove, fromColumn: COL_UNASSIGNED, toColumn: COL_TODO }
         }
       } catch (err) {
+        if (isAbortError(err)) throw err
         out = { success: false, error: err instanceof Error ? err.message : String(err) }
       }
       toolCalls.push({ name: 'kanban_move_ticket_to_todo', input, output: out })
