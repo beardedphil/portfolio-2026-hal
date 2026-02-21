@@ -7,6 +7,7 @@ import type { IncomingMessage, ServerResponse } from 'http'
 import { createClient } from '@supabase/supabase-js'
 import { parseSupabaseCredentialsWithServiceRole } from '../tickets/_shared.js'
 import { generateRedChecksum } from './_checksum.js'
+import { getLatestManifest } from '../manifests/_helpers.js'
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []
@@ -46,6 +47,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       ticketPk?: string
       ticketId?: string
       repoFullName?: string
+      defaultBranch?: string
       redJson: unknown
       validationStatus?: 'valid' | 'invalid' | 'pending'
       createdBy?: string
@@ -57,6 +59,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const ticketPk = typeof body.ticketPk === 'string' ? body.ticketPk.trim() || undefined : undefined
     const ticketId = typeof body.ticketId === 'string' ? body.ticketId.trim() || undefined : undefined
     const repoFullName = typeof body.repoFullName === 'string' ? body.repoFullName.trim() || undefined : undefined
+    const defaultBranch = typeof body.defaultBranch === 'string' ? body.defaultBranch.trim() : undefined
     const redJson = body.redJson
     const validationStatus = body.validationStatus || 'pending'
     const createdBy = typeof body.createdBy === 'string' ? body.createdBy.trim() || undefined : undefined
@@ -177,8 +180,22 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       ? (existingVersions[0].version as number) + 1
       : 1
 
+    // Get latest manifest for this repo/branch (if available)
+    let manifestId: string | null = null
+    if (resolvedRepoFullName && defaultBranch) {
+      const manifest = await getLatestManifest(supabase, resolvedRepoFullName, defaultBranch)
+      if (manifest) {
+        manifestId = manifest.manifest_id
+      }
+    }
+
+    // Add manifest reference to redJson if manifest exists
+    const redJsonWithManifest = manifestId
+      ? { ...(typeof redJson === 'object' && redJson !== null ? redJson : {}), manifest_id: manifestId }
+      : redJson
+
     // Generate deterministic checksum
-    const contentChecksum = generateRedChecksum(redJson)
+    const contentChecksum = generateRedChecksum(redJsonWithManifest)
 
     // Insert new RED version
     const { data: insertedRed, error: insertError } = await supabase
@@ -187,7 +204,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         repo_full_name: resolvedRepoFullName,
         ticket_pk: resolvedTicketPk,
         version: nextVersion,
-        red_json: redJson,
+        red_json: redJsonWithManifest,
         content_checksum: contentChecksum,
         validation_status: validationStatus,
         created_by: createdBy || null,

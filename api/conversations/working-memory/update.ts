@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { createClient } from '@supabase/supabase-js'
+import { getLatestManifest } from '../../manifests/_helpers.js'
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []
@@ -39,6 +40,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const body = (await readJsonBody(req)) as {
       projectId?: string
       agent?: string
+      repoFullName?: string
+      defaultBranch?: string
       supabaseUrl?: string
       supabaseAnonKey?: string
       openaiApiKey?: string
@@ -246,6 +249,22 @@ Return ONLY the JSON object, no other text.`
         stakeholders?: string[]
       }
 
+      // Get latest manifest for this repo/branch (if available)
+      const repoFullName = typeof body.repoFullName === 'string' ? body.repoFullName.trim() : undefined
+      const defaultBranch = typeof body.defaultBranch === 'string' ? body.defaultBranch.trim() : undefined
+      let manifestId: string | null = null
+      if (repoFullName && defaultBranch) {
+        const manifest = await getLatestManifest(supabase, repoFullName, defaultBranch)
+        if (manifest) {
+          manifestId = manifest.manifest_id
+        }
+      }
+
+      // Add manifest reference to glossary if manifest exists
+      const glossaryWithManifest = manifestId
+        ? { ...(workingMemory.glossary || {}), _manifest_id: manifestId }
+        : workingMemory.glossary || {}
+
       // Upsert working memory
       const { error: upsertError } = await supabase
         .from('hal_conversation_working_memory')
@@ -260,7 +279,7 @@ Return ONLY the JSON object, no other text.`
             decisions: workingMemory.decisions || [],
             assumptions: workingMemory.assumptions || [],
             open_questions: workingMemory.openQuestions || [],
-            glossary: workingMemory.glossary || {},
+            glossary: glossaryWithManifest,
             stakeholders: workingMemory.stakeholders || [],
             through_sequence: currentSequence,
             last_updated_at: new Date().toISOString(),
@@ -286,7 +305,7 @@ Return ONLY the JSON object, no other text.`
           decisions: workingMemory.decisions || [],
           assumptions: workingMemory.assumptions || [],
           openQuestions: workingMemory.openQuestions || [],
-          glossary: workingMemory.glossary || {},
+          glossary: glossaryWithManifest,
           stakeholders: workingMemory.stakeholders || [],
           lastUpdatedAt: new Date().toISOString(),
           throughSequence: currentSequence,
