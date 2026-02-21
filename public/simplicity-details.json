@@ -21,6 +21,10 @@
       "maintainability": 0
     },
     {
+      "file": "api/agent-runs/providers/openai.ts",
+      "maintainability": 0
+    },
+    {
       "file": "api/agent-runs/status.ts",
       "maintainability": 0
     },
@@ -35,10 +39,6 @@
     {
       "file": "projects/kanban/src/App.tsx",
       "maintainability": 0
-    },
-    {
-      "file": "api/agent-runs/providers/openai.ts",
-      "maintainability": 1.13
     },
     {
       "file": "api/instructions/get-index.ts",
@@ -83,33 +83,33 @@
   ],
   "mostRecentImprovements": [
     {
-      "file": "agents/src/agents/projectManager/runPmAgent.ts",
-      "before": 0,
-      "after": 167.17,
-      "delta": 167.17
-    },
-    {
-      "file": "agents/src/agents/projectManager/contextPack.ts",
-      "before": 0,
-      "after": 120.15,
-      "delta": 120.15
-    },
-    {
-      "file": "api/artifacts/get.ts",
-      "before": 32.38,
-      "after": 32.38,
+      "file": "api/tickets/create-pr.ts",
+      "before": 25.54,
+      "after": 25.54,
       "delta": 0
     },
     {
-      "file": "api/pm/working-memory.ts",
-      "before": 35.13,
-      "after": 35.13,
+      "file": "api/auth/github/callback.ts",
+      "before": 24.45,
+      "after": 24.45,
       "delta": 0
     },
     {
-      "file": "api/tickets/create-from-suggestion.ts",
-      "before": 33.81,
-      "after": 33.81,
+      "file": "src/hooks/useProcessReview.ts",
+      "before": 18.54,
+      "after": 18.54,
+      "delta": 0
+    },
+    {
+      "file": "api/instructions/get-index.ts",
+      "before": 7.99,
+      "after": 7.99,
+      "delta": 0
+    },
+    {
+      "file": "api/instructions/get-topic.ts",
+      "before": 26.6,
+      "after": 26.6,
       "delta": 0
     },
     {
@@ -125,7 +125,7 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-21T20:21:28.333Z",
+  "generatedAt": "2026-02-21T20:40:46.222Z",
   "filesAnalyzed": 318,
   "unroundedMaintainability": 39.6,
   "unroundedSimplicity": 39.6
