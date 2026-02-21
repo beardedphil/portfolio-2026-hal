@@ -77,18 +77,8 @@ function App() {
   // Diagnostics panel no longer visible - floating widget replaces sidebar (0698)
   // const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const [connectedProject, setConnectedProject] = useState<string | null>(null)
-  // Theme state with localStorage persistence
-  const [theme, setTheme] = useState<Theme>(() => {
-    try {
-      const stored = localStorage.getItem('hal-theme')
-      if (stored === 'dark' || stored === 'lcars' || stored === 'arrested') {
-        return stored
-      }
-      return 'dark'
-    } catch {
-      return 'dark'
-    }
-  })
+  // Theme is always 'dark' - no user control
+  const theme: Theme = 'dark'
   // These are used in logic but not displayed in UI with floating widget (0698)
   const [_lastPmOutboundRequest, setLastPmOutboundRequest] = useState<object | null>(null)
   const [_lastPmToolCalls, setLastPmToolCalls] = useState<ToolCallRecord[] | null>(null)
@@ -308,15 +298,15 @@ function App() {
     }
   }, [selectedChatTarget])
 
-  // Apply theme to document root on mount and when theme changes
+  // Apply dark theme to document root on mount
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme)
+    document.documentElement.setAttribute('data-theme', 'dark')
     try {
-      localStorage.setItem('hal-theme', theme)
+      localStorage.setItem('hal-theme', 'dark')
     } catch {
       // Ignore localStorage errors
     }
-  }, [theme])
+  }, [])
 
   // Restore connected GitHub repo from localStorage on load (0119: fix repo display after refresh)
   // The repo state is restored for UI display; Kanban will receive the connection message when the iframe loads
@@ -704,8 +694,6 @@ function App() {
         disconnectButtonRef={disconnectButtonRef}
         onCoverageReportClick={() => setCoverageReportOpen(true)}
         onMaintainabilityReportClick={() => setMaintainabilityReportOpen(true)}
-        theme={theme}
-        onThemeChange={setTheme}
       />
 
       {githubConnectError && (

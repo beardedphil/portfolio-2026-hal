@@ -22,11 +22,8 @@ export function getMessageAuthorLabel(agent: Message['agent']): string {
 }
 
 export function getInitialTheme(): Theme {
-  const stored = localStorage.getItem(THEME_STORAGE_KEY)
-  if (stored === 'light' || stored === 'dark' || stored === 'lcars' || stored === 'arrested') {
-    return stored
-  }
-  return 'light'
+  // Always return 'dark' - theme dropdown removed (0797)
+  return 'dark'
 }
 
 export { THEME_STORAGE_KEY }
