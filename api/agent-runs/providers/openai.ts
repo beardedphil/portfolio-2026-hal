@@ -445,6 +445,28 @@ async function advanceProjectManagerOpenAI({ supabase, run, budgetMs }: AdvanceR
   } catch (e) {
     const isAbort = e instanceof Error && /aborted|abort/i.test(e.message)
     if (isAbort) {
+      // If we already produced a substantive reply, treat it as final and stop the run.
+      // This prevents repeated time-slice retries from spamming stage/progress messages
+      // after the user has already received a usable response.
+      const trimmed = reply.trim()
+      if (trimmed.length >= 300) {
+        const summary = capText(trimmed, 20_000)
+        await supabase
+          .from('hal_agent_runs')
+          .update({
+            provider: 'openai',
+            model,
+            status: 'completed',
+            current_stage: 'completed',
+            summary,
+            output_json: { reply: summary, partial: true },
+            finished_at: new Date().toISOString(),
+          })
+          .eq('run_id', run.run_id)
+        await appendRunEvent(supabase, run.run_id, 'done', { summary })
+        return { ok: true, done: true }
+      }
+
       await supabase
         .from('hal_agent_runs')
         .update({
