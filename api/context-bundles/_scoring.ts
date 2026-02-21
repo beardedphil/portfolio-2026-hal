@@ -183,16 +183,20 @@ export function selectArtifacts(
   // Score all candidates
   const scored = candidates.map((candidate) => scoreArtifact(candidate, options))
 
-  // Sort by score (descending), then by created_at (descending) for determinism
+  // Sort by score (descending), then by created_at (descending), then by artifact_id for determinism
   scored.sort((a, b) => {
     if (Math.abs(a.score - b.score) > 0.01) {
       // Scores are different enough to matter
       return b.score - a.score
     }
-    // Tie-breaker: newer artifacts first
+    // Tie-breaker 1: newer artifacts first
     const aDate = new Date(a.created_at).getTime()
     const bDate = new Date(b.created_at).getTime()
-    return bDate - aDate
+    if (aDate !== bDate) {
+      return bDate - aDate
+    }
+    // Tie-breaker 2: artifact_id for complete determinism
+    return a.artifact_id.localeCompare(b.artifact_id)
   })
 
   // Select top N, but always include pinned artifacts
