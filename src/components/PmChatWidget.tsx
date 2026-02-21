@@ -56,6 +56,20 @@ export function PmChatWidget({
 }: PmChatWidgetProps) {
   // Component only renders when parent determines it should be visible (button is handled by parent)
 
+  const sortedMessages = React.useMemo(() => {
+    const withIndex = displayMessages.map((m, idx) => ({ m, idx }))
+    withIndex.sort((a, b) => {
+      const ta = a.m.timestamp ? new Date(a.m.timestamp).getTime() : 0
+      const tb = b.m.timestamp ? new Date(b.m.timestamp).getTime() : 0
+      if (ta !== tb) return ta - tb
+      const ia = typeof a.m.id === 'number' && Number.isFinite(a.m.id) ? a.m.id : NaN
+      const ib = typeof b.m.id === 'number' && Number.isFinite(b.m.id) ? b.m.id : NaN
+      if (!Number.isNaN(ia) && !Number.isNaN(ib) && ia !== ib) return ia - ib
+      return a.idx - b.idx
+    })
+    return withIndex.map((x) => x.m)
+  }, [displayMessages])
+
   return (
     <div className={`pm-chat-widget ${isFullscreen ? 'pm-chat-widget-fullscreen' : 'pm-chat-widget-small'}`}>
       <div className="pm-chat-widget-header">
@@ -143,7 +157,7 @@ export function PmChatWidget({
               ;(transcriptRef as React.MutableRefObject<HTMLDivElement | null>).current = el
             }}
           >
-            {displayMessages.length === 0 && agentTypingTarget !== displayTarget ? (
+            {sortedMessages.length === 0 && agentTypingTarget !== displayTarget ? (
               <p className="transcript-empty">
                 {displayTarget === 'project-manager'
                   ? 'Send a message to the Project Manager to get started.'
@@ -155,7 +169,7 @@ export function PmChatWidget({
               </p>
             ) : (
               <>
-                {displayMessages.map((msg) => (
+                {sortedMessages.map((msg) => (
                   <div key={msg.id} className={`message-row message-row-${msg.agent}`} data-agent={msg.agent}>
                     <div
                       className={`message message-${msg.agent} ${displayTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText ? 'message-clickable' : ''}`}
