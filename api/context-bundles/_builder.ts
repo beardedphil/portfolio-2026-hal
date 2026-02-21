@@ -93,6 +93,12 @@ export interface BuilderResult {
     version: number
     schema_version: string
   } | null
+  artifactReferences?: Array<{
+    artifact_id: string
+    artifact_title: string
+    artifact_version: string
+    snippet: string
+  }>
   error?: string
 }
 
@@ -171,6 +177,13 @@ export async function buildContextBundleV0(
       selectedArtifactIds
     )
 
+    // 6b. Get artifact references with exact snippets for receipt
+    const artifactReferences = await getArtifactReferences(
+      supabase,
+      ticketPk,
+      selectedArtifactIds
+    )
+
     // 7. Get instructions (role-specific)
     const instructions = await getRoleSpecificInstructions(supabase, repoFullName, role)
 
@@ -201,6 +214,7 @@ export async function buildContextBundleV0(
       bundle,
       redReference,
       integrationManifestReference,
+      artifactReferences,
     }
   } catch (err) {
     return {
@@ -439,6 +453,44 @@ async function getRelevantArtifacts(
   }
 
   return distilledArtifacts
+}
+
+/**
+ * Gets artifact references with exact snippets for receipt storage.
+ * Returns array of artifact references with full body_md as snippet.
+ */
+export async function getArtifactReferences(
+  supabase: ReturnType<typeof createClient>,
+  ticketPk: string,
+  selectedArtifactIds: string[]
+): Promise<Array<{
+  artifact_id: string
+  artifact_title: string
+  artifact_version: string // created_at as ISO string
+  snippet: string // verbatim body_md
+}>> {
+  if (selectedArtifactIds.length === 0) {
+    return []
+  }
+
+  // Fetch artifacts with created_at for version tracking
+  const { data: artifacts, error: artifactsError } = await supabase
+    .from('agent_artifacts')
+    .select('artifact_id, title, body_md, created_at')
+    .in('artifact_id', selectedArtifactIds)
+    .eq('ticket_pk', ticketPk)
+
+  if (artifactsError || !artifacts || artifacts.length === 0) {
+    return []
+  }
+
+  // Return artifact references with full body_md as snippet
+  return artifacts.map((artifact) => ({
+    artifact_id: artifact.artifact_id,
+    artifact_title: artifact.title || 'Untitled',
+    artifact_version: artifact.created_at, // ISO timestamp as version identifier
+    snippet: artifact.body_md || '', // Full verbatim content
+  }))
 }
 
 /**
