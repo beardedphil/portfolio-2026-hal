@@ -83,18 +83,6 @@
   ],
   "mostRecentImprovements": [
     {
-      "file": "api/instructions/get-topic.ts",
-      "before": 25.79,
-      "after": 26.6,
-      "delta": 0.81
-    },
-    {
-      "file": "api/instructions/get-index.ts",
-      "before": 7.63,
-      "after": 7.99,
-      "delta": 0.36
-    },
-    {
       "file": "api/tickets/create-pr.ts",
       "before": 25.54,
       "after": 25.54,
@@ -113,6 +101,18 @@
       "delta": 0
     },
     {
+      "file": "api/instructions/get-index.ts",
+      "before": 7.99,
+      "after": 7.99,
+      "delta": 0
+    },
+    {
+      "file": "api/instructions/get-topic.ts",
+      "before": 26.6,
+      "after": 26.6,
+      "delta": 0
+    },
+    {
       "file": "api/qa-agent/run.ts",
       "before": 24.9,
       "after": 24.9,
@@ -125,7 +125,7 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-20T04:51:25.747Z",
+  "generatedAt": "2026-02-21T15:30:18.867Z",
   "filesAnalyzed": 298,
   "unroundedMaintainability": 40.3,
   "unroundedSimplicity": 40.3
