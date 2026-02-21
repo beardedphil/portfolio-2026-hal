@@ -13,6 +13,7 @@ interface HalHeaderProps {
   disconnectButtonRef: React.RefObject<HTMLButtonElement>
   onCoverageReportClick: () => void
   onMaintainabilityReportClick: () => void
+  onContextBundleViewClick?: () => void
 }
 
 export function HalHeader({
@@ -25,6 +26,7 @@ export function HalHeader({
   disconnectButtonRef,
   onCoverageReportClick,
   onMaintainabilityReportClick,
+  onContextBundleViewClick,
 }: HalHeaderProps) {
   return (
     <header className="hal-header">
@@ -76,6 +78,18 @@ export function HalHeader({
                 </div>
                 {/* Maintainability badge on the right (0699) */}
                 <MaintainabilityBadge onClick={onMaintainabilityReportClick} />
+                {/* Context Bundle view button */}
+                {onContextBundleViewClick && (
+                  <button
+                    type="button"
+                    className="btn-standard"
+                    onClick={onContextBundleViewClick}
+                    style={{ marginLeft: '8px', padding: '6px 12px', fontSize: '14px' }}
+                    title="View Context Bundle"
+                  >
+                    Context Bundle
+                  </button>
+                )}
               </>
             )}
           </>

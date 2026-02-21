@@ -16,6 +16,7 @@ import { CoverageReportModal } from './components/CoverageReportModal'
 import { MaintainabilityReportModal } from './components/MaintainabilityReportModal'
 import { IntegrationManifestModal } from './components/IntegrationManifestModal'
 import { ContextBundleModal } from './components/ContextBundleModal'
+import { ContextBundleView } from './components/ContextBundleView'
 import { AgentRunBundleModal } from './components/AgentRunBundleModal'
 import { NoPrModal } from './components/NoPrModal'
 import type { ChatTarget, ToolCallRecord, TicketCreationResult } from './types/app'
@@ -285,6 +286,8 @@ function App() {
   const [contextBundleModalOpen, setContextBundleModalOpen] = useState<boolean>(false)
   const [contextBundleTicketPk] = useState<string | null>(null)
   const [contextBundleTicketId] = useState<string | null>(null)
+  /** Context Bundle View (0763) */
+  const [contextBundleViewOpen, setContextBundleViewOpen] = useState<boolean>(false)
   /** Agent Run Bundle Builder modal (0756). */
   const [agentRunBundleModalOpen, setAgentRunBundleModalOpen] = useState<boolean>(false)
   const [agentRunBundleRunId, setAgentRunBundleRunId] = useState<string | null>(null)
@@ -688,6 +691,7 @@ function App() {
         disconnectButtonRef={disconnectButtonRef}
         onCoverageReportClick={() => setCoverageReportOpen(true)}
         onMaintainabilityReportClick={() => setMaintainabilityReportOpen(true)}
+        onContextBundleViewClick={connectedProject ? () => setContextBundleViewOpen(true) : undefined}
       />
 
       {githubConnectError && (
@@ -791,8 +795,87 @@ function App() {
       />
 
       <main className="hal-main">
-        {/* Left column: Kanban board */}
-        <section className="hal-kanban-region" aria-label="Kanban board">
+        {/* Context Bundle View (0763) */}
+        {contextBundleViewOpen ? (
+          <div style={{ width: '100%', height: '100%', overflow: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', borderBottom: '1px solid var(--hal-border)' }}>
+              <h2 style={{ margin: 0, fontSize: '20px' }}>Context Bundle</h2>
+              <button
+                type="button"
+                className="btn-standard"
+                onClick={() => setContextBundleViewOpen(false)}
+                style={{ padding: '6px 12px' }}
+              >
+                Close
+              </button>
+            </div>
+            <ContextBundleView
+              repoFullName={connectedProject}
+              supabaseUrl={supabaseUrl}
+              supabaseAnonKey={supabaseAnonKey}
+              onUseBundle={async (data) => {
+                // Extract ticket number from ticketId (e.g., "HAL-0763" -> 763)
+                const ticketNumberMatch = data.ticketId.match(/\d+/)
+                const ticketNumber = ticketNumberMatch ? parseInt(ticketNumberMatch[0], 10) : null
+                
+                if (!ticketNumber || !connectedGithubRepo) {
+                  alert('Unable to launch agent: missing ticket number or repo information')
+                  return
+                }
+
+                // Map role to agent type
+                const roleToAgentType: Record<string, 'implementation' | 'qa' | 'project-manager' | 'process-review'> = {
+                  'implementation-agent': 'implementation',
+                  'qa-agent': 'qa',
+                  'project-manager': 'project-manager',
+                  'process-review': 'process-review',
+                }
+                const agentType = roleToAgentType[data.role] || 'implementation'
+
+                // Close the view
+                setContextBundleViewOpen(false)
+
+                // Trigger agent run
+                if (agentType === 'project-manager') {
+                  // For PM, we need to trigger via chat
+                  setPmChatWidgetOpen(true)
+                  setSelectedChatTarget('project-manager')
+                  setSelectedConversationId(null)
+                  // Send a message to use the bundle
+                  await triggerAgentRun(
+                    `Use context bundle ${data.bundleId} for ticket ${data.ticketId}`,
+                    'project-manager'
+                  )
+                } else {
+                  // For other agents, launch directly
+                  try {
+                    const launchRes = await fetch('/api/agent-runs/launch', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      credentials: 'include',
+                      body: JSON.stringify({
+                        agentType,
+                        repoFullName: connectedGithubRepo.fullName,
+                        ticketNumber,
+                        defaultBranch: connectedGithubRepo.defaultBranch || 'main',
+                      }),
+                    })
+                    const launchData = (await launchRes.json()) as { runId?: string; error?: string }
+                    if (!launchRes.ok || !launchData.runId) {
+                      throw new Error(launchData.error || 'Failed to launch agent')
+                    }
+                    // Agent run will be tracked via the existing agent run hooks
+                  } catch (err) {
+                    alert(err instanceof Error ? err.message : 'Failed to launch agent')
+                  }
+                }
+              }}
+            />
+          </div>
+        ) : (
+          <>
+            {/* Left column: Kanban board */}
+            <section className="hal-kanban-region" aria-label="Kanban board">
           {githubConnectError && (
             <div className="connect-error" role="alert">
               {githubConnectError}
@@ -861,6 +944,8 @@ function App() {
                 composerRef={composerRef}
               />
             )}
+          </>
+        )}
           </>
         )}
 
