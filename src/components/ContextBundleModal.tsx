@@ -96,6 +96,26 @@ interface ArtifactsResponse {
   error?: string
 }
 
+interface ScoredArtifact {
+  artifact_id: string
+  title: string
+  agent_type: string
+  created_at: string
+  score: number
+  reasons: string[]
+  pinned: boolean
+  selected: boolean
+  exclusion_reason?: string
+}
+
+interface RankArtifactsResponse {
+  success: boolean
+  artifacts?: ScoredArtifact[]
+  selected_count?: number
+  total_count?: number
+  error?: string
+}
+
 interface DistilledArtifact {
   artifact_id: string
   artifact_title: string
@@ -131,9 +151,11 @@ export function ContextBundleModal({
   const [generating, setGenerating] = useState(false)
   const [generateRole, setGenerateRole] = useState<string>('implementation-agent')
   const [artifacts, setArtifacts] = useState<Artifact[]>([])
+  const [scoredArtifacts, setScoredArtifacts] = useState<ScoredArtifact[]>([])
   const [loadingArtifacts, setLoadingArtifacts] = useState(false)
   const [selectedArtifactIds, setSelectedArtifactIds] = useState<Set<string>>(new Set())
   const [bundleJson, setBundleJson] = useState<BundleJson | null>(null)
+  const [query, setQuery] = useState<string>('')
   
   // Ticket selection state (if allowTicketSelection is true)
   const [selectedTicketId, setSelectedTicketId] = useState<string>(initialTicketId || '')
@@ -146,8 +168,9 @@ export function ContextBundleModal({
     if (isOpen && selectedTicketPk && supabaseUrl && supabaseAnonKey) {
       loadBundles()
       loadArtifacts()
+      loadRankedArtifacts()
     }
-  }, [isOpen, selectedTicketPk, supabaseUrl, supabaseAnonKey])
+  }, [isOpen, selectedTicketPk, supabaseUrl, supabaseAnonKey, generateRole, query])
   
   // Sync initial values when they change
   useEffect(() => {
@@ -165,8 +188,10 @@ export function ContextBundleModal({
       setReceipt(null)
       setGenerateRole('implementation-agent')
       setArtifacts([])
+      setScoredArtifacts([])
       setSelectedArtifactIds(new Set())
       setBundleJson(null)
+      setQuery('')
       if (!allowTicketSelection) {
         setSelectedTicketId(initialTicketId || '')
         setSelectedTicketPk(initialTicketPk)
@@ -264,6 +289,83 @@ export function ContextBundleModal({
     }
   }
 
+  const loadRankedArtifacts = async () => {
+    if (!selectedTicketPk || !supabaseUrl || !supabaseAnonKey) return
+
+    setLoadingArtifacts(true)
+    setError(null)
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/context-bundles/rank-artifacts`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          ticketPk: selectedTicketPk,
+          ticketId: selectedTicketId,
+          query,
+          role: generateRole,
+          maxArtifacts: 20, // Show top 20
+          supabaseUrl,
+          supabaseAnonKey,
+        }),
+      })
+
+      const data = (await response.json()) as RankArtifactsResponse
+
+      if (!response.ok || !data.success) {
+        setError(data.error || 'Failed to load ranked artifacts')
+        return
+      }
+
+      setScoredArtifacts(data.artifacts || [])
+      // Auto-select all selected artifacts
+      const selectedIds = new Set((data.artifacts || []).filter((a) => a.selected).map((a) => a.artifact_id))
+      setSelectedArtifactIds(selectedIds)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error')
+    } finally {
+      setLoadingArtifacts(false)
+    }
+  }
+
+  const togglePin = async (artifactId: string, currentlyPinned: boolean) => {
+    if (!selectedTicketPk || !supabaseUrl || !supabaseAnonKey) return
+
+    try {
+      const method = currentlyPinned ? 'DELETE' : 'POST'
+      const response = await fetch(`${apiBaseUrl}/api/context-bundles/pin-artifact`, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          ticketPk: selectedTicketPk,
+          ticketId: selectedTicketId,
+          artifactId,
+          role: generateRole,
+          supabaseUrl,
+          supabaseAnonKey,
+        }),
+      })
+
+      const data = (await response.json()) as { success: boolean; error?: string }
+
+      if (!response.ok || !data.success) {
+        setError(data.error || `Failed to ${currentlyPinned ? 'unpin' : 'pin'} artifact`)
+        return
+      }
+
+      // Reload ranked artifacts to reflect pin change
+      await loadRankedArtifacts()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error')
+    }
+  }
+
   const loadBundles = async () => {
     if (!selectedTicketPk || !supabaseUrl || !supabaseAnonKey) return
 
@@ -356,7 +458,13 @@ export function ContextBundleModal({
       return
     }
 
-    if (selectedArtifactIds.size === 0) {
+    // Use automatically selected artifacts if none are manually selected
+    let artifactIdsToUse = Array.from(selectedArtifactIds)
+    if (artifactIdsToUse.length === 0) {
+      artifactIdsToUse = scoredArtifacts.filter((a) => a.selected).map((a) => a.artifact_id)
+    }
+
+    if (artifactIdsToUse.length === 0) {
       setError('Please select at least one artifact to include in the bundle')
       return
     }
@@ -385,7 +493,7 @@ export function ContextBundleModal({
           repoFullName: selectedRepoFullName,
           role: generateRole,
           bundleJson: bundleJsonData,
-          selectedArtifactIds: Array.from(selectedArtifactIds),
+          selectedArtifactIds: artifactIdsToUse,
           supabaseUrl,
           supabaseAnonKey,
         }),
@@ -532,47 +640,111 @@ export function ContextBundleModal({
                 </button>
               </div>
 
-              {/* Artifact Selection */}
+              {/* Query Input */}
               <div>
-                <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>Select Artifacts to Distill</h4>
+                <label>
+                  Search Query (optional):
+                  <input
+                    type="text"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="e.g., implementation, testing, API"
+                    style={{ marginLeft: '8px', padding: '4px 8px', minWidth: '200px' }}
+                  />
+                </label>
+              </div>
+
+              {/* Ranked Artifact Selection */}
+              <div>
+                <h4 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>Ranked Artifacts</h4>
                 {loadingArtifacts ? (
                   <p>Loading artifacts...</p>
-                ) : artifacts.length === 0 ? (
+                ) : scoredArtifacts.length === 0 ? (
                   <p style={{ color: 'var(--hal-text-muted)', fontSize: '14px' }}>No artifacts found for this ticket.</p>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '200px', overflowY: 'auto' }}>
-                    {artifacts.map((artifact) => (
-                      <label
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '400px', overflowY: 'auto' }}>
+                    {scoredArtifacts.map((artifact) => (
+                      <div
                         key={artifact.artifact_id}
                         style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '8px',
-                          padding: '8px',
+                          padding: '12px',
                           border: '1px solid var(--hal-border)',
                           borderRadius: '4px',
-                          cursor: 'pointer',
-                          background: selectedArtifactIds.has(artifact.artifact_id) ? 'var(--hal-surface-alt)' : 'var(--hal-surface)',
+                          background: artifact.selected
+                            ? artifact.pinned
+                              ? 'var(--hal-status-success-bg, #e8f5e9)'
+                              : 'var(--hal-surface-alt)'
+                            : 'var(--hal-surface)',
+                          opacity: artifact.selected ? 1 : 0.6,
                         }}
                       >
-                        <input
-                          type="checkbox"
-                          checked={selectedArtifactIds.has(artifact.artifact_id)}
-                          onChange={() => toggleArtifactSelection(artifact.artifact_id)}
-                        />
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontWeight: '500', fontSize: '14px' }}>{artifact.title}</div>
-                          <div style={{ fontSize: '12px', color: 'var(--hal-text-muted)' }}>
-                            {artifact.agent_type} • {new Date(artifact.created_at).toLocaleDateString()}
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                          <input
+                            type="checkbox"
+                            checked={selectedArtifactIds.has(artifact.artifact_id)}
+                            onChange={() => toggleArtifactSelection(artifact.artifact_id)}
+                            style={{ marginTop: '4px' }}
+                          />
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                              <div style={{ fontWeight: '500', fontSize: '14px' }}>{artifact.title}</div>
+                              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                <span
+                                  style={{
+                                    fontSize: '12px',
+                                    fontWeight: '600',
+                                    color: artifact.selected ? 'var(--hal-status-success, #2e7d32)' : 'var(--hal-text-muted)',
+                                  }}
+                                >
+                                  Score: {artifact.score.toFixed(2)}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => togglePin(artifact.artifact_id, artifact.pinned)}
+                                  style={{
+                                    padding: '2px 8px',
+                                    fontSize: '12px',
+                                    background: artifact.pinned ? 'var(--hal-status-warning, #f57c00)' : 'transparent',
+                                    color: artifact.pinned ? 'white' : 'var(--hal-text-muted)',
+                                    border: `1px solid ${artifact.pinned ? 'var(--hal-status-warning, #f57c00)' : 'var(--hal-border)'}`,
+                                    borderRadius: '4px',
+                                    cursor: 'pointer',
+                                  }}
+                                  title={artifact.pinned ? 'Unpin artifact' : 'Pin artifact'}
+                                >
+                                  {artifact.pinned ? '📌 Pinned' : 'Pin'}
+                                </button>
+                              </div>
+                            </div>
+                            <div style={{ fontSize: '12px', color: 'var(--hal-text-muted)', marginBottom: '4px' }}>
+                              {artifact.agent_type} • {new Date(artifact.created_at).toLocaleDateString()}
+                            </div>
+                            <div style={{ fontSize: '11px', color: 'var(--hal-text-muted)', marginBottom: '4px' }}>
+                              <strong>Why selected:</strong> {artifact.reasons.join('; ')}
+                            </div>
+                            {artifact.selected ? (
+                              <div style={{ fontSize: '11px', color: 'var(--hal-status-success, #2e7d32)', fontWeight: '600' }}>
+                                ✓ Selected for bundle
+                              </div>
+                            ) : (
+                              <div style={{ fontSize: '11px', color: 'var(--hal-text-muted)' }}>
+                                ✗ Excluded: {artifact.exclusion_reason || 'Not in top selection'}
+                              </div>
+                            )}
                           </div>
                         </div>
-                      </label>
+                      </div>
                     ))}
                   </div>
                 )}
-                {selectedArtifactIds.size > 0 && (
+                {scoredArtifacts.length > 0 && (
                   <p style={{ marginTop: '8px', fontSize: '14px', color: 'var(--hal-text-muted)' }}>
-                    {selectedArtifactIds.size} artifact{selectedArtifactIds.size !== 1 ? 's' : ''} selected
+                    {scoredArtifacts.filter((a) => a.selected).length} of {scoredArtifacts.length} artifacts selected
+                    {scoredArtifacts.filter((a) => a.pinned).length > 0 && (
+                      <span style={{ marginLeft: '8px' }}>
+                        ({scoredArtifacts.filter((a) => a.pinned).length} pinned)
+                      </span>
+                    )}
                   </p>
                 )}
               </div>
