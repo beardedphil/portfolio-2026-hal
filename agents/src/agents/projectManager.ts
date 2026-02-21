@@ -50,6 +50,12 @@ import {
   isAbortError as isAbortErrorHelper,
   generateFallbackReply,
 } from './projectManager/replyGeneration.js'
+import {
+  validateTicketPlaceholders,
+  createPlaceholderError,
+  getRepoFullName,
+} from './projectManager/ticketValidation.js'
+import { halFetchJson as halFetchJsonHelper } from './projectManager/halApiClient.js'
 
 // Re-export for backward compatibility
 export type { ReadyCheckResult }
@@ -229,43 +235,12 @@ export async function runPmAgent(
     body: unknown,
     opts?: { timeoutMs?: number; progressMessage?: string }
   ) => {
-    const timeoutMs = Math.max(1_000, Math.floor(opts?.timeoutMs ?? 20_000))
-    const controller = new AbortController()
-    const t = setTimeout(() => controller.abort(new Error('HAL request timeout')), timeoutMs)
-    const onAbort = () => controller.abort(config.abortSignal?.reason ?? new Error('Aborted'))
-    try {
-      const progress = String(opts?.progressMessage ?? '').trim()
-      if (progress) await config.onProgress?.(progress)
-      if (config.abortSignal) config.abortSignal.addEventListener('abort', onAbort, { once: true })
-      const res = await fetch(`${halBaseUrl}${path}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body ?? {}),
-        signal: controller.signal,
-      })
-      const text = await res.text()
-      let json: any = {}
-      if (text) {
-        try {
-          json = JSON.parse(text)
-        } catch (e) {
-          const contentType = res.headers.get('content-type') || 'unknown'
-          const prefix = text.slice(0, 200)
-          json = {
-            success: false,
-            error: `Non-JSON response from ${path} (HTTP ${res.status}, content-type: ${contentType}): ${prefix}`,
-          }
-        }
-      }
-      return { ok: res.ok, json }
-    } finally {
-      clearTimeout(t)
-      try {
-        if (config.abortSignal) config.abortSignal.removeEventListener('abort', onAbort)
-      } catch {
-        // ignore
-      }
-    }
+    return halFetchJsonHelper(halBaseUrl, path, body, {
+      timeoutMs: opts?.timeoutMs,
+      progressMessage: opts?.progressMessage,
+      abortSignal: config.abortSignal,
+      onProgress: config.onProgress,
+    })
   }
 
   const createTicketTool = tool({
@@ -295,24 +270,16 @@ export async function runPmAgent(
       let out: CreateResult
       try {
         let bodyMdTrimmed = input.body_md.trim()
-        const placeholders = bodyMdTrimmed.match(PLACEHOLDER_RE) ?? []
-        if (placeholders.length > 0) {
-          const uniquePlaceholders = [...new Set(placeholders)]
-          out = {
-            success: false,
-            error: `Ticket creation rejected: unresolved template placeholder tokens detected. Detected placeholders: ${uniquePlaceholders.join(', ')}.`,
-            detectedPlaceholders: uniquePlaceholders,
-          }
+        const validation = validateTicketPlaceholders(bodyMdTrimmed)
+        if (!validation.valid) {
+          out = createPlaceholderError(validation.placeholders)
           toolCalls.push({ name: 'create_ticket', input, output: out })
           return out
         }
 
         bodyMdTrimmed = normalizeBodyForReady(bodyMdTrimmed)
 
-        const repoFullName =
-          typeof config.projectId === 'string' && config.projectId.trim()
-            ? config.projectId.trim()
-            : 'beardedphil/portfolio-2026-hal'
+        const repoFullName = getRepoFullName(config.projectId, 'beardedphil/portfolio-2026-hal')
 
         const { json: created } = await halFetchJson(
           '/api/tickets/create-general',
@@ -509,14 +476,9 @@ export async function runPmAgent(
       let out: UpdateResult
       try {
         let bodyMdTrimmed = input.body_md.trim()
-        const placeholders = bodyMdTrimmed.match(PLACEHOLDER_RE) ?? []
-        if (placeholders.length > 0) {
-          const uniquePlaceholders = [...new Set(placeholders)]
-          out = {
-            success: false,
-            error: `Ticket update rejected: unresolved template placeholder tokens detected. Detected placeholders: ${uniquePlaceholders.join(', ')}.`,
-            detectedPlaceholders: uniquePlaceholders,
-          }
+        const validation = validateTicketPlaceholders(bodyMdTrimmed)
+        if (!validation.valid) {
+          out = createPlaceholderError(validation.placeholders)
           toolCalls.push({ name: 'update_ticket_body', input, output: out })
           return out
         }
