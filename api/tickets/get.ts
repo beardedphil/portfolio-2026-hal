@@ -227,7 +227,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       try {
         const { data: redData, error: redErr } = await supabase
           .from('hal_red_documents')
-          .select('red_id, version, content_checksum, validation_status, created_at, created_by, artifact_id')
+          .select('red_id, version, content_checksum, validation_status, created_at, created_by, artifact_id, hal_red_validations(result, created_at, created_by)')
           .eq('repo_full_name', repoFullName)
           .eq('ticket_pk', ticketPkValue)
           .order('version', { ascending: false })
@@ -236,7 +236,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         if (redErr) {
           redError = `Failed to fetch RED versions: ${redErr.message}`
         } else {
-          redVersions = redData || []
+          redVersions = (redData || []).map((r: any) => {
+            const v = Array.isArray(r.hal_red_validations) ? r.hal_red_validations[0] : null
+            const effective = v?.result === 'valid' ? 'valid' : v?.result === 'invalid' ? 'invalid' : 'pending'
+            return { ...r, effective_validation_status: effective, validation: v || null }
+          })
         }
       } catch (err) {
         redError = err instanceof Error ? err.message : String(err)

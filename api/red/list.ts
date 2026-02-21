@@ -132,10 +132,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
-    // Fetch all RED versions for this ticket
+    // Fetch all RED versions for this ticket (include validation result via FK join)
     const { data: redVersions, error: redError } = await supabase
       .from('hal_red_documents')
-      .select('red_id, version, content_checksum, validation_status, created_at, created_by, artifact_id')
+      .select('red_id, version, content_checksum, validation_status, created_at, created_by, artifact_id, hal_red_validations(result, created_at, created_by)')
       .eq('repo_full_name', resolvedRepoFullName)
       .eq('ticket_pk', resolvedTicketPk)
       .order('version', { ascending: false })
@@ -149,9 +149,15 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
+    const list = (redVersions || []).map((r: any) => {
+      const v = Array.isArray(r.hal_red_validations) ? r.hal_red_validations[0] : null
+      const effective = v?.result === 'valid' ? 'valid' : v?.result === 'invalid' ? 'invalid' : 'pending'
+      return { ...r, effective_validation_status: effective, validation: v || null }
+    })
+
     json(res, 200, {
       success: true,
-      red_versions: redVersions || [],
+      red_versions: list,
       ticket_pk: resolvedTicketPk,
       repo_full_name: resolvedRepoFullName,
     })

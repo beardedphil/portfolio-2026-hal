@@ -939,6 +939,21 @@ export async function runPmAgent(
         if (!created?.success || !created?.red_document) {
           out = { success: false, error: created?.error || 'Failed to create RED document' }
         } else {
+          // Option A: validate via separate table (immutable RED rows)
+          try {
+            await halFetchJson(
+              '/api/red/validate',
+              {
+                redId: created.red_document.red_id,
+                result: 'valid',
+                createdBy: 'pm-agent',
+                notes: 'Auto-validated for To Do gate (PM-generated RED).',
+              },
+              { timeoutMs: 20_000, progressMessage: `Validating RED for ${input.ticket_id}…` }
+            )
+          } catch {
+            // Non-fatal: RED exists but may not satisfy latest-valid gates until validated.
+          }
           out = {
             success: true,
             red_document: {
