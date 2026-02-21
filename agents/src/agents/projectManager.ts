@@ -137,7 +137,7 @@ Keep it concise but complete. Prefer arrays of strings; avoid deeply nested stru
 
 **Moving a ticket to To Do:** When the user asks to move a ticket to To Do (e.g. "move this to To Do", "move ticket 0012 to To Do"), you MUST (1) fetch the ticket content with fetch_ticket_content (by ticket id), (2) evaluate readiness with evaluate_ticket_ready (pass the body_md from the fetch result). If the ticket is NOT ready, do NOT call kanban_move_ticket_to_todo; instead reply with a clear list of what is missing (use the missingItems from the evaluate_ticket_ready result). (3) If the ticket IS ready, call kanban_move_ticket_to_todo with the ticket id. If the move fails with "RED document is required", create a RED document using create_red_document_v2, then retry the move. Then confirm in chat that the ticket was moved. The readiness checklist is in your instructions (topic: ready-to-start-checklist): Goal, Human-verifiable deliverable, Acceptance criteria checkboxes, Constraints, Non-goals, no unresolved placeholders, RED document.
 
-**Preparing a ticket (Definition of Ready):** When the user asks to "prepare ticket X" or "get ticket X ready" (e.g. from "Prepare top ticket" button), you MUST (1) fetch the ticket content with fetch_ticket_content, (2) evaluate readiness with evaluate_ticket_ready. If the ticket is NOT ready, use update_ticket_body to fix formatting issues (normalize headings, convert bullets to checkboxes in Acceptance criteria if needed, ensure all required sections exist). After updating, re-evaluate with evaluate_ticket_ready. (3) Check if a RED document exists for the ticket (if moving to To Do fails with "RED document is required", create one using create_red_document_v2). (4) If the ticket IS ready (after fixes if needed) and has a RED document, automatically call kanban_move_ticket_to_todo with position: "top" to move it to To Do and place it at the top of the column (position 0). Then confirm in chat that the ticket is Ready-to-start and has been moved to To Do. If the ticket cannot be made ready (e.g. missing required content that cannot be auto-generated), clearly explain what is missing and that the ticket remains in Unassigned.
+**Preparing a ticket (Definition of Ready):** When the user asks to "prepare ticket X" or "get ticket X ready" (e.g. from "Prepare top ticket" button), you MUST (1) fetch the ticket content with fetch_ticket_content, (2) evaluate readiness with evaluate_ticket_ready. If the ticket is NOT ready, use update_ticket_body to fix formatting issues (normalize headings, convert bullets to checkboxes in Acceptance criteria if needed, ensure all required sections exist). After updating, re-evaluate with evaluate_ticket_ready. (3) Check if a RED document exists for the ticket (if moving to To Do fails with "RED document is required", create one using create_red_document_v2). (4) If the ticket IS ready (after fixes if needed) and has a RED document, automatically call kanban_move_ticket_to_todo with position: "top" (CRITICAL: always use "top", never "bottom" or null when called from "Prepare top ticket" workflow) to move it to To Do and place it at the top of the column (position 0). Then confirm in chat that the ticket is Ready-to-start and has been moved to To Do. If the ticket cannot be made ready (e.g. missing required content that cannot be auto-generated), clearly explain what is missing and that the ticket remains in Unassigned.
 
 **Listing tickets by column:** When the user asks to see tickets in a specific Kanban column (e.g. "list tickets in QA column", "what tickets are in QA", "show me tickets in the QA column"), use list_tickets_by_column with the appropriate column_id (e.g. "col-qa" for QA, "col-todo" for To Do, "col-unassigned" for Unassigned, "col-human-in-the-loop" for Human in the Loop). Format the results clearly in your reply, showing ticket ID and title for each ticket. This helps you see which tickets are currently in a given column so you can update other tickets without asking the user for IDs.
 
@@ -586,7 +586,7 @@ export async function runPmAgent(
 
   const kanbanMoveTicketToTodoTool = tool({
     description:
-      'Move a ticket from Unassigned to To Do via the HAL API. Only call after evaluate_ticket_ready returns ready: true.',
+      'Move a ticket from Unassigned to To Do via the HAL API. Only call after evaluate_ticket_ready returns ready: true. CRITICAL: When called from "Prepare top ticket" workflow, you MUST pass position: "top" to place the ticket at position 0 (first card) in the To Do column.',
     parameters: jsonSchema<{ ticket_id: string; position: 'top' | 'bottom' | null }>({
       type: 'object',
       additionalProperties: false,
@@ -599,7 +599,7 @@ export async function runPmAgent(
           type: ['string', 'null'],
           enum: ['top', 'bottom', null],
           description:
-            'Position in To Do column: "top" to place at position 0 (first card), "bottom" to place at end (default). Use "top" when called from "Prepare top ticket" workflow.',
+            'Position in To Do column: "top" to place at position 0 (first card), "bottom" to place at end (default). CRITICAL: When called from "Prepare top ticket" workflow, you MUST use "top" (never "bottom" or null).',
         },
       },
       // OpenAI tool schema validation requires `required` to include every key in `properties`
