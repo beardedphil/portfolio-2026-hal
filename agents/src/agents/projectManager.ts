@@ -50,6 +50,7 @@ import {
   isAbortError as isAbortErrorHelper,
   generateFallbackReply,
 } from './projectManager/replyGeneration.js'
+import { halFetchJson, type HalFetchConfig } from './projectManager/halFetch.js'
 
 // Re-export for backward compatibility
 export type { ReadyCheckResult }
@@ -224,49 +225,14 @@ export async function runPmAgent(
 
   const isAbortError = (err: unknown) => isAbortErrorHelper(err, config.abortSignal)
 
-  const halFetchJson = async (
-    path: string,
-    body: unknown,
-    opts?: { timeoutMs?: number; progressMessage?: string }
-  ) => {
-    const timeoutMs = Math.max(1_000, Math.floor(opts?.timeoutMs ?? 20_000))
-    const controller = new AbortController()
-    const t = setTimeout(() => controller.abort(new Error('HAL request timeout')), timeoutMs)
-    const onAbort = () => controller.abort(config.abortSignal?.reason ?? new Error('Aborted'))
-    try {
-      const progress = String(opts?.progressMessage ?? '').trim()
-      if (progress) await config.onProgress?.(progress)
-      if (config.abortSignal) config.abortSignal.addEventListener('abort', onAbort, { once: true })
-      const res = await fetch(`${halBaseUrl}${path}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body ?? {}),
-        signal: controller.signal,
-      })
-      const text = await res.text()
-      let json: any = {}
-      if (text) {
-        try {
-          json = JSON.parse(text)
-        } catch (e) {
-          const contentType = res.headers.get('content-type') || 'unknown'
-          const prefix = text.slice(0, 200)
-          json = {
-            success: false,
-            error: `Non-JSON response from ${path} (HTTP ${res.status}, content-type: ${contentType}): ${prefix}`,
-          }
-        }
-      }
-      return { ok: res.ok, json }
-    } finally {
-      clearTimeout(t)
-      try {
-        if (config.abortSignal) config.abortSignal.removeEventListener('abort', onAbort)
-      } catch {
-        // ignore
-      }
-    }
+  const halFetchConfig: HalFetchConfig = {
+    halBaseUrl,
+    abortSignal: config.abortSignal,
+    onProgress: config.onProgress,
   }
+
+  const halFetch = (path: string, body: unknown, opts?: { timeoutMs?: number; progressMessage?: string }) =>
+    halFetchJson(path, body, opts, halFetchConfig)
 
   const createTicketTool = tool({
     description:
@@ -314,7 +280,7 @@ export async function runPmAgent(
             ? config.projectId.trim()
             : 'beardedphil/portfolio-2026-hal'
 
-        const { json: created } = await halFetchJson(
+        const { json: created } = await halFetch(
           '/api/tickets/create-general',
           {
             title: input.title.trim(),
@@ -340,7 +306,7 @@ export async function runPmAgent(
         const normalizedBodyMd = normalizeTitleLineInBody(bodyMdTrimmed, displayId)
         // Persist normalized Title line (and strip QA blocks server-side).
         try {
-          await halFetchJson(
+          await halFetch(
             '/api/tickets/update',
             {
               ...(ticketPk ? { ticketPk } : { ticketId: displayId }),
@@ -357,7 +323,7 @@ export async function runPmAgent(
         let movedToTodo = false
         let moveError: string | undefined
         if (readiness.ready) {
-          const { json: moved } = await halFetchJson(
+          const { json: moved } = await halFetch(
             '/api/tickets/move',
             { ticketId: displayId, columnId: COL_TODO, position: 'bottom' },
             { timeoutMs: 25_000, progressMessage: `Moving ${displayId} to To Do…` }
@@ -425,7 +391,7 @@ export async function runPmAgent(
 
       let out: FetchResult
       try {
-        const { json: data } = await halFetchJson(
+        const { json: data } = await halFetch(
           '/api/tickets/get',
           { ticketId: input.ticket_id },
           { timeoutMs: 20_000, progressMessage: `Fetching ticket ${input.ticket_id}…` }
@@ -524,7 +490,7 @@ export async function runPmAgent(
         bodyMdTrimmed = normalizeBodyForReady(bodyMdTrimmed)
 
         // Fetch ticket to get display_id / pk for robust update.
-        const { json: fetched } = await halFetchJson(
+        const { json: fetched } = await halFetch(
           '/api/tickets/get',
           { ticketId: input.ticket_id },
           { timeoutMs: 20_000, progressMessage: `Fetching ticket ${input.ticket_id} for update…` }
@@ -540,7 +506,7 @@ export async function runPmAgent(
         const ticketPk = typeof ticket.pk === 'string' ? ticket.pk : undefined
         const normalizedBodyMd = normalizeTitleLineInBody(bodyMdTrimmed, displayId)
 
-        const { json: updated } = await halFetchJson(
+        const { json: updated } = await halFetch(
           '/api/tickets/update',
           {
             ...(ticketPk ? { ticketPk } : { ticketId: displayId }),
@@ -613,7 +579,7 @@ export async function runPmAgent(
       let out: MoveResult
       try {
         // Fetch current column and preferred display id
-        const { json: fetched } = await halFetchJson(
+        const { json: fetched } = await halFetch(
           '/api/tickets/get',
           { ticketId: input.ticket_id },
           { timeoutMs: 20_000, progressMessage: `Checking current column for ${input.ticket_id}…` }
@@ -636,7 +602,7 @@ export async function runPmAgent(
         }
         const ticketIdToMove = String(ticket.display_id || input.ticket_id)
         const position = input.position ?? 'bottom'
-        const { json: moved } = await halFetchJson(
+        const { json: moved } = await halFetch(
           '/api/tickets/move',
           { ticketId: ticketIdToMove, columnId: COL_TODO, position },
           { timeoutMs: 25_000, progressMessage: `Moving ${ticketIdToMove} to To Do…` }
@@ -889,7 +855,7 @@ export async function runPmAgent(
       let out: CreateRedResult
       try {
         // Fetch ticket to get ticketPk and repoFullName
-        const { json: fetched } = await halFetchJson(
+        const { json: fetched } = await halFetch(
           '/api/tickets/get',
           { ticketId: input.ticket_id },
           { timeoutMs: 20_000, progressMessage: `Fetching ticket ${input.ticket_id} for RED…` }
@@ -914,7 +880,7 @@ export async function runPmAgent(
         }
 
         // Idempotency: if a RED already exists, reuse it instead of creating new versions.
-        const { json: existing } = await halFetchJson(
+        const { json: existing } = await halFetch(
           '/api/red/list',
           { ticketPk, repoFullName },
           { timeoutMs: 20_000, progressMessage: `Checking existing REDs for ${input.ticket_id}…` }
@@ -923,7 +889,7 @@ export async function runPmAgent(
           const latest = existing.red_versions[0] as any
           // Best-effort: ensure it's validated for "latest-valid" gates
           try {
-            await halFetchJson(
+            await halFetch(
               '/api/red/validate',
               {
                 redId: latest.red_id,
@@ -940,7 +906,7 @@ export async function runPmAgent(
           // Best-effort: create/update mirrored RED artifact for visibility in ticket Artifacts.
           try {
             const vNum = Number(latest.version ?? 0) || 0
-            const { json: redGet } = await halFetchJson(
+            const { json: redGet } = await halFetch(
               '/api/red/get',
               { ticketPk, ticketId: input.ticket_id, repoFullName, version: vNum },
               { timeoutMs: 20_000, progressMessage: `Loading latest RED JSON for ${input.ticket_id}…` }
@@ -964,7 +930,7 @@ Validation Status: ${validationStatus}
 ${JSON.stringify(redJsonForArtifact, null, 2)}
 \`\`\`
 `
-              await halFetchJson(
+              await halFetch(
                 '/api/artifacts/insert-implementation',
                 { ticketId: ticketPk, artifactType: 'red', title: artifactTitle, body_md: artifactBody },
                 { timeoutMs: 25_000, progressMessage: `Saving RED artifact for ${input.ticket_id}…` }
@@ -999,7 +965,7 @@ ${JSON.stringify(redJsonForArtifact, null, 2)}
         }
 
         // Create RED document via HAL API
-        const { json: created } = await halFetchJson(
+        const { json: created } = await halFetch(
           '/api/red/insert',
           {
             ticketPk,
@@ -1015,7 +981,7 @@ ${JSON.stringify(redJsonForArtifact, null, 2)}
         } else {
           // Option A: validate via separate table (immutable RED rows)
           try {
-            await halFetchJson(
+            await halFetch(
               '/api/red/validate',
               {
                 redId: created.red_document.red_id,
@@ -1050,7 +1016,7 @@ Validation Status: ${validationStatus}
 ${JSON.stringify(redJsonForArtifact, null, 2)}
 \`\`\`
 `
-            await halFetchJson(
+            await halFetch(
               '/api/artifacts/insert-implementation',
               { ticketId: ticketPk, artifactType: 'red', title: artifactTitle, body_md: artifactBody },
               { timeoutMs: 25_000, progressMessage: `Saving RED artifact for ${input.ticket_id}…` }
