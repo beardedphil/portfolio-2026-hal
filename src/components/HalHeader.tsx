@@ -15,6 +15,7 @@ interface HalHeaderProps {
   onAgentInstructionsClick: () => void
   onCoverageReportClick: () => void
   onMaintainabilityReportClick: () => void
+  onManifestClick: () => void
   theme: Theme
   onThemeChange: (theme: Theme) => void
 }
@@ -30,6 +31,7 @@ export function HalHeader({
   onAgentInstructionsClick,
   onCoverageReportClick,
   onMaintainabilityReportClick,
+  onManifestClick,
   theme,
   onThemeChange,
 }: HalHeaderProps) {
@@ -115,6 +117,18 @@ export function HalHeader({
         >
           Agent Instructions
         </button>
+        {connectedGithubRepo && (
+          <button
+            type="button"
+            className="btn-standard"
+            onClick={onManifestClick}
+            aria-label="Regenerate Integration Manifest"
+            title="Regenerate Integration Manifest"
+            style={{ marginLeft: '8px' }}
+          >
+            Regenerate Integration Manifest
+          </button>
+        )}
       </div>
     </header>
   )
