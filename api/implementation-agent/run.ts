@@ -1,5 +1,11 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { humanReadableCursorError, readJsonBody } from '../agent-runs/_shared.js'
+import {
+  parseTicketId,
+  parseTicketBodySections,
+  buildFailureNotesSection,
+  getHalApiUrl,
+} from './_helpers.js'
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -46,8 +52,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     // Parse "Implement ticket XXXX"
-    const ticketIdMatch = message.match(/implement\s+ticket\s+(\d{4})/i)
-    const ticketId = ticketIdMatch ? ticketIdMatch[1] : null
+    const ticketId = parseTicketId(message)
     if (!ticketId) {
       res.statusCode = 200
       res.setHeader('Content-Type', 'application/x-ndjson')
@@ -151,47 +156,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     // Build prompt
-    const goalMatch = bodyMd.match(/##\s*Goal\s*\([^)]*\)\s*\n([\s\S]*?)(?=\n##|$)/i)
-    const deliverableMatch = bodyMd.match(/##\s*Human-verifiable deliverable[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
-    const criteriaMatch = bodyMd.match(/##\s*Acceptance criteria[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
-    const goal = (goalMatch?.[1] ?? '').trim()
-    const deliverable = (deliverableMatch?.[1] ?? '').trim()
-    const criteria = (criteriaMatch?.[1] ?? '').trim()
-    
-    // Check if ticket is back in To Do (might indicate previous failure)
+    const { goal, deliverable, criteria } = parseTicketBodySections(bodyMd)
     const isBackInTodo = currentColumnId === 'col-todo'
-    
-    // Determine HAL API URL (use environment variable or default to localhost)
-    const halApiUrl = process.env.HAL_API_URL || process.env.APP_ORIGIN || 'http://localhost:5173'
-    
-    // Failure notes section: inject Implementation agent note when available (concise QA summary for failed tickets)
-    const failureNotesSection = implementationAgentNote
-      ? [
-          '## IMPORTANT: Previous QA Failure — Implementation Agent Note',
-          '',
-          '**This ticket previously failed QA. The following note from QA explains what went wrong and what you must fix:**',
-          '',
-          '```',
-          implementationAgentNote,
-          '```',
-          '',
-          '**You MUST address every issue and required action above. Do NOT simply re-implement the same solution.**',
-          '',
-        ]
-      : [
-          '## IMPORTANT: Read Failure Notes Before Starting',
-          '',
-          '**BEFORE you start implementing, you MUST:**',
-          '',
-          '1. **Read the full ticket body above** - Look for any failure notes, QA feedback, or comments that explain why this ticket was previously failed or moved back to To Do.',
-          '',
-          '2. **Check for QA artifacts** - Call the HAL API to fetch all artifacts for this ticket. Look for QA reports (agent_type: "qa") that may contain failure reasons or feedback.',
-          '',
-          '3. **Address any failure reasons** - If the ticket was previously failed, you MUST read and address the specific issues mentioned in QA reports or ticket notes. Do NOT simply re-implement the same solution.',
-          '',
-          isBackInTodo ? '**⚠️ This ticket is back in To Do - it may have been moved back after a failure. Check for QA reports and failure notes before starting.**' : '',
-          '',
-        ]
+    const halApiUrl = getHalApiUrl()
+    const failureNotesSection = buildFailureNotesSection(implementationAgentNote, isBackInTodo)
     
     const promptText = [
       'Implement this ticket.',

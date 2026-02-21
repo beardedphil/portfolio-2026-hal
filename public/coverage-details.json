@@ -25,19 +25,11 @@
       "coverage": 0
     },
     {
-      "file": "/workspace/agents/src/agents/projectManager/contextPack.ts",
-      "coverage": 0
-    },
-    {
       "file": "/workspace/agents/src/agents/projectManager/respond.ts",
       "coverage": 0
     },
     {
       "file": "/workspace/agents/src/agents/projectManager/responseHandling.ts",
-      "coverage": 0
-    },
-    {
-      "file": "/workspace/agents/src/agents/projectManager/runPmAgent.ts",
       "coverage": 0
     },
     {
@@ -73,6 +65,14 @@
       "coverage": 0
     },
     {
+      "file": "/workspace/api/_lib/integration-manifest/context-integration.ts",
+      "coverage": 0
+    },
+    {
+      "file": "/workspace/api/_lib/integration-manifest/generate.ts",
+      "coverage": 0
+    },
+    {
       "file": "/workspace/api/agent-runs/_shared.ts",
       "coverage": 0
     },
@@ -83,11 +83,17 @@
   ],
   "mostRecentImprovements": [
     {
-      "file": "/workspace/agents/src/agents/projectManager/contextBuilding.ts",
+      "file": "/workspace/agents/src/agents/projectManager/contextPack.ts",
       "before": 0,
-      "after": 40.5,
-      "delta": 40.5
+      "after": 100,
+      "delta": 100
+    },
+    {
+      "file": "/workspace/agents/src/agents/projectManager/runPmAgent.ts",
+      "before": 0,
+      "after": 100,
+      "delta": 100
     }
   ],
-  "generatedAt": "2026-02-16T21:45:58.068Z"
+  "generatedAt": "2026-02-21T22:33:55.059Z"
 }
