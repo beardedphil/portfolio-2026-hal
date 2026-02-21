@@ -2,9 +2,12 @@
 
 /**
  * Reports a single repo-wide Simplicity metric for QA reports.
- * Uses TypeScript compiler API to compute a maintainability-index-like score per file, then averages
- * across the whole repo (same scope as test coverage: src, api, agents, projects).
- * Outputs "Simplicity: XX%" so QA report body_md can include it and the dashboard can parse it.
+ * Uses TypeScript compiler API to compute a maintainability index per file:
+ *   - AST-based cyclomatic complexity (McCabe)
+ *   - Real Halstead volume (operator/operand counting)
+ *   - Microsoft formula: MI = 171 - 5.2*ln(HV) - 0.23*CC - 16.2*ln(LOC)
+ * Averages across the repo (same scope as coverage: src, api, agents, projects).
+ * Outputs "Simplicity: XX%" for QA reports and the dashboard.
  */
 
 import fs from 'fs'
@@ -87,15 +90,149 @@ function collectAllPaths() {
 }
 
 /**
+ * Compute cyclomatic complexity via AST (McCabe-style).
+ * Counts decision points: if, for, while, switch/case, catch, ternary, &&, ||.
+ */
+function getCyclomaticComplexity(sourceFile) {
+  let complexity = 1
+
+  function visit(node) {
+    switch (node.kind) {
+      case ts.SyntaxKind.IfStatement:
+      case ts.SyntaxKind.ForStatement:
+      case ts.SyntaxKind.ForInStatement:
+      case ts.SyntaxKind.ForOfStatement:
+      case ts.SyntaxKind.WhileStatement:
+      case ts.SyntaxKind.DoStatement:
+      case ts.SyntaxKind.SwitchStatement:
+      case ts.SyntaxKind.CatchClause:
+      case ts.SyntaxKind.ConditionalExpression:
+        complexity += 1
+        break
+      case ts.SyntaxKind.CaseClause:
+      case ts.SyntaxKind.DefaultClause:
+        complexity += 1
+        break
+      case ts.SyntaxKind.BinaryExpression: {
+        const op = node.operatorToken?.kind
+        if (op === ts.SyntaxKind.AmpersandAmpersandToken || op === ts.SyntaxKind.BarBarToken || op === ts.SyntaxKind.QuestionQuestionToken) {
+          complexity += 1
+        }
+        break
+      }
+      default:
+        break
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(sourceFile)
+  return complexity
+}
+
+/**
+ * Compute Halstead Volume via AST (operator/operand counting).
+ * Returns { volume, operators, operands } or null if file has no meaningful content.
+ */
+function getHalsteadMetrics(sourceFile, sourceText) {
+  const operatorCounts = new Map()
+  const operandCounts = new Map()
+
+  function addOperator(token) {
+    const key = typeof token === 'number' ? ts.SyntaxKind[token] ?? String(token) : String(token)
+    operatorCounts.set(key, (operatorCounts.get(key) ?? 0) + 1)
+  }
+
+  function addOperand(token) {
+    const key = String(token)
+    operandCounts.set(key, (operandCounts.get(key) ?? 0) + 1)
+  }
+
+  function visit(node) {
+    if (!node) return
+
+    switch (node.kind) {
+      case ts.SyntaxKind.Identifier:
+      case ts.SyntaxKind.PrivateIdentifier:
+        addOperand(node.getText(sourceFile))
+        break
+      case ts.SyntaxKind.NumericLiteral:
+      case ts.SyntaxKind.StringLiteral:
+      case ts.SyntaxKind.NoSubstitutionTemplateLiteral:
+      case ts.SyntaxKind.TemplateHead:
+      case ts.SyntaxKind.TemplateMiddle:
+      case ts.SyntaxKind.TemplateTail:
+      case ts.SyntaxKind.RegularExpressionLiteral:
+      case ts.SyntaxKind.BigIntLiteral:
+        addOperand(node.getText(sourceFile))
+        break
+      case ts.SyntaxKind.BinaryExpression:
+        addOperator(node.operatorToken?.kind)
+        break
+      case ts.SyntaxKind.PrefixUnaryExpression:
+      case ts.SyntaxKind.PostfixUnaryExpression:
+        addOperator(node.operator)
+        break
+      case ts.SyntaxKind.ConditionalExpression:
+        addOperator(ts.SyntaxKind.QuestionToken)
+        break
+      case ts.SyntaxKind.PropertyAccessExpression:
+      case ts.SyntaxKind.ElementAccessExpression:
+        addOperator('.')
+        break
+      case ts.SyntaxKind.CallExpression:
+      case ts.SyntaxKind.NewExpression:
+        addOperator('()')
+        break
+      case ts.SyntaxKind.VoidExpression:
+        addOperator(ts.SyntaxKind.VoidKeyword)
+        break
+      case ts.SyntaxKind.TypeOfExpression:
+        addOperator(ts.SyntaxKind.TypeOfKeyword)
+        break
+      case ts.SyntaxKind.DeleteExpression:
+        addOperator(ts.SyntaxKind.DeleteKeyword)
+        break
+      case ts.SyntaxKind.AwaitExpression:
+        addOperator(ts.SyntaxKind.AwaitKeyword)
+        break
+      default:
+        break
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(sourceFile)
+
+  const N1 = [...operatorCounts.values()].reduce((a, b) => a + b, 0)
+  const N2 = [...operandCounts.values()].reduce((a, b) => a + b, 0)
+  const n1 = operatorCounts.size
+  const n2 = operandCounts.size
+  const N = N1 + N2
+  const n = n1 + n2
+  if (n === 0 || N === 0) return null
+  const volume = N * Math.log2(n)
+  return { volume: Math.max(1, volume), N1, N2, n1, n2 }
+}
+
+/**
+ * Count logical lines of code (non-empty, non-comment).
+ */
+function getLinesOfCode(sourceText) {
+  const lines = sourceText.split('\n')
+  return lines.filter(line => {
+    const trimmed = line.trim()
+    return trimmed.length > 0 && !trimmed.startsWith('//') && !trimmed.startsWith('/*') && !trimmed.startsWith('*')
+  }).length
+}
+
+/**
  * Calculate maintainability index for a TypeScript/TSX file.
+ * Uses Microsoft-style formula with real cyclomatic complexity and Halstead volume.
  * Returns a value between 0-171 (standard maintainability index scale).
  * Returns -1 if the file cannot be analyzed (sentinel value to be excluded).
  */
 function calculateMaintainability(filePath) {
   try {
     const sourceText = fs.readFileSync(filePath, 'utf8')
-    
-    // Create a source file
     const sourceFile = ts.createSourceFile(
       filePath,
       sourceText,
@@ -103,75 +240,23 @@ function calculateMaintainability(filePath) {
       true
     )
 
-    // Count lines of code (non-empty, non-comment lines)
-    const lines = sourceText.split('\n')
-    const loc = lines.filter(line => {
-      const trimmed = line.trim()
-      return trimmed.length > 0 && !trimmed.startsWith('//') && !trimmed.startsWith('/*') && !trimmed.startsWith('*')
-    }).length
-
+    const loc = getLinesOfCode(sourceText)
     if (loc === 0) {
-      // Empty file or only comments - return a high maintainability score
       return 171
     }
 
-    // Calculate cyclomatic complexity approximation
-    // Count decision points: if, else, for, while, switch, case, catch, &&, ||, ? (ternary), ??
-    let complexity = 1 // Base complexity
-    const complexityKeywords = [
-      /\bif\s*\(/g,
-      /\belse\s*\{/g,
-      /\bfor\s*\(/g,
-      /\bwhile\s*\(/g,
-      /\bswitch\s*\(/g,
-      /\bcase\s+/g,
-      /\bcatch\s*\(/g,
-      /\?\s*[^:]/g, // ternary operator
-      /\?\?/g, // nullish coalescing
-      /&&/g,
-      /\|\|/g,
-    ]
-    
-    for (const pattern of complexityKeywords) {
-      const matches = sourceText.match(pattern)
-      if (matches) {
-        complexity += matches.length
-      }
-    }
+    const complexity = getCyclomaticComplexity(sourceFile)
+    const halstead = getHalsteadMetrics(sourceFile, sourceText)
+    const halsteadVolume = halstead?.volume ?? Math.max(1, loc * 2)
 
-    // Count function/method declarations (each adds to complexity)
-    function countNodes(node) {
-      let count = 0
-      if (
-        node.kind === ts.SyntaxKind.FunctionDeclaration ||
-        node.kind === ts.SyntaxKind.MethodDeclaration ||
-        node.kind === ts.SyntaxKind.ArrowFunction ||
-        node.kind === ts.SyntaxKind.FunctionExpression
-      ) {
-        count = 1
-      }
-      ts.forEachChild(node, child => {
-        count += countNodes(child)
-      })
-      return count
-    }
-    const functionCount = countNodes(sourceFile)
-
-    // Simplified Maintainability Index calculation
-    // MI = 171 - 5.2 * ln(Halstead Volume) - 0.23 * (Cyclomatic Complexity) - 16.2 * ln(LOC)
-    // For simplicity, we'll use a simplified formula:
-    // MI ≈ 171 - 0.23 * complexity - 16.2 * ln(LOC) - 0.1 * functionCount
-    const halsteadVolume = Math.max(1, loc * 2) // Rough approximation
-    const mi = 171 
-      - 5.2 * Math.log(Math.max(1, halsteadVolume))
+    // Microsoft Maintainability Index: MI = 171 - 5.2*ln(HV) - 0.23*CC - 16.2*ln(LOC)
+    const mi = 171
+      - 5.2 * Math.log(halsteadVolume)
       - 0.23 * complexity
       - 16.2 * Math.log(Math.max(1, loc))
-      - 0.1 * functionCount
 
-    // Clamp to valid range (0-171)
     return Math.max(0, Math.min(171, mi))
   } catch (error) {
-    // Return sentinel value for files that can't be analyzed
     return -1
   }
 }
