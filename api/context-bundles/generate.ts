@@ -14,7 +14,7 @@ import {
 } from './_checksum.js'
 import { getLatestManifest } from '../_lib/integration-manifest/context-integration.js'
 import { getSession } from '../_lib/github/session.js'
-import { distillArtifact } from './_distill.js'
+import { buildContextBundleV0 } from './_builder.js'
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []
@@ -54,11 +54,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       ticketId?: string
       repoFullName?: string
       role?: string
-      bundleJson?: unknown
+      bundleJson?: unknown // Deprecated: builder now assembles bundle from authoritative sources
       selectedArtifactIds?: string[]
       supabaseUrl?: string
       supabaseAnonKey?: string
-      redReference?: { red_id: string; version: number } | null
+      redReference?: { red_id: string; version: number } | null // Deprecated: builder fetches RED automatically
       gitRef?: {
         pr_url?: string
         pr_number?: number
@@ -71,7 +71,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const ticketId = typeof body.ticketId === 'string' ? body.ticketId.trim() || undefined : undefined
     const repoFullName = typeof body.repoFullName === 'string' ? body.repoFullName.trim() || undefined : undefined
     const role = typeof body.role === 'string' ? body.role.trim() || undefined : undefined
-    const bundleJson = body.bundleJson
     const selectedArtifactIds = Array.isArray(body.selectedArtifactIds)
       ? body.selectedArtifactIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
       : []
@@ -89,13 +88,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return json(res, 400, {
         success: false,
         error: 'role is required (e.g., "implementation-agent", "qa-agent", "project-manager").',
-      })
-    }
-
-    if (!bundleJson) {
-      return json(res, 400, {
-        success: false,
-        error: 'bundleJson is required.',
       })
     }
 
@@ -184,87 +176,30 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const nextVersion = latestBundles && latestBundles.length > 0 ? latestBundles[0].version + 1 : 1
 
-    // Distill selected artifacts if any
-    const distilledArtifacts: Array<{
-      artifact_id: string
-      artifact_title: string
-      summary: string
-      hard_facts: string[]
-      keywords: string[]
-      distillation_error?: string
-    }> = []
-    const distillationErrors: Array<{ artifact_id: string; error: string }> = []
+    // Build bundle using the v0 builder
+    const builderResult = await buildContextBundleV0({
+      ticketPk: resolvedTicketPk,
+      ticketId: resolvedTicketId,
+      repoFullName: resolvedRepoFullName,
+      role,
+      supabaseUrl,
+      supabaseAnonKey,
+      selectedArtifactIds,
+      gitRef: body.gitRef || null,
+    })
 
-    if (selectedArtifactIds.length > 0) {
-      // Fetch artifacts
-      const { data: artifacts, error: artifactsError } = await supabase
-        .from('agent_artifacts')
-        .select('artifact_id, title, body_md')
-        .in('artifact_id', selectedArtifactIds)
-        .eq('ticket_pk', resolvedTicketPk)
-
-      if (artifactsError) {
-        return json(res, 500, {
-          success: false,
-          error: `Failed to fetch artifacts: ${artifactsError.message}`,
-        })
-      }
-
-      if (!artifacts || artifacts.length === 0) {
-        return json(res, 400, {
-          success: false,
-          error: 'No artifacts found for the selected artifact IDs.',
-        })
-      }
-
-      // Distill each artifact
-      for (const artifact of artifacts) {
-        const result = await distillArtifact(artifact.body_md || '', artifact.title || '')
-
-        if (!result.success || !result.distilled) {
-          distillationErrors.push({
-            artifact_id: artifact.artifact_id,
-            error: result.error || 'Distillation failed',
-          })
-          distilledArtifacts.push({
-            artifact_id: artifact.artifact_id,
-            artifact_title: artifact.title || 'Untitled',
-            summary: '',
-            hard_facts: [],
-            keywords: [],
-            distillation_error: result.error || 'Distillation failed',
-          })
-          continue
-        }
-
-        distilledArtifacts.push({
-          artifact_id: artifact.artifact_id,
-          artifact_title: artifact.title || 'Untitled',
-          summary: result.distilled.summary,
-          hard_facts: result.distilled.hard_facts,
-          keywords: result.distilled.keywords,
-        })
-      }
-    }
-
-    // Block bundle creation if any distillation failed
-    if (distillationErrors.length > 0) {
+    if (!builderResult.success || !builderResult.bundle) {
       return json(res, 400, {
         success: false,
-        error: `Distillation failed for ${distillationErrors.length} artifact(s). Bundle creation blocked until all distillations succeed.`,
-        distillation_errors: distillationErrors,
+        error: builderResult.error || 'Failed to build bundle',
       })
     }
 
-    // Build final bundle JSON with distilled artifacts
-    const finalBundleJson = {
-      ...(typeof bundleJson === 'object' && bundleJson !== null ? bundleJson : {}),
-      distilled_artifacts: distilledArtifacts,
-    }
+    const bundle = builderResult.bundle
 
-    // Generate checksums
-    const contentChecksum = generateContentChecksum(finalBundleJson)
-    const bundleChecksum = generateBundleChecksum(finalBundleJson, {
+    // Generate checksums (before setting them in meta)
+    const contentChecksum = generateContentChecksum(bundle)
+    const bundleChecksum = generateBundleChecksum(bundle, {
       repoFullName: resolvedRepoFullName,
       ticketPk: resolvedTicketPk,
       ticketId: resolvedTicketId,
@@ -272,15 +207,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       version: nextVersion,
     })
 
-    // Get integration manifest reference
-    const manifestRef = await getLatestManifest(resolvedRepoFullName, 'v0')
-    const integrationManifestReference = manifestRef
-      ? {
-          manifest_id: manifestRef.manifest_id,
-          version: manifestRef.version,
-          schema_version: manifestRef.schema_version,
-        }
-      : null
+    // Set checksums in meta
+    bundle.meta.content_checksum = contentChecksum
+    bundle.meta.bundle_checksum = bundleChecksum
+
+    const integrationManifestReference = builderResult.integrationManifestReference || null
+    const redReference = builderResult.redReference || null
 
     // Get user identifier from session (if available)
     let createdBy: string | undefined = 'system'
@@ -293,6 +225,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       // Session not available, use default
     }
 
+    // Set bundle_id in meta (will be set after insert)
+    const bundleForStorage = { ...bundle }
+
     // Insert bundle
     const { data: newBundle, error: insertError } = await supabase
       .from('context_bundles')
@@ -302,7 +237,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         ticket_id: resolvedTicketId,
         role,
         version: nextVersion,
-        bundle_json: finalBundleJson,
+        bundle_json: bundleForStorage,
         content_checksum: contentChecksum,
         bundle_checksum: bundleChecksum,
         created_by: createdBy,
@@ -318,7 +253,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     // Calculate section metrics
-    const sectionMetrics = calculateSectionMetrics(finalBundleJson)
+    const sectionMetrics = calculateSectionMetrics(bundleForStorage)
     const totalCharacters = calculateTotalCharacters(sectionMetrics)
 
     // Insert receipt
@@ -334,7 +269,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         bundle_checksum: bundleChecksum,
         section_metrics: sectionMetrics,
         total_characters: totalCharacters,
-        red_reference: body.redReference || null,
+        red_reference: redReference,
         integration_manifest_reference: integrationManifestReference,
         git_ref: body.gitRef || null,
       })
