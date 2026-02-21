@@ -688,6 +688,7 @@ function App() {
         disconnectButtonRef={disconnectButtonRef}
         onCoverageReportClick={() => setCoverageReportOpen(true)}
         onMaintainabilityReportClick={() => setMaintainabilityReportOpen(true)}
+        onContextBundleClick={() => setContextBundleModalOpen(true)}
       />
 
       {githubConnectError && (
@@ -981,7 +982,7 @@ function App() {
         defaultBranch={connectedGithubRepo?.defaultBranch || 'main'}
       />
 
-      {/* Context Bundle Modal (0761) */}
+      {/* Context Bundle Modal (0763) */}
       <ContextBundleModal
         isOpen={contextBundleModalOpen}
         onClose={() => setContextBundleModalOpen(false)}
