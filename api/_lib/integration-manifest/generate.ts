@@ -63,13 +63,15 @@ function canonicalizeJson(value: unknown): string {
  * @param repoFullName - Repository full name (owner/repo)
  * @param defaultBranch - Default branch name (e.g., 'main')
  * @param envIdentifiers - Known environment identifiers (optional)
+ * @param projectId - Project identifier (optional, defaults to repo name)
  * @returns Generated manifest or error
  */
 export async function generateManifest(
   token: string,
   repoFullName: string,
   defaultBranch: string,
-  envIdentifiers: Record<string, string> = {}
+  envIdentifiers: Record<string, string> = {},
+  projectId?: string
 ): Promise<{ manifest: IntegrationManifestV0 } | { error: string }> {
   try {
     // Derive goal from deterministic sources (precedence order)
@@ -84,15 +86,21 @@ export async function generateManifest(
     // Derive conventions from deterministic sources (precedence order)
     const conventions = await deriveConventions(token, repoFullName, defaultBranch)
     
+    // Derive project_id from envIdentifiers or default to repo name
+    const derivedProjectId = projectId || envIdentifiers.project_id || repoFullName.split('/').pop() || repoFullName
+    
     const manifest: IntegrationManifestV0 = {
       schema_version: 'v0',
       repo_full_name: repoFullName,
       default_branch: defaultBranch,
+      project_id: derivedProjectId,
       env_identifiers: sortObjectKeys(envIdentifiers), // Ensure stable ordering
-      goal,
-      stack: sortObjectKeys(stack), // Ensure stable ordering
-      constraints: sortObjectKeys(constraints), // Ensure stable ordering
-      conventions: sortObjectKeys(conventions), // Ensure stable ordering
+      project_manifest: {
+        goal,
+        stack: sortObjectKeys(stack), // Ensure stable ordering
+        constraints: sortObjectKeys(constraints), // Ensure stable ordering
+        conventions: sortObjectKeys(conventions), // Ensure stable ordering
+      },
       generated_at: new Date().toISOString(),
     }
     
