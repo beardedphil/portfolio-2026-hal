@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React from 'react'
 import { formatTime, getMessageAuthorLabel } from '../lib/conversation-helpers'
 import type { Message, ImageAttachment } from '../lib/conversationStorage'
 import type { ChatTarget } from '../types/app'
@@ -55,20 +55,6 @@ export function PmChatWidget({
   composerRef,
 }: PmChatWidgetProps) {
   // Component only renders when parent determines it should be visible (button is handled by parent)
-  const [showSystemDetails, setShowSystemDetails] = useState(false)
-
-  const { mainMessages, systemMessages, latestSystemLine } = useMemo(() => {
-    const systemMessages = displayMessages.filter((m) => m.agent === 'system')
-    const mainMessages = displayMessages.filter((m) => m.agent !== 'system')
-    const latestSystemLine =
-      [...systemMessages]
-        .reverse()
-        .find((m) => {
-          const c = String(m.content ?? '').trim()
-          return c.startsWith('[Progress]') || c.startsWith('[Stage]') || c.startsWith('[Status]')
-        })?.content ?? null
-    return { mainMessages, systemMessages, latestSystemLine }
-  }, [displayMessages])
 
   return (
     <div className={`pm-chat-widget ${isFullscreen ? 'pm-chat-widget-fullscreen' : 'pm-chat-widget-small'}`}>
@@ -147,24 +133,6 @@ export function PmChatWidget({
               )}
             </>
           )}
-          {displayTarget === 'project-manager' && latestSystemLine && (
-            <div
-              className="pm-chat-widget-statusline"
-              role="status"
-              aria-live="polite"
-              style={{
-                margin: '0 12px 8px 12px',
-                padding: '8px 10px',
-                borderRadius: '8px',
-                background: 'rgba(0,0,0,0.08)',
-                color: 'var(--hal-text-muted)',
-                fontSize: '12px',
-              }}
-              title="Latest run status"
-            >
-              {latestSystemLine}
-            </div>
-          )}
           {/* Messages list — use chat-transcript so sidebar gets same styles as right panel */}
           <div 
             className="chat-transcript" 
@@ -175,7 +143,7 @@ export function PmChatWidget({
               ;(transcriptRef as React.MutableRefObject<HTMLDivElement | null>).current = el
             }}
           >
-            {mainMessages.length === 0 && agentTypingTarget !== displayTarget ? (
+            {displayMessages.length === 0 && agentTypingTarget !== displayTarget ? (
               <p className="transcript-empty">
                 {displayTarget === 'project-manager'
                   ? 'Send a message to the Project Manager to get started.'
@@ -187,29 +155,7 @@ export function PmChatWidget({
               </p>
             ) : (
               <>
-                {/* Collapse noisy system updates by default so the real response stays visible */}
-                {displayTarget === 'project-manager' && systemMessages.length > 0 && (
-                  <div className="message-row message-row-system" data-agent="system">
-                    <div className="message message-system">
-                      <div className="message-header" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <span className="message-author">System</span>
-                        <span className="message-time">[{formatTime(systemMessages[systemMessages.length - 1].timestamp)}]</span>
-                        <button
-                          type="button"
-                          className="btn-standard"
-                          onClick={() => setShowSystemDetails((v) => !v)}
-                          style={{ marginLeft: 'auto' }}
-                          aria-label={showSystemDetails ? 'Hide run details' : 'Show run details'}
-                          title={showSystemDetails ? 'Hide run details' : 'Show run details'}
-                        >
-                          {showSystemDetails ? 'Hide run details' : `Show run details (${systemMessages.length})`}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {mainMessages.map((msg) => (
+                {displayMessages.map((msg) => (
                   <div key={msg.id} className={`message-row message-row-${msg.agent}`} data-agent={msg.agent}>
                     <div
                       className={`message message-${msg.agent} ${displayTarget === 'project-manager' && msg.agent === 'project-manager' && msg.promptText ? 'message-clickable' : ''}`}
@@ -233,22 +179,6 @@ export function PmChatWidget({
                             ))}
                           </div>
                         )}
-                        {msg.content.trimStart().startsWith('{') ? (
-                          <pre className="message-content message-json">{msg.content}</pre>
-                        ) : (
-                          <span className="message-content">{msg.content}</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-
-                {displayTarget === 'project-manager' && showSystemDetails && systemMessages.map((msg) => (
-                  <div key={msg.id} className={`message-row message-row-${msg.agent}`} data-agent={msg.agent}>
-                    <div className={`message message-${msg.agent}`}>
-                      <div className="message-header">
-                        <span className="message-author">{getMessageAuthorLabel(msg.agent)}</span>
-                        <span className="message-time">[{formatTime(msg.timestamp)}]</span>
                         {msg.content.trimStart().startsWith('{') ? (
                           <pre className="message-content message-json">{msg.content}</pre>
                         ) : (
