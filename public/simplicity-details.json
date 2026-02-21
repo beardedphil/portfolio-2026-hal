@@ -25,6 +25,10 @@
       "maintainability": 0
     },
     {
+      "file": "agents/src/agents/projectManager/contextBuilding.ts",
+      "maintainability": 0
+    },
+    {
       "file": "agents/src/agents/projectManager.ts",
       "maintainability": 0
     },
@@ -35,10 +39,6 @@
     {
       "file": "api/agent-runs/providers/openai.ts",
       "maintainability": 1.13
-    },
-    {
-      "file": "agents/src/agents/projectManager/contextBuilding.ts",
-      "maintainability": 1.99
     },
     {
       "file": "api/instructions/get-index.ts",
@@ -83,21 +83,39 @@
   ],
   "mostRecentImprovements": [
     {
+      "file": "api/agent-runs/providers/openai.ts",
+      "before": 1.13,
+      "after": 1.13,
+      "delta": 0
+    },
+    {
       "file": "api/tickets/create-pr.ts",
       "before": 25.54,
       "after": 25.54,
       "delta": 0
     },
     {
-      "file": "api/artifacts/get.ts",
-      "before": 32.38,
-      "after": 32.38,
+      "file": "api/auth/github/callback.ts",
+      "before": 24.45,
+      "after": 24.45,
       "delta": 0
     },
     {
-      "file": "api/tickets/create-from-suggestion.ts",
-      "before": 33.81,
-      "after": 33.81,
+      "file": "src/hooks/useProcessReview.ts",
+      "before": 18.54,
+      "after": 18.54,
+      "delta": 0
+    },
+    {
+      "file": "api/instructions/get-index.ts",
+      "before": 7.99,
+      "after": 7.99,
+      "delta": 0
+    },
+    {
+      "file": "api/instructions/get-topic.ts",
+      "before": 26.6,
+      "after": 26.6,
       "delta": 0
     },
     {
@@ -107,26 +125,14 @@
       "delta": 0
     },
     {
-      "file": "api/agent-runs/_shared.ts",
-      "before": 32.44,
-      "after": 32.44,
-      "delta": 0
-    },
-    {
-      "file": "projects/kanban/src/components/TicketDetailModal.tsx",
-      "before": 29.74,
-      "after": 29.74,
-      "delta": 0
-    },
-    {
       "file": "api/instructions/migrate-process-docs.ts",
       "before": 26.39,
       "after": 26.39,
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-21T20:05:58.535Z",
-  "filesAnalyzed": 314,
-  "unroundedMaintainability": 39.8,
-  "unroundedSimplicity": 39.8
+  "generatedAt": "2026-02-21T20:14:36.907Z",
+  "filesAnalyzed": 315,
+  "unroundedMaintainability": 39.7,
+  "unroundedSimplicity": 39.7
 }
