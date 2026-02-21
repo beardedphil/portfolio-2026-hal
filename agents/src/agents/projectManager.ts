@@ -46,7 +46,10 @@ import {
   generateWorkingMemory,
   type WorkingMemory,
 } from './projectManager/summarization.js'
-import { isAbortError, halFetchJson } from './projectManager/runPmAgentHelpers.js'
+import { isAbortError, halFetchJson, generateFallbackReply, buildPrompt, type ToolCallRecord } from './projectManager/runPmAgentHelpers.js'
+
+// Re-export ToolCallRecord for backward compatibility
+export type { ToolCallRecord }
 
 // Re-export for backward compatibility
 export type { ReadyCheckResult }
@@ -62,12 +65,6 @@ export type { WorkingMemory }
 export { summarizeForContext, generateWorkingMemory }
 
 // --- runPmAgent (0003) ---
-
-export interface ToolCallRecord {
-  name: string
-  input: unknown
-  output: unknown
-}
 
 export interface PmAgentResult {
   reply: string
@@ -1458,44 +1455,12 @@ ${JSON.stringify(redJsonForArtifact, null, 2)}
     ...(createRedDocumentTool ? { create_red_document_v2: createRedDocumentTool } : {}),
   }
 
-  const promptBase = `${contextPack}\n\n---\n\nRespond to the user message above using the tools as needed.`
-
-  // Build full prompt text for display (system instructions + context pack + user message + images if present)
-  const hasImages = config.images && config.images.length > 0
-  const isVisionModel = config.openaiModel.includes('vision') || config.openaiModel.includes('gpt-4o')
-  let imageInfo = ''
-  if (hasImages) {
-    const imageList = config.images!.map((img, idx) => `  ${idx + 1}. ${img.filename || `Image ${idx + 1}`} (${img.mimeType || 'image'})`).join('\n')
-    if (isVisionModel) {
-      imageInfo = `\n\n## Images (included in prompt)\n\n${imageList}\n\n(Note: Images are sent as base64-encoded data URLs in the prompt array, but are not shown in this text representation.)`
-    } else {
-      imageInfo = `\n\n## Images (provided but ignored)\n\n${imageList}\n\n(Note: Images were provided but the model (${config.openaiModel}) does not support vision. Images are ignored.)`
-    }
-  }
-  const fullPromptText = `## System Instructions\n\n${PM_SYSTEM_INSTRUCTIONS}\n\n---\n\n## User Prompt\n\n${promptBase}${imageInfo}`
-
-  // Build prompt with images if present
-  // For vision models, prompt must be an array of content parts
-  // For non-vision models, prompt is a string (images are ignored)
-  // Note: hasImages and isVisionModel are already defined above when building fullPromptText
-  
-  let prompt: string | Array<{ type: 'text' | 'image'; text?: string; image?: string }>
-  if (hasImages && isVisionModel) {
-    // Vision model: use array format with text and images
-    prompt = [
-      { type: 'text' as const, text: promptBase },
-      ...config.images!.map((img) => ({ type: 'image' as const, image: img.dataUrl })),
-    ]
-    // For vision models, note that images are included but not shown in text representation
-    // The fullPromptText will show the text portion
-  } else {
-    // Non-vision model or no images: use string format
-    prompt = promptBase
-    if (hasImages && !isVisionModel) {
-      // Log warning but don't fail - user can still send text
-      console.warn('[PM Agent] Images provided but model does not support vision. Images will be ignored.')
-    }
-  }
+  const { prompt, fullPromptText } = buildPrompt(
+    contextPack,
+    PM_SYSTEM_INSTRUCTIONS,
+    config.images,
+    config.openaiModel
+  )
 
   const providerOptions =
     config.previousResponseId != null && config.previousResponseId !== ''
@@ -1537,172 +1502,7 @@ ${JSON.stringify(redJsonForArtifact, null, 2)}
     // If the model returned no text but create_ticket succeeded, provide a fallback so the user sees a clear outcome (0011/0020)
     // Also handle placeholder validation failures (0066)
     if (!reply.trim()) {
-      // Check for placeholder validation failures first (0066)
-      const createTicketRejected = toolCalls.find(
-        (c) =>
-          c.name === 'create_ticket' &&
-          typeof c.output === 'object' &&
-          c.output !== null &&
-          (c.output as { success?: boolean }).success === false &&
-          (c.output as { detectedPlaceholders?: string[] }).detectedPlaceholders
-      )
-      if (createTicketRejected) {
-        const out = createTicketRejected.output as {
-          error: string
-          detectedPlaceholders?: string[]
-        }
-        reply = `**Ticket creation rejected:** ${out.error}`
-        if (out.detectedPlaceholders && out.detectedPlaceholders.length > 0) {
-          reply += `\n\n**Detected placeholders:** ${out.detectedPlaceholders.join(', ')}`
-        }
-        reply += `\n\nPlease replace all angle-bracket placeholders with concrete content and try again. Check Diagnostics for details.`
-      } else {
-        const updateTicketRejected = toolCalls.find(
-          (c) =>
-            c.name === 'update_ticket_body' &&
-            typeof c.output === 'object' &&
-            c.output !== null &&
-            (c.output as { success?: boolean }).success === false &&
-            (c.output as { detectedPlaceholders?: string[] }).detectedPlaceholders
-        )
-        if (updateTicketRejected) {
-          const out = updateTicketRejected.output as {
-            error: string
-            detectedPlaceholders?: string[]
-          }
-          reply = `**Ticket update rejected:** ${out.error}`
-          if (out.detectedPlaceholders && out.detectedPlaceholders.length > 0) {
-            reply += `\n\n**Detected placeholders:** ${out.detectedPlaceholders.join(', ')}`
-          }
-          reply += `\n\nPlease replace all angle-bracket placeholders with concrete content and try again. Check Diagnostics for details.`
-        } else {
-          const createTicketCall = toolCalls.find(
-            (c) =>
-              c.name === 'create_ticket' &&
-              typeof c.output === 'object' &&
-              c.output !== null &&
-              (c.output as { success?: boolean }).success === true
-          )
-          if (createTicketCall) {
-            const out = createTicketCall.output as {
-              id: string
-              filename: string
-              filePath: string
-              ready?: boolean
-              missingItems?: string[]
-            }
-            reply = `I created ticket **${out.id}** at \`${out.filePath}\`. It should appear in the Kanban board under Unassigned (sync may run automatically).`
-            if (out.ready === false && out.missingItems?.length) {
-              reply += ` The ticket is not yet ready for To Do: ${out.missingItems.join('; ')}. Update the ticket or ask me to move it once it passes the Ready-to-start checklist.`
-            }
-          } else {
-            const moveCall = toolCalls.find(
-              (c) =>
-                c.name === 'kanban_move_ticket_to_todo' &&
-                typeof c.output === 'object' &&
-                c.output !== null &&
-                (c.output as { success?: boolean }).success === true
-            )
-            if (moveCall) {
-              const out = moveCall.output as { ticketId: string; fromColumn: string; toColumn: string }
-              reply = `I moved ticket **${out.ticketId}** from ${out.fromColumn} to **${out.toColumn}**. It should now appear under To Do on the Kanban board.`
-            } else {
-              const updateBodyCall = toolCalls.find(
-                (c) =>
-                  c.name === 'update_ticket_body' &&
-                  typeof c.output === 'object' &&
-                  c.output !== null &&
-                  (c.output as { success?: boolean }).success === true
-              )
-              if (updateBodyCall) {
-                const out = updateBodyCall.output as {
-                  ticketId: string
-                  ready?: boolean
-                  missingItems?: string[]
-                }
-                reply = `I updated the body of ticket **${out.ticketId}** via the HAL API. The Kanban UI will reflect the change within ~10 seconds.`
-                if (out.ready === false && out.missingItems?.length) {
-                  reply += ` Note: the ticket may still not pass readiness: ${out.missingItems.join('; ')}.`
-                }
-              } else {
-                const syncTicketsCall = toolCalls.find(
-                  (c) =>
-                    c.name === 'sync_tickets' &&
-                    typeof c.output === 'object' &&
-                    c.output !== null &&
-                    (c.output as { success?: boolean }).success === true
-                )
-                if (syncTicketsCall) {
-                  reply =
-                    'I ran sync-tickets. docs/tickets/*.md now match Supabase (Supabase is the source of truth).'
-                } else {
-                  const listTicketsCall = toolCalls.find(
-                    (c) =>
-                      c.name === 'list_tickets_by_column' &&
-                      typeof c.output === 'object' &&
-                      c.output !== null &&
-                      (c.output as { success?: boolean }).success === true
-                  )
-                  if (listTicketsCall) {
-                    const out = listTicketsCall.output as {
-                      column_id: string
-                      tickets: Array<{ id: string; title: string; column: string }>
-                      count: number
-                    }
-                    if (out.count === 0) {
-                      reply = `No tickets found in column **${out.column_id}**.`
-                    } else {
-                      const ticketList = out.tickets
-                        .map((t) => `- **${t.id}** — ${t.title}`)
-                        .join('\n')
-                      reply = `Tickets in **${out.column_id}** (${out.count}):\n\n${ticketList}`
-                    }
-                  } else {
-                    const listReposCall = toolCalls.find(
-                      (c) =>
-                        c.name === 'list_available_repos' &&
-                        typeof c.output === 'object' &&
-                        c.output !== null &&
-                        (c.output as { success?: boolean }).success === true
-                    )
-                    if (listReposCall) {
-                      const out = listReposCall.output as {
-                        repos: Array<{ repo_full_name: string }>
-                        count: number
-                      }
-                      if (out.count === 0) {
-                        reply = `No repositories found in the database.`
-                      } else {
-                        const repoList = out.repos.map((r) => `- **${r.repo_full_name}**`).join('\n')
-                        reply = `Available repositories (${out.count}):\n\n${repoList}`
-                      }
-                    } else {
-                      const moveToOtherRepoCall = toolCalls.find(
-                        (c) =>
-                          c.name === 'kanban_move_ticket_to_other_repo_todo' &&
-                          typeof c.output === 'object' &&
-                          c.output !== null &&
-                          (c.output as { success?: boolean }).success === true
-                      )
-                      if (moveToOtherRepoCall) {
-                        const out = moveToOtherRepoCall.output as {
-                          ticketId: string
-                          display_id?: string
-                          fromRepo: string
-                          toRepo: string
-                          fromColumn: string
-                          toColumn: string
-                        }
-                        reply = `I moved ticket **${out.display_id ?? out.ticketId}** from **${out.fromRepo}** (${out.fromColumn}) to **${out.toRepo}** (${out.toColumn}). The ticket is now in the To Do column of the target repository.`
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
+      reply = generateFallbackReply(toolCalls)
     }
     const outboundRequest = capturedRequest
       ? (redact(capturedRequest) as object)
