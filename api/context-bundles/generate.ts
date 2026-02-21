@@ -15,6 +15,7 @@ import {
 import { getLatestManifest } from '../_lib/integration-manifest/context-integration.js'
 import { getSession } from '../_lib/github/session.js'
 import { distillArtifact } from './_distill.js'
+import { generateRepoContext } from './_repo-context.js'
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []
@@ -256,10 +257,31 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       })
     }
 
-    // Build final bundle JSON with distilled artifacts
+    // Generate deterministic repo_context if gitRef is provided
+    let finalRepoContext = bundleJson && typeof bundleJson === 'object' && bundleJson !== null && 'repo_context' in bundleJson
+      ? (bundleJson as Record<string, unknown>).repo_context
+      : null
+
+    // If gitRef is provided, generate deterministic repo_context
+    if (body.gitRef && (body.gitRef.pr_url || body.gitRef.head_sha)) {
+      // Try to get GitHub token from session (optional - repo_context will be minimal without it)
+      let githubToken: string | null = null
+      try {
+        const session = await getSession(req, res)
+        githubToken = session.github?.accessToken || null
+      } catch {
+        // Session not available, continue without token
+      }
+
+      const repoContext = await generateRepoContext(githubToken, resolvedRepoFullName, body.gitRef)
+      finalRepoContext = repoContext
+    }
+
+    // Build final bundle JSON with distilled artifacts and deterministic repo_context
     const finalBundleJson = {
       ...(typeof bundleJson === 'object' && bundleJson !== null ? bundleJson : {}),
       distilled_artifacts: distilledArtifacts,
+      ...(finalRepoContext ? { repo_context: finalRepoContext } : {}),
     }
 
     // Generate checksums

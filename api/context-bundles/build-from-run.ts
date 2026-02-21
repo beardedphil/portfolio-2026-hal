@@ -15,6 +15,7 @@ import {
 import { getLatestManifest } from '../_lib/integration-manifest/context-integration.js'
 import { getSession } from '../_lib/github/session.js'
 import { readJsonBody, json } from '../agent-runs/_shared.js'
+import { generateRepoContext } from './_repo-context.js'
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   // CORS: Allow cross-origin requests
@@ -131,6 +132,33 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
     const role = roleMap[run.agent_type] || run.agent_type
 
+    // Prepare git ref for repo_context generation
+    let gitRef: {
+      pr_url?: string
+      pr_number?: number
+      base_sha?: string
+      head_sha?: string
+    } | null = null
+
+    if (run.pr_url) {
+      gitRef = {
+        pr_url: run.pr_url,
+        pr_number: run.ticket_number || null,
+      }
+    }
+
+    // Try to get GitHub token from session (optional - repo_context will be minimal without it)
+    let githubToken: string | null = null
+    try {
+      const session = await getSession(req, res)
+      githubToken = session.github?.accessToken || null
+    } catch {
+      // Session not available, continue without token
+    }
+
+    // Generate deterministic repo_context
+    const repoContext = await generateRepoContext(githubToken, run.repo_full_name, gitRef)
+
     // Build deterministic bundle JSON from agent run data
     const bundleJson = {
       ticket: {
@@ -161,11 +189,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       output_json: run.output_json || null,
       summary: run.summary || null,
       error: run.error || null,
-      repo_context: {
-        repo_full_name: run.repo_full_name,
-        ticket_number: run.ticket_number,
-        display_id: run.display_id,
-      },
+      repo_context: repoContext,
     }
 
     // Get latest version for this ticket and role
@@ -246,8 +270,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const sectionMetrics = calculateSectionMetrics(bundleJson)
     const totalCharacters = calculateTotalCharacters(sectionMetrics)
 
-    // Extract git ref from run if available
-    const gitRef = run.pr_url
+    // Extract git ref from run if available (for receipt)
+    const gitRefForReceipt = run.pr_url
       ? {
           pr_url: run.pr_url,
           pr_number: run.ticket_number || null,
@@ -269,7 +293,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         total_characters: totalCharacters,
         red_reference: null,
         integration_manifest_reference: integrationManifestReference,
-        git_ref: gitRef,
+        git_ref: gitRefForReceipt,
       })
       .select()
       .single()
