@@ -215,11 +215,45 @@ export function useAgentRuns(params: UseAgentRunsParams) {
 
             const es = new EventSource(`/api/agent-runs/stream?runId=${encodeURIComponent(runId)}`)
             let closed = false
+            let statusCheckInFlight = false
             const close = () => {
               if (closed) return
               closed = true
               try { es.close() } catch { /* ignore */ }
               setAgentTypingTarget(null)
+            }
+
+            const checkStatusAndCloseIfTerminal = async () => {
+              if (closed || statusCheckInFlight) return
+              statusCheckInFlight = true
+              try {
+                const r = await fetch(`/api/agent-runs/status?runId=${encodeURIComponent(runId)}`, {
+                  credentials: 'include',
+                })
+                const text = await r.text()
+                let statusJson: any = null
+                try {
+                  statusJson = JSON.parse(text)
+                } catch {
+                  return
+                }
+                const status = String(statusJson?.status ?? '')
+                if (status === 'completed' || status === 'finished') {
+                  const summary = typeof statusJson?.summary === 'string' ? statusJson.summary : ''
+                  if (summary.trim()) upsertMessage(convId, 'project-manager', summary.trim(), assistantId)
+                  close()
+                  return
+                }
+                if (status === 'failed') {
+                  const msg = typeof statusJson?.error === 'string' ? statusJson.error : 'Run failed.'
+                  setOpenaiLastError(msg)
+                  setLastAgentError(msg)
+                  addMessage(convId, 'project-manager', `[PM] Error: ${msg}`)
+                  close()
+                }
+              } finally {
+                statusCheckInFlight = false
+              }
             }
 
             const finalize = async (finalText: string) => {
@@ -293,10 +327,13 @@ export function useAgentRuns(params: UseAgentRunsParams) {
                   setLastAgentError(msg)
                   addMessage(convId, 'project-manager', `[PM] Error: ${msg}`)
                   close()
+                  return
                 }
               } catch {
                 // ignore transient disconnects
               }
+              // If the stream disconnected without a terminal event, check status once and close if needed.
+              setTimeout(() => void checkStatusAndCloseIfTerminal(), 750)
             })
           } catch (err) {
             setAgentTypingTarget(null)
