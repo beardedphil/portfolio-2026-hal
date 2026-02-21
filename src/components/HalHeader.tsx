@@ -14,6 +14,7 @@ interface HalHeaderProps {
   disconnectButtonRef: React.RefObject<HTMLButtonElement>
   onCoverageReportClick: () => void
   onMaintainabilityReportClick: () => void
+  onContextBundleClick: () => void
   theme: Theme
   onThemeChange: (theme: Theme) => void
 }
@@ -28,6 +29,7 @@ export function HalHeader({
   disconnectButtonRef,
   onCoverageReportClick,
   onMaintainabilityReportClick,
+  onContextBundleClick,
   theme,
   onThemeChange,
 }: HalHeaderProps) {
@@ -87,6 +89,17 @@ export function HalHeader({
         )}
       </div>
       <div className="hal-header-actions">
+        {connectedProject && (
+          <button
+            type="button"
+            className="btn-standard"
+            onClick={onContextBundleClick}
+            style={{ marginRight: '12px' }}
+            title="View Context Bundle"
+          >
+            Context Bundle
+          </button>
+        )}
         <div className="theme-selector">
           <label htmlFor="theme-select" className="theme-select-label">
             Theme:

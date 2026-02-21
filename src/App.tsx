@@ -17,6 +17,7 @@ import { CoverageReportModal } from './components/CoverageReportModal'
 import { MaintainabilityReportModal } from './components/MaintainabilityReportModal'
 import { IntegrationManifestModal } from './components/IntegrationManifestModal'
 import { ContextBundleModal } from './components/ContextBundleModal'
+import { ContextBundleView } from './components/ContextBundleView'
 import { AgentRunBundleModal } from './components/AgentRunBundleModal'
 import { NoPrModal } from './components/NoPrModal'
 import type { ChatTarget, ToolCallRecord, TicketCreationResult } from './types/app'
@@ -296,6 +297,14 @@ function App() {
   const [contextBundleModalOpen, setContextBundleModalOpen] = useState<boolean>(false)
   const [contextBundleTicketPk] = useState<string | null>(null)
   const [contextBundleTicketId] = useState<string | null>(null)
+  const [contextBundleViewOpen, setContextBundleViewOpen] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem('hal-context-bundle-view-open')
+      return stored === 'true'
+    } catch {
+      return false
+    }
+  })
   /** Agent Run Bundle Builder modal (0756). */
   const [agentRunBundleModalOpen, setAgentRunBundleModalOpen] = useState<boolean>(false)
   const [agentRunBundleRunId, setAgentRunBundleRunId] = useState<string | null>(null)
@@ -704,6 +713,14 @@ function App() {
         disconnectButtonRef={disconnectButtonRef}
         onCoverageReportClick={() => setCoverageReportOpen(true)}
         onMaintainabilityReportClick={() => setMaintainabilityReportOpen(true)}
+        onContextBundleClick={() => {
+          setContextBundleViewOpen(true)
+          try {
+            localStorage.setItem('hal-context-bundle-view-open', 'true')
+          } catch {
+            // Ignore localStorage errors
+          }
+        }}
         theme={theme}
         onThemeChange={setTheme}
       />
@@ -1010,6 +1027,22 @@ function App() {
         supabaseAnonKey={supabaseAnonKey}
         allowTicketSelection={true}
       />
+      {/* Context Bundle View (0763) */}
+      {contextBundleViewOpen && connectedGithubRepo?.fullName && (
+        <ContextBundleView
+          repoFullName={connectedGithubRepo.fullName}
+          supabaseUrl={supabaseUrl}
+          supabaseAnonKey={supabaseAnonKey}
+          onClose={() => {
+            setContextBundleViewOpen(false)
+            try {
+              localStorage.setItem('hal-context-bundle-view-open', 'false')
+            } catch {
+              // Ignore localStorage errors
+            }
+          }}
+        />
+      )}
       {/* Agent Run Bundle Builder Modal (0756) */}
       <AgentRunBundleModal
         isOpen={agentRunBundleModalOpen}
