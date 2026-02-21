@@ -10,6 +10,7 @@ import { ProcessReviewSection } from './ProcessReviewSection'
 import { HumanValidationSection } from './HumanValidationSection'
 import { AutoDismissMessage } from './AutoDismissMessage'
 import { PullRequestSection } from './PullRequestSection'
+import { ContextBundleView } from '../../../src/components/ContextBundleView'
 
 /** Ticket detail modal (0033): title, metadata, markdown body, close/escape/backdrop, scroll lock, focus trap */
 export function TicketDetailModal({
@@ -293,6 +294,19 @@ export function TicketDetailModal({
                 supabaseUrl={supabaseUrl}
                 supabaseKey={supabaseKey}
                 onRefresh={_onTicketUpdate}
+              />
+              <ContextBundleView
+                ticketPk={ticketId}
+                ticketId={ticketId}
+                repoFullName={repoFullName || null}
+                supabaseUrl={supabaseUrl}
+                supabaseAnonKey={supabaseKey}
+                onUseBundle={(bundleId, role) => {
+                  // Handle "Use this bundle" action
+                  // This could open an agent run modal or trigger an agent run
+                  console.log('Use bundle:', bundleId, 'for role:', role)
+                  // TODO: Implement agent run with bundle
+                }}
               />
               {showValidationSection && (
                 <>
