@@ -131,8 +131,8 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-21T18:11:51.354Z",
-  "filesAnalyzed": 299,
+  "generatedAt": "2026-02-21T19:25:01.699Z",
+  "filesAnalyzed": 305,
   "unroundedMaintainability": 40.2,
   "unroundedSimplicity": 40.2
 }
