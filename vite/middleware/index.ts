@@ -21,6 +21,7 @@ export function getAllMiddlewarePlugins(): Plugin[] {
     createSimpleMiddlewarePlugin('agent-runs-launch-endpoint', '/api/agent-runs/launch', { method: 'POST', allowOptions: false }),
     createSimpleMiddlewarePlugin('agent-runs-status-endpoint', '/api/agent-runs/status', { method: 'GET', allowOptions: false }),
     createSimpleMiddlewarePlugin('agent-runs-sync-artifacts-endpoint', '/api/agent-runs/sync-artifacts', { method: 'POST', allowOptions: false }),
+    createSimpleMiddlewarePlugin('context-bundles-build-from-run-endpoint', '/api/context-bundles/build-from-run', { method: 'POST', allowOptions: false }),
     createSimpleMiddlewarePlugin('conversations-working-memory-get-endpoint', '/api/conversations/working-memory/get'),
     createSimpleMiddlewarePlugin('conversations-working-memory-update-endpoint', '/api/conversations/working-memory/update'),
     // TODO: Extract remaining complex middleware plugins:

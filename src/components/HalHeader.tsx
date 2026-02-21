@@ -17,6 +17,7 @@ interface HalHeaderProps {
   onMaintainabilityReportClick: () => void
   onIntegrationManifestClick: () => void
   onContextBundleClick?: () => void
+  onAgentRunBundleClick?: () => void
   theme: Theme
   onThemeChange: (theme: Theme) => void
 }
@@ -34,6 +35,7 @@ export function HalHeader({
   onMaintainabilityReportClick,
   onIntegrationManifestClick,
   onContextBundleClick,
+  onAgentRunBundleClick,
   theme,
   onThemeChange,
 }: HalHeaderProps) {
@@ -139,6 +141,17 @@ export function HalHeader({
                 title="View Context Bundles"
               >
                 Context Bundles
+              </button>
+            )}
+            {onAgentRunBundleClick && (
+              <button
+                type="button"
+                className="agent-run-bundle-btn btn-standard"
+                onClick={onAgentRunBundleClick}
+                aria-label="Build Context Bundle from Agent Run"
+                title="Build Context Bundle from Agent Run"
+              >
+                Build Bundle from Run
               </button>
             )}
           </>

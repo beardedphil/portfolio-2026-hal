@@ -17,6 +17,7 @@ import { CoverageReportModal } from './components/CoverageReportModal'
 import { MaintainabilityReportModal } from './components/MaintainabilityReportModal'
 import { IntegrationManifestModal } from './components/IntegrationManifestModal'
 import { ContextBundleModal } from './components/ContextBundleModal'
+import { AgentRunBundleModal } from './components/AgentRunBundleModal'
 import { NoPrModal } from './components/NoPrModal'
 import type { ChatTarget, ToolCallRecord, TicketCreationResult } from './types/app'
 import { CHAT_OPTIONS } from './types/app'
@@ -295,6 +296,9 @@ function App() {
   const [contextBundleModalOpen, setContextBundleModalOpen] = useState<boolean>(false)
   const [contextBundleTicketPk, setContextBundleTicketPk] = useState<string | null>(null)
   const [contextBundleTicketId, setContextBundleTicketId] = useState<string | null>(null)
+  /** Agent Run Bundle Builder modal (0756). */
+  const [agentRunBundleModalOpen, setAgentRunBundleModalOpen] = useState<boolean>(false)
+  const [agentRunBundleRunId, setAgentRunBundleRunId] = useState<string | null>(null)
 
   useEffect(() => {
     selectedChatTargetRef.current = selectedChatTarget
@@ -708,6 +712,11 @@ function App() {
           setContextBundleTicketPk(null)
           setContextBundleTicketId(null)
         }}
+        onAgentRunBundleClick={() => {
+          setAgentRunBundleModalOpen(true)
+          // Use current agent run ID if available, otherwise user can enter one
+          setAgentRunBundleRunId(implAgentRunId || qaAgentRunId || null)
+        }}
         theme={theme}
         onThemeChange={setTheme}
       />
@@ -1009,6 +1018,22 @@ function App() {
         onClose={() => setContextBundleModalOpen(false)}
         ticketPk={contextBundleTicketPk}
         ticketId={contextBundleTicketId}
+        repoFullName={connectedGithubRepo?.fullName || null}
+        supabaseUrl={supabaseUrl}
+        supabaseAnonKey={supabaseAnonKey}
+        allowTicketSelection={true}
+      />
+      {/* Agent Run Bundle Builder Modal (0756) */}
+      <AgentRunBundleModal
+        isOpen={agentRunBundleModalOpen}
+        onClose={() => {
+          setAgentRunBundleModalOpen(false)
+          setAgentRunBundleRunId(null)
+        }}
+        runId={agentRunBundleRunId || implAgentRunId || qaAgentRunId}
+        supabaseUrl={supabaseUrl}
+        supabaseAnonKey={supabaseAnonKey}
+      />
         repoFullName={connectedGithubRepo?.fullName || null}
         supabaseUrl={supabaseUrl}
         supabaseAnonKey={supabaseAnonKey}
