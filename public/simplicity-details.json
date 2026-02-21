@@ -49,6 +49,10 @@
       "maintainability": 12.23
     },
     {
+      "file": "agents/src/agents/projectManager/ticketTools.ts",
+      "maintainability": 17.55
+    },
+    {
       "file": "src/hooks/useProcessReview.ts",
       "maintainability": 18.54
     },
@@ -75,10 +79,6 @@
     {
       "file": "api/instructions/migrate-process-docs.ts",
       "maintainability": 26.39
-    },
-    {
-      "file": "api/instructions/get-topic.ts",
-      "maintainability": 26.6
     }
   ],
   "mostRecentImprovements": [
@@ -125,8 +125,8 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-21T23:24:39.593Z",
-  "filesAnalyzed": 326,
-  "unroundedMaintainability": 39.4,
-  "unroundedSimplicity": 39.4
+  "generatedAt": "2026-02-21T23:27:29.955Z",
+  "filesAnalyzed": 327,
+  "unroundedMaintainability": 39.3,
+  "unroundedSimplicity": 39.3
 }
