@@ -5,6 +5,10 @@
       "maintainability": 0
     },
     {
+      "file": "src/components/ContextBundleModal.tsx",
+      "maintainability": 0
+    },
+    {
       "file": "src/hooks/useAgentRuns.ts",
       "maintainability": 0
     },
@@ -43,10 +47,6 @@
     {
       "file": "api/implementation-agent/run.ts",
       "maintainability": 12.23
-    },
-    {
-      "file": "src/components/ContextBundleModal.tsx",
-      "maintainability": 13.33
     },
     {
       "file": "src/hooks/useProcessReview.ts",
@@ -131,8 +131,8 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-21T19:41:11.264Z",
-  "filesAnalyzed": 311,
+  "generatedAt": "2026-02-21T20:01:43.160Z",
+  "filesAnalyzed": 313,
   "unroundedMaintainability": 39.9,
   "unroundedSimplicity": 39.9
 }
