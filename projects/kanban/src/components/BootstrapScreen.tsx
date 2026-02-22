@@ -34,7 +34,6 @@ export function BootstrapScreen({
   const [supabaseProject, setSupabaseProject] = useState<SupabaseProjectInfo | null>(null)
   const [supabaseManagementApiToken, setSupabaseManagementApiToken] = useState('')
   const [organizationId, setOrganizationId] = useState('')
-  const [projectName, setProjectName] = useState('')
   const [region, setRegion] = useState('us-east-1')
   const [previewUrl, setPreviewUrl] = useState('')
   const [vercelToken, setVercelToken] = useState('')
@@ -170,9 +169,6 @@ export function BootstrapScreen({
           if (organizationId) {
             stepBody.organizationId = organizationId
           }
-          if (projectName) {
-            stepBody.projectName = projectName
-          }
           if (region) {
             stepBody.region = region
           }
@@ -253,7 +249,7 @@ export function BootstrapScreen({
         await loadSupabaseProject()
       }
     },
-    [supabaseUrl, supabaseAnonKey, apiBaseUrl, loadBootstrapRun, loadSupabaseProject, run, supabaseManagementApiToken, organizationId, projectName, region, previewUrl, vercelToken, connectedGithubRepo, vercelPreviewUrl]
+    [supabaseUrl, supabaseAnonKey, apiBaseUrl, loadBootstrapRun, loadSupabaseProject, run, supabaseManagementApiToken, organizationId, region, previewUrl, vercelToken, connectedGithubRepo, vercelPreviewUrl]
   )
 
   const retryStep = useCallback(
@@ -604,8 +600,8 @@ export function BootstrapScreen({
                                 Region (optional)
                               </label>
                               <select
-                                value="us-east-1"
-                                onChange={() => {}}
+                                value={region}
+                                onChange={(e) => setRegion(e.target.value)}
                                 style={{
                                   width: '100%',
                                   padding: '0.5rem',

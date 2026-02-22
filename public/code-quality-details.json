@@ -56,6 +56,11 @@
       "maintainability": 12.05
     },
     {
+      "file": "api/bootstrap/step.ts",
+      "codeQuality": 34.74,
+      "maintainability": 0
+    },
+    {
       "file": "api/drift-attempts/get.ts",
       "codeQuality": 35.78,
       "maintainability": 26.53
@@ -94,11 +99,6 @@
       "file": "api/red/list.ts",
       "codeQuality": 37.92,
       "maintainability": 21.43
-    },
-    {
-      "file": "api/instructions/get-index.ts",
-      "codeQuality": 38.25,
-      "maintainability": 0
     }
   ],
   "mostRecentImprovements": [
@@ -157,9 +157,9 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-22T13:21:48.937Z",
-  "filesAnalyzed": 407,
-  "unroundedCodeQuality": 51.2,
-  "unroundedMaintainability": 51.2,
-  "unroundedSimplicity": 51.2
+  "generatedAt": "2026-02-22T14:44:39.035Z",
+  "filesAnalyzed": 408,
+  "unroundedCodeQuality": 51.1,
+  "unroundedMaintainability": 51.1,
+  "unroundedSimplicity": 51.1
 }
