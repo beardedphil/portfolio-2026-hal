@@ -156,6 +156,56 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       console.warn(`[get-diagnostics] Failed to fetch storage attempts: ${attemptsError.message}`)
     }
 
+    // Fetch embedding job statistics for artifacts in this ticket
+    const artifactIds = artifactsList.map((a) => a.artifact_id)
+    let embeddingJobs: {
+      queued: number
+      processing: number
+      succeeded: number
+      failed: number
+      recentJobs: Array<{
+        job_id: string
+        artifact_id: string
+        status: string
+        error_message?: string
+        created_at: string
+        completed_at?: string
+      }>
+    } = {
+      queued: 0,
+      processing: 0,
+      succeeded: 0,
+      failed: 0,
+      recentJobs: [],
+    }
+
+    if (artifactIds.length > 0) {
+      // Get job counts by status
+      const { data: jobCounts, error: jobCountsError } = await supabase
+        .from('embedding_jobs')
+        .select('status')
+        .in('artifact_id', artifactIds)
+
+      if (!jobCountsError && jobCounts) {
+        embeddingJobs.queued = jobCounts.filter((j: any) => j.status === 'queued').length
+        embeddingJobs.processing = jobCounts.filter((j: any) => j.status === 'processing').length
+        embeddingJobs.succeeded = jobCounts.filter((j: any) => j.status === 'succeeded').length
+        embeddingJobs.failed = jobCounts.filter((j: any) => j.status === 'failed').length
+      }
+
+      // Get recent jobs (last 10)
+      const { data: recentJobs, error: recentJobsError } = await supabase
+        .from('embedding_jobs')
+        .select('job_id, artifact_id, status, error_message, created_at, completed_at')
+        .in('artifact_id', artifactIds)
+        .order('created_at', { ascending: false })
+        .limit(10)
+
+      if (!recentJobsError && recentJobs) {
+        embeddingJobs.recentJobs = recentJobs as typeof embeddingJobs.recentJobs
+      }
+    }
+
     const artifactsList = (artifacts || []) as Array<{
       artifact_id: string
       ticket_pk: string
@@ -227,6 +277,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       success: true,
       diagnostics,
       retrievalError,
+      embeddingJobs,
     })
   } catch (err) {
     json(res, 500, {

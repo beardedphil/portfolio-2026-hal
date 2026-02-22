@@ -15,6 +15,7 @@ import {
   deleteDuplicateArtifacts,
   handleRaceCondition,
 } from './_artifact-operations.js'
+import { enqueueEmbeddingJobs } from './_enqueue-embedding-helper.js'
 
 export interface ArtifactStorageOptions {
   supabase: SupabaseClient
@@ -149,6 +150,11 @@ export async function storeArtifact(
       'stored'
     )
 
+    // Auto-enqueue embedding jobs for updated artifact (async, non-blocking)
+    enqueueEmbeddingJobs(supabase, targetArtifactId, body_md, canonicalTitle).catch((err) => {
+      console.error(`[_artifact-storage] Failed to enqueue embedding jobs for artifact ${targetArtifactId}:`, err)
+    })
+
     return {
       success: true,
       artifact_id: targetArtifactId,
@@ -190,6 +196,12 @@ export async function storeArtifact(
           endpointPath,
           'stored'
         )
+        
+        // Auto-enqueue embedding jobs for updated artifact (async, non-blocking)
+        enqueueEmbeddingJobs(supabase, raceResult.artifact_id, body_md, canonicalTitle).catch((err) => {
+          console.error(`[_artifact-storage] Failed to enqueue embedding jobs for artifact ${raceResult.artifact_id}:`, err)
+        })
+
         return {
           success: true,
           artifact_id: raceResult.artifact_id,
@@ -222,6 +234,11 @@ export async function storeArtifact(
     endpointPath,
     'stored'
   )
+
+  // Auto-enqueue embedding jobs for new artifact (async, non-blocking)
+  enqueueEmbeddingJobs(supabase, insertResult.artifact_id, body_md, canonicalTitle).catch((err) => {
+    console.error(`[_artifact-storage] Failed to enqueue embedding jobs for artifact ${insertResult.artifact_id}:`, err)
+  })
 
   return {
     success: true,
