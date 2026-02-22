@@ -13,6 +13,7 @@ interface HalHeaderProps {
   disconnectButtonRef: React.RefObject<HTMLButtonElement>
   onCoverageReportClick: () => void
   onMaintainabilityReportClick: () => void
+  onColdStartContinuityClick: () => void
 }
 
 export function HalHeader({
@@ -25,6 +26,7 @@ export function HalHeader({
   disconnectButtonRef,
   onCoverageReportClick,
   onMaintainabilityReportClick,
+  onColdStartContinuityClick,
 }: HalHeaderProps) {
   return (
     <header className="hal-header">
@@ -79,6 +81,20 @@ export function HalHeader({
               </>
             )}
           </>
+        )}
+      </div>
+      <div className="hal-header-right">
+        {/* Cold-start Continuity Diagnostics button (0774) */}
+        {connectedProject && (
+          <button
+            type="button"
+            className="btn-standard"
+            onClick={onColdStartContinuityClick}
+            style={{ fontSize: '0.85rem', padding: '0.5rem 1rem' }}
+            title="Cold-start Continuity Diagnostics"
+          >
+            Continuity Check
+          </button>
         )}
       </div>
     </header>

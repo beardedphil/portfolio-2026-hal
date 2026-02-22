@@ -15,6 +15,7 @@ import { PmChatWidgetButton } from './components/PmChatWidgetButton'
 import { CoverageReportModal } from './components/CoverageReportModal'
 import { MaintainabilityReportModal } from './components/MaintainabilityReportModal'
 import { IntegrationManifestModal } from './components/IntegrationManifestModal'
+import { ColdStartContinuityModal } from './components/ColdStartContinuityModal'
 import { ContextBundleModal } from './components/ContextBundleModal'
 import { AgentRunBundleModal } from './components/AgentRunBundleModal'
 import { NoPrModal } from './components/NoPrModal'
@@ -280,6 +281,7 @@ function App() {
   /** Coverage and Maintainability report modals (0693). */
   const [coverageReportOpen, setCoverageReportOpen] = useState<boolean>(false)
   const [maintainabilityReportOpen, setMaintainabilityReportOpen] = useState<boolean>(false)
+  const [coldStartContinuityModalOpen, setColdStartContinuityModalOpen] = useState<boolean>(false)
   /** Integration Manifest modal (0773). */
   const [integrationManifestOpen, setIntegrationManifestOpen] = useState<boolean>(false)
   const [contextBundleModalOpen, setContextBundleModalOpen] = useState<boolean>(false)
@@ -688,6 +690,7 @@ function App() {
         disconnectButtonRef={disconnectButtonRef}
         onCoverageReportClick={() => setCoverageReportOpen(true)}
         onMaintainabilityReportClick={() => setMaintainabilityReportOpen(true)}
+        onColdStartContinuityClick={() => setColdStartContinuityModalOpen(true)}
       />
 
       {githubConnectError && (
@@ -972,6 +975,14 @@ function App() {
 
       {/* Maintainability Report Modal (0693) */}
       <MaintainabilityReportModal isOpen={maintainabilityReportOpen} onClose={() => setMaintainabilityReportOpen(false)} />
+
+      {/* Cold-start Continuity Modal (0774) */}
+      <ColdStartContinuityModal
+        isOpen={coldStartContinuityModalOpen}
+        onClose={() => setColdStartContinuityModalOpen(false)}
+        supabaseUrl={supabaseUrl}
+        supabaseAnonKey={supabaseAnonKey}
+      />
 
       {/* Integration Manifest Modal (0773) */}
       <IntegrationManifestModal
