@@ -12,10 +12,10 @@ describe('QAMetricsCard', () => {
     ;(global.fetch as any).mockReset()
   })
 
-  it('renders Test Coverage and Maintainability labels', async () => {
+  it('renders Test Coverage and Code Quality labels', async () => {
     ;(global.fetch as any).mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ coverage: 85, maintainability: 90 }),
+      json: () => Promise.resolve({ coverage: 85, codeQuality: 90 }),
     })
 
     render(<QAMetricsCard />)
@@ -23,7 +23,7 @@ describe('QAMetricsCard', () => {
     // Wait for fetch to complete
     await waitFor(() => {
       expect(screen.getByText('Test Coverage')).toBeInTheDocument()
-      expect(screen.getByText('Maintainability')).toBeInTheDocument()
+      expect(screen.getByText('Code Quality')).toBeInTheDocument()
     })
   })
 
@@ -59,7 +59,7 @@ describe('QAMetricsCard', () => {
   it('displays metric values when available', async () => {
     ;(global.fetch as any).mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ coverage: 85, maintainability: 90 }),
+      json: () => Promise.resolve({ coverage: 85, codeQuality: 90 }),
     })
 
     render(<QAMetricsCard />)
@@ -79,7 +79,7 @@ describe('QAMetricsCard', () => {
     render(<QAMetricsCard />)
 
     await waitFor(() => {
-      expect(screen.getByText('Run test:coverage and report:simplicity to update')).toBeInTheDocument()
+      expect(screen.getByText('Run test:coverage and report:code-quality to update')).toBeInTheDocument()
     })
   })
 
@@ -91,14 +91,14 @@ describe('QAMetricsCard', () => {
     await waitFor(() => {
       const naValues = screen.getAllByText('N/A')
       expect(naValues.length).toBeGreaterThanOrEqual(2)
-      expect(screen.getByText('Run test:coverage and report:simplicity to update')).toBeInTheDocument()
+      expect(screen.getByText('Run test:coverage and report:code-quality to update')).toBeInTheDocument()
     })
   })
 
   it('clamps coverage values to 0-100 range', async () => {
     ;(global.fetch as any).mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ coverage: 150, maintainability: -10 }),
+      json: () => Promise.resolve({ coverage: 150, codeQuality: -10 }),
     })
 
     render(<QAMetricsCard />)
@@ -106,7 +106,7 @@ describe('QAMetricsCard', () => {
     await waitFor(() => {
       // Coverage should be clamped to 100
       expect(screen.getByText('100.0%')).toBeInTheDocument()
-      // Maintainability should be clamped to 0
+      // Code Quality should be clamped to 0
       expect(screen.getByText('0.0%')).toBeInTheDocument()
     })
   })
@@ -114,14 +114,14 @@ describe('QAMetricsCard', () => {
   it('handles partial metrics (one null value)', async () => {
     ;(global.fetch as any).mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ coverage: 85, maintainability: null }),
+      json: () => Promise.resolve({ coverage: 85, codeQuality: null }),
     })
 
     render(<QAMetricsCard />)
 
     await waitFor(() => {
       expect(screen.getByText('85.0%')).toBeInTheDocument()
-      // Maintainability should show N/A
+      // Code Quality should show N/A
       const naValues = screen.getAllByText('N/A')
       expect(naValues.length).toBeGreaterThanOrEqual(1)
     })

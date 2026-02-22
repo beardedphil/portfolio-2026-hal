@@ -13,7 +13,7 @@ import { HalHeader } from './components/HalHeader'
 import { KanbanErrorBanner } from './components/KanbanErrorBanner'
 import { PmChatWidgetButton } from './components/PmChatWidgetButton'
 import { CoverageReportModal } from './components/CoverageReportModal'
-import { MaintainabilityReportModal } from './components/MaintainabilityReportModal'
+import { CodeQualityReportModal } from './components/CodeQualityReportModal'
 import { DiagnosticsModal } from './components/DiagnosticsModal'
 import { IntegrationManifestModal } from './components/IntegrationManifestModal'
 import { ContextBundleModal } from './components/ContextBundleModal'
@@ -278,9 +278,9 @@ function App() {
   /** Floating PM chat widget state (0698). */
   const [pmChatWidgetOpen, setPmChatWidgetOpen] = useState<boolean>(false)
   const [pmChatWidgetFullscreen, setPmChatWidgetFullscreen] = useState<boolean>(false)
-  /** Coverage and Maintainability report modals (0693). */
+  /** Coverage and Code Quality report modals (0693). */
   const [coverageReportOpen, setCoverageReportOpen] = useState<boolean>(false)
-  const [maintainabilityReportOpen, setMaintainabilityReportOpen] = useState<boolean>(false)
+  const [codeQualityReportOpen, setCodeQualityReportOpen] = useState<boolean>(false)
   /** Diagnostics modal (0781). */
   const [diagnosticsOpen, setDiagnosticsOpen] = useState<boolean>(false)
   /** Integration Manifest modal (0773). */
@@ -690,7 +690,7 @@ function App() {
         onDisconnectClick={handleDisconnectClick}
         disconnectButtonRef={disconnectButtonRef}
         onCoverageReportClick={() => setCoverageReportOpen(true)}
-        onMaintainabilityReportClick={() => setMaintainabilityReportOpen(true)}
+        onCodeQualityReportClick={() => setCodeQualityReportOpen(true)}
         onDiagnosticsClick={() => setDiagnosticsOpen(true)}
       />
 
@@ -974,8 +974,8 @@ function App() {
       {/* Coverage Report Modal (0693) */}
       <CoverageReportModal isOpen={coverageReportOpen} onClose={() => setCoverageReportOpen(false)} />
 
-      {/* Maintainability Report Modal (0693) */}
-      <MaintainabilityReportModal isOpen={maintainabilityReportOpen} onClose={() => setMaintainabilityReportOpen(false)} />
+      {/* Code Quality Report Modal (0693) */}
+      <CodeQualityReportModal isOpen={codeQualityReportOpen} onClose={() => setCodeQualityReportOpen(false)} />
 
       {/* Integration Manifest Modal (0773) */}
       <IntegrationManifestModal

@@ -3,11 +3,13 @@ import { getMetricColor } from '../lib/metricColor'
 
 export interface QAMetrics {
   coverage: number | null // 0-100 or null for N/A
-  maintainability: number | null // 0-100 or null for N/A
-  unroundedMaintainability?: number | null // Unrounded maintainability value (0-100) with 1 decimal place
+  codeQuality: number | null // 0-100 or null for N/A
+  unroundedCodeQuality?: number | null // Unrounded code quality value (0-100) with 1 decimal place
   // Legacy fields for backward compatibility
-  simplicity?: number | null // Deprecated: use maintainability
-  unroundedSimplicity?: number | null // Deprecated: use unroundedMaintainability
+  maintainability?: number | null // Deprecated: use codeQuality
+  unroundedMaintainability?: number | null // Deprecated: use unroundedCodeQuality
+  simplicity?: number | null // Deprecated: use codeQuality
+  unroundedSimplicity?: number | null // Deprecated: use unroundedCodeQuality
 }
 
 function formatPercentTenths(value: number) {
@@ -18,18 +20,22 @@ function parseMetrics(data: unknown): QAMetrics | null {
   if (!data || typeof data !== 'object') return null
   const o = data as Record<string, unknown>
   const coverage = o.coverage != null ? Math.min(100, Math.max(0, Number(o.coverage))) : null
-  // Support both new (maintainability) and legacy (simplicity) field names for migration
-  const maintainability = o.maintainability != null ? Math.min(100, Math.max(0, Number(o.maintainability))) : 
-                         (o.simplicity != null ? Math.min(100, Math.max(0, Number(o.simplicity))) : null)
-  const unroundedMaintainability = o.unroundedMaintainability != null ? Math.min(100, Math.max(0, Number(o.unroundedMaintainability))) :
-                                   (o.unroundedSimplicity != null ? Math.min(100, Math.max(0, Number(o.unroundedSimplicity))) : null)
+  // Support new (codeQuality) and legacy (maintainability, simplicity) field names for migration
+  const codeQuality = o.codeQuality != null ? Math.min(100, Math.max(0, Number(o.codeQuality))) : 
+                      (o.maintainability != null ? Math.min(100, Math.max(0, Number(o.maintainability))) : 
+                       (o.simplicity != null ? Math.min(100, Math.max(0, Number(o.simplicity))) : null))
+  const unroundedCodeQuality = o.unroundedCodeQuality != null ? Math.min(100, Math.max(0, Number(o.unroundedCodeQuality))) :
+                               (o.unroundedMaintainability != null ? Math.min(100, Math.max(0, Number(o.unroundedMaintainability))) :
+                                (o.unroundedSimplicity != null ? Math.min(100, Math.max(0, Number(o.unroundedSimplicity))) : null))
   return { 
     coverage: coverage ?? null, 
-    maintainability: maintainability ?? null, 
-    unroundedMaintainability: unroundedMaintainability ?? null,
+    codeQuality: codeQuality ?? null, 
+    unroundedCodeQuality: unroundedCodeQuality ?? null,
     // Include legacy fields for backward compatibility
-    simplicity: maintainability,
-    unroundedSimplicity: unroundedMaintainability
+    maintainability: codeQuality,
+    unroundedMaintainability: unroundedCodeQuality,
+    simplicity: codeQuality,
+    unroundedSimplicity: unroundedCodeQuality
   }
 }
 
@@ -43,7 +49,7 @@ function fetchMetrics(cacheBust = false): Promise<QAMetrics | null> {
 
 interface QAMetricsCardProps {
   onCoverageClick?: () => void
-  onMaintainabilityClick?: () => void
+  onCodeQualityClick?: () => void
 }
 
 /**
@@ -53,7 +59,7 @@ interface QAMetricsCardProps {
 export function useQAMetrics() {
   const [qaMetrics, setQaMetrics] = useState<QAMetrics | null>(null)
 
-  // Load metrics on mount and poll so UI updates when metrics.json changes (CI or local report:simplicity)
+  // Load metrics on mount and poll so UI updates when metrics.json changes (CI or local report:code-quality)
   useEffect(() => {
     let cancelled = false
     const apply = (m: QAMetrics | null) => {
@@ -63,7 +69,7 @@ export function useQAMetrics() {
     fetchMetrics(false).then(apply)
 
     const isTest = import.meta.env.MODE === 'test'
-    const intervalMs = isTest ? 0 : import.meta.env.DEV ? 5_000 : 60_000 // dev: 5s so local report:simplicity shows quickly
+    const intervalMs = isTest ? 0 : import.meta.env.DEV ? 5_000 : 60_000 // dev: 5s so local report:code-quality shows quickly
     const id = intervalMs > 0 ? setInterval(() => fetchMetrics(true).then(apply), intervalMs) : 0
     return () => {
       cancelled = true
@@ -75,7 +81,7 @@ export function useQAMetrics() {
 }
 
 /**
- * Individual metric badge component for Coverage or Maintainability.
+ * Individual metric badge component for Coverage or Code Quality.
  */
 function QAMetricBadge({ 
   label, 
@@ -108,21 +114,21 @@ export function CoverageBadge() {
 }
 
 /**
- * Maintainability metric badge component.
- * Fetches and displays Maintainability from /metrics.json. Handles missing metrics gracefully by showing "N/A".
+ * Code Quality metric badge component.
+ * Fetches and displays Code Quality from /metrics.json. Handles missing metrics gracefully by showing "N/A".
  */
-export function MaintainabilityBadge() {
+export function CodeQualityBadge() {
   const qaMetrics = useQAMetrics()
-  const maintainability = qaMetrics?.maintainability ?? null
-  const unroundedMaintainability = qaMetrics?.unroundedMaintainability ?? null
-  const displayValue = unroundedMaintainability ?? maintainability
+  const codeQuality = qaMetrics?.codeQuality ?? null
+  const unroundedCodeQuality = qaMetrics?.unroundedCodeQuality ?? null
+  const displayValue = unroundedCodeQuality ?? codeQuality
 
   const getTooltip = () => {
-    if (displayValue === null) return 'Maintainability: N/A'
-    if (maintainability !== null && unroundedMaintainability !== null && unroundedMaintainability !== maintainability) {
-      return `Maintainability: ${formatPercentTenths(unroundedMaintainability)} (rounded: ${maintainability.toFixed(0)}%)`
+    if (displayValue === null) return 'Code Quality: N/A'
+    if (codeQuality !== null && unroundedCodeQuality !== null && unroundedCodeQuality !== codeQuality) {
+      return `Code Quality: ${formatPercentTenths(unroundedCodeQuality)} (rounded: ${codeQuality.toFixed(0)}%)`
     }
-    return `Maintainability: ${formatPercentTenths(displayValue)}`
+    return `Code Quality: ${formatPercentTenths(displayValue)}`
   }
 
   return (
@@ -131,7 +137,7 @@ export function MaintainabilityBadge() {
       style={{ backgroundColor: getMetricColor(displayValue) }}
       title={getTooltip()}
     >
-      <span className="qa-metric-label">Maintainability</span>
+      <span className="qa-metric-label">Code Quality</span>
       <span className="qa-metric-value">
         {displayValue !== null ? formatPercentTenths(displayValue) : 'N/A'}
       </span>
@@ -140,13 +146,13 @@ export function MaintainabilityBadge() {
 }
 
 /**
- * Component that fetches and displays QA metrics (Coverage and Maintainability)
+ * Component that fetches and displays QA metrics (Coverage and Code Quality)
  * from /metrics.json. Handles missing metrics gracefully by showing "N/A".
- * Polls periodically so updates (e.g. from report:simplicity or CI) appear automatically.
+ * Polls periodically so updates (e.g. from report:code-quality or CI) appear automatically.
  * 
- * @deprecated Use CoverageBadge and MaintainabilityBadge separately instead.
+ * @deprecated Use CoverageBadge and CodeQualityBadge separately instead.
  */
-export function QAMetricsCard({ onCoverageClick, onMaintainabilityClick }: QAMetricsCardProps = {}) {
+export function QAMetricsCard({ onCoverageClick, onCodeQualityClick }: QAMetricsCardProps = {}) {
   const qaMetrics = useQAMetrics()
 
   return (
@@ -171,37 +177,37 @@ export function QAMetricsCard({ onCoverageClick, onMaintainabilityClick }: QAMet
         </span>
       </div>
       <div
-        className={`qa-metric-box ${onMaintainabilityClick ? 'qa-metric-box-clickable' : ''}`}
-        style={{ backgroundColor: getMetricColor(qaMetrics?.unroundedMaintainability ?? qaMetrics?.maintainability ?? null) }}
+        className={`qa-metric-box ${onCodeQualityClick ? 'qa-metric-box-clickable' : ''}`}
+        style={{ backgroundColor: getMetricColor(qaMetrics?.unroundedCodeQuality ?? qaMetrics?.codeQuality ?? null) }}
         title={(() => {
-          const maintainability = qaMetrics?.maintainability ?? null
-          const unrounded = qaMetrics?.unroundedMaintainability ?? null
-          const displayValue = unrounded ?? maintainability
-          if (displayValue === null) return 'Maintainability: N/A'
-          if (maintainability !== null && unrounded !== null && unrounded !== maintainability) {
-            return `Maintainability: ${formatPercentTenths(unrounded)} (rounded: ${maintainability.toFixed(0)}%)`
+          const codeQuality = qaMetrics?.codeQuality ?? null
+          const unrounded = qaMetrics?.unroundedCodeQuality ?? null
+          const displayValue = unrounded ?? codeQuality
+          if (displayValue === null) return 'Code Quality: N/A'
+          if (codeQuality !== null && unrounded !== null && unrounded !== codeQuality) {
+            return `Code Quality: ${formatPercentTenths(unrounded)} (rounded: ${codeQuality.toFixed(0)}%)`
           }
-          return `Maintainability: ${formatPercentTenths(displayValue)}`
+          return `Code Quality: ${formatPercentTenths(displayValue)}`
         })()}
-        onClick={onMaintainabilityClick}
-        role={onMaintainabilityClick ? 'button' : undefined}
-        tabIndex={onMaintainabilityClick ? 0 : undefined}
-        onKeyDown={onMaintainabilityClick ? (e) => {
+        onClick={onCodeQualityClick}
+        role={onCodeQualityClick ? 'button' : undefined}
+        tabIndex={onCodeQualityClick ? 0 : undefined}
+        onKeyDown={onCodeQualityClick ? (e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault()
-            onMaintainabilityClick()
+            onCodeQualityClick()
           }
         } : undefined}
       >
-        <span className="qa-metric-label">Maintainability</span>
+        <span className="qa-metric-label">Code Quality</span>
         <span className="qa-metric-value">
-          {qaMetrics !== null && (qaMetrics.unroundedMaintainability ?? qaMetrics.maintainability) !== null
-            ? formatPercentTenths((qaMetrics.unroundedMaintainability ?? qaMetrics.maintainability) as number)
+          {qaMetrics !== null && (qaMetrics.unroundedCodeQuality ?? qaMetrics.codeQuality) !== null
+            ? formatPercentTenths((qaMetrics.unroundedCodeQuality ?? qaMetrics.codeQuality) as number)
             : 'N/A'}
         </span>
       </div>
       {qaMetrics === null && (
-        <span className="qa-metrics-hint">Run test:coverage and report:simplicity to update</span>
+        <span className="qa-metrics-hint">Run test:coverage and report:code-quality to update</span>
       )}
     </div>
   )

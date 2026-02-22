@@ -30,7 +30,7 @@ When you **QA a ticket** (verify, check a ticket that is allegedly complete), st
 4. Code review — PASS/FAIL with evidence
 5. Build verification — **MANDATORY:** `npm run build:hal`; TypeScript errors = FAIL
 6. Coverage — **MANDATORY:** Whole-repo test coverage with 4-metric table and command used; see "Coverage section" below
-7. Maintainability — **MANDATORY:** Whole-repo maintainability metric; see "Maintainability section" below
+7. Code Quality — **MANDATORY:** Whole-repo code quality metric; see "Code Quality section" below
 8. UI verification — automated and/or manual steps
 9. AC Confirmation Checklist — enumerate each AC, Met/Not met with evidence; see `ac-confirmation-checklist.mdc`
 10. Verdict — PASS or FAIL

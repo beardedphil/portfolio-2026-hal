@@ -11,6 +11,21 @@ import { parseAcceptanceCriteria } from './_acceptance-criteria-parser.js'
 import { evaluateCiStatus, type CiStatusSummary } from '../_lib/github/checks.js'
 import { getSession } from '../_lib/github/session.js'
 import { checkDocsConsistency } from './_docs-consistency-check.js'
+import { githubFetch } from '../_lib/github/client.js'
+import { ensureInitialCommit, getDefaultBranch, listBranches } from '../_lib/github/repos.js'
+
+function padTicketNumber(n: number | null | undefined): string {
+  const v = typeof n === 'number' ? n : parseInt(String(n ?? ''), 10)
+  return Number.isFinite(v) ? String(v).padStart(4, '0') : '0000'
+}
+
+function safeFileSlug(s: string): string {
+  return String(s)
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+}
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   // CORS: Allow cross-origin requests (for scripts calling from different origins)
@@ -354,36 +369,265 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         ? String(agentRuns[0].pr_url).trim()
         : null
 
-      // If no PR linked, block the transition
+      // If no PR linked, try to create one automatically
       if (!prUrl || prUrl.length === 0) {
-        // Format transition name
-        const transitionName = await formatTransition(currentColumnId, columnId)
-        
-        // Store drift attempt record with normalized failure reasons
-        await supabase.from('drift_attempts').insert({
-          ticket_pk: resolvedTicketPk,
-          transition: transitionName,
-          pr_url: null,
-          evaluated_head_sha: null,
-          overall_status: null,
-          required_checks: null,
-          failing_check_names: null,
-          checks_page_url: null,
-          evaluation_error: 'No PR linked',
-          failure_reasons: [
-            { type: 'NO_PR_LINKED', message: 'A GitHub Pull Request must be linked to this ticket before it can be moved to this column.' }
-          ],
-          references: {},
-          blocked: true,
-        })
+        try {
+          // Get GitHub session for PR creation
+          const session = await getSession(req, res)
+          const ghToken = session.github?.accessToken
+          
+          if (!ghToken) {
+            // No GitHub auth available - can't auto-create PR
+            const transitionName = await formatTransition(currentColumnId, columnId)
+            await supabase.from('drift_attempts').insert({
+              ticket_pk: resolvedTicketPk,
+              transition: transitionName,
+              pr_url: null,
+              evaluated_head_sha: null,
+              overall_status: null,
+              required_checks: null,
+              failing_check_names: null,
+              checks_page_url: null,
+              evaluation_error: 'No PR linked and no GitHub auth',
+              failure_reasons: [
+                { type: 'NO_PR_LINKED', message: 'A GitHub Pull Request must be linked to this ticket before it can be moved to this column.' }
+              ],
+              references: {},
+              blocked: true,
+            })
+            json(res, 200, {
+              success: false,
+              error: 'A GitHub Pull Request must be linked to this ticket before it can be moved to this column. GitHub authentication is required to auto-create a PR.',
+              errorCode: 'NO_PR_REQUIRED',
+              remedy: 'Link a PR to this ticket before attempting this transition, or ensure GitHub authentication is available.',
+            })
+            return
+          }
 
-        json(res, 200, {
-          success: false,
-          error: 'A GitHub Pull Request must be linked to this ticket before it can be moved to this column.',
-          errorCode: 'NO_PR_REQUIRED',
-          remedy: 'Link a PR to this ticket before attempting this transition. The drift gate requires CI checks to pass before allowing transitions.',
-        })
-        return
+          // Get ticket info for PR creation
+          const ticketData = ticket as any
+          const ticketRepo = String(ticketData.repo_full_name ?? '')
+          const ticketNumber = ticketData.ticket_number as number | null | undefined
+          const displayId = String(ticketData.display_id ?? padTicketNumber(ticketNumber))
+          const padded = padTicketNumber(ticketNumber)
+          
+          if (!ticketRepo) {
+            json(res, 200, {
+              success: false,
+              error: 'Cannot auto-create PR: ticket has no repo_full_name.',
+            })
+            return
+          }
+
+          // Get default branch
+          const defaultBranchResult = await getDefaultBranch(ghToken, ticketRepo)
+          const defaultBranch = 'branch' in defaultBranchResult && defaultBranchResult.branch ? defaultBranchResult.branch : 'main'
+
+          // Ensure repo has initial commit
+          const branchesResult = await listBranches(ghToken, ticketRepo)
+          if ('branches' in branchesResult && branchesResult.branches.length === 0) {
+            const bootstrap = await ensureInitialCommit(ghToken, ticketRepo, defaultBranch)
+            if ('error' in bootstrap) {
+              json(res, 200, {
+                success: false,
+                error: `Cannot auto-create PR: initial commit failed: ${bootstrap.error}`,
+              })
+              return
+            }
+          }
+
+          // Create branch name
+          const branchName = `ticket/${padded}-implementation`
+          const [owner, repo] = ticketRepo.split('/')
+          if (!owner || !repo) {
+            json(res, 200, {
+              success: false,
+              error: 'Invalid repo format: expected owner/repo',
+            })
+            return
+          }
+
+          // Ensure branch exists
+          const baseRefUrl = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/ref/heads/${encodeURIComponent(defaultBranch)}`
+          const baseRef = (await githubFetch<{ object?: { sha?: string } }>(ghToken, baseRefUrl, { method: 'GET' }).catch(() => null)) as { object?: { sha?: string } } | null
+          const sha = baseRef?.object?.sha
+          if (!sha || typeof sha !== 'string') {
+            json(res, 200, {
+              success: false,
+              error: `Could not resolve base branch "${defaultBranch}" SHA.`,
+            })
+            return
+          }
+
+          const createRefUrl = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/refs`
+          try {
+            await githubFetch(ghToken, createRefUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ref: `refs/heads/${branchName}`, sha }),
+            })
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e)
+            // If already exists, proceed.
+            if (!/Reference already exists/i.test(msg) && !/422/.test(msg)) {
+              json(res, 200, {
+                success: false,
+                error: `Failed to create branch: ${msg}`,
+              })
+              return
+            }
+          }
+
+          // Create anchor file
+          const anchorRelPath = `.hal/pr-anchors/${safeFileSlug(displayId || padded)}.md`
+          const now = new Date().toISOString()
+          const anchorContent = [
+            `# PR anchor for ${displayId || padded}`,
+            '',
+            'This file is an intentional placeholder to create a reviewable PR anchor for the ticket workflow.',
+            'It can be removed later during implementation.',
+            '',
+            `Created at: ${now}`,
+            '',
+          ].join('\n')
+
+          const apiPath = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodeURIComponent(anchorRelPath)}`
+          let fileSha: string | undefined
+          try {
+            const existing = await githubFetch<{ sha?: string }>(ghToken, `${apiPath}?ref=${encodeURIComponent(branchName)}`, { method: 'GET' })
+            if (existing?.sha && typeof existing.sha === 'string') fileSha = existing.sha
+          } catch {
+            // not found: treat as create
+          }
+
+          const fileBody: any = {
+            message: `chore(${padded}): create PR anchor`,
+            content: Buffer.from(anchorContent, 'utf8').toString('base64'),
+            branch: branchName,
+            committer: { name: 'HAL', email: 'hal@localhost' },
+          }
+          if (fileSha) fileBody.sha = fileSha
+
+          try {
+            await githubFetch(ghToken, apiPath, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(fileBody),
+            })
+          } catch (e) {
+            json(res, 200, {
+              success: false,
+              error: `Failed to create anchor file: ${e instanceof Error ? e.message : String(e)}`,
+            })
+            return
+          }
+
+          // Create PR
+          const prTitle = `[${displayId || padded}] Implementation`
+          const prBody = [
+            `Ticket: **${displayId || padded}**`,
+            '',
+            'This PR was created automatically to satisfy the workflow requirement that tickets moved beyond To-do have a linked PR.',
+            '',
+            '- This PR is created as a **draft** and includes an initial "PR anchor" commit.',
+            '- Implementation work should continue on this branch.',
+            '',
+          ].join('\n')
+
+          const pullsUrl = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls`
+          let createdPrUrl: string | null = null
+          try {
+            const created = await githubFetch<{ html_url?: string }>(ghToken, pullsUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                title: prTitle,
+                head: branchName,
+                base: defaultBranch,
+                body: prBody,
+                draft: true,
+              }),
+            })
+            createdPrUrl = String(created?.html_url ?? '').trim() || null
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e)
+            // If PR already exists, fetch it.
+            if (/pull request already exists/i.test(msg) || /A pull request already exists/i.test(msg) || /422/.test(msg)) {
+              try {
+                const listUrl = `${pullsUrl}?state=open&head=${encodeURIComponent(owner)}:${encodeURIComponent(branchName)}`
+                const list = await githubFetch<Array<{ html_url?: string }>>(ghToken, listUrl, { method: 'GET' })
+                const found = Array.isArray(list) ? list.find((p) => typeof p?.html_url === 'string' && p.html_url) : null
+                createdPrUrl = String(found?.html_url ?? '').trim() || null
+              } catch {
+                // fall through
+              }
+            }
+            if (!createdPrUrl) {
+              json(res, 200, {
+                success: false,
+                error: `Failed to create PR: ${msg}`,
+              })
+              return
+            }
+          }
+
+          if (!createdPrUrl) {
+            json(res, 200, {
+              success: false,
+              error: 'GitHub did not return a PR URL.',
+            })
+            return
+          }
+
+          // Link PR to ticket
+          const { error: insErr } = await supabase.from('hal_agent_runs').insert({
+            agent_type: 'pr-create',
+            repo_full_name: ticketRepo,
+            ticket_pk: resolvedTicketPk,
+            ticket_number: ticketNumber ?? null,
+            display_id: displayId || null,
+            pr_url: createdPrUrl,
+            summary: `Created PR automatically: ${createdPrUrl}`,
+            status: 'finished',
+            current_stage: 'completed',
+          })
+          if (insErr) {
+            json(res, 200, {
+              success: false,
+              error: `Failed to record PR link: ${insErr.message}`,
+            })
+            return
+          }
+
+          // PR created and linked - continue with move using the new PR URL
+          prUrl = createdPrUrl
+        } catch (err) {
+          // If auto-creation fails, fall back to error
+          const transitionName = await formatTransition(currentColumnId, columnId)
+          await supabase.from('drift_attempts').insert({
+            ticket_pk: resolvedTicketPk,
+            transition: transitionName,
+            pr_url: null,
+            evaluated_head_sha: null,
+            overall_status: null,
+            required_checks: null,
+            failing_check_names: null,
+            checks_page_url: null,
+            evaluation_error: `Auto-create PR failed: ${err instanceof Error ? err.message : String(err)}`,
+            failure_reasons: [
+              { type: 'NO_PR_LINKED', message: 'A GitHub Pull Request must be linked to this ticket before it can be moved to this column.' }
+            ],
+            references: {},
+            blocked: true,
+          })
+          json(res, 200, {
+            success: false,
+            error: `Failed to auto-create PR: ${err instanceof Error ? err.message : String(err)}`,
+            errorCode: 'NO_PR_REQUIRED',
+            remedy: 'Link a PR to this ticket before attempting this transition.',
+          })
+          return
+        }
       }
 
       // Evaluate CI status for the PR

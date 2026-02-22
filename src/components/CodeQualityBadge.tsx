@@ -1,28 +1,28 @@
 import { useQAMetrics } from '../hooks/useQAMetrics'
 import { getMetricColor } from '../lib/metricColor'
 
-interface MaintainabilityBadgeProps {
+interface CodeQualityBadgeProps {
   onClick?: () => void
 }
 
 /**
- * Badge component that displays the Maintainability metric.
+ * Badge component that displays the Code Quality metric.
  * Handles missing metrics gracefully by showing "N/A".
  * Clickable if onClick handler is provided.
  */
-export function MaintainabilityBadge(props: MaintainabilityBadgeProps = {}) {
+export function CodeQualityBadge(props: CodeQualityBadgeProps = {}) {
   const { onClick } = props
   const qaMetrics = useQAMetrics()
-  const maintainability = qaMetrics?.maintainability ?? null
-  const unroundedMaintainability = qaMetrics?.unroundedMaintainability ?? null
-  const displayValue = unroundedMaintainability ?? maintainability
+  const codeQuality = qaMetrics?.codeQuality ?? null
+  const unroundedCodeQuality = qaMetrics?.unroundedCodeQuality ?? null
+  const displayValue = unroundedCodeQuality ?? codeQuality
 
   const getTooltip = () => {
-    if (displayValue === null) return 'Maintainability: N/A'
-    if (maintainability !== null && unroundedMaintainability !== null && unroundedMaintainability !== maintainability) {
-      return `Maintainability: ${unroundedMaintainability.toFixed(1)}% (rounded: ${maintainability.toFixed(0)}%)`
+    if (displayValue === null) return 'Code Quality: N/A'
+    if (codeQuality !== null && unroundedCodeQuality !== null && unroundedCodeQuality !== codeQuality) {
+      return `Code Quality: ${unroundedCodeQuality.toFixed(1)}% (rounded: ${codeQuality.toFixed(0)}%)`
     }
-    return `Maintainability: ${displayValue.toFixed(1)}%`
+    return `Code Quality: ${displayValue.toFixed(1)}%`
   }
 
   return (
@@ -40,7 +40,7 @@ export function MaintainabilityBadge(props: MaintainabilityBadgeProps = {}) {
         }
       } : undefined}
     >
-      <span className="qa-metric-label">Maintainability</span>
+      <span className="qa-metric-label">Code Quality</span>
       <span className="qa-metric-value">
         {displayValue !== null ? `${displayValue.toFixed(1)}%` : 'N/A'}
       </span>

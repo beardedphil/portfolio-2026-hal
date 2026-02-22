@@ -1,6 +1,6 @@
 import React from 'react'
 import { CoverageBadge } from './CoverageBadge'
-import { MaintainabilityBadge } from './MaintainabilityBadge'
+import { CodeQualityBadge } from './CodeQualityBadge'
 import type { GithubAuthMe, ConnectedGithubRepo } from '../types/app'
 
 interface HalHeaderProps {
@@ -12,7 +12,7 @@ interface HalHeaderProps {
   onDisconnectClick: () => void
   disconnectButtonRef: React.RefObject<HTMLButtonElement>
   onCoverageReportClick: () => void
-  onMaintainabilityReportClick: () => void
+  onCodeQualityReportClick: () => void
   onDiagnosticsClick: () => void
 }
 
@@ -25,7 +25,7 @@ export function HalHeader({
   onDisconnectClick,
   disconnectButtonRef,
   onCoverageReportClick,
-  onMaintainabilityReportClick,
+  onCodeQualityReportClick,
   onDiagnosticsClick,
 }: HalHeaderProps) {
   return (
@@ -85,8 +85,8 @@ export function HalHeader({
                     </button>
                   </div>
                 </div>
-                {/* Maintainability badge on the right (0699) */}
-                <MaintainabilityBadge onClick={onMaintainabilityReportClick} />
+                {/* Code Quality badge on the right (0699) */}
+                <CodeQualityBadge onClick={onCodeQualityReportClick} />
               </>
             )}
           </>
