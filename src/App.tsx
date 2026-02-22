@@ -16,6 +16,7 @@ import { CoverageReportModal } from './components/CoverageReportModal'
 import { MaintainabilityReportModal } from './components/MaintainabilityReportModal'
 import { IntegrationManifestModal } from './components/IntegrationManifestModal'
 import { ContextBundleModal } from './components/ContextBundleModal'
+import { ColdStartContinuityModal } from './components/ColdStartContinuityModal'
 import { AgentRunBundleModal } from './components/AgentRunBundleModal'
 import { NoPrModal } from './components/NoPrModal'
 import type { ChatTarget, ToolCallRecord, TicketCreationResult } from './types/app'
@@ -288,6 +289,8 @@ function App() {
   /** Agent Run Bundle Builder modal (0756). */
   const [agentRunBundleModalOpen, setAgentRunBundleModalOpen] = useState<boolean>(false)
   const [agentRunBundleRunId, setAgentRunBundleRunId] = useState<string | null>(null)
+  /** Cold-start continuity diagnostics modal (0774). */
+  const [coldStartContinuityModalOpen, setColdStartContinuityModalOpen] = useState<boolean>(false)
 
   useEffect(() => {
     selectedChatTargetRef.current = selectedChatTarget
@@ -688,6 +691,7 @@ function App() {
         disconnectButtonRef={disconnectButtonRef}
         onCoverageReportClick={() => setCoverageReportOpen(true)}
         onMaintainabilityReportClick={() => setMaintainabilityReportOpen(true)}
+        onColdStartContinuityClick={() => setColdStartContinuityModalOpen(true)}
       />
 
       {githubConnectError && (
@@ -1001,6 +1005,18 @@ function App() {
         runId={agentRunBundleRunId || implAgentRunId || qaAgentRunId}
         supabaseUrl={supabaseUrl}
         supabaseAnonKey={supabaseAnonKey}
+      />
+
+      {/* Cold-start Continuity Diagnostics Modal (0774) */}
+      <ColdStartContinuityModal
+        isOpen={coldStartContinuityModalOpen}
+        onClose={() => setColdStartContinuityModalOpen(false)}
+        ticketPk={null}
+        ticketId={null}
+        repoFullName={connectedGithubRepo?.fullName || null}
+        role={null}
+        supabaseUrl={supabaseUrl ?? (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? null}
+        supabaseAnonKey={supabaseAnonKey ?? (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? null}
       />
     </div>
   )
