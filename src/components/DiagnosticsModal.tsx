@@ -11,6 +11,15 @@ interface EmbeddingsStatus {
   error?: string
 }
 
+interface EncryptionStatus {
+  success: boolean
+  encryptionEnabled: boolean
+  encryptionKeyConfigured: boolean
+  supabaseConfigured: boolean
+  hasEncryptedSecrets: boolean
+  errorMessage?: string | null
+}
+
 interface SearchResult {
   chunk_id: string
   artifact_id: string
@@ -36,7 +45,9 @@ export function DiagnosticsModal({
   openaiApiKey,
 }: DiagnosticsModalProps) {
   const [embeddingsStatus, setEmbeddingsStatus] = useState<EmbeddingsStatus | null>(null)
+  const [encryptionStatus, setEncryptionStatus] = useState<EncryptionStatus | null>(null)
   const [loadingStatus, setLoadingStatus] = useState(false)
+  const [loadingEncryptionStatus, setLoadingEncryptionStatus] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
   const [searching, setSearching] = useState(false)
@@ -46,6 +57,7 @@ export function DiagnosticsModal({
   useEffect(() => {
     if (!isOpen) return
     loadEmbeddingsStatus()
+    loadEncryptionStatus()
   }, [isOpen, supabaseUrl, supabaseAnonKey])
 
   async function loadEmbeddingsStatus() {
@@ -80,6 +92,34 @@ export function DiagnosticsModal({
       })
     } finally {
       setLoadingStatus(false)
+    }
+  }
+
+  async function loadEncryptionStatus() {
+    setLoadingEncryptionStatus(true)
+    try {
+      const res = await fetch('/api/artifacts/get-encryption-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          supabaseUrl,
+          supabaseAnonKey,
+        }),
+      })
+
+      const data = (await res.json()) as EncryptionStatus
+      setEncryptionStatus(data)
+    } catch (err) {
+      setEncryptionStatus({
+        success: false,
+        encryptionEnabled: false,
+        encryptionKeyConfigured: false,
+        supabaseConfigured: false,
+        hasEncryptedSecrets: false,
+        errorMessage: err instanceof Error ? err.message : 'Failed to check encryption status',
+      })
+    } finally {
+      setLoadingEncryptionStatus(false)
     }
   }
 
@@ -233,6 +273,75 @@ export function DiagnosticsModal({
               </div>
             ) : (
               <p style={{ color: 'var(--hal-text-muted)' }}>Failed to load status</p>
+            )}
+          </section>
+
+          {/* Encryption Status Section */}
+          <section style={{ marginTop: '2rem' }}>
+            <h4 style={{ margin: '0 0 1rem 0', fontSize: '1.1rem', fontWeight: 600 }}>Secrets Encryption</h4>
+            {loadingEncryptionStatus ? (
+              <p style={{ color: 'var(--hal-text-muted)' }}>Loading encryption status...</p>
+            ) : encryptionStatus ? (
+              <div
+                style={{
+                  padding: '1rem',
+                  borderRadius: '6px',
+                  border: '1px solid var(--hal-border)',
+                  background: 'var(--hal-surface-alt)',
+                }}
+              >
+                <div
+                  style={{
+                    padding: '0.5rem 1rem',
+                    borderRadius: '4px',
+                    display: 'inline-block',
+                    fontWeight: 500,
+                    marginBottom: '0.5rem',
+                    background: encryptionStatus.encryptionEnabled
+                      ? 'rgba(46, 125, 50, 0.1)'
+                      : encryptionStatus.errorMessage
+                        ? 'rgba(198, 40, 40, 0.1)'
+                        : 'rgba(108, 117, 125, 0.1)',
+                    color: encryptionStatus.encryptionEnabled
+                      ? 'var(--hal-status-ok)'
+                      : encryptionStatus.errorMessage
+                        ? 'var(--hal-status-error)'
+                        : 'var(--hal-text-muted)',
+                    border: encryptionStatus.encryptionEnabled
+                      ? '1px solid var(--hal-status-ok)'
+                      : encryptionStatus.errorMessage
+                        ? '1px solid var(--hal-status-error)'
+                        : '1px solid var(--hal-border)',
+                  }}
+                >
+                  {encryptionStatus.encryptionEnabled
+                    ? '✓ Secrets stored encrypted at rest'
+                    : encryptionStatus.errorMessage
+                      ? '⚠ Encryption not enabled'
+                      : '✗ Encryption disabled'}
+                </div>
+                {encryptionStatus.encryptionEnabled ? (
+                  <p style={{ margin: '0.5rem 0', color: 'var(--hal-text)' }}>
+                    All provider OAuth tokens and Supabase service keys are encrypted before being stored in the database.
+                  </p>
+                ) : encryptionStatus.errorMessage ? (
+                  <p style={{ margin: '0.5rem 0', color: 'var(--hal-status-error)' }}>
+                    {encryptionStatus.errorMessage}
+                  </p>
+                ) : (
+                  <p style={{ margin: '0.5rem 0', color: 'var(--hal-text-muted)' }}>
+                    Encryption is not configured. Set HAL_ENCRYPTION_KEY (32+ characters) in Vercel Environment Variables
+                    to enable secret encryption.
+                  </p>
+                )}
+                {encryptionStatus.hasEncryptedSecrets && (
+                  <p style={{ margin: '0.5rem 0', color: 'var(--hal-text-muted)', fontSize: '0.9rem' }}>
+                    Encrypted secrets are stored in the database.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p style={{ color: 'var(--hal-text-muted)' }}>Failed to load encryption status</p>
             )}
           </section>
 

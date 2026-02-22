@@ -1,7 +1,10 @@
 import type { IncomingMessage, ServerResponse } from 'http'
+import { createClient } from '@supabase/supabase-js'
 import { getOrigin } from '../../_lib/github/config.js'
 import { exchangeCodeForToken } from '../../_lib/github/githubApi.js'
 import { getSession } from '../../_lib/github/session.js'
+import { storeEncryptedSecret } from '../../_lib/encrypted-secrets.js'
+import { requireEnv } from '../../_lib/github/config.js'
 
 const AUTH_SECRET_MIN = 32
 const CODE_DEDUPE_TTL_MS = 60_000
@@ -314,6 +317,43 @@ export default async function handler(req: IncomingMessage | Request, res?: Serv
       tokenType: token.token_type,
     }
     await session.save()
+
+    // Store encrypted token in database (HAL-0786)
+    try {
+      const supabaseUrl = process.env.SUPABASE_URL?.trim()
+      const supabaseServiceRoleKey =
+        process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
+        process.env.SUPABASE_SECRET_KEY?.trim()
+      if (supabaseUrl && supabaseServiceRoleKey) {
+        const supabase = createClient(supabaseUrl, supabaseServiceRoleKey)
+        // Use session ID as identifier (or null for global token)
+        const sessionId = session.id || null
+        await storeEncryptedSecret(
+          supabase,
+          'oauth_github_access_token',
+          token.access_token,
+          sessionId,
+          {
+            scope: token.scope,
+            token_type: token.token_type,
+            stored_at: new Date().toISOString(),
+          }
+        )
+      }
+      // If Supabase is not configured, continue without storing (session-only)
+    } catch (encryptErr) {
+      // Log error but don't fail OAuth flow if encryption fails
+      // This ensures OAuth still works even if encryption is misconfigured
+      // IMPORTANT: Don't log the actual token or any secret values
+      const errorMsg = encryptErr instanceof Error ? encryptErr.message : String(encryptErr)
+      // Only log error type, not the actual secret
+      if (errorMsg.includes('HAL_ENCRYPTION_KEY')) {
+        console.error('[api/auth/github/callback] Encryption key not configured or invalid')
+      } else {
+        console.error('[api/auth/github/callback] Failed to store encrypted token (encryption error)')
+      }
+      // Don't throw - session is already saved, OAuth should succeed
+    }
 
     redirect(res, `${origin}/?github=connected`)
   } catch (err) {
