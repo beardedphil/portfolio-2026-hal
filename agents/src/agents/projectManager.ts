@@ -6,19 +6,14 @@
  */
 
 import { createOpenAI } from '@ai-sdk/openai'
-import { streamText, jsonSchema, tool } from 'ai'
+import { streamText, tool } from 'ai'
 import { z } from 'zod'
 import { redact } from '../utils/redact.js'
 import {
   evaluateTicketReady,
   type ReadyCheckResult,
 } from '../lib/projectManagerHelpers.js'
-import {
-  listDirectory,
-  readFile,
-  searchFiles,
-  type ToolContext,
-} from './tools.js'
+import { type ToolContext } from './tools.js'
 import { type CheckUnassignedResult } from './projectManager/ticketOperations.js'
 import {
   respond,
@@ -46,6 +41,8 @@ import { buildImageInfo, buildFullPromptText, buildPrompt } from './projectManag
 import { createInstructionSetTool } from './projectManager/instructionSetTool.js'
 import { createRedDocumentTool as createRedDocumentToolFactory } from './projectManager/redDocumentTool.js'
 import { createTicketTool as createTicketToolFactory, createFetchTicketContentTool, createUpdateTicketBodyTool } from './projectManager/ticketTools.js'
+import { createKanbanMoveTicketToTodoTool, createListTicketsByColumnTool } from './projectManager/kanbanTools.js'
+import { createReadFileTool, createSearchFilesTool, createListDirectoryTool } from './projectManager/fileTools.js'
 
 // Re-export for backward compatibility
 export type { ReadyCheckResult }
@@ -288,121 +285,9 @@ export async function runPmAgent(
     },
   })
 
-  const kanbanMoveTicketToTodoTool = tool({
-    description:
-      'Move a ticket from Unassigned to To Do via the HAL API. Only call after evaluate_ticket_ready returns ready: true.',
-    parameters: jsonSchema<{ ticket_id: string; position: 'top' | 'bottom' | null }>({
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        ticket_id: {
-          type: 'string',
-          description: 'Ticket id (e.g. "HAL-0012", "0012", or "12").',
-        },
-        position: {
-          type: ['string', 'null'],
-          enum: ['top', 'bottom', null],
-          description:
-            'Position in To Do column: "top" to place at position 0 (first card), "bottom" to place at end (default). Use "top" when called from "Prepare top ticket" workflow.',
-        },
-      },
-      // OpenAI tool schema validation requires `required` to include every key in `properties`
-      required: ['ticket_id', 'position'],
-    }),
-    execute: async (input: { ticket_id: string; position: 'top' | 'bottom' | null }) => {
-      type MoveResult =
-        | { success: true; ticketId: string; fromColumn: string; toColumn: string }
-        | { success: false; error: string }
-      let out: MoveResult
-      try {
-        // Fetch current column and preferred display id
-        const { json: fetched } = await halFetchJson(
-          '/api/tickets/get',
-          { ticketId: input.ticket_id },
-          { timeoutMs: 20_000, progressMessage: `Checking current column for ${input.ticket_id}…` }
-        )
-        if (!fetched?.success || !fetched?.ticket) {
-          out = { success: false, error: fetched?.error || `Ticket ${input.ticket_id} not found.` }
-          toolCalls.push({ name: 'kanban_move_ticket_to_todo', input, output: out })
-          return out
-        }
-        const ticket = fetched.ticket as any
-        const currentCol = ticket.kanban_column_id ?? null
-        const inUnassigned = currentCol === COL_UNASSIGNED || currentCol === null || currentCol === ''
-        if (!inUnassigned) {
-          out = {
-            success: false,
-            error: `Ticket is not in Unassigned (current column: ${currentCol ?? 'null'}). Only tickets in Unassigned can be moved to To Do.`,
-          }
-          toolCalls.push({ name: 'kanban_move_ticket_to_todo', input, output: out })
-          return out
-        }
-        const ticketIdToMove = String(ticket.display_id || input.ticket_id)
-        const position = input.position ?? 'bottom'
-        const { json: moved } = await halFetchJson(
-          '/api/tickets/move',
-          { ticketId: ticketIdToMove, columnId: COL_TODO, position },
-          { timeoutMs: 25_000, progressMessage: `Moving ${ticketIdToMove} to To Do…` }
-        )
-        if (!moved?.success) {
-          out = { success: false, error: moved?.error || 'Failed to move ticket' }
-        } else {
-          out = { success: true, ticketId: ticketIdToMove, fromColumn: COL_UNASSIGNED, toColumn: COL_TODO }
-        }
-      } catch (err) {
-        if (isAbortError(err)) throw err
-        out = { success: false, error: err instanceof Error ? err.message : String(err) }
-      }
-      toolCalls.push({ name: 'kanban_move_ticket_to_todo', input, output: out })
-      return out
-    },
-  })
+  const kanbanMoveTicketToTodoTool = createKanbanMoveTicketToTodoTool(halFetchJson, toolCalls, isAbortError)
 
-  const listTicketsByColumnTool = tool({
-    description:
-      'List all tickets in a given Kanban column via the HAL API (server-side Supabase secret key).',
-    parameters: z.object({
-      column_id: z
-        .string()
-        .describe('Kanban column ID (e.g. "col-qa", "col-todo", "col-unassigned", "col-human-in-the-loop").'),
-    }),
-    execute: async (input: { column_id: string }) => {
-      type ListResult =
-        | {
-            success: true
-            column_id: string
-            tickets: Array<{ id: string; title: string; column: string }>
-            count: number
-          }
-        | { success: false; error: string }
-      let out: ListResult
-      try {
-        const repoFullName =
-          typeof config.projectId === 'string' && config.projectId.trim() ? config.projectId.trim() : undefined
-        const res = await fetch(`${halBaseUrl}/api/tickets/list-by-column`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ columnId: input.column_id, ...(repoFullName ? { repoFullName } : {}) }),
-        })
-        const data = (await res.json()) as any
-        if (!data?.success) {
-          out = { success: false, error: data?.error || 'Failed to list tickets' }
-          toolCalls.push({ name: 'list_tickets_by_column', input, output: out })
-          return out
-        }
-        const tickets = (Array.isArray(data.tickets) ? data.tickets : []).map((t: any) => ({
-          id: t.display_id ?? t.id,
-          title: t.title ?? '',
-          column: input.column_id,
-        }))
-        out = { success: true, column_id: input.column_id, tickets, count: tickets.length }
-      } catch (err) {
-        out = { success: false, error: err instanceof Error ? err.message : String(err) }
-      }
-      toolCalls.push({ name: 'list_tickets_by_column', input, output: out })
-      return out
-    },
-  })
+  const listTicketsByColumnTool = createListTicketsByColumnTool(halBaseUrl, toolCalls, config)
 
   const moveTicketToColumnTool = (() => {
       return tool({
@@ -568,103 +453,15 @@ export async function runPmAgent(
     console.warn(`[PM Agent] hasGitHubRepo=${hasGitHubRepo}, repoFullName=${config.repoFullName || 'NOT SET'}, hasGithubReadFile=${typeof config.githubReadFile === 'function'}, hasGithubSearchCode=${typeof config.githubSearchCode === 'function'}`)
   }
 
-  const readFileTool = tool({
-    description: hasGitHubRepo
-      ? 'Read file contents from the connected GitHub repo. Path is relative to repo root. Max 500 lines. Uses committed code on default branch.'
-      : 'Read file contents from HAL repo. Path is relative to repo root. Max 500 lines.',
-    parameters: z.object({
-      path: z.string().describe('File path (relative to repo/project root)'),
-    }),
-    execute: async (input) => {
-      let out: { content: string } | { error: string }
-      const usedGitHub = !!(hasGitHubRepo && config.githubReadFile)
-      repoUsage.push({ tool: 'read_file', usedGitHub, path: input.path })
-      if (hasGitHubRepo && config.githubReadFile) {
-        // Debug: log when using GitHub API (0119)
-        if (typeof console !== 'undefined' && console.log) {
-          console.log(`[PM Agent] Using GitHub API to read: ${config.repoFullName}/${input.path}`)
-        }
-        out = await config.githubReadFile(input.path, 500)
-      } else {
-        // Debug: log when falling back to HAL repo (0119)
-        if (typeof console !== 'undefined' && console.warn) {
-          console.warn(`[PM Agent] Falling back to HAL repo for: ${input.path} (hasGitHubRepo=${hasGitHubRepo}, hasGithubReadFile=${typeof config.githubReadFile === 'function'})`)
-        }
-        out = await readFile(ctx, input)
-      }
-      toolCalls.push({ name: 'read_file', input, output: out })
-      return typeof (out as { error?: string }).error === 'string'
-        ? JSON.stringify(out)
-        : out
-    },
-  })
+  const readFileTool = createReadFileTool(config, toolCalls, ctx, hasGitHubRepo, repoUsage)
 
   const getInstructionSetTool = createInstructionSetTool(config, toolCalls)
 
-  const searchFilesTool = tool({
-    description: hasGitHubRepo
-      ? 'Search code in the connected GitHub repo. Pattern is used as search term (GitHub does not support full regex).'
-      : 'Regex search across files in HAL repo. Pattern is JavaScript regex.',
-    parameters: z.object({
-      pattern: z.string().describe('Regex pattern to search for'),
-      glob: z.string().describe('Glob pattern to filter files (e.g. "**/*" for all, "**/*.ts" for TypeScript)'),
-    }),
-    execute: async (input) => {
-      let out: { matches: Array<{ path: string; line: number; text: string }> } | { error: string }
-      const usedGitHub = !!(hasGitHubRepo && config.githubSearchCode)
-      repoUsage.push({ tool: 'search_files', usedGitHub, path: input.pattern })
-      if (hasGitHubRepo && config.githubSearchCode) {
-        // Debug: log when using GitHub API (0119)
-        if (typeof console !== 'undefined' && console.log) {
-          console.log(`[PM Agent] Using GitHub API to search: ${config.repoFullName} pattern: ${input.pattern}`)
-        }
-        out = await config.githubSearchCode(input.pattern, input.glob)
-      } else {
-        // Debug: log when falling back to HAL repo (0119)
-        if (typeof console !== 'undefined' && console.warn) {
-          console.warn(`[PM Agent] Falling back to HAL repo for search: ${input.pattern} (hasGitHubRepo=${hasGitHubRepo}, hasGithubSearchCode=${typeof config.githubSearchCode === 'function'})`)
-        }
-        out = await searchFiles(ctx, { pattern: input.pattern, glob: input.glob })
-      }
-      toolCalls.push({ name: 'search_files', input, output: out })
-      return typeof (out as { error?: string }).error === 'string'
-        ? JSON.stringify(out)
-        : out
-    },
-  })
+  const searchFilesTool = createSearchFilesTool(config, toolCalls, ctx, hasGitHubRepo, repoUsage)
 
   const tools = {
     get_instruction_set: getInstructionSetTool,
-    list_directory: tool({
-      description: hasGitHubRepo
-        ? 'List files in a directory in the connected GitHub repo. Path is relative to repo root.'
-        : 'List files in a directory in HAL repo. Path is relative to repo root.',
-      parameters: z.object({
-        path: z.string().describe('Directory path (relative to repo/project root)'),
-      }),
-      execute: async (input) => {
-        let out: { entries: string[] } | { error: string }
-        const usedGitHub = !!(hasGitHubRepo && config.githubListDirectory)
-        repoUsage.push({ tool: 'list_directory', usedGitHub, path: input.path })
-        if (hasGitHubRepo && config.githubListDirectory) {
-          // Debug: log when using GitHub API (0119)
-          if (typeof console !== 'undefined' && console.log) {
-            console.log(`[PM Agent] Using GitHub API to list directory: ${config.repoFullName}/${input.path}`)
-          }
-          out = await config.githubListDirectory(input.path)
-        } else {
-          // Debug: log when falling back to HAL repo (0119)
-          if (typeof console !== 'undefined' && console.warn) {
-            console.warn(`[PM Agent] Falling back to HAL repo for list_directory: ${input.path} (hasGitHubRepo=${hasGitHubRepo}, hasGithubListDirectory=${typeof config.githubListDirectory === 'function'})`)
-          }
-          out = await listDirectory(ctx, input)
-        }
-        toolCalls.push({ name: 'list_directory', input, output: out })
-        return typeof (out as { error?: string }).error === 'string'
-          ? JSON.stringify(out)
-          : out
-      },
-    }),
+    list_directory: createListDirectoryTool(config, toolCalls, ctx, hasGitHubRepo, repoUsage),
     read_file: readFileTool,
     search_files: searchFilesTool,
     ...(createTicketTool ? { create_ticket: createTicketTool } : {}),
