@@ -289,17 +289,24 @@ export async function checkDocsConsistency(
   // Compute which docs to check
   const { paths, error } = await computeDocsToCheck(ticketId, ticketFilename, repoFullName, prUrl, githubToken)
   if (error && githubToken) {
-    // Only fail if we have a token and still got an error
-    return {
-      passed: false,
-      findings: [
-        {
-          path: 'system',
-          ruleId: 'docs-computation-error',
-          message: `Failed to compute docs to check: ${error}`,
-          suggestedFix: 'Check PR URL and GitHub token are valid, and retry the operation',
-        },
-      ],
+    // If PR file fetch fails, log but don't block - we can still check other docs
+    // Only fail if it's a critical error (not just PR fetch failure)
+    if (error.includes('Failed to fetch PR files') || error.includes('Error fetching PR files')) {
+      // PR fetch failure is non-critical - continue with other docs
+      console.warn(`[docs-consistency] PR file fetch failed, continuing with other docs: ${error}`)
+    } else {
+      // Critical error - fail the check
+      return {
+        passed: false,
+        findings: [
+          {
+            path: 'system',
+            ruleId: 'docs-computation-error',
+            message: `Failed to compute docs to check: ${error}`,
+            suggestedFix: 'Check PR URL and GitHub token are valid, and retry the operation',
+          },
+        ],
+      }
     }
   }
 
