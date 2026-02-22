@@ -10,6 +10,7 @@ import { resolveColumnId, calculateTargetPosition } from './_move-helpers.js'
 import { parseAcceptanceCriteria } from './_acceptance-criteria-parser.js'
 import { evaluateCiStatus, type CiStatusSummary } from '../_lib/github/checks.js'
 import { getSession } from '../_lib/github/session.js'
+import { checkDocsConsistency, type DocsConsistencyResult } from './_docs-consistency-check.js'
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   // CORS: Allow cross-origin requests (for scripts calling from different origins)
@@ -251,15 +252,29 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       }
     }
 
-    // Gate: Drift gate - block transitions when any AC is unmet (HAL-0765)
-    // Check for unmet ACs when moving to columns that indicate completion/progress
-    const driftGatedColumns = ['col-qa', 'col-human-in-the-loop', 'col-process-review', 'col-done']
-    if (columnId && driftGatedColumns.includes(columnId) && resolvedTicketPk) {
-      // Parse AC items from ticket body
-      const acItems = parseAcceptanceCriteria((ticket as any).body_md || null)
+    // Gate: Drift gate - block transitions beyond To Do when AC are unmet, tests are failing, or docs are inconsistent (HAL-0753)
+    // Check for unmet ACs, failing CI, and docs inconsistencies when moving beyond To Do
+    // Transitions beyond To Do: To Do → Doing, To Do → QA, Doing → QA, QA → HITL, HITL → Done
+    const columnsBeyondTodo = ['col-doing', 'col-qa', 'col-human-in-the-loop', 'col-process-review', 'col-done']
+    const isTransitionBeyondTodo = 
+      (currentColumnId === 'col-todo' && columnId && columnsBeyondTodo.includes(columnId)) ||
+      (columnId && columnsBeyondTodo.includes(columnId) && currentColumnId !== 'col-todo')
+    
+    if (isTransitionBeyondTodo && resolvedTicketPk) {
+      // Format transition name
+      const transitionName = await formatTransition(currentColumnId, columnId)
       
+      // Collect all failure reasons from all three checks
+      const failureReasons: Array<{ type: string; message: string }> = []
+      const driftResults: {
+        acCheck?: { passed: boolean; unmetCount?: number; unmetIndices?: number[]; unmetTexts?: string }
+        ciCheck?: { passed: boolean; overall?: string; failingCheckNames?: string[]; checksPageUrl?: string; error?: string }
+        docsCheck?: { passed: boolean; findings?: Array<{ path: string; ruleId: string; message: string }>; error?: string }
+      } = {}
+      
+      // 1. Check Acceptance Criteria status
+      const acItems = parseAcceptanceCriteria((ticket as any).body_md || null)
       if (acItems.length > 0) {
-        // Check for unmet AC status records
         const { data: acStatusRecords, error: acStatusErr } = await supabase
           .from('acceptance_criteria_status')
           .select('ac_index, status')
@@ -267,15 +282,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           .eq('status', 'unmet')
 
         if (acStatusErr) {
-          json(res, 200, {
-            success: false,
-            error: `Cannot move ticket: failed to check AC status (${acStatusErr.message}).`,
+          failureReasons.push({
+            type: 'AC_CHECK_ERROR',
+            message: `Failed to check AC status: ${acStatusErr.message}`,
           })
-          return
-        }
-
-        // If any AC item has status 'unmet', block the transition
-        if (acStatusRecords && acStatusRecords.length > 0) {
+          driftResults.acCheck = { passed: false, error: acStatusErr.message }
+        } else if (acStatusRecords && acStatusRecords.length > 0) {
           const unmetIndices = acStatusRecords.map((r: any) => r.ac_index).sort((a, b) => a - b)
           const unmetTexts = unmetIndices
             .map((idx: number) => {
@@ -284,24 +296,26 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             })
             .filter(Boolean)
             .join('\n')
-
-          json(res, 200, {
-            success: false,
-            error: `Cannot move ticket: ${acStatusRecords.length} acceptance criteria item(s) are marked as unmet. All acceptance criteria must be met before moving to this column.`,
-            errorCode: 'UNMET_AC_BLOCKER',
-            unmetCount: acStatusRecords.length,
-            unmetIndices,
-            remedy: `Mark all acceptance criteria as "Met" in the ticket details panel before moving to ${columnId}. Unmet items:\n${unmetTexts}`,
+          
+          failureReasons.push({
+            type: 'UNMET_AC',
+            message: `${acStatusRecords.length} acceptance criteria item(s) are marked as unmet`,
           })
-          return
+          driftResults.acCheck = { 
+            passed: false, 
+            unmetCount: acStatusRecords.length, 
+            unmetIndices,
+            unmetTexts 
+          }
+        } else {
+          driftResults.acCheck = { passed: true }
         }
-
-        // If ticket has AC items but no status records exist yet, allow the move
-        // (AC status may not have been initialized yet, which is fine for v0)
+      } else {
+        // No AC items - consider check passed
+        driftResults.acCheck = { passed: true }
       }
 
-      // Gate: Drift gate CI awareness - check CI status for linked PR (HAL-0767)
-      // Check if ticket has a linked PR
+      // 2. Check CI status (requires PR)
       const { data: agentRuns, error: runsErr } = await supabase
         .from('hal_agent_runs')
         .select('pr_url')
@@ -310,106 +324,138 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         .order('created_at', { ascending: false })
         .limit(1)
 
+      let prUrl: string | null = null
+      let evaluatedHeadSha: string | null = null
+
       if (runsErr) {
-        json(res, 200, {
-          success: false,
-          error: `Cannot move ticket: failed to check for linked PR (${runsErr.message}).`,
+        failureReasons.push({
+          type: 'CI_CHECK_ERROR',
+          message: `Failed to check for linked PR: ${runsErr.message}`,
         })
-        return
+        driftResults.ciCheck = { passed: false, error: runsErr.message }
+      } else {
+        prUrl = agentRuns && agentRuns.length > 0 && agentRuns[0]?.pr_url
+          ? String(agentRuns[0].pr_url).trim()
+          : null
+
+        if (!prUrl || prUrl.length === 0) {
+          failureReasons.push({
+            type: 'NO_PR_LINKED',
+            message: 'A GitHub Pull Request must be linked to this ticket before it can be moved to this column.',
+          })
+          driftResults.ciCheck = { passed: false, error: 'No PR linked' }
+        } else {
+          // Evaluate CI status for the PR
+          let ciStatus: CiStatusSummary | { error: string } | null = null
+          let evaluationError: string | null = null
+
+          try {
+            const session = await getSession(req, res).catch(() => null)
+            const ghToken = session?.github?.accessToken || process.env.GITHUB_TOKEN?.trim() || process.env.GH_TOKEN?.trim()
+
+            if (!ghToken) {
+              evaluationError = 'GitHub authentication required to check CI status'
+              ciStatus = { error: evaluationError }
+            } else {
+              ciStatus = await evaluateCiStatus(ghToken, prUrl)
+              if ('error' in ciStatus) {
+                evaluationError = ciStatus.error
+              } else {
+                evaluatedHeadSha = ciStatus.evaluatedSha
+              }
+            }
+          } catch (err) {
+            evaluationError = err instanceof Error ? err.message : String(err)
+            ciStatus = { error: evaluationError }
+          }
+
+          if ('error' in ciStatus) {
+            failureReasons.push({
+              type: 'CI_EVALUATION_ERROR',
+              message: evaluationError || 'Failed to evaluate CI status',
+            })
+            driftResults.ciCheck = { passed: false, error: evaluationError || 'Failed to evaluate CI status' }
+          } else if (ciStatus.overall === 'failing') {
+            if (ciStatus.failingCheckNames && ciStatus.failingCheckNames.length > 0) {
+              ciStatus.failingCheckNames.forEach((checkName: string) => {
+                failureReasons.push({
+                  type: 'CI_CHECK_FAILED',
+                  message: `CI check "${checkName}" is failing`,
+                })
+              })
+            } else {
+              failureReasons.push({
+                type: 'CI_CHECKS_FAILING',
+                message: 'Required CI checks are failing',
+              })
+            }
+            driftResults.ciCheck = {
+              passed: false,
+              overall: ciStatus.overall,
+              failingCheckNames: ciStatus.failingCheckNames,
+              checksPageUrl: ciStatus.checksPageUrl,
+            }
+          } else {
+            driftResults.ciCheck = {
+              passed: true,
+              overall: ciStatus.overall,
+              checksPageUrl: ciStatus.checksPageUrl,
+            }
+          }
+        }
       }
 
-      const prUrl = agentRuns && agentRuns.length > 0 && agentRuns[0]?.pr_url
-        ? String(agentRuns[0].pr_url).trim()
-        : null
-
-      // If no PR linked, block the transition
-      if (!prUrl || prUrl.length === 0) {
-        // Format transition name
-        const transitionName = await formatTransition(currentColumnId, columnId)
-        
-        // Store drift attempt record with normalized failure reasons
-        await supabase.from('drift_attempts').insert({
-          ticket_pk: resolvedTicketPk,
-          transition: transitionName,
-          pr_url: null,
-          evaluated_head_sha: null,
-          overall_status: null,
-          required_checks: null,
-          failing_check_names: null,
-          checks_page_url: null,
-          evaluation_error: 'No PR linked',
-          failure_reasons: [
-            { type: 'NO_PR_LINKED', message: 'A GitHub Pull Request must be linked to this ticket before it can be moved to this column.' }
-          ],
-          references: {},
-          blocked: true,
-        })
-
-        json(res, 200, {
-          success: false,
-          error: 'A GitHub Pull Request must be linked to this ticket before it can be moved to this column.',
-          errorCode: 'NO_PR_REQUIRED',
-          remedy: 'Link a PR to this ticket before attempting this transition. The drift gate requires CI checks to pass before allowing transitions.',
-        })
-        return
-      }
-
-      // Evaluate CI status for the PR
-      let ciStatus: CiStatusSummary | { error: string } | null = null
-      let evaluationError: string | null = null
-
+      // 3. Check docs consistency (reuse PR URL from CI check above)
       try {
-        // Get GitHub token from session or environment
         const session = await getSession(req, res).catch(() => null)
         const ghToken = session?.github?.accessToken || process.env.GITHUB_TOKEN?.trim() || process.env.GH_TOKEN?.trim()
 
-        if (!ghToken) {
-          evaluationError = 'GitHub authentication required to check CI status'
-          ciStatus = { error: evaluationError }
-        } else {
-          ciStatus = await evaluateCiStatus(ghToken, prUrl)
-          if ('error' in ciStatus) {
-            evaluationError = ciStatus.error
-          }
-        }
-      } catch (err) {
-        evaluationError = err instanceof Error ? err.message : String(err)
-        ciStatus = { error: evaluationError }
-      }
+        const ticketId = (ticket as any).id || (ticket as any).display_id || ''
+        const ticketFilename = (ticket as any).filename || null
+        
+        const docsResult = await checkDocsConsistency(
+          ticketId,
+          ticketFilename,
+          (ticket as any).body_md || null,
+          repoFullName,
+          prUrl,
+          ghToken
+        )
 
-      // Format transition name
-      const transitionName = await formatTransition(currentColumnId, columnId)
-      
-      // Build normalized failure reasons
-      const failureReasons: Array<{ type: string; message: string }> = []
-      if ('error' in ciStatus) {
-        failureReasons.push({
-          type: 'CI_EVALUATION_ERROR',
-          message: evaluationError || 'Failed to evaluate CI status',
-        })
-      } else if (ciStatus.overall === 'failing') {
-        if (ciStatus.failingCheckNames && ciStatus.failingCheckNames.length > 0) {
-          ciStatus.failingCheckNames.forEach((checkName: string) => {
+        if (!docsResult.passed) {
+          docsResult.findings.forEach((finding) => {
             failureReasons.push({
-              type: 'CI_CHECK_FAILED',
-              message: `CI check "${checkName}" is failing`,
+              type: 'DOCS_INCONSISTENT',
+              message: `${finding.path}: ${finding.message}`,
             })
           })
+          driftResults.docsCheck = {
+            passed: false,
+            findings: docsResult.findings,
+          }
         } else {
-          failureReasons.push({
-            type: 'CI_CHECKS_FAILING',
-            message: 'Required CI checks are failing',
-          })
+          driftResults.docsCheck = { passed: true }
         }
+      } catch (err) {
+        const docsError = err instanceof Error ? err.message : String(err)
+        failureReasons.push({
+          type: 'DOCS_CHECK_ERROR',
+          message: `Failed to check docs consistency: ${docsError}`,
+        })
+        driftResults.docsCheck = { passed: false, error: docsError }
       }
 
-      // Build references object
-      const references: any = {
-        pr_url: prUrl,
+      // Build references object for drift attempt
+      const references: any = {}
+      if (prUrl) {
+        references.pr_url = prUrl
       }
-      if (!('error' in ciStatus) && ciStatus.evaluatedSha) {
-        references.head_sha = ciStatus.evaluatedSha
+      if (evaluatedHeadSha) {
+        references.head_sha = evaluatedHeadSha
       }
+
+      // Determine if transition should be blocked
+      const shouldBlock = failureReasons.length > 0
 
       // Store drift attempt record
       const driftAttemptData: any = {
@@ -417,53 +463,85 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         transition: transitionName,
         pr_url: prUrl,
         references,
-        blocked: false,
+        blocked: shouldBlock,
         failure_reasons: failureReasons.length > 0 ? failureReasons : null,
       }
 
-      if ('error' in ciStatus) {
-        driftAttemptData.evaluation_error = evaluationError
-        driftAttemptData.blocked = true
-      } else {
-        driftAttemptData.evaluated_head_sha = ciStatus.evaluatedSha
-        driftAttemptData.overall_status = ciStatus.overall
-        driftAttemptData.required_checks = ciStatus.requiredChecks
-        driftAttemptData.failing_check_names = ciStatus.failingCheckNames
-        driftAttemptData.checks_page_url = ciStatus.checksPageUrl
-        driftAttemptData.blocked = ciStatus.overall === 'failing'
+      // Add CI-specific fields if available
+      if (evaluatedHeadSha) {
+        driftAttemptData.evaluated_head_sha = evaluatedHeadSha
+      }
+      if (driftResults.ciCheck && !driftResults.ciCheck.error) {
+        if (driftResults.ciCheck.overall) {
+          driftAttemptData.overall_status = driftResults.ciCheck.overall
+        }
+        if (driftResults.ciCheck.failingCheckNames) {
+          driftAttemptData.failing_check_names = driftResults.ciCheck.failingCheckNames
+        }
+        if (driftResults.ciCheck.checksPageUrl) {
+          driftAttemptData.checks_page_url = driftResults.ciCheck.checksPageUrl
+        }
+      } else if (driftResults.ciCheck?.error) {
+        driftAttemptData.evaluation_error = driftResults.ciCheck.error
+      }
+
+      // Add docs findings to references
+      if (driftResults.docsCheck && !driftResults.docsCheck.passed && driftResults.docsCheck.findings) {
+        references.docs_findings = driftResults.docsCheck.findings.map(f => ({
+          path: f.path,
+          ruleId: f.ruleId,
+          message: f.message,
+        }))
       }
 
       await supabase.from('drift_attempts').insert(driftAttemptData)
 
-      // Block transition if CI is failing
-      if (!('error' in ciStatus) && ciStatus.overall === 'failing') {
-        const failingChecksList = ciStatus.failingCheckNames.length > 0
-          ? ciStatus.failingCheckNames.map((name) => `  - ${name}`).join('\n')
-          : '  - Required checks (unit and/or e2e) are failing'
+      // Block transition if any check failed
+      if (shouldBlock) {
+        // Build error message with all failures
+        const errorParts: string[] = []
+        const remedyParts: string[] = []
+
+        if (driftResults.acCheck && !driftResults.acCheck.passed && driftResults.acCheck.unmetCount) {
+          errorParts.push(`${driftResults.acCheck.unmetCount} acceptance criteria item(s) are marked as unmet`)
+          remedyParts.push(`Mark all acceptance criteria as "Met" in the ticket details panel. Unmet items:\n${driftResults.acCheck.unmetTexts || ''}`)
+        }
+
+        if (driftResults.ciCheck && !driftResults.ciCheck.passed) {
+          if (driftResults.ciCheck.error === 'No PR linked') {
+            errorParts.push('No PR linked')
+            remedyParts.push('Link a PR to this ticket before attempting this transition.')
+          } else if (driftResults.ciCheck.failingCheckNames && driftResults.ciCheck.failingCheckNames.length > 0) {
+            const failingChecksList = driftResults.ciCheck.failingCheckNames.map((name) => `  - ${name}`).join('\n')
+            errorParts.push('CI checks are failing')
+            remedyParts.push(`Fix the failing CI checks:\n${failingChecksList}\n\nView checks: ${driftResults.ciCheck.checksPageUrl || 'N/A'}`)
+          } else if (driftResults.ciCheck.error) {
+            errorParts.push(`CI check error: ${driftResults.ciCheck.error}`)
+          }
+        }
+
+        if (driftResults.docsCheck && !driftResults.docsCheck.passed && driftResults.docsCheck.findings) {
+          const inconsistentDocs = [...new Set(driftResults.docsCheck.findings.map(f => f.path))].join(', ')
+          errorParts.push(`Documentation is inconsistent: ${inconsistentDocs}`)
+          const docsDetails = driftResults.docsCheck.findings.map(f => `  - ${f.path}: ${f.message}`).join('\n')
+          remedyParts.push(`Fix documentation inconsistencies:\n${docsDetails}`)
+        }
+
+        const errorMessage = errorParts.length > 0
+          ? `Cannot move ticket: ${errorParts.join('; ')}. All drift checks must pass before moving to this column.`
+          : 'Cannot move ticket: Drift checks failed. All drift checks must pass before moving to this column.'
 
         json(res, 200, {
           success: false,
-          error: `Cannot move ticket: CI checks are failing. All required checks must pass before moving to this column.`,
-          errorCode: 'CI_CHECKS_FAILING',
-          ciStatus: {
-            overall: ciStatus.overall,
-            evaluatedSha: ciStatus.evaluatedSha,
-            failingCheckNames: ciStatus.failingCheckNames,
-            checksPageUrl: ciStatus.checksPageUrl,
-          },
-          remedy: `Fix the failing CI checks and ensure all required checks (unit and e2e) pass before moving to ${columnId}.\n\nFailing checks:\n${failingChecksList}\n\nView checks: ${ciStatus.checksPageUrl}`,
+          error: errorMessage,
+          errorCode: 'DRIFT_CHECK_FAILED',
+          driftResults,
+          remedy: remedyParts.join('\n\n'),
         })
         return
       }
-
-      // If CI evaluation failed (e.g., no auth), still allow the move but log the error
-      // This prevents blocking users when GitHub API is unavailable
-      if ('error' in ciStatus) {
-        console.warn(`[drift-gate] CI evaluation failed for ticket ${resolvedTicketPk}: ${evaluationError}`)
-        // Continue with the move - don't block on CI evaluation errors
-      }
       
-      // Note: Drift attempt was already stored above, even for successful transitions
+      // All checks passed - continue with the move
     }
 
     if (!columnId) {
@@ -521,11 +599,15 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     // Store drift attempt for successful transitions that didn't go through drift gate
     // (drift-gated transitions already stored their attempts above)
-    const driftGatedColumns = ['col-qa', 'col-human-in-the-loop', 'col-process-review', 'col-done']
-    if (!driftGatedColumns.includes(columnId || '')) {
+    const columnsBeyondTodo = ['col-doing', 'col-qa', 'col-human-in-the-loop', 'col-process-review', 'col-done']
+    const isTransitionBeyondTodo = 
+      (currentColumnId === 'col-todo' && columnId && columnsBeyondTodo.includes(columnId)) ||
+      (columnId && columnsBeyondTodo.includes(columnId) && currentColumnId !== 'col-todo')
+    
+    if (!isTransitionBeyondTodo) {
       const transitionName = await formatTransition(currentColumnId, columnId)
       if (transitionName && resolvedTicketPk) {
-        // Store attempt record for non-drift-gated transitions
+        // Store attempt record for non-drift-gated transitions (e.g., within To Do column)
         await supabase.from('drift_attempts').insert({
           ticket_pk: resolvedTicketPk,
           transition: transitionName,

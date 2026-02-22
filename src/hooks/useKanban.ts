@@ -382,6 +382,52 @@ export function useKanban(
         const result = await response.json()
 
         if (!result.success) {
+          // Check if this is a drift check failure (HAL-0753)
+          if (result.errorCode === 'DRIFT_CHECK_FAILED' && result.driftResults) {
+            // Revert the optimistic move; server rejected it.
+            revertOptimisticUpdate()
+            
+            // Build detailed error message from drift results
+            const errorParts: string[] = []
+            if (result.driftResults.acCheck && !result.driftResults.acCheck.passed) {
+              if (result.driftResults.acCheck.unmetCount) {
+                errorParts.push(`${result.driftResults.acCheck.unmetCount} acceptance criteria unmet`)
+              } else {
+                errorParts.push('Acceptance criteria check failed')
+              }
+            }
+            if (result.driftResults.ciCheck && !result.driftResults.ciCheck.passed) {
+              if (result.driftResults.ciCheck.failingCheckNames && result.driftResults.ciCheck.failingCheckNames.length > 0) {
+                errorParts.push(`CI checks failing: ${result.driftResults.ciCheck.failingCheckNames.join(', ')}`)
+              } else if (result.driftResults.ciCheck.error === 'No PR linked') {
+                errorParts.push('No PR linked')
+              } else {
+                errorParts.push('CI check failed')
+              }
+            }
+            if (result.driftResults.docsCheck && !result.driftResults.docsCheck.passed) {
+              if (result.driftResults.docsCheck.findings && result.driftResults.docsCheck.findings.length > 0) {
+                const inconsistentDocs = [...new Set(result.driftResults.docsCheck.findings.map((f: any) => f.path))].join(', ')
+                errorParts.push(`Docs inconsistent: ${inconsistentDocs}`)
+              } else {
+                errorParts.push('Docs check failed')
+              }
+            }
+            
+            const driftErrorMsg = errorParts.length > 0
+              ? `Drift check failed: ${errorParts.join('; ')}`
+              : result.error || 'Drift check failed'
+            
+            // Show detailed error with remedy if available
+            const fullErrorMsg = result.remedy
+              ? `${driftErrorMsg}\n\n${result.remedy}`
+              : driftErrorMsg
+            
+            setKanbanMoveError(fullErrorMsg)
+            setTimeout(() => setKanbanMoveError(null), 15000) // Show for 15 seconds for detailed errors
+            return // Exit early, don't throw
+          }
+          
           // Check if this is a PR blocking error (HAL-0772)
           const errorMsg = result.error || 'Unknown error'
           if (errorMsg === 'No PR associated' || result.errorCode === 'NO_PR_ASSOCIATED') {
