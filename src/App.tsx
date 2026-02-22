@@ -17,6 +17,7 @@ import { MaintainabilityReportModal } from './components/MaintainabilityReportMo
 import { IntegrationManifestModal } from './components/IntegrationManifestModal'
 import { ContextBundleModal } from './components/ContextBundleModal'
 import { AgentRunBundleModal } from './components/AgentRunBundleModal'
+import { ColdStartContinuityModal } from './components/ColdStartContinuityModal'
 import { NoPrModal } from './components/NoPrModal'
 import type { ChatTarget, ToolCallRecord, TicketCreationResult } from './types/app'
 import { CHAT_OPTIONS } from './types/app'
@@ -285,6 +286,10 @@ function App() {
   const [contextBundleModalOpen, setContextBundleModalOpen] = useState<boolean>(false)
   const [contextBundleTicketPk] = useState<string | null>(null)
   const [contextBundleTicketId] = useState<string | null>(null)
+  /** Cold-start Continuity Check modal (0774). */
+  const [coldStartContinuityModalOpen, setColdStartContinuityModalOpen] = useState<boolean>(false)
+  const [coldStartContinuityTicketPk, setColdStartContinuityTicketPk] = useState<string | null>(null)
+  const [coldStartContinuityTicketId, setColdStartContinuityTicketId] = useState<string | null>(null)
   /** Agent Run Bundle Builder modal (0756). */
   const [agentRunBundleModalOpen, setAgentRunBundleModalOpen] = useState<boolean>(false)
   const [agentRunBundleRunId, setAgentRunBundleRunId] = useState<string | null>(null)
@@ -688,6 +693,13 @@ function App() {
         disconnectButtonRef={disconnectButtonRef}
         onCoverageReportClick={() => setCoverageReportOpen(true)}
         onMaintainabilityReportClick={() => setMaintainabilityReportOpen(true)}
+        onColdStartContinuityClick={() => {
+          // Get ticket from kanban selection or use null (user can select in modal)
+          const selectedTicket = kanbanTickets.find((t) => t.selected)
+          setColdStartContinuityTicketPk(selectedTicket?.pk || null)
+          setColdStartContinuityTicketId(selectedTicket?.id || null)
+          setColdStartContinuityModalOpen(true)
+        }}
       />
 
       {githubConnectError && (
@@ -999,6 +1011,20 @@ function App() {
           setAgentRunBundleRunId(null)
         }}
         runId={agentRunBundleRunId || implAgentRunId || qaAgentRunId}
+        supabaseUrl={supabaseUrl}
+        supabaseAnonKey={supabaseAnonKey}
+      />
+      {/* Cold-start Continuity Check Modal (0774) */}
+      <ColdStartContinuityModal
+        isOpen={coldStartContinuityModalOpen}
+        onClose={() => {
+          setColdStartContinuityModalOpen(false)
+          setColdStartContinuityTicketPk(null)
+          setColdStartContinuityTicketId(null)
+        }}
+        ticketPk={coldStartContinuityTicketPk}
+        ticketId={coldStartContinuityTicketId}
+        repoFullName={connectedGithubRepo?.fullName || null}
         supabaseUrl={supabaseUrl}
         supabaseAnonKey={supabaseAnonKey}
       />
