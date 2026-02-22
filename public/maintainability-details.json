@@ -45,12 +45,12 @@
       "maintainability": 0
     },
     {
-      "file": "agents/src/agents/projectManager.ts",
-      "maintainability": 9
+      "file": "src/components/DiagnosticsModal.tsx",
+      "maintainability": 6.13
     },
     {
-      "file": "src/components/DiagnosticsModal.tsx",
-      "maintainability": 9.54
+      "file": "agents/src/agents/projectManager.ts",
+      "maintainability": 9
     },
     {
       "file": "api/context-bundles/_builder.ts",
@@ -74,7 +74,7 @@
     },
     {
       "file": "api/auth/github/callback.ts",
-      "maintainability": 16.29
+      "maintainability": 16.14
     },
     {
       "file": "api/conversations/working-memory/update.ts",
@@ -111,16 +111,10 @@
       "before": 15.41,
       "after": 15.41,
       "delta": 0
-    },
-    {
-      "file": "api/auth/github/callback.ts",
-      "before": 16.29,
-      "after": 16.29,
-      "delta": 0
     }
   ],
-  "generatedAt": "2026-02-22T04:26:57.888Z",
-  "filesAnalyzed": 359,
-  "unroundedMaintainability": 32.9,
-  "unroundedSimplicity": 32.9
+  "generatedAt": "2026-02-22T05:00:36.526Z",
+  "filesAnalyzed": 371,
+  "unroundedMaintainability": 32.8,
+  "unroundedSimplicity": 32.8
 }
