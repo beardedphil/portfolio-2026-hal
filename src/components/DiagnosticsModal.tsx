@@ -34,6 +34,34 @@ interface Failure {
   metadata: Record<string, any>
 }
 
+interface Policy {
+  id: string
+  policy_key: string
+  name: string
+  description: string
+  status: 'off' | 'trial' | 'promoted'
+  created_at: string
+  updated_at: string
+  last_changed_at: string
+}
+
+interface PolicyMetrics {
+  events_in_baseline_window: number
+  events_in_trial_window: number
+}
+
+interface PolicyAuditLog {
+  id: string
+  policy_id: string
+  action: 'start_trial' | 'promote' | 'revert'
+  target_status: 'off' | 'trial' | 'promoted'
+  previous_status: 'off' | 'trial' | 'promoted' | null
+  actor: string
+  actor_type: 'system' | 'user'
+  created_at: string
+  metadata: Record<string, any>
+}
+
 interface DiagnosticsModalProps {
   isOpen: boolean
   onClose: () => void
@@ -60,11 +88,22 @@ export function DiagnosticsModal({
   const [failuresError, setFailuresError] = useState<string | null>(null)
   const [selectedFailure, setSelectedFailure] = useState<Failure | null>(null)
 
-  // Load embeddings status and failures when modal opens
+  // Policies state
+  const [policies, setPolicies] = useState<Policy[]>([])
+  const [loadingPolicies, setLoadingPolicies] = useState(false)
+  const [policiesError, setPoliciesError] = useState<string | null>(null)
+  const [selectedPolicy, setSelectedPolicy] = useState<Policy | null>(null)
+  const [policyMetrics, setPolicyMetrics] = useState<PolicyMetrics | null>(null)
+  const [loadingMetrics, setLoadingMetrics] = useState(false)
+  const [policyAuditLog, setPolicyAuditLog] = useState<PolicyAuditLog[]>([])
+  const [loadingAuditLog, setLoadingAuditLog] = useState(false)
+
+  // Load embeddings status, failures, and policies when modal opens
   useEffect(() => {
     if (!isOpen) return
     loadEmbeddingsStatus()
     loadFailures()
+    loadPolicies()
   }, [isOpen, supabaseUrl, supabaseAnonKey])
 
   async function loadEmbeddingsStatus() {
@@ -194,6 +233,173 @@ export function DiagnosticsModal({
       setFailuresError(err instanceof Error ? err.message : 'Failed to load failures')
     } finally {
       setLoadingFailures(false)
+    }
+  }
+
+  async function loadPolicies() {
+    if (!supabaseUrl || !supabaseAnonKey) {
+      setPoliciesError('Supabase credentials not configured')
+      return
+    }
+
+    setLoadingPolicies(true)
+    setPoliciesError(null)
+    try {
+      const res = await fetch('/api/policies/list', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          supabaseUrl,
+          supabaseAnonKey,
+        }),
+      })
+
+      const data = (await res.json()) as {
+        success: boolean
+        policies: Policy[]
+        error?: string
+      }
+
+      if (!data.success) {
+        setPoliciesError(data.error || 'Failed to load policies')
+        return
+      }
+
+      setPolicies(data.policies || [])
+    } catch (err) {
+      setPoliciesError(err instanceof Error ? err.message : 'Failed to load policies')
+    } finally {
+      setLoadingPolicies(false)
+    }
+  }
+
+  async function loadPolicyDetails(policy: Policy) {
+    if (!supabaseUrl || !supabaseAnonKey) return
+
+    setSelectedPolicy(policy)
+    setLoadingMetrics(true)
+    setLoadingAuditLog(true)
+
+    // Load metrics
+    try {
+      const metricsRes = await fetch('/api/policies/metrics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          policyId: policy.id,
+          supabaseUrl,
+          supabaseAnonKey,
+        }),
+      })
+
+      const metricsData = (await metricsRes.json()) as {
+        success: boolean
+        summary?: PolicyMetrics
+        error?: string
+      }
+
+      if (metricsData.success && metricsData.summary) {
+        setPolicyMetrics(metricsData.summary)
+      }
+    } catch (err) {
+      console.error('Failed to load metrics:', err)
+    } finally {
+      setLoadingMetrics(false)
+    }
+
+    // Load audit log
+    try {
+      const auditRes = await fetch('/api/policies/audit-log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          policyId: policy.id,
+          limit: 50,
+          supabaseUrl,
+          supabaseAnonKey,
+        }),
+      })
+
+      const auditData = (await auditRes.json()) as {
+        success: boolean
+        auditLogs: PolicyAuditLog[]
+        error?: string
+      }
+
+      if (auditData.success) {
+        setPolicyAuditLog(auditData.auditLogs || [])
+      }
+    } catch (err) {
+      console.error('Failed to load audit log:', err)
+    } finally {
+      setLoadingAuditLog(false)
+    }
+  }
+
+  async function handlePolicyAction(action: 'start_trial' | 'promote' | 'revert', policy: Policy) {
+    if (!supabaseUrl || !supabaseAnonKey) return
+
+    const endpoint = action === 'start_trial' ? 'start-trial' : action === 'promote' ? 'promote' : 'revert'
+
+    try {
+      const res = await fetch(`/api/policies/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          policyId: policy.id,
+          actor: 'user',
+          actorType: 'user',
+          supabaseUrl,
+          supabaseAnonKey,
+        }),
+      })
+
+      const data = (await res.json()) as {
+        success: boolean
+        policy?: Policy
+        error?: string
+      }
+
+      if (!data.success) {
+        alert(`Failed to ${action}: ${data.error || 'Unknown error'}`)
+        return
+      }
+
+      // Reload policies list
+      await loadPolicies()
+
+      // If this policy is selected, reload its details
+      if (selectedPolicy?.id === policy.id && data.policy) {
+        await loadPolicyDetails(data.policy)
+      }
+    } catch (err) {
+      alert(`Failed to ${action}: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    }
+  }
+
+  function getStatusBadgeColor(status: 'off' | 'trial' | 'promoted'): string {
+    switch (status) {
+      case 'off':
+        return 'var(--hal-text-muted)'
+      case 'trial':
+        return '#ff9800' // Orange
+      case 'promoted':
+        return 'var(--hal-status-ok)'
+      default:
+        return 'var(--hal-text-muted)'
+    }
+  }
+
+  function getStatusBadgeBg(status: 'off' | 'trial' | 'promoted'): string {
+    switch (status) {
+      case 'off':
+        return 'rgba(108, 117, 125, 0.1)'
+      case 'trial':
+        return 'rgba(255, 152, 0, 0.1)'
+      case 'promoted':
+        return 'rgba(46, 125, 50, 0.1)'
+      default:
+        return 'rgba(108, 117, 125, 0.1)'
     }
   }
 
@@ -420,6 +626,70 @@ export function DiagnosticsModal({
             </section>
           )}
 
+          {/* Policies Section */}
+          <section style={{ marginTop: '2rem' }}>
+            <h4 style={{ margin: '0 0 1rem 0', fontSize: '1.1rem', fontWeight: 600 }}>Policies</h4>
+            {loadingPolicies ? (
+              <p style={{ color: 'var(--hal-text-muted)' }}>Loading policies...</p>
+            ) : policiesError ? (
+              <p style={{ color: 'var(--hal-status-error)' }}>Error: {policiesError}</p>
+            ) : policies.length === 0 ? (
+              <div style={{ padding: '1rem', border: '1px solid var(--hal-border)', borderRadius: '6px', background: 'var(--hal-surface-alt)' }}>
+                <p style={{ margin: 0, color: 'var(--hal-text-muted)' }}>
+                  No policies have been configured yet.
+                </p>
+              </div>
+            ) : (
+              <div>
+                <div style={{ marginBottom: '1rem', fontSize: '0.9rem', color: 'var(--hal-text-muted)' }}>
+                  {policies.length} polic{policies.length !== 1 ? 'ies' : 'y'} configured
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {policies.map((policy) => (
+                    <div
+                      key={policy.id}
+                      onClick={() => loadPolicyDetails(policy)}
+                      style={{
+                        cursor: 'pointer',
+                        padding: '1rem',
+                        border: '1px solid var(--hal-border)',
+                        borderRadius: '6px',
+                        background: 'var(--hal-surface-alt)',
+                        transition: 'background 0.2s',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'var(--hal-surface)'
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'var(--hal-surface-alt)'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '0.5rem' }}>
+                        <span style={{ fontWeight: 600, color: 'var(--hal-text)' }}>{policy.name}</span>
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            padding: '0.25rem 0.5rem',
+                            borderRadius: '4px',
+                            fontSize: '0.85rem',
+                            fontWeight: 500,
+                            textTransform: 'capitalize',
+                            color: getStatusBadgeColor(policy.status),
+                            background: getStatusBadgeBg(policy.status),
+                            border: `1px solid ${getStatusBadgeColor(policy.status)}`,
+                          }}
+                        >
+                          {policy.status}
+                        </span>
+                      </div>
+                      <p style={{ margin: '0.5rem 0', color: 'var(--hal-text)', fontSize: '0.9rem' }}>{policy.description}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+
           {/* Failures Library Section */}
           <section style={{ marginTop: '2rem' }}>
             <h4 style={{ margin: '0 0 1rem 0', fontSize: '1.1rem', fontWeight: 600 }}>Failures</h4>
@@ -499,6 +769,176 @@ export function DiagnosticsModal({
           </section>
         </div>
       </div>
+
+      {/* Policy Details Modal */}
+      {selectedPolicy && (
+        <div
+          className="conversation-modal-overlay"
+          onClick={() => {
+            setSelectedPolicy(null)
+            setPolicyMetrics(null)
+            setPolicyAuditLog([])
+          }}
+          style={{ zIndex: 10001 }}
+        >
+          <div
+            className="conversation-modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: '80vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}
+          >
+            <div className="conversation-modal-header">
+              <h3>{selectedPolicy.name}</h3>
+              <button
+                type="button"
+                className="conversation-modal-close btn-destructive"
+                onClick={() => {
+                  setSelectedPolicy(null)
+                  setPolicyMetrics(null)
+                  setPolicyAuditLog([])
+                }}
+                aria-label="Close policy details"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="conversation-modal-content" style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
+              <div style={{ marginBottom: '1.5rem' }}>
+                <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '1rem', fontWeight: 600 }}>Description</h4>
+                <p style={{ margin: 0, color: 'var(--hal-text)' }}>{selectedPolicy.description}</p>
+              </div>
+
+              <div style={{ marginBottom: '1.5rem' }}>
+                <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '1rem', fontWeight: 600 }}>Status</h4>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <span
+                    style={{
+                      display: 'inline-block',
+                      padding: '0.4rem 0.8rem',
+                      borderRadius: '4px',
+                      fontSize: '0.9rem',
+                      fontWeight: 500,
+                      textTransform: 'capitalize',
+                      color: getStatusBadgeColor(selectedPolicy.status),
+                      background: getStatusBadgeBg(selectedPolicy.status),
+                      border: `1px solid ${getStatusBadgeColor(selectedPolicy.status)}`,
+                    }}
+                  >
+                    {selectedPolicy.status}
+                  </span>
+                  <span style={{ color: 'var(--hal-text-muted)', fontSize: '0.9rem' }}>
+                    Last changed: {formatDate(selectedPolicy.last_changed_at)}
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '1.5rem' }}>
+                <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '1rem', fontWeight: 600 }}>Actions</h4>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  {selectedPolicy.status === 'off' && (
+                    <button
+                      type="button"
+                      className="btn-standard"
+                      onClick={() => handlePolicyAction('start_trial', selectedPolicy)}
+                    >
+                      Start trial
+                    </button>
+                  )}
+                  {selectedPolicy.status === 'trial' && (
+                    <>
+                      <button
+                        type="button"
+                        className="btn-standard"
+                        onClick={() => handlePolicyAction('promote', selectedPolicy)}
+                      >
+                        Promote
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-destructive"
+                        onClick={() => handlePolicyAction('revert', selectedPolicy)}
+                      >
+                        Revert
+                      </button>
+                    </>
+                  )}
+                  {selectedPolicy.status === 'promoted' && (
+                    <button
+                      type="button"
+                      className="btn-destructive"
+                      onClick={() => handlePolicyAction('revert', selectedPolicy)}
+                    >
+                      Revert
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Metrics Section */}
+              <div style={{ marginBottom: '1.5rem' }}>
+                <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '1rem', fontWeight: 600 }}>Metrics</h4>
+                {loadingMetrics ? (
+                  <p style={{ color: 'var(--hal-text-muted)' }}>Loading metrics...</p>
+                ) : policyMetrics ? (
+                  <div style={{ padding: '1rem', border: '1px solid var(--hal-border)', borderRadius: '6px', background: 'var(--hal-surface-alt)' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--hal-text)' }}>Events in baseline window:</span>
+                        <span style={{ fontWeight: 600, color: 'var(--hal-text)' }}>{policyMetrics.events_in_baseline_window}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--hal-text)' }}>Events in trial window:</span>
+                        <span style={{ fontWeight: 600, color: 'var(--hal-text)' }}>{policyMetrics.events_in_trial_window}</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <p style={{ color: 'var(--hal-text-muted)', fontStyle: 'italic' }}>No metrics available yet</p>
+                )}
+              </div>
+
+              {/* Audit Log Section */}
+              <div style={{ marginBottom: '1.5rem' }}>
+                <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '1rem', fontWeight: 600 }}>Audit Log</h4>
+                {loadingAuditLog ? (
+                  <p style={{ color: 'var(--hal-text-muted)' }}>Loading audit log...</p>
+                ) : policyAuditLog.length === 0 ? (
+                  <p style={{ color: 'var(--hal-text-muted)', fontStyle: 'italic' }}>No audit log entries yet</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {policyAuditLog.map((entry) => (
+                      <div
+                        key={entry.id}
+                        style={{
+                          padding: '0.75rem',
+                          border: '1px solid var(--hal-border)',
+                          borderRadius: '4px',
+                          background: 'var(--hal-surface-alt)',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '0.25rem' }}>
+                          <span style={{ fontWeight: 600, color: 'var(--hal-text)', textTransform: 'capitalize' }}>
+                            {entry.action.replace('_', ' ')}
+                          </span>
+                          <span style={{ color: 'var(--hal-text-muted)', fontSize: '0.85rem' }}>{formatDate(entry.created_at)}</span>
+                        </div>
+                        <div style={{ fontSize: '0.9rem', color: 'var(--hal-text)' }}>
+                          <div>
+                            <strong>Actor:</strong> {entry.actor} ({entry.actor_type})
+                          </div>
+                          <div>
+                            <strong>Status change:</strong> {entry.previous_status || 'N/A'} → {entry.target_status}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Failure Details Modal */}
       {selectedFailure && (
