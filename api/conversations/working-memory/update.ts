@@ -37,39 +37,18 @@ interface ParsedRequest {
   forceRefresh: boolean
 }
 
-function parseRequestBody(body: unknown): RequestBody {
-  return (body || {}) as RequestBody
-}
-
-function extractStringValue(value: unknown): string | undefined {
-  return typeof value === 'string' ? value.trim() || undefined : undefined
-}
-
-function extractSupabaseUrl(body: RequestBody): string | undefined {
-  return (
-    extractStringValue(body.supabaseUrl) ||
-    process.env.SUPABASE_URL?.trim() ||
-    process.env.VITE_SUPABASE_URL?.trim() ||
-    undefined
-  )
-}
-
-function extractSupabaseAnonKey(body: RequestBody): string | undefined {
-  return (
-    extractStringValue(body.supabaseAnonKey) ||
-    process.env.SUPABASE_ANON_KEY?.trim() ||
-    process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
-    undefined
-  )
+function getEnvOrBodyValue(bodyValue: unknown, envKeys: string[]): string | undefined {
+  const str = typeof bodyValue === 'string' ? bodyValue.trim() || undefined : undefined
+  return str || envKeys.map((k) => process.env[k]?.trim()).find((v) => v) || undefined
 }
 
 function validateAndParseRequest(body: RequestBody): { valid: true; parsed: ParsedRequest } | { valid: false; error: string } {
-  const projectId = extractStringValue(body.projectId)
-  const agent = extractStringValue(body.agent)
-  const supabaseUrl = extractSupabaseUrl(body)
-  const supabaseAnonKey = extractSupabaseAnonKey(body)
-  const openaiApiKey = extractStringValue(body.openaiApiKey)
-  const openaiModel = extractStringValue(body.openaiModel)
+  const projectId = typeof body.projectId === 'string' ? body.projectId.trim() || undefined : undefined
+  const agent = typeof body.agent === 'string' ? body.agent.trim() || undefined : undefined
+  const supabaseUrl = getEnvOrBodyValue(body.supabaseUrl, ['SUPABASE_URL', 'VITE_SUPABASE_URL'])
+  const supabaseAnonKey = getEnvOrBodyValue(body.supabaseAnonKey, ['SUPABASE_ANON_KEY', 'VITE_SUPABASE_ANON_KEY'])
+  const openaiApiKey = typeof body.openaiApiKey === 'string' ? body.openaiApiKey.trim() : undefined
+  const openaiModel = typeof body.openaiModel === 'string' ? body.openaiModel.trim() : undefined
   const forceRefresh = typeof body.forceRefresh === 'boolean' ? body.forceRefresh : false
 
   if (!projectId || !agent) {
@@ -144,11 +123,10 @@ function formatConversationText(messages: Array<{ role: string; content: string 
   return messages.map((m) => `**${m.role}**: ${m.content}`).join('\n\n')
 }
 
-function createWorkingMemoryPrompt(conversationText: string): string {
-  return `You are analyzing a conversation between a user and a Project Manager agent. Extract and structure key information into a working memory format.
+const WORKING_MEMORY_PROMPT_TEMPLATE = `You are analyzing a conversation between a user and a Project Manager agent. Extract and structure key information into a working memory format.
 
 Conversation:
-${conversationText}
+{conversationText}
 
 Extract the following structured information:
 1. **Summary**: A concise 2-3 sentence summary of the conversation context
@@ -175,6 +153,9 @@ Return ONLY a valid JSON object with this exact structure:
 }
 
 Return ONLY the JSON object, no other text.`
+
+function createWorkingMemoryPrompt(conversationText: string): string {
+  return WORKING_MEMORY_PROMPT_TEMPLATE.replace('{conversationText}', conversationText)
 }
 
 function parseJsonFromOpenAIResponse(content: string): string {
@@ -349,8 +330,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     // Generate working memory using OpenAI
-    const conversationText = formatConversationText(messages)
-    const prompt = createWorkingMemoryPrompt(conversationText)
+    const prompt = createWorkingMemoryPrompt(formatConversationText(messages))
 
     const openaiResult = await callOpenAI(parsed.openaiApiKey, parsed.openaiModel, prompt)
 
