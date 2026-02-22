@@ -10,6 +10,7 @@ import { resolveColumnId, calculateTargetPosition } from './_move-helpers.js'
 import { parseAcceptanceCriteria } from './_acceptance-criteria-parser.js'
 import { evaluateCiStatus, type CiStatusSummary } from '../_lib/github/checks.js'
 import { getSession } from '../_lib/github/session.js'
+import { checkDocsConsistency, type DocsConsistencyResult } from './_docs-consistency-check.js'
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   // CORS: Allow cross-origin requests (for scripts calling from different origins)
@@ -253,8 +254,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     // Gate: Drift gate - block transitions when any AC is unmet (HAL-0765)
     // Check for unmet ACs when moving to columns that indicate completion/progress
-    const driftGatedColumns = ['col-qa', 'col-human-in-the-loop', 'col-process-review', 'col-done']
-    if (columnId && driftGatedColumns.includes(columnId) && resolvedTicketPk) {
+    // Drift checks run on transitions beyond To Do (HAL-0753)
+    // Skip drift checks if moving from To Do to Doing with allowWithoutPr (HAL-0772)
+    const driftGatedColumns = ['col-doing', 'col-qa', 'col-human-in-the-loop', 'col-process-review', 'col-done']
+    if (columnId && driftGatedColumns.includes(columnId) && resolvedTicketPk && !isTodoToDoingAllowlisted) {
       // Parse AC items from ticket body
       const acItems = parseAcceptanceCriteria((ticket as any).body_md || null)
       
@@ -284,6 +287,34 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             })
             .filter(Boolean)
             .join('\n')
+
+          // Format transition name
+          const transitionName = await formatTransition(currentColumnId, columnId)
+          
+          // Build failure reasons for unmet ACs
+          const failureReasons: Array<{ type: string; message: string }> = unmetIndices.map((idx: number) => {
+            const item = acItems[idx]
+            return {
+              type: 'UNMET_AC',
+              message: item ? `Acceptance criteria ${idx + 1}: "${item.text}" is marked as unmet` : `Acceptance criteria ${idx + 1} is marked as unmet`,
+            }
+          })
+
+          // Store drift attempt record for unmet ACs (HAL-0753)
+          await supabase.from('drift_attempts').insert({
+            ticket_pk: resolvedTicketPk,
+            transition: transitionName,
+            pr_url: null,
+            evaluated_head_sha: null,
+            overall_status: null,
+            required_checks: null,
+            failing_check_names: null,
+            checks_page_url: null,
+            evaluation_error: null,
+            failure_reasons: failureReasons,
+            references: {},
+            blocked: true,
+          })
 
           json(res, 200, {
             success: false,
@@ -403,12 +434,68 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         }
       }
 
+      // Gate: Drift gate docs consistency check (HAL-0753, HAL-0768)
+      // Check if docs are inconsistent with code
+      let docsConsistencyResult: DocsConsistencyResult | null = null
+      let docsConsistencyError: string | null = null
+      
+      if (prUrl) {
+        try {
+          // Get GitHub token from session or environment
+          const session = await getSession(req, res).catch(() => null)
+          const ghToken = session?.github?.accessToken || process.env.GITHUB_TOKEN?.trim() || process.env.GH_TOKEN?.trim()
+
+          if (ghToken) {
+            // Get ticket filename from ticket data if available
+            const ticketFilename = (ticket as any).filename || null
+            
+            docsConsistencyResult = await checkDocsConsistency(
+              ticketId || resolvedTicketPk,
+              ticketFilename,
+              (ticket as any).body_md || null,
+              repoFullName,
+              prUrl,
+              ghToken
+            )
+            
+            // Add docs consistency findings to failure reasons
+            if (!docsConsistencyResult.passed && docsConsistencyResult.findings.length > 0) {
+              // Group findings by path for better error messages
+              const findingsByPath = new Map<string, DocsConsistencyFinding[]>()
+              for (const finding of docsConsistencyResult.findings) {
+                const existing = findingsByPath.get(finding.path) || []
+                existing.push(finding)
+                findingsByPath.set(finding.path, existing)
+              }
+              
+              // Add one failure reason per inconsistent doc
+              for (const [path, findings] of findingsByPath.entries()) {
+                failureReasons.push({
+                  type: 'DOCS_INCONSISTENT',
+                  message: `Documentation "${path}" is inconsistent (${findings.length} issue${findings.length > 1 ? 's' : ''})`,
+                })
+              }
+            }
+          } else {
+            docsConsistencyError = 'GitHub authentication required to check docs consistency'
+          }
+        } catch (err) {
+          docsConsistencyError = err instanceof Error ? err.message : String(err)
+          console.warn(`[drift-gate] Docs consistency check failed for ticket ${resolvedTicketPk}: ${docsConsistencyError}`)
+          // Don't block on docs consistency check errors - allow the move to proceed
+        }
+      }
+
       // Build references object
       const references: any = {
         pr_url: prUrl,
       }
       if (!('error' in ciStatus) && ciStatus.evaluatedSha) {
         references.head_sha = ciStatus.evaluatedSha
+      }
+      if (docsConsistencyResult) {
+        references.docs_consistency_passed = docsConsistencyResult.passed
+        references.docs_consistency_findings_count = docsConsistencyResult.findings.length
       }
 
       // Store drift attempt record
@@ -433,6 +520,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         driftAttemptData.blocked = ciStatus.overall === 'failing'
       }
 
+      // Block if docs are inconsistent
+      if (docsConsistencyResult && !docsConsistencyResult.passed) {
+        driftAttemptData.blocked = true
+      }
+
       await supabase.from('drift_attempts').insert(driftAttemptData)
 
       // Block transition if CI is failing
@@ -452,6 +544,39 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             checksPageUrl: ciStatus.checksPageUrl,
           },
           remedy: `Fix the failing CI checks and ensure all required checks (unit and e2e) pass before moving to ${columnId}.\n\nFailing checks:\n${failingChecksList}\n\nView checks: ${ciStatus.checksPageUrl}`,
+        })
+        return
+      }
+
+      // Block transition if docs are inconsistent
+      if (docsConsistencyResult && !docsConsistencyResult.passed && docsConsistencyResult.findings.length > 0) {
+        // Group findings by path for display
+        const findingsByPath = new Map<string, DocsConsistencyFinding[]>()
+        for (const finding of docsConsistencyResult.findings) {
+          const existing = findingsByPath.get(finding.path) || []
+          existing.push(finding)
+          findingsByPath.set(finding.path, existing)
+        }
+
+        const inconsistentDocsList = Array.from(findingsByPath.entries())
+          .map(([path, findings]) => {
+            const issuesList = findings
+              .map((f) => `    - ${f.message}`)
+              .join('\n')
+            return `  - ${path}:\n${issuesList}`
+          })
+          .join('\n\n')
+
+        json(res, 200, {
+          success: false,
+          error: `Cannot move ticket: Documentation is inconsistent with code. All documentation must be consistent before moving to this column.`,
+          errorCode: 'DOCS_INCONSISTENT',
+          docsConsistency: {
+            passed: false,
+            findingsCount: docsConsistencyResult.findings.length,
+            inconsistentDocs: Array.from(findingsByPath.keys()),
+          },
+          remedy: `Fix the documentation inconsistencies before moving to ${columnId}.\n\nInconsistent documentation:\n${inconsistentDocsList}`,
         })
         return
       }
