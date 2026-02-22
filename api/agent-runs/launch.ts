@@ -128,6 +128,46 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const bodyMd = String((ticket as any).body_md ?? '')
     const currentColumnId = (ticket as any).kanban_column_id as string | null
 
+    // HAL-0748: Require context bundle for implementation and qa agent runs
+    // Map agent type to bundle role
+    const bundleRole = agentType === 'implementation' ? 'implementation' : agentType === 'qa' ? 'qa' : null
+    
+    let contextBundleId: string | null = null
+    let contextBundleChecksum: string | null = null
+    
+    if (bundleRole && (agentType === 'implementation' || agentType === 'qa')) {
+      // Get latest context bundle for this ticket and role
+      const { data: latestBundle, error: bundleErr } = await supabase
+        .rpc('get_latest_context_bundle', {
+          p_repo_full_name: repoFullName,
+          p_ticket_pk: ticketPk,
+          p_role: bundleRole,
+        })
+        .maybeSingle()
+      
+      if (bundleErr) {
+        json(res, 500, { 
+          error: `Failed to check for context bundle: ${bundleErr.message}`,
+          requiresContextBundle: true,
+        })
+        return
+      }
+      
+      if (!latestBundle || !latestBundle.bundle_id) {
+        json(res, 400, {
+          error: `No context bundle found for ticket ${displayId} with role "${bundleRole}". Please build a context bundle before launching the agent run.`,
+          requiresContextBundle: true,
+          ticketPk,
+          repoFullName,
+          role: bundleRole,
+        })
+        return
+      }
+      
+      contextBundleId = latestBundle.bundle_id as string
+      contextBundleChecksum = latestBundle.bundle_checksum as string
+    }
+
     const halApiBaseUrl = getOrigin(req)
 
     // Update stage to 'fetching_ticket' (0690) - ticket already fetched, but update stage for consistency
@@ -322,6 +362,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         status: 'launching',
         current_stage: 'preparing',
         progress: initialProgress,
+        ...(contextBundleId ? { context_bundle_id: contextBundleId } : {}),
+        ...(contextBundleChecksum ? { context_bundle_checksum: contextBundleChecksum } : {}),
       })
       .select('run_id')
       .maybeSingle()

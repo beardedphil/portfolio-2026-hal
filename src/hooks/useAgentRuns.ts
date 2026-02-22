@@ -436,9 +436,18 @@ export function useAgentRuns(params: UseAgentRunsParams) {
             }
             if (!launchRes.ok || !launchData.runId) {
               const msg = launchData.error ?? `Launch failed (HTTP ${launchRes.status})`
-              setImplAgentRunStatus('failed')
-              setImplAgentError(msg)
-              addMessage(convId, 'implementation-agent', `[Implementation Agent] ${msg}`)
+              const requiresContextBundle = (launchData as any).requiresContextBundle === true
+              
+              if (requiresContextBundle) {
+                const errorMsg = `**Context Bundle Required**\n\n${msg}\n\nPlease build a context bundle for this ticket before launching the agent run. You can build a context bundle from the ticket details or agent run view.`
+                setImplAgentRunStatus('failed')
+                setImplAgentError(errorMsg)
+                addMessage(convId, 'implementation-agent', `[Implementation Agent] ${errorMsg}`)
+              } else {
+                setImplAgentRunStatus('failed')
+                setImplAgentError(msg)
+                addMessage(convId, 'implementation-agent', `[Implementation Agent] ${msg}`)
+              }
               setTimeout(() => setAgentTypingTarget(null), 500)
               return
             }
@@ -638,9 +647,18 @@ export function useAgentRuns(params: UseAgentRunsParams) {
             }
             if (!launchRes.ok || !launchData.runId) {
               const msg = launchData.error ?? `Launch failed (HTTP ${launchRes.status})`
-              setQaAgentRunStatus('failed')
-              setQaAgentError(msg)
-              addMessage(convId, 'qa-agent', `[QA Agent] ${msg}`)
+              const requiresContextBundle = (launchData as any).requiresContextBundle === true
+              
+              if (requiresContextBundle) {
+                const errorMsg = `**Context Bundle Required**\n\n${msg}\n\nPlease build a context bundle for this ticket before launching the agent run. You can build a context bundle from the ticket details or agent run view.`
+                setQaAgentRunStatus('failed')
+                setQaAgentError(errorMsg)
+                addMessage(convId, 'qa-agent', `[QA Agent] ${errorMsg}`)
+              } else {
+                setQaAgentRunStatus('failed')
+                setQaAgentError(msg)
+                addMessage(convId, 'qa-agent', `[QA Agent] ${msg}`)
+              }
               setTimeout(() => setAgentTypingTarget(null), 500)
               return
             }

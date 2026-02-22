@@ -66,7 +66,7 @@ export function useKanban(
         .select('id, title, position, created_at, updated_at')
       const { data: runRows } = await supabase
         .from('hal_agent_runs')
-        .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, status, current_stage, created_at, updated_at')
+        .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, status, current_stage, created_at, updated_at, context_bundle_id, context_bundle_checksum')
         .eq('repo_full_name', connectedProject)
         .order('created_at', { ascending: false })
 

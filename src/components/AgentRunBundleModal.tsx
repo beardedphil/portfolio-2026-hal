@@ -23,6 +23,8 @@ interface AgentRun {
   finished_at: string | null
   summary: string | null
   error: string | null
+  context_bundle_id: string | null
+  context_bundle_checksum: string | null
 }
 
 interface Ticket {
@@ -185,6 +187,41 @@ export function AgentRunBundleModal({
                   <div>
                     <strong>Created:</strong> {new Date(agentRun.created_at).toLocaleString()}
                   </div>
+                  {agentRun.context_bundle_checksum && (
+                    <div>
+                      <strong>Context Bundle Checksum:</strong>{' '}
+                      <code style={{ fontSize: '11px', wordBreak: 'break-all' }}>
+                        {agentRun.context_bundle_checksum}
+                      </code>
+                    </div>
+                  )}
+                  {agentRun.context_bundle_id && (
+                    <div>
+                      <strong>Context Bundle ID:</strong>{' '}
+                      <button
+                        type="button"
+                        className="btn-standard"
+                        style={{ fontSize: '11px', padding: '4px 8px', marginLeft: '8px' }}
+                        onClick={() => {
+                          // Open context bundle modal to view this bundle
+                          // This would require passing a callback or using a global state
+                          alert(`View bundle ${agentRun.context_bundle_id}`)
+                        }}
+                      >
+                        View Bundle
+                      </button>
+                    </div>
+                  )}
+                  {!agentRun.context_bundle_id && agentRun.status !== 'created' && (
+                    <div style={{ marginTop: '8px', padding: '8px', background: 'var(--hal-status-warning, #ff9800)', color: 'white', borderRadius: '4px', fontSize: '11px' }}>
+                      ⚠️ This run was executed without a context bundle. Agent runs require a built context bundle and cannot use chat history.
+                    </div>
+                  )}
+                  {agentRun.context_bundle_id && (
+                    <div style={{ marginTop: '8px', padding: '8px', background: 'var(--hal-surface-alt)', borderRadius: '4px', fontSize: '11px', color: 'var(--hal-text-muted)' }}>
+                      ℹ️ This agent run was executed using the deterministic Context Bundle JSON shown above. Chat history is not part of the agent input and is not used for execution.
+                    </div>
+                  )}
                 </div>
               </div>
 

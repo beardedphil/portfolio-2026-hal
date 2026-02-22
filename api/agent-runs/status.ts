@@ -166,7 +166,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const supabase = getServerSupabase()
     const { data: run, error: runErr } = await supabase
       .from('hal_agent_runs')
-      .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, cursor_agent_id, cursor_status, pr_url, summary, error, status, current_stage, progress')
+      .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, cursor_agent_id, cursor_status, pr_url, summary, error, status, current_stage, progress, context_bundle_id, context_bundle_checksum')
       .eq('run_id', runId)
       .maybeSingle()
 
@@ -475,7 +475,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         ...(finishedAt ? { finished_at: finishedAt } : {}),
       })
       .eq('run_id', runId)
-      .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, cursor_agent_id, cursor_status, pr_url, summary, error, status, current_stage, progress, created_at, updated_at, finished_at')
+      .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, cursor_agent_id, cursor_status, pr_url, summary, error, status, current_stage, progress, created_at, updated_at, finished_at, context_bundle_id, context_bundle_checksum')
       .maybeSingle()
 
     if (updErr) {
