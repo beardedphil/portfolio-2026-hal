@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { createClient } from '@supabase/supabase-js'
+import { isArtifactBlank, extractSnippet } from './_summary-helpers.js'
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []
@@ -197,57 +198,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     // If summary mode is requested, return summarized data
     const summaryMode = body.summary === true
     if (summaryMode) {
-      // Helper function to determine if artifact is blank
-      const isArtifactBlank = (body_md: string | null | undefined, title: string): boolean => {
-        if (!body_md || body_md.trim().length === 0) {
-          return true
-        }
-
-        const withoutHeadings = body_md
-          .replace(/^#{1,6}\s+.*$/gm, '')
-          .replace(/^[-*+]\s+.*$/gm, '')
-          .replace(/^\d+\.\s+.*$/gm, '')
-          .trim()
-
-        if (withoutHeadings.length === 0 || withoutHeadings.length < 30) {
-          return true
-        }
-
-        const placeholderPatterns = [
-          /^#\s+[^\n]+\n*$/m,
-          /^#\s+[^\n]+\n+(TODO|TBD|placeholder|coming soon|not yet|to be determined)/i,
-          /^(TODO|TBD|placeholder|coming soon|not yet|to be determined)/i,
-        ]
-
-        for (const pattern of placeholderPatterns) {
-          if (pattern.test(body_md)) {
-            return true
-          }
-        }
-
-        return false
-      }
-
-      // Helper function to extract snippet
-      const extractSnippet = (body_md: string | null | undefined): string => {
-        if (!body_md) {
-          return ''
-        }
-
-        const withoutHeadings = body_md.replace(/^#{1,6}\s+.*$/gm, '').trim()
-        if (withoutHeadings.length === 0) {
-          return ''
-        }
-
-        const snippet = withoutHeadings.substring(0, 200)
-        const lastSpace = snippet.lastIndexOf(' ')
-        if (lastSpace > 150 && lastSpace < 200) {
-          return snippet.substring(0, lastSpace) + '...'
-        }
-
-        return snippet.length < withoutHeadings.length ? snippet + '...' : snippet
-      }
-
       const summarized = artifactsList.map((artifact: any) => {
         const body_md = artifact.body_md || ''
         const isBlank = isArtifactBlank(body_md, artifact.title || '')
