@@ -38,30 +38,6 @@ export function TicketDetailModal({
   attachmentsLoading,
   failureCounts,
   repoFullName,
-}: {
-  open: boolean
-  onClose: () => void
-  ticketId: string
-  title: string
-  body: string | null
-  loading: boolean
-  error: string | null
-  onRetry?: () => void
-  artifacts: SupabaseAgentArtifactRow[]
-  artifactsLoading: boolean
-  artifactsStatus?: string | null
-  onRefreshArtifacts?: () => void
-  onOpenArtifact: (artifact: SupabaseAgentArtifactRow) => void
-  columnId: string | null
-  onValidationPass: (ticketPk: string) => Promise<void>
-  onValidationFail: (ticketPk: string, steps: string, notes: string) => Promise<void>
-  supabaseUrl: string
-  supabaseKey: string
-  onTicketUpdate: () => void
-  attachments: TicketAttachment[]
-  attachmentsLoading: boolean
-  failureCounts?: { qa: number; hitl: number } | null
-  repoFullName?: string | null
   agentRunError,
 }: {
   open: boolean
