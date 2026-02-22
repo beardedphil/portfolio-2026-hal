@@ -237,5 +237,113 @@ describe('Kanban UI work button behavior', () => {
     // Verify the correct ticketPk was captured and used, even after optimistic update
     expect(capturedTicketPk).toBe('ticket-pk-1')
   })
+
+  it('handles rapid clicks on "Implement top ticket" without errors', async () => {
+    let moveCount = 0
+
+    function RapidClicksHarness() {
+      const now = makeIsoNow()
+      const [tickets, setTickets] = useState<KanbanTicketRow[]>(() => makeTickets(now))
+      const [pmChatWidgetOpen, setPmChatWidgetOpen] = useState(false)
+      const [_selectedChatTarget, setSelectedChatTarget] =
+        useState<ChatTarget>('project-manager')
+      const [_selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
+      const [_lastWorkButtonClick, setLastWorkButtonClick] = useState<{
+        eventId: string
+        timestamp: Date
+        chatTarget: ChatTarget
+        message: string
+      } | null>(null)
+
+      const handleKanbanMoveTicket = async (
+        ticketPk: string,
+        columnId: string,
+        position?: number
+      ) => {
+        moveCount++
+        const movedAt = new Date().toISOString()
+        setTickets((prev) =>
+          prev.map((t) =>
+            t.pk === ticketPk
+              ? {
+                  ...t,
+                  kanban_column_id: columnId,
+                  kanban_position: typeof position === 'number' ? position : 0,
+                  kanban_moved_at: movedAt,
+                  updated_at: movedAt,
+                }
+              : t
+          )
+        )
+      }
+
+      const { handleKanbanOpenChatAndSend } = useKanbanWorkButton({
+        triggerAgentRun: () => {},
+        getDefaultConversationId: () => 'project-manager-1',
+        kanbanTickets: tickets,
+        handleKanbanMoveTicket,
+        handleKanbanMoveTicketAllowWithoutPr: handleKanbanMoveTicket,
+        pmChatWidgetOpen,
+        setPmChatWidgetOpen,
+        setSelectedChatTarget,
+        setSelectedConversationId,
+        setLastWorkButtonClick,
+      })
+
+      return (
+        <KanbanBoard
+          tickets={tickets}
+          columns={makeColumns(now)}
+          agentRunsByTicketPk={{}}
+          repoFullName="beardedphil/portfolio-2026-hal"
+          theme="dark"
+          onMoveTicket={handleKanbanMoveTicket}
+          onOpenChatAndSend={handleKanbanOpenChatAndSend}
+          processReviewRunningForTicketPk={null}
+          implementationAgentTicketId={null}
+          qaAgentTicketId={null}
+          syncStatus="polling"
+          lastSync={null}
+        />
+      )
+    }
+
+    render(<RapidClicksHarness />)
+
+    const todoColumn = document.querySelector(
+      '[data-column-id="col-todo"]'
+    ) as HTMLElement | null
+    expect(todoColumn).not.toBeNull()
+
+    const implementButton = within(todoColumn!).getByRole('button', {
+      name: 'Implement top ticket',
+    })
+
+    // Rapidly click the button multiple times
+    fireEvent.click(implementButton)
+    fireEvent.click(implementButton)
+    fireEvent.click(implementButton)
+
+    // Wait for async operations to complete
+    await waitFor(() => {
+      expect(moveCount).toBeGreaterThan(0)
+    }, { timeout: 1000 })
+
+    // Verify ticket moved to Active Work (even with rapid clicks)
+    const activeWork = screen.getByLabelText('Active Work')
+    await waitFor(() => {
+      expect(within(activeWork).getByText('Test Ticket A')).toBeInTheDocument()
+    })
+
+    // Verify no errors occurred - the button should still be functional
+    // (ticket should be in Active Work, not still in To-do)
+    const todoColumnAfter = document.querySelector(
+      '[data-column-id="col-todo"]'
+    ) as HTMLElement | null
+    expect(todoColumnAfter).not.toBeNull()
+    expect(
+      within(todoColumnAfter!).queryByText('Test Ticket A')
+    ).not.toBeInTheDocument()
+  })
 })
 
