@@ -10,19 +10,22 @@ import {
   allStepsCompleted,
   type BootstrapStepId,
 } from './_shared.js'
+import { createSupabaseProject } from '../_lib/supabase-management.js'
+import { encryptSecret } from '../_lib/encryption.js'
 
 /**
- * Executes a bootstrap step. This is a stub implementation that simulates step execution.
- * Actual step implementations will be added in future tickets (T2, T4, T5, T6).
+ * Executes a bootstrap step.
  */
 async function executeStep(
   stepId: BootstrapStepId,
   projectId: string,
-  runId: string
+  runId: string,
+  supabase: ReturnType<typeof createClient>,
+  options: {
+    supabaseManagementToken?: string
+    [key: string]: unknown
+  } = {}
 ): Promise<{ success: boolean; error?: string; errorDetails?: string }> {
-  // Stub implementation - simulate step execution
-  // In future tickets, these will call actual APIs (GitHub, Supabase, Vercel, etc.)
-
   switch (stepId) {
     case 'ensure_repo_initialized':
       // TODO (T2): Implement ensure_repo_initialized using GitHub Git Database API
@@ -30,19 +33,122 @@ async function executeStep(
       await new Promise((resolve) => setTimeout(resolve, 1000))
       return { success: true }
 
-    case 'create_supabase_project':
-      // TODO (T4): Implement create_supabase_project via Supabase API
-      // For now, simulate a potential failure to demonstrate error handling
-      await new Promise((resolve) => setTimeout(resolve, 1500))
-      // Simulate 30% failure rate for testing
-      if (Math.random() < 0.3) {
+    case 'create_supabase_project': {
+      // Validate that we have a Supabase Management API token
+      const managementToken = options.supabaseManagementToken
+      if (!managementToken || typeof managementToken !== 'string' || managementToken.trim().length === 0) {
         return {
           success: false,
-          error: 'Supabase API rate limit exceeded',
-          errorDetails: 'API returned 429 Too Many Requests. Please wait a few minutes and try again.',
+          error: 'Supabase Management API token is required',
+          errorDetails: 'Please provide a valid Supabase Management API token (Personal Access Token) to create a project.',
         }
       }
-      return { success: true }
+
+      try {
+        // Generate a project name from the projectId
+        // Use projectId as the base name, sanitizing it for Supabase requirements
+        const projectName = projectId
+          .replace(/[^a-zA-Z0-9-_]/g, '-')
+          .replace(/-+/g, '-')
+          .replace(/^-|-$/g, '')
+          .substring(0, 50) || `hal-project-${Date.now()}`
+
+        // Create the Supabase project via Management API
+        const projectInfo = await createSupabaseProject(managementToken, projectName)
+
+        // Encrypt the credentials before storing
+        const encryptedAnonKey = encryptSecret(projectInfo.anon_key)
+        const encryptedServiceRoleKey = encryptSecret(projectInfo.service_role_key)
+        const encryptedDatabasePassword = projectInfo.database_password
+          ? encryptSecret(projectInfo.database_password)
+          : null
+
+        // Check if a project already exists for this project_id
+        const { data: existingProject } = await supabase
+          .from('supabase_projects')
+          .select('id')
+          .eq('project_id', projectId)
+          .single()
+
+        if (existingProject) {
+          // Update existing project
+          const { error: updateError } = await supabase
+            .from('supabase_projects')
+            .update({
+              supabase_project_ref: projectInfo.project_ref,
+              supabase_project_name: projectInfo.project_name,
+              supabase_api_url: projectInfo.api_url,
+              encrypted_anon_key: encryptedAnonKey,
+              encrypted_service_role_key: encryptedServiceRoleKey,
+              encrypted_database_password: encryptedDatabasePassword,
+              status: 'created',
+              updated_at: new Date().toISOString(),
+            })
+            .eq('project_id', projectId)
+
+          if (updateError) {
+            throw new Error(`Failed to update Supabase project record: ${updateError.message}`)
+          }
+        } else {
+          // Insert new project
+          const { error: insertError } = await supabase.from('supabase_projects').insert({
+            project_id: projectId,
+            supabase_project_ref: projectInfo.project_ref,
+            supabase_project_name: projectInfo.project_name,
+            supabase_api_url: projectInfo.api_url,
+            encrypted_anon_key: encryptedAnonKey,
+            encrypted_service_role_key: encryptedServiceRoleKey,
+            encrypted_database_password: encryptedDatabasePassword,
+            status: 'created',
+          })
+
+          if (insertError) {
+            throw new Error(`Failed to store Supabase project record: ${insertError.message}`)
+          }
+        }
+
+        return { success: true }
+      } catch (err) {
+        // Handle specific error types
+        if (err instanceof Error) {
+          // Check if it's a rate limit error
+          if (err.message.includes('rate limit')) {
+            return {
+              success: false,
+              error: 'Supabase API rate limit exceeded',
+              errorDetails: err.message,
+            }
+          }
+          // Check if it's an authentication error
+          if (err.message.includes('Invalid') && err.message.includes('token')) {
+            return {
+              success: false,
+              error: 'Invalid Supabase Management API token',
+              errorDetails: err.message,
+            }
+          }
+          // Check if it's a permission error
+          if (err.message.includes('Permission denied') || err.message.includes('permission')) {
+            return {
+              success: false,
+              error: 'Permission denied',
+              errorDetails: err.message,
+            }
+          }
+          // Network or other errors
+          return {
+            success: false,
+            error: 'Failed to create Supabase project',
+            errorDetails: err.message,
+          }
+        }
+        return {
+          success: false,
+          error: 'Failed to create Supabase project',
+          errorDetails: String(err),
+        }
+      }
+    }
 
     case 'create_vercel_project':
       // TODO (T5): Implement create_vercel_project via Vercel API
@@ -87,6 +193,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       stepId?: string
       supabaseUrl?: string
       supabaseAnonKey?: string
+      supabaseManagementToken?: string
     }
 
     const runId = typeof body.runId === 'string' ? body.runId.trim() : undefined
@@ -178,7 +285,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       .eq('id', runId)
 
     // Execute the step
-    const stepResult = await executeStep(stepId, run.project_id, runId)
+    const stepResult = await executeStep(stepId, run.project_id, runId, supabase, {
+      supabaseManagementToken: body.supabaseManagementToken,
+    })
 
     // Update step with result
     const completedStepHistory = updateStepRecord(runningStepHistory, stepId, {
