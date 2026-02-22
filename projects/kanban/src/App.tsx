@@ -2391,8 +2391,8 @@ function App() {
             timestamp: new Date(), 
             ticketId: ticketPk, 
             error: errorMessage,
-            errorCode: 'errorCode' in result ? result.errorCode : undefined,
-            ciStatus: 'ciStatus' in result ? result.ciStatus : undefined,
+            errorCode: 'errorCode' in result && typeof result.errorCode === 'string' ? result.errorCode : undefined,
+            ciStatus: 'ciStatus' in result && typeof result.ciStatus === 'object' && result.ciStatus !== null ? result.ciStatus as { overall: string; evaluatedSha?: string; failingCheckNames?: string[]; checksPageUrl?: string } : undefined,
           })
           addLog(`Move failed: ${errorMessage}`)
           
@@ -2828,8 +2828,8 @@ function App() {
               timestamp: new Date(), 
               ticketId: ticketPk, 
               error: errorMessage,
-              errorCode: 'errorCode' in result ? result.errorCode : undefined,
-              ciStatus: 'ciStatus' in result ? result.ciStatus : undefined,
+              errorCode: 'errorCode' in result && typeof result.errorCode === 'string' ? result.errorCode : undefined,
+              ciStatus: 'ciStatus' in result && typeof result.ciStatus === 'object' && result.ciStatus !== null ? result.ciStatus as { overall: string; evaluatedSha?: string; failingCheckNames?: string[]; checksPageUrl?: string } : undefined,
             })
             addLog(`Move failed: ${errorMessage}`)
             
