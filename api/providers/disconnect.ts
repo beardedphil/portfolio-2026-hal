@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'http'
 import { getSession, encryptSessionTokens } from '../_lib/github/session.js'
 import { parseSupabaseCredentialsWithServiceRole } from '../tickets/_shared.js'
 import { createClient } from '@supabase/supabase-js'
+import { redact } from '../_lib/redact.js'
 
 const AUTH_SECRET_MIN = 32
 
@@ -57,12 +58,15 @@ async function logAuditEvent(
   actor?: string
 ): Promise<void> {
   try {
+    // Redact any secrets/tokens from metadata before storing
+    const redactedMetadata = redact(metadata) as Record<string, unknown>
+    
     await supabase.from('audit_logs').insert({
       project_id: projectId,
       action_type: actionType,
       status,
       summary,
-      metadata,
+      metadata: redactedMetadata,
       actor,
     })
   } catch (err) {
@@ -170,6 +174,8 @@ async function handleWebRequest(request: Request): Promise<Response> {
     await session.save()
 
     // Log disconnect event
+    // Redact error message if it might contain sensitive info
+    const safeRevocationError = revokeResult?.error ? redact(revokeResult.error) as string : null
     await logAuditEvent(
       supabase,
       body.projectId,
@@ -180,7 +186,7 @@ async function handleWebRequest(request: Request): Promise<Response> {
         provider,
         revocation_attempted: provider === 'github',
         revocation_succeeded: revokeResult?.success ?? false,
-        revocation_error: revokeResult?.error || null,
+        revocation_error: safeRevocationError,
       },
       actor
     )
@@ -291,6 +297,8 @@ export default async function handler(req: IncomingMessage | Request, res?: Serv
     let revokeResult: { success: boolean; error?: string } | null = null
     if (provider === 'github') {
       revokeResult = await revokeGitHubToken(github.accessToken)
+      // Redact error message if it might contain sensitive info
+      const safeError = revokeResult.error ? redact(revokeResult.error) as string : null
       await logAuditEvent(
         supabase,
         body.projectId,
@@ -298,8 +306,8 @@ export default async function handler(req: IncomingMessage | Request, res?: Serv
         revokeResult.success ? 'succeeded' : 'failed',
         revokeResult.success
           ? `Successfully revoked ${provider} OAuth token`
-          : `Failed to revoke ${provider} OAuth token: ${revokeResult.error || 'Unknown error'}`,
-        { provider, revocation_supported: true, revocation_error: revokeResult.error || null },
+          : `Failed to revoke ${provider} OAuth token: ${safeError || 'Unknown error'}`,
+        { provider, revocation_supported: true, revocation_error: safeError },
         actor
       )
     }
@@ -307,6 +315,9 @@ export default async function handler(req: IncomingMessage | Request, res?: Serv
     session.github = undefined
     await session.save()
 
+    // Log disconnect event
+    // Redact error message if it might contain sensitive info
+    const safeRevocationError = revokeResult?.error ? redact(revokeResult.error) as string : null
     await logAuditEvent(
       supabase,
       body.projectId,
@@ -317,7 +328,7 @@ export default async function handler(req: IncomingMessage | Request, res?: Serv
         provider,
         revocation_attempted: provider === 'github',
         revocation_succeeded: revokeResult?.success ?? false,
-        revocation_error: revokeResult?.error || null,
+        revocation_error: safeRevocationError,
       },
       actor
     )

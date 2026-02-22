@@ -1,5 +1,45 @@
 import { useState, useEffect, useCallback } from 'react'
 
+/**
+ * Redacts sensitive values from objects for UI display.
+ * This is a client-side redaction function to ensure no secrets are displayed even if they somehow made it through.
+ */
+function redactSecrets(obj: unknown, key?: string): unknown {
+  const REDACTED = '[REDACTED]'
+  const SENSITIVE_KEYS = /^(api[_-]?key|apikey|authorization|secret|password|token|access[_-]?token|refresh[_-]?token|supabase[_-]?(anon|service)[_-]?key|client[_-]?secret|revocation[_-]?error)$/i
+  const TOKEN_PATTERNS = [
+    /sk-[a-zA-Z0-9_-]{20,}/g, // OpenAI keys
+    /eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+/g, // JWTs
+    /gh[oprs]_[a-zA-Z0-9]{36,}/g, // GitHub tokens
+  ]
+
+  if (key && typeof obj === 'string' && SENSITIVE_KEYS.test(key)) {
+    return REDACTED
+  }
+  if (typeof obj === 'string') {
+    let redacted = obj
+    for (const pattern of TOKEN_PATTERNS) {
+      redacted = redacted.replace(pattern, REDACTED)
+    }
+    // Redact long strings that look like tokens
+    if (redacted.length > 40 && /^[a-zA-Z0-9_-]+$/.test(redacted)) {
+      return REDACTED
+    }
+    return redacted
+  }
+  if (Array.isArray(obj)) {
+    return obj.map((v) => redactSecrets(v))
+  }
+  if (obj !== null && typeof obj === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(obj)) {
+      out[k] = redactSecrets(v, k)
+    }
+    return out
+  }
+  return obj
+}
+
 interface AuditLogViewProps {
   isOpen: boolean
   onClose: () => void
@@ -190,7 +230,7 @@ export function AuditLogView({
                     <details style={{ marginTop: '0.5rem' }}>
                       <summary style={{ cursor: 'pointer', fontSize: '0.9em', color: '#666' }}>Metadata</summary>
                       <pre style={{ marginTop: '0.5rem', padding: '0.5rem', backgroundColor: '#fff', borderRadius: '4px', fontSize: '0.85em', overflow: 'auto' }}>
-                        {JSON.stringify(log.metadata, null, 2)}
+                        {JSON.stringify(redactSecrets(log.metadata), null, 2)}
                       </pre>
                     </details>
                   )}
