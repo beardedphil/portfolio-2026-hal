@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'http'
 import * as IronSession from 'iron-session'
 import type { SessionOptions } from 'iron-session'
 import { requireEnv } from './config.js'
-import { encryptSecret, decryptSecret, isEncrypted } from './encryption.js'
+import { encryptSecret, decryptSecret, isEncrypted } from '../encryption.js'
 
 export type GithubSession = {
   accessToken: string

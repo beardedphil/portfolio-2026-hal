@@ -378,7 +378,6 @@ export function DiagnosticsModal({
               )}
             </div>
           </section>
-          </section>
 
           {/* Embeddings / Vector Search Status Section */}
           <section style={{ marginBottom: '2rem' }}>
