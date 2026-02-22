@@ -18,6 +18,7 @@ import { IntegrationManifestModal } from './components/IntegrationManifestModal'
 import { ContextBundleModal } from './components/ContextBundleModal'
 import { AgentRunBundleModal } from './components/AgentRunBundleModal'
 import { NoPrModal } from './components/NoPrModal'
+import { ColdStartContinuityModal } from './components/ColdStartContinuityModal'
 import type { ChatTarget, ToolCallRecord, TicketCreationResult } from './types/app'
 import { CHAT_OPTIONS } from './types/app'
 import { useGithub } from './hooks/useGithub'
@@ -288,6 +289,8 @@ function App() {
   /** Agent Run Bundle Builder modal (0756). */
   const [agentRunBundleModalOpen, setAgentRunBundleModalOpen] = useState<boolean>(false)
   const [agentRunBundleRunId, setAgentRunBundleRunId] = useState<string | null>(null)
+  /** Cold-start Continuity Diagnostics modal (0774). */
+  const [coldStartContinuityModalOpen, setColdStartContinuityModalOpen] = useState<boolean>(false)
 
   useEffect(() => {
     selectedChatTargetRef.current = selectedChatTarget
@@ -688,6 +691,7 @@ function App() {
         disconnectButtonRef={disconnectButtonRef}
         onCoverageReportClick={() => setCoverageReportOpen(true)}
         onMaintainabilityReportClick={() => setMaintainabilityReportOpen(true)}
+        onColdStartContinuityClick={() => setColdStartContinuityModalOpen(true)}
       />
 
       {githubConnectError && (
@@ -999,6 +1003,14 @@ function App() {
           setAgentRunBundleRunId(null)
         }}
         runId={agentRunBundleRunId || implAgentRunId || qaAgentRunId}
+        supabaseUrl={supabaseUrl}
+        supabaseAnonKey={supabaseAnonKey}
+      />
+      {/* Cold-start Continuity Diagnostics Modal (0774) */}
+      <ColdStartContinuityModal
+        isOpen={coldStartContinuityModalOpen}
+        onClose={() => setColdStartContinuityModalOpen(false)}
+        repoFullName={connectedGithubRepo?.fullName || null}
         supabaseUrl={supabaseUrl}
         supabaseAnonKey={supabaseAnonKey}
       />

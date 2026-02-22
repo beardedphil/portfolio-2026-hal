@@ -29,6 +29,8 @@ export function getAllMiddlewarePlugins(): Plugin[] {
     createSimpleMiddlewarePlugin('context-bundles-preview-endpoint', '/api/context-bundles/preview', { method: 'POST', allowOptions: false }),
     createSimpleMiddlewarePlugin('conversations-working-memory-get-endpoint', '/api/conversations/working-memory/get'),
     createSimpleMiddlewarePlugin('conversations-working-memory-update-endpoint', '/api/conversations/working-memory/update'),
+    createSimpleMiddlewarePlugin('cold-start-continuity-run-endpoint', '/api/cold-start-continuity/run', { method: 'POST', allowOptions: false }),
+    createSimpleMiddlewarePlugin('cold-start-continuity-list-endpoint', '/api/cold-start-continuity/list', { method: 'POST', allowOptions: false }),
     // TODO: Extract remaining complex middleware plugins:
     // - implementation-agent-endpoint
     // - qa-agent-endpoint
