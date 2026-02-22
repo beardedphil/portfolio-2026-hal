@@ -218,6 +218,158 @@ async function moveQATicketToDoing(
   }
 }
 
+/** Validate request body and return error response if invalid. */
+function validateRequest(
+  res: ServerResponse,
+  repoFullName: string,
+  agentType: AgentType,
+  ticketNumber: number | null,
+  message: string
+): boolean {
+  if (!repoFullName) {
+    json(res, 400, { error: 'repoFullName is required.' })
+    return false
+  }
+
+  const needsTicket = agentType === 'implementation' || agentType === 'qa' || agentType === 'process-review'
+  if (needsTicket && (!ticketNumber || !Number.isFinite(ticketNumber))) {
+    json(res, 400, { error: 'ticketNumber is required.' })
+    return false
+  }
+  if (agentType === 'project-manager' && !message) {
+    json(res, 400, { error: 'message is required for project-manager runs.' })
+    return false
+  }
+  return true
+}
+
+/** Handle project-manager agent launch (OpenAI, async/streamed). */
+async function handleProjectManagerLaunch(
+  supabase: any,
+  res: ServerResponse,
+  repoFullName: string,
+  message: string,
+  conversationId: string,
+  projectId: string,
+  defaultBranch: string,
+  images: Array<{ dataUrl: string; filename: string; mimeType: string }> | undefined
+): Promise<boolean> {
+  const openaiModel =
+    process.env.OPENAI_PM_MODEL?.trim() ||
+    process.env.OPENAI_MODEL?.trim() ||
+    'gpt-5.2'
+  const initialProgress = appendProgress([], `Launching project-manager run for ${repoFullName}`)
+  const { data: runRow, error: runInsErr } = await supabase
+    .from('hal_agent_runs')
+    .insert({
+      agent_type: 'project-manager',
+      repo_full_name: repoFullName,
+      ticket_pk: null,
+      ticket_number: null,
+      display_id: null,
+      provider: 'openai',
+      model: openaiModel,
+      status: 'created',
+      current_stage: 'preparing',
+      progress: initialProgress,
+      input_json: {
+        message,
+        conversationId: conversationId || null,
+        projectId: projectId || null,
+        defaultBranch,
+        images: images ?? null,
+      },
+    })
+    .select('run_id')
+    .maybeSingle()
+  if (runInsErr || !runRow?.run_id) {
+    json(res, 500, { error: `Failed to create run row: ${runInsErr?.message ?? 'unknown'}` })
+    return false
+  }
+  json(res, 200, { runId: runRow.run_id, status: 'created', provider: 'openai' })
+  return true
+}
+
+/** Handle process-review agent launch (OpenAI, async/streamed). */
+async function handleProcessReviewLaunch(
+  supabase: any,
+  res: ServerResponse,
+  repoFullName: string,
+  ticketNumber: number,
+  ticketData: TicketData
+): Promise<boolean> {
+  const openaiModel =
+    process.env.OPENAI_PROCESS_REVIEW_MODEL?.trim() ||
+    process.env.OPENAI_MODEL?.trim() ||
+    'gpt-5.2'
+  const initialProgress = appendProgress([], `Launching process-review run for ${ticketData.displayId}`)
+  const { data: runRow, error: runInsErr } = await supabase
+    .from('hal_agent_runs')
+    .insert({
+      agent_type: 'process-review',
+      repo_full_name: repoFullName,
+      ticket_pk: ticketData.pk,
+      ticket_number: ticketNumber,
+      display_id: ticketData.displayId,
+      provider: 'openai',
+      model: openaiModel,
+      status: 'created',
+      current_stage: 'preparing',
+      progress: initialProgress,
+    })
+    .select('run_id')
+    .maybeSingle()
+
+  if (runInsErr || !runRow?.run_id) {
+    json(res, 500, { error: `Failed to create run row: ${runInsErr?.message ?? 'unknown'}` })
+    return false
+  }
+
+  json(res, 200, { runId: runRow.run_id, status: 'created', provider: 'openai' })
+  return true
+}
+
+/** Update run stages based on agent type. */
+async function updateRunStages(
+  supabase: any,
+  runId: string,
+  agentType: AgentType,
+  initialProgress: any[],
+  bodyMd: string
+): Promise<void> {
+  await supabase
+    .from('hal_agent_runs')
+    .update({
+      current_stage: 'fetching_ticket',
+      progress: appendProgress(initialProgress, 'Fetching ticket...'),
+    })
+    .eq('run_id', runId)
+
+  if (agentType === 'qa') {
+    const branchMatch = bodyMd.match(/##\s*QA[^\n]*\n[\s\S]*?Branch[:\s]+([^\n]+)/i)
+    const branchName = branchMatch?.[1]?.trim()
+    await supabase
+      .from('hal_agent_runs')
+      .update({
+        current_stage: 'fetching_branch',
+        progress: branchName
+          ? appendProgress(initialProgress, `Finding branch: ${branchName}`)
+          : appendProgress(initialProgress, 'Finding branch...'),
+      })
+      .eq('run_id', runId)
+  }
+
+  if (agentType === 'implementation') {
+    await supabase
+      .from('hal_agent_runs')
+      .update({
+        current_stage: 'resolving_repo',
+        progress: appendProgress(initialProgress, 'Resolving repository...'),
+      })
+      .eq('run_id', runId)
+  }
+}
+
 /** Bootstrap empty repository by creating initial commit. */
 async function bootstrapEmptyRepo(
   supabase: any,
@@ -395,18 +547,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const projectId = typeof body.projectId === 'string' ? body.projectId.trim() : ''
     const images = Array.isArray(body.images) ? body.images : undefined
 
-    if (!repoFullName) {
-      json(res, 400, { error: 'repoFullName is required.' })
-      return
-    }
-
-    const needsTicket = agentType === 'implementation' || agentType === 'qa' || agentType === 'process-review'
-    if (needsTicket && (!ticketNumber || !Number.isFinite(ticketNumber))) {
-      json(res, 400, { error: 'ticketNumber is required.' })
-      return
-    }
-    if (agentType === 'project-manager' && !message) {
-      json(res, 400, { error: 'message is required for project-manager runs.' })
+    if (!validateRequest(res, repoFullName, agentType, ticketNumber, message)) {
       return
     }
 
@@ -414,39 +555,17 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     // Project Manager (OpenAI) is async/streamed via agent-runs/work + agent-runs/stream.
     if (agentType === 'project-manager') {
-      const openaiModel =
-        process.env.OPENAI_PM_MODEL?.trim() ||
-        process.env.OPENAI_MODEL?.trim() ||
-        'gpt-5.2'
-      const initialProgress = appendProgress([], `Launching project-manager run for ${repoFullName}`)
-      const { data: runRow, error: runInsErr } = await supabase
-        .from('hal_agent_runs')
-        .insert({
-          agent_type: 'project-manager',
-          repo_full_name: repoFullName,
-          ticket_pk: null,
-          ticket_number: null,
-          display_id: null,
-          provider: 'openai',
-          model: openaiModel,
-          status: 'created',
-          current_stage: 'preparing',
-          progress: initialProgress,
-          input_json: {
-            message,
-            conversationId: conversationId || null,
-            projectId: projectId || null,
-            defaultBranch,
-            images: images ?? null,
-          },
-        })
-        .select('run_id')
-        .maybeSingle()
-      if (runInsErr || !runRow?.run_id) {
-        json(res, 500, { error: `Failed to create run row: ${runInsErr?.message ?? 'unknown'}` })
-        return
-      }
-      json(res, 200, { runId: runRow.run_id, status: 'created', provider: 'openai' })
+      const handled = await handleProjectManagerLaunch(
+        supabase,
+        res,
+        repoFullName,
+        message,
+        conversationId,
+        projectId,
+        defaultBranch,
+        images
+      )
+      if (!handled) return
       return
     }
 
@@ -480,34 +599,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     // Process Review (OpenAI) launch: just create run row; /work will generate streamed output.
     if (agentType === 'process-review') {
-      const openaiModel =
-        process.env.OPENAI_PROCESS_REVIEW_MODEL?.trim() ||
-        process.env.OPENAI_MODEL?.trim() ||
-        'gpt-5.2'
-      const initialProgress = appendProgress([], `Launching process-review run for ${ticketData.displayId}`)
-      const { data: runRow, error: runInsErr } = await supabase
-        .from('hal_agent_runs')
-        .insert({
-          agent_type: 'process-review',
-          repo_full_name: repoFullName,
-          ticket_pk: ticketData.pk,
-          ticket_number: ticketNumber,
-          display_id: ticketData.displayId,
-          provider: 'openai',
-          model: openaiModel,
-          status: 'created',
-          current_stage: 'preparing',
-          progress: initialProgress,
-        })
-        .select('run_id')
-        .maybeSingle()
-
-      if (runInsErr || !runRow?.run_id) {
-        json(res, 500, { error: `Failed to create run row: ${runInsErr?.message ?? 'unknown'}` })
-        return
-      }
-
-      json(res, 200, { runId: runRow.run_id, status: 'created', provider: 'openai' })
+      const handled = await handleProcessReviewLaunch(supabase, res, repoFullName, ticketNumber!, ticketData)
+      if (!handled) return
       return
     }
 
@@ -557,40 +650,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const runId = runRow.run_id as string
 
-    // Update stage to 'fetching_ticket' (0690) - ticket was fetched before run creation
-    await supabase
-      .from('hal_agent_runs')
-      .update({
-        current_stage: 'fetching_ticket',
-        progress: appendProgress(initialProgress, 'Fetching ticket...'),
-      })
-      .eq('run_id', runId)
-
-    // For QA: update to 'fetching_branch' stage (0690)
-    if (agentType === 'qa') {
-      const branchMatch = ticketData.bodyMd.match(/##\s*QA[^\n]*\n[\s\S]*?Branch[:\s]+([^\n]+)/i)
-      const branchName = branchMatch?.[1]?.trim()
-      await supabase
-        .from('hal_agent_runs')
-        .update({
-          current_stage: 'fetching_branch',
-          progress: branchName
-            ? appendProgress(initialProgress, `Finding branch: ${branchName}`)
-            : appendProgress(initialProgress, 'Finding branch...'),
-        })
-        .eq('run_id', runId)
-    }
-
-    // For implementation: update to 'resolving_repo' stage (0690)
-    if (agentType === 'implementation') {
-      await supabase
-        .from('hal_agent_runs')
-        .update({
-          current_stage: 'resolving_repo',
-          progress: appendProgress(initialProgress, 'Resolving repository...'),
-        })
-        .eq('run_id', runId)
-    }
+    // Update run stages based on agent type (0690)
+    await updateRunStages(supabase, runId, agentType, initialProgress, ticketData.bodyMd)
 
     // Bootstrap empty repository if needed
     const bootstrapSuccess = await bootstrapEmptyRepo(
