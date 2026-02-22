@@ -29,14 +29,14 @@ Determine your feature branch name from the ticket (typically `ticket/<id>-<shor
 **If the branch does not exist:**
 ```bash
 git switch -c ticket/0817-add-a-rule-to-create-and-push-branch-early
-# OR (if using older git versions)
+# Alternative for older git versions: use checkout -b instead
 git checkout -b ticket/0817-add-a-rule-to-create-and-push-branch-early
 ```
 
 **If the branch already exists:**
 ```bash
 git switch ticket/0817-add-a-rule-to-create-and-push-branch-early
-# OR (if using older git versions)
+# Alternative for older git versions: use checkout instead
 git checkout ticket/0817-add-a-rule-to-create-and-push-branch-early
 ```
 
