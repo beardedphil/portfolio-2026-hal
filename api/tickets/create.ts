@@ -152,6 +152,22 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
+    // If creation failed after retries, re-check idempotency in case another request succeeded (0811)
+    // This handles race conditions where multiple requests try to create the same ticket simultaneously
+    if (isSingleSuggestion && normalizedSuggestion) {
+      const existingTicket = await checkIdempotency(supabase, normalizedSuggestion, repoFullName, sourceRef)
+      if (existingTicket) {
+        json(res, 200, {
+          success: true,
+          ticketId: existingTicket.display_id || existingTicket.id,
+          id: existingTicket.id,
+          pk: existingTicket.pk,
+          duplicate: true,
+        })
+        return
+      }
+    }
+
     json(res, 200, {
       success: false,
       error: 'Could not create ticket after 10 attempts (ID collision).',

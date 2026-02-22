@@ -295,7 +295,12 @@ export function useProcessReview({
       const recommendation = processReviewRecommendations.find((r) => r.id === recommendationId)
       if (!recommendation) return
 
-      // Set loading state
+      // Prevent duplicate requests: check if already creating (0811)
+      if (recommendation.isCreating) {
+        return // Already processing this recommendation
+      }
+
+      // Set loading state immediately to prevent duplicate clicks
       setProcessReviewRecommendations((prev) =>
         prev ? prev.map((r) => (r.id === recommendationId ? { ...r, isCreating: true, error: undefined } : r)) : null
       )
