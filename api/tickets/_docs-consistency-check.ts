@@ -288,14 +288,14 @@ export async function checkDocsConsistency(
 ): Promise<DocsConsistencyResult> {
   // Compute which docs to check
   const { paths, error } = await computeDocsToCheck(ticketId, ticketFilename, repoFullName, prUrl, githubToken)
-  if (error && githubToken) {
+  if (error) {
     // If PR file fetch fails, log but don't block - we can still check other docs
     // Only fail if it's a critical error (not just PR fetch failure)
     if (error.includes('Failed to fetch PR files') || error.includes('Error fetching PR files')) {
       // PR fetch failure is non-critical - continue with other docs
       console.warn(`[docs-consistency] PR file fetch failed, continuing with other docs: ${error}`)
-    } else {
-      // Critical error - fail the check
+    } else if (githubToken) {
+      // Critical error with token - fail the check
       return {
         passed: false,
         findings: [
@@ -308,6 +308,7 @@ export async function checkDocsConsistency(
         ],
       }
     }
+    // If no token and there's an error, just continue (can't fetch PR files anyway)
   }
 
   // Validate each doc
