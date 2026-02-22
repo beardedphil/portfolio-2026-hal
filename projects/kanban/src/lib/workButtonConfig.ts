@@ -20,12 +20,8 @@ export type WorkButtonConfig =
  * Determines if a column should show a work button
  */
 export function shouldShowWorkButton(columnId: string): boolean {
-  return (
-    columnId === 'col-unassigned' ||
-    columnId === 'col-todo' ||
-    columnId === 'col-qa' ||
-    columnId === 'col-process-review'
-  )
+  // Only show button for To-do column (HAL-0802: remove buttons from Unassigned, Ready for QA, and Process Review)
+  return columnId === 'col-todo'
 }
 
 /**
@@ -44,28 +40,12 @@ export function getWorkButtonConfig(
     : null
   const ticketRef = topTicketId ?? firstCard?.id ?? 'top'
 
-  if (col.id === 'col-unassigned') {
-    return {
-      label: 'Prepare top ticket',
-      chatTarget: 'project-manager',
-      message: `Please prepare ticket ${ticketRef} and get it ready (Definition of Ready).`,
-    }
-  } else if (col.id === 'col-todo') {
+  // Only To-do column has a button (HAL-0802: removed buttons from Unassigned, Ready for QA, and Process Review)
+  if (col.id === 'col-todo') {
     return {
       label: 'Implement top ticket',
       chatTarget: 'implementation-agent',
       message: `Implement ticket ${ticketRef}.`,
-    }
-  } else if (col.id === 'col-qa') {
-    return {
-      label: 'QA top ticket',
-      chatTarget: 'qa-agent',
-      message: `QA ticket ${ticketRef}.`,
-    }
-  } else if (col.id === 'col-process-review') {
-    return {
-      label: 'Review top ticket',
-      isProcessReview: true,
     }
   }
 

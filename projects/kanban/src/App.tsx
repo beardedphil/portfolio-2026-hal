@@ -240,6 +240,8 @@ function App() {
   const [agentRunsByTicketPk, setAgentRunsByTicketPk] = useState<Record<string, SupabaseAgentRunRow>>({})
   // Agent type labels for Active work section (0135) - simple string storage based on source column, no DB
   const [activeWorkAgentTypes, setActiveWorkAgentTypes] = useState<Record<string, 'Implementation' | 'QA' | 'Process Review'>>({})
+  // Track active agent triggers to prevent duplicate runs (HAL-0802: idempotency)
+  const [activeAgentTriggers, setActiveAgentTriggers] = useState<Set<string>>(new Set())
   // Sync with Docs removed (Supabase-only) (0065)
   // Ticket persistence tracking (0047)
   const [lastMovePersisted, setLastMovePersisted] = useState<{ success: boolean; timestamp: Date; ticketId: string; error?: string; isValidationBlock?: boolean; errorCode?: string; ciStatus?: { overall: string; evaluatedSha?: string; failingCheckNames?: string[]; checksPageUrl?: string } } | null>(null)
@@ -2038,6 +2040,38 @@ function App() {
         let overIndex = overColumn.cardIds.indexOf(String(effectiveOverId))
         if (overIndex < 0) overIndex = overColumn.cardIds.length
         halCtx.onMoveTicket(ticketPk, overColumn.id, overIndex)
+        
+        // HAL-0802: Automatically trigger agents when tickets move to Ready for QA or Process Review
+        const triggerKey = `${ticketPk}-${overColumn.id}`
+        if ((overColumn.id === 'col-qa' || overColumn.id === 'col-process-review') && !activeAgentTriggers.has(triggerKey)) {
+          setActiveAgentTriggers((prev) => new Set(prev).add(triggerKey))
+          const movedTicket = sourceTickets.find((t) => t.pk === ticketPk)
+          const ticketId = movedTicket?.display_id ?? movedTicket?.id ?? null
+          
+          if (overColumn.id === 'col-qa' && halCtx.onOpenChatAndSend) {
+            halCtx.onOpenChatAndSend({
+              chatTarget: 'qa-agent',
+              message: `QA ticket ${ticketId ?? ticketPk}.`,
+              ticketPk: ticketPk,
+            })
+            addLog(`QA agent triggered automatically for ticket ${ticketId ?? ticketPk}`)
+          } else if (overColumn.id === 'col-process-review' && halCtx.onProcessReview) {
+            halCtx.onProcessReview({
+              ticketPk: ticketPk,
+              ticketId: ticketId ?? undefined,
+            })
+            addLog(`Process Review agent triggered automatically for ticket ${ticketId ?? ticketPk}`)
+          }
+          
+          setTimeout(() => {
+            setActiveAgentTriggers((prev) => {
+              const next = new Set(prev)
+              next.delete(triggerKey)
+              return next
+            })
+          }, 5000)
+        }
+        
         return
       }
       
@@ -2045,6 +2079,7 @@ function App() {
       if (halCtx && sourceColumn && effectiveOverId === 'col-doing' && sourceTickets.some((t) => t.pk === String(active.id))) {
         const ticketPk = String(active.id)
         halCtx.onMoveTicket(ticketPk, 'col-doing')
+        // Note: No automatic agent triggering for col-doing (only for col-qa and col-process-review per HAL-0802)
         return
       }
 
@@ -2163,6 +2198,74 @@ function App() {
             }
             setLastMovePersisted({ success: true, timestamp: new Date(), ticketId: ticketPk })
             addLog(`Move succeeded: Ticket moved to ${overColumn.title}`)
+            
+            // HAL-0802: Automatically trigger agents when tickets move to Ready for QA or Process Review
+            const triggerKey = `${ticketPk}-${overColumn.id}`
+            if ((overColumn.id === 'col-qa' || overColumn.id === 'col-process-review') && !activeAgentTriggers.has(triggerKey)) {
+              // Mark as triggered to prevent duplicates (idempotency)
+              setActiveAgentTriggers((prev) => new Set(prev).add(triggerKey))
+              
+              // Get ticket ID for the trigger
+              const movedTicket = ticket || supabaseTickets.find((t) => t.pk === ticketPk)
+              const ticketId = movedTicket?.display_id ?? movedTicket?.id ?? null
+              
+              if (overColumn.id === 'col-qa') {
+                // Automatically trigger QA agent
+                if (halCtx?.onOpenChatAndSend) {
+                  // Library mode: use HAL callback
+                  halCtx.onOpenChatAndSend({
+                    chatTarget: 'qa-agent',
+                    message: `QA ticket ${ticketId ?? ticketPk}.`,
+                    ticketPk: ticketPk,
+                  })
+                  addLog(`QA agent triggered automatically for ticket ${ticketId ?? ticketPk}`)
+                } else if (typeof window !== 'undefined' && window.parent !== window) {
+                  // Iframe mode: postMessage to parent
+                  window.parent.postMessage(
+                    {
+                      type: 'HAL_OPEN_CHAT_AND_SEND',
+                      chatTarget: 'qa-agent',
+                      message: `QA ticket ${ticketId ?? ticketPk}.`,
+                    },
+                    '*'
+                  )
+                  addLog(`QA agent triggered automatically for ticket ${ticketId ?? ticketPk}`)
+                }
+              } else if (overColumn.id === 'col-process-review') {
+                // Automatically trigger Process Review agent
+                if (halCtx?.onProcessReview) {
+                  // Library mode: use HAL callback
+                  halCtx.onProcessReview({
+                    ticketPk: ticketPk,
+                    ticketId: ticketId ?? undefined,
+                  })
+                  addLog(`Process Review agent triggered automatically for ticket ${ticketId ?? ticketPk}`)
+                } else if (typeof window !== 'undefined' && window.parent !== window) {
+                  // Iframe mode: postMessage to parent
+                  window.parent.postMessage(
+                    {
+                      type: 'HAL_PROCESS_REVIEW',
+                      ticketPk: ticketPk,
+                      ticketId: ticketId ?? undefined,
+                    },
+                    '*'
+                  )
+                  addLog(`Process Review agent triggered automatically for ticket ${ticketId ?? ticketPk}`)
+                }
+              }
+              
+              // Clear trigger key after a delay to allow re-triggering if ticket moves back and forth
+              // This enables idempotency: same ticket/column transition won't trigger twice, but moving
+              // ticket away and back will allow a new trigger
+              setTimeout(() => {
+                setActiveAgentTriggers((prev) => {
+                  const next = new Set(prev)
+                  next.delete(triggerKey)
+                  return next
+                })
+              }, 5000) // Clear after 5 seconds to allow re-triggering if needed
+            }
+            
             // Store expected optimistic position to verify backend confirmation (0144)
             const expectedColumnId = overColumn.id
             const expectedPosition = overIndex
@@ -2477,6 +2580,36 @@ function App() {
             }
           }
           halCtx.onMoveTicket(ticketPk, overColumn.id, overIndex)
+          
+          // HAL-0802: Automatically trigger agents when tickets move to Ready for QA or Process Review
+          const triggerKey = `${ticketPk}-${overColumn.id}`
+          if ((overColumn.id === 'col-qa' || overColumn.id === 'col-process-review') && !activeAgentTriggers.has(triggerKey)) {
+            setActiveAgentTriggers((prev) => new Set(prev).add(triggerKey))
+            const ticketId = ticket?.display_id ?? ticket?.id ?? null
+            
+            if (overColumn.id === 'col-qa' && halCtx.onOpenChatAndSend) {
+              halCtx.onOpenChatAndSend({
+                chatTarget: 'qa-agent',
+                message: `QA ticket ${ticketId ?? ticketPk}.`,
+                ticketPk: ticketPk,
+              })
+              addLog(`QA agent triggered automatically for ticket ${ticketId ?? ticketPk}`)
+            } else if (overColumn.id === 'col-process-review' && halCtx.onProcessReview) {
+              halCtx.onProcessReview({
+                ticketPk: ticketPk,
+                ticketId: ticketId ?? undefined,
+              })
+              addLog(`Process Review agent triggered automatically for ticket ${ticketId ?? ticketPk}`)
+            }
+            
+            setTimeout(() => {
+              setActiveAgentTriggers((prev) => {
+                const next = new Set(prev)
+                next.delete(triggerKey)
+                return next
+              })
+            }, 5000)
+          }
         }
         return
       }
