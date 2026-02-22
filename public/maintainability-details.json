@@ -49,6 +49,10 @@
       "maintainability": 9
     },
     {
+      "file": "src/components/DiagnosticsModal.tsx",
+      "maintainability": 9.54
+    },
+    {
       "file": "api/context-bundles/_builder.ts",
       "maintainability": 11.28
     },
@@ -75,10 +79,6 @@
     {
       "file": "api/conversations/working-memory/update.ts",
       "maintainability": 18.36
-    },
-    {
-      "file": "api/tickets/_docs-consistency-check.ts",
-      "maintainability": 18.76
     }
   ],
   "mostRecentImprovements": [
@@ -119,8 +119,8 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-22T03:09:43.156Z",
-  "filesAnalyzed": 350,
-  "unroundedMaintainability": 33.3,
-  "unroundedSimplicity": 33.3
+  "generatedAt": "2026-02-22T04:26:57.888Z",
+  "filesAnalyzed": 359,
+  "unroundedMaintainability": 32.9,
+  "unroundedSimplicity": 32.9
 }
