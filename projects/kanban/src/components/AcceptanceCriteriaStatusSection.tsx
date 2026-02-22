@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 
 interface ACAcceptanceCriteriaStatus {
   index: number
@@ -20,7 +20,7 @@ interface AcceptanceCriteriaStatusSectionProps {
 }
 
 export function AcceptanceCriteriaStatusSection({
-  ticketId,
+  ticketId: _ticketId,
   ticketPk,
   supabaseUrl,
   supabaseKey,
@@ -32,9 +32,6 @@ export function AcceptanceCriteriaStatusSection({
   const [updatingIndex, setUpdatingIndex] = useState<number | null>(null)
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [editJustification, setEditJustification] = useState<string>('')
-
-  // Use relative API paths (same origin as the app)
-  const baseUrl = ''
 
   const fetchAcStatus = useCallback(async () => {
     setLoading(true)
