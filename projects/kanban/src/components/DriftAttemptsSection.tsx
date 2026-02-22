@@ -13,7 +13,17 @@ interface DriftAttempt {
   checks_page_url: string | null
   evaluation_error: string | null
   failure_reasons: Array<{ type: string; message: string }> | null
-  references: any
+  references: {
+    pr_url?: string
+    head_sha?: string
+    docs_findings?: Array<{
+      path: string
+      ruleId: string
+      message: string
+      suggestedFix: string
+    }>
+    [key: string]: any
+  }
   blocked: boolean
   created_at: string
   passed: boolean
@@ -172,6 +182,37 @@ export function DriftAttemptsSection({ ticketId, ticketPk, supabaseUrl, supabase
                     </li>
                   ))}
                 </ul>
+              </div>
+            )}
+            
+            {/* Docs consistency findings */}
+            {latestAttempt.references?.docs_findings && Array.isArray(latestAttempt.references.docs_findings) && latestAttempt.references.docs_findings.length > 0 && (
+              <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid rgba(0,0,0,0.1)' }}>
+                <strong style={{ fontSize: '0.9rem', display: 'block', marginBottom: '0.5rem' }}>
+                  Documentation Inconsistencies:
+                </strong>
+                <div style={{ fontSize: '0.85rem' }}>
+                  {Array.from(new Set(latestAttempt.references.docs_findings.map((f: any) => f.path))).map((path: string, idx: number) => {
+                    const findingsForPath = latestAttempt.references.docs_findings.filter((f: any) => f.path === path)
+                    return (
+                      <div key={idx} style={{ marginBottom: '0.5rem', paddingLeft: '0.5rem', borderLeft: '2px solid #ff9800' }}>
+                        <strong style={{ color: '#d32f2f' }}>{path}</strong>
+                        <ul style={{ margin: '0.25rem 0 0 1.25rem', padding: 0, fontSize: '0.85rem' }}>
+                          {findingsForPath.slice(0, 3).map((finding: any, fIdx: number) => (
+                            <li key={fIdx} style={{ marginBottom: '0.125rem' }}>
+                              {finding.message}
+                            </li>
+                          ))}
+                          {findingsForPath.length > 3 && (
+                            <li style={{ color: '#666', fontStyle: 'italic' }}>
+                              + {findingsForPath.length - 3} more finding(s)
+                            </li>
+                          )}
+                        </ul>
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
             )}
             

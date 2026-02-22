@@ -116,8 +116,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       blocked: attempt.blocked,
       created_at: attempt.created_at,
       // Computed fields for UI
-      passed: !attempt.blocked && attempt.overall_status === 'passing',
-      failed: attempt.blocked || attempt.overall_status === 'failing' || (attempt.failure_reasons && Array.isArray(attempt.failure_reasons) && attempt.failure_reasons.length > 0),
+      passed: !attempt.blocked && attempt.overall_status === 'passing' && (!attempt.references?.docs_findings || (Array.isArray(attempt.references.docs_findings) && attempt.references.docs_findings.length === 0)),
+      failed: attempt.blocked || attempt.overall_status === 'failing' || (attempt.failure_reasons && Array.isArray(attempt.failure_reasons) && attempt.failure_reasons.length > 0) || (attempt.references?.docs_findings && Array.isArray(attempt.references.docs_findings) && attempt.references.docs_findings.length > 0),
     }))
 
     json(res, 200, {
