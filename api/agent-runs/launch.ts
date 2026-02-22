@@ -387,6 +387,160 @@ async function moveQATicketToDoing(
   }
 }
 
+/**
+ * Updates run stage in database.
+ */
+async function updateRunStage(
+  supabase: ReturnType<typeof getServerSupabase>,
+  runId: string,
+  stage: string,
+  progress?: Array<{ at: string; message: string }>
+): Promise<void> {
+  await supabase
+    .from('hal_agent_runs')
+    .update({
+      current_stage: stage,
+      ...(progress ? { progress } : {}),
+    })
+    .eq('run_id', runId)
+}
+
+/**
+ * Handles repository bootstrap for empty repos.
+ */
+async function handleRepositoryBootstrap(
+  supabase: ReturnType<typeof getServerSupabase>,
+  runId: string,
+  initialProgress: Array<{ at: string; message: string }>,
+  res: ServerResponse,
+  req: IncomingMessage,
+  repoFullName: string,
+  defaultBranch: string
+): Promise<boolean> {
+  let ghToken: string | undefined
+  try {
+    const session = await getSession(req, res)
+    ghToken = session.github?.accessToken
+  } catch (sessionErr) {
+    // AUTH_SESSION_SECRET may be missing in deployment; proceed without GitHub token (bootstrap will be skipped)
+    console.warn('[agent-runs/launch] Session unavailable (missing AUTH_SESSION_SECRET?):', sessionErr instanceof Error ? sessionErr.message : sessionErr)
+  }
+  if (ghToken) {
+    const branchesResult = await listBranches(ghToken, repoFullName)
+    if ('branches' in branchesResult && branchesResult.branches.length === 0) {
+      const bootstrap = await ensureInitialCommit(ghToken, repoFullName, defaultBranch)
+      if ('error' in bootstrap) {
+        await supabase
+          .from('hal_agent_runs')
+          .update({
+            status: 'failed',
+            current_stage: 'failed',
+            error: `Repository has no branches and initial commit failed: ${bootstrap.error}. Ensure you have push access and try again.`,
+            progress: appendProgress(initialProgress, `Bootstrap failed: ${bootstrap.error}`),
+            finished_at: new Date().toISOString(),
+          })
+          .eq('run_id', runId)
+        json(res, 200, { runId, status: 'failed', error: bootstrap.error })
+        return false
+      }
+    }
+  }
+  return true
+}
+
+/**
+ * Launches Cursor agent and handles response.
+ */
+async function launchCursorAgent(
+  agentType: AgentType,
+  repoFullName: string,
+  ticketNumber: number,
+  defaultBranch: string,
+  promptText: string,
+  existingPrUrl: string | null,
+  model: string
+): Promise<{ success: true; agentId: string; status: string } | { success: false; error: string }> {
+  const cursorKey = getCursorApiKey()
+  const auth = Buffer.from(`${cursorKey}:`).toString('base64')
+  const repoUrl = `https://github.com/${repoFullName}`
+  const branchName = agentType === 'implementation' ? generateImplementationBranchName(ticketNumber) : defaultBranch
+  const target =
+    agentType === 'implementation'
+      ? existingPrUrl
+        ? { branchName }
+        : { autoCreatePr: true, branchName }
+      : { branchName: defaultBranch }
+  const promptTextForLaunch =
+    agentType === 'implementation' && existingPrUrl
+      ? `${promptText}\n\n## Existing PR linked\n\nA PR is already linked to this ticket:\n\n- ${existingPrUrl}\n\nDo NOT create a new PR. Push changes to the branch above so the existing PR updates.`
+      : promptText
+
+  const launchRes = await fetch('https://api.cursor.com/v0/agents', {
+    method: 'POST',
+    headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      prompt: { text: promptTextForLaunch },
+      source: { repository: repoUrl, ref: defaultBranch },
+      target,
+      ...(model ? { model } : {}),
+    }),
+  })
+
+  const launchText = await launchRes.text()
+  if (!launchRes.ok) {
+    const branchNotFound =
+      launchRes.status === 400 &&
+      (/branch\s+.*\s+does not exist/i.test(launchText) || /does not exist.*branch/i.test(launchText))
+    const msg = branchNotFound
+      ? `The repository has no "${defaultBranch}" branch yet. If the repo is new and empty, create an initial commit and push (e.g. add a README) so the default branch exists, then try again.`
+      : humanReadableCursorError(launchRes.status, launchText)
+    return { success: false, error: msg }
+  }
+
+  let launchData: { id?: string; status?: string }
+  try {
+    launchData = JSON.parse(launchText) as typeof launchData
+  } catch {
+    return { success: false, error: 'Invalid response from Cursor API when launching agent.' }
+  }
+
+  const cursorAgentId = launchData.id
+  const cursorStatus = launchData.status ?? 'CREATING'
+  if (!cursorAgentId) {
+    return { success: false, error: 'Cursor API did not return an agent ID.' }
+  }
+
+  return { success: true, agentId: cursorAgentId, status: cursorStatus }
+}
+
+/**
+ * Creates initial worklog artifact for implementation runs.
+ */
+async function createInitialWorklog(
+  supabase: ReturnType<typeof getServerSupabase>,
+  ticketPk: string,
+  repoFullName: string,
+  displayId: string,
+  progressAfterLaunch: Array<{ at: string; message: string }>,
+  cursorStatus: string
+): Promise<void> {
+  try {
+    const worklogTitle = `Worklog for ticket ${displayId}`
+    const worklogLines = [
+      `# Worklog: ${displayId}`,
+      '',
+      '## Progress',
+      ...progressAfterLaunch.map((p: { at: string; message: string }) => `- **${p.at}** — ${p.message}`),
+      '',
+      `**Current status:** ${cursorStatus}`,
+    ]
+    const res = await upsertArtifact(supabase, ticketPk, repoFullName, 'implementation', worklogTitle, worklogLines.join('\n'))
+    if (!res.ok) console.warn('[agent-runs] launch worklog upsert failed:', (res as { ok: false; error: string }).error)
+  } catch (e) {
+    console.warn('[agent-runs] launch worklog upsert error:', e instanceof Error ? e.message : e)
+  }
+}
+
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   if (!validateMethod(req, res, 'POST')) {
     return
@@ -519,74 +673,28 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const runId = runRow.run_id as string
 
     // Update stage to 'fetching_ticket' (0690) - ticket was fetched before run creation
-    await supabase
-      .from('hal_agent_runs')
-      .update({
-        current_stage: 'fetching_ticket',
-        progress: appendProgress(initialProgress, 'Fetching ticket...'),
-      })
-      .eq('run_id', runId)
+    await updateRunStage(supabase, runId, 'fetching_ticket', appendProgress(initialProgress, 'Fetching ticket...'))
 
     // For QA: update to 'fetching_branch' stage (0690)
-    // Extract branch name from ticket body for QA
     if (agentType === 'qa') {
       const branchMatch = bodyMd.match(/##\s*QA[^\n]*\n[\s\S]*?Branch[:\s]+([^\n]+)/i)
       const branchName = branchMatch?.[1]?.trim()
       if (branchName) {
-        await supabase
-          .from('hal_agent_runs')
-          .update({
-            current_stage: 'fetching_branch',
-            progress: appendProgress(initialProgress, `Finding branch: ${branchName}`),
-          })
-          .eq('run_id', runId)
+        await updateRunStage(supabase, runId, 'fetching_branch', appendProgress(initialProgress, `Finding branch: ${branchName}`))
       } else {
-        await supabase
-          .from('hal_agent_runs')
-          .update({ current_stage: 'fetching_branch' })
-          .eq('run_id', runId)
+        await updateRunStage(supabase, runId, 'fetching_branch')
       }
     }
 
     // For implementation: update to 'resolving_repo' stage (0690)
     if (agentType === 'implementation') {
-      await supabase
-        .from('hal_agent_runs')
-        .update({
-          current_stage: 'resolving_repo',
-          progress: appendProgress(initialProgress, 'Resolving repository...'),
-        })
-        .eq('run_id', runId)
+      await updateRunStage(supabase, runId, 'resolving_repo', appendProgress(initialProgress, 'Resolving repository...'))
     }
 
     // If repo has no branches (new empty repo), create initial commit so Cursor API can run
-    let ghToken: string | undefined
-    try {
-      const session = await getSession(req, res)
-      ghToken = session.github?.accessToken
-    } catch (sessionErr) {
-      // AUTH_SESSION_SECRET may be missing in deployment; proceed without GitHub token (bootstrap will be skipped)
-      console.warn('[agent-runs/launch] Session unavailable (missing AUTH_SESSION_SECRET?):', sessionErr instanceof Error ? sessionErr.message : sessionErr)
-    }
-    if (ghToken) {
-      const branchesResult = await listBranches(ghToken, repoFullName)
-      if ('branches' in branchesResult && branchesResult.branches.length === 0) {
-        const bootstrap = await ensureInitialCommit(ghToken, repoFullName, defaultBranch)
-        if ('error' in bootstrap) {
-      await supabase
-        .from('hal_agent_runs')
-        .update({
-          status: 'failed',
-          current_stage: 'failed',
-          error: `Repository has no branches and initial commit failed: ${bootstrap.error}. Ensure you have push access and try again.`,
-          progress: appendProgress(initialProgress, `Bootstrap failed: ${bootstrap.error}`),
-          finished_at: new Date().toISOString(),
-        })
-        .eq('run_id', runId)
-          json(res, 200, { runId, status: 'failed', error: bootstrap.error })
-          return
-        }
-      }
+    const bootstrapSuccess = await handleRepositoryBootstrap(supabase, runId, initialProgress, res, req, repoFullName, defaultBranch)
+    if (!bootstrapSuccess) {
+      return
     }
 
     // Update stage to 'launching' (0690)
@@ -600,63 +708,15 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       .eq('run_id', runId)
 
     // Launch Cursor agent
-    const cursorKey = getCursorApiKey()
-    const auth = Buffer.from(`${cursorKey}:`).toString('base64')
-    const repoUrl = `https://github.com/${repoFullName}`
-    const branchName =
-      agentType === 'implementation' ? generateImplementationBranchName(ticketNumber!) : defaultBranch
-    // If a PR is already linked for this ticket, do not ask Cursor to create a new one.
     const existingPrUrl = agentType === 'implementation' && ticketPk ? await findExistingPrUrl(supabase, ticketPk) : null
-    const target =
-      agentType === 'implementation'
-        ? existingPrUrl
-          ? { branchName }
-          : { autoCreatePr: true, branchName }
-        : { branchName: defaultBranch }
-    const promptTextForLaunch =
-      agentType === 'implementation' && existingPrUrl
-        ? `${promptText}\n\n## Existing PR linked\n\nA PR is already linked to this ticket:\n\n- ${existingPrUrl}\n\nDo NOT create a new PR. Push changes to the branch above so the existing PR updates.`
-        : promptText
-
-    const launchRes = await fetch('https://api.cursor.com/v0/agents', {
-      method: 'POST',
-      headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        prompt: { text: promptTextForLaunch },
-        source: { repository: repoUrl, ref: defaultBranch },
-        target,
-        ...(model ? { model } : {}),
-      }),
-    })
-
-    const launchText = await launchRes.text()
-    if (!launchRes.ok) {
-      const branchNotFound =
-        launchRes.status === 400 &&
-        (/branch\s+.*\s+does not exist/i.test(launchText) || /does not exist.*branch/i.test(launchText))
-      const msg = branchNotFound
-        ? `The repository has no "${defaultBranch}" branch yet. If the repo is new and empty, create an initial commit and push (e.g. add a README) so the default branch exists, then try again.`
-        : humanReadableCursorError(launchRes.status, launchText)
-      await handleLaunchFailure(supabase, runId, initialProgress, res, msg)
+    const launchResult = await launchCursorAgent(agentType, repoFullName, ticketNumber!, defaultBranch, promptText, existingPrUrl, model)
+    
+    if (!launchResult.success) {
+      await handleLaunchFailure(supabase, runId, initialProgress, res, launchResult.error)
       return
     }
 
-    let launchData: { id?: string; status?: string }
-    try {
-      launchData = JSON.parse(launchText) as typeof launchData
-    } catch {
-      await handleLaunchFailure(supabase, runId, initialProgress, res, 'Invalid response from Cursor API when launching agent.')
-      return
-    }
-
-    const cursorAgentId = launchData.id
-    const cursorStatus = launchData.status ?? 'CREATING'
-    if (!cursorAgentId) {
-      await handleLaunchFailure(supabase, runId, initialProgress, res, 'Cursor API did not return an agent ID.')
-      return
-    }
-
-    const progressAfterLaunch = appendProgress(initialProgress, `Launched Cursor agent (${cursorStatus}).`)
+    const progressAfterLaunch = appendProgress(initialProgress, `Launched Cursor agent (${launchResult.status}).`)
     // Update stage to 'polling' (or 'running' for implementation, 'reviewing' for QA) (0690)
     const nextStage = agentType === 'implementation' ? 'running' : 'reviewing'
     await supabase
@@ -664,34 +724,18 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       .update({
         status: 'polling',
         current_stage: nextStage,
-        cursor_agent_id: cursorAgentId,
-        cursor_status: cursorStatus,
+        cursor_agent_id: launchResult.agentId,
+        cursor_status: launchResult.status,
         progress: progressAfterLaunch,
       })
       .eq('run_id', runId)
 
     // Create/update worklog artifact so it exists from the start (implementation runs only)
     if (agentType === 'implementation' && ticketPk && repoFullName) {
-      try {
-        const worklogTitle = `Worklog for ticket ${displayId}`
-        const worklogLines = [
-          `# Worklog: ${displayId}`,
-          '',
-          '## Progress',
-          ...(Array.isArray(progressAfterLaunch) ? progressAfterLaunch : []).map(
-            (p: { at: string; message: string }) => `- **${p.at}** — ${p.message}`
-          ),
-          '',
-          `**Current status:** ${cursorStatus}`,
-        ]
-        const res = await upsertArtifact(supabase, ticketPk, repoFullName, 'implementation', worklogTitle, worklogLines.join('\n'))
-        if (!res.ok) console.warn('[agent-runs] launch worklog upsert failed:', (res as { ok: false; error: string }).error)
-      } catch (e) {
-        console.warn('[agent-runs] launch worklog upsert error:', e instanceof Error ? e.message : e)
-      }
+      await createInitialWorklog(supabase, ticketPk, repoFullName, displayId, progressAfterLaunch, launchResult.status)
     }
 
-    json(res, 200, { runId, status: 'polling', cursorAgentId })
+    json(res, 200, { runId, status: 'polling', cursorAgentId: launchResult.agentId })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     const stack = err instanceof Error ? err.stack : undefined
