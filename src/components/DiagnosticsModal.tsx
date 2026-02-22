@@ -138,16 +138,33 @@ export function DiagnosticsModal({
     }
   }
 
-  function handleResultClick(result: SearchResult) {
-    // Navigate to artifact/ticket - this will need to be implemented based on your routing
-    // For now, we'll just log it and close the modal
-    console.log('Navigate to:', {
-      ticketPk: result.ticket_pk,
-      artifactId: result.artifact_id,
-      title: result.title,
-    })
-    // TODO: Implement navigation to artifact/ticket detail view
-    // This might involve opening a ticket detail modal or navigating to a specific route
+  async function handleResultClick(result: SearchResult) {
+    if (!result.ticket_pk || !supabaseUrl || !supabaseAnonKey) {
+      alert(`Artifact: ${result.title}\n\nSnippet: ${result.snippet}`)
+      return
+    }
+
+    // Try to fetch ticket info to get display ID
+    try {
+      const res = await fetch(`${supabaseUrl}/rest/v1/tickets?pk=eq.${result.ticket_pk}&select=display_id,ticket_number,title`, {
+        headers: {
+          apikey: supabaseAnonKey,
+          Authorization: `Bearer ${supabaseAnonKey}`,
+        },
+      })
+      const tickets = await res.json()
+      const ticket = tickets?.[0]
+      const ticketId = ticket?.display_id || ticket?.ticket_number || result.ticket_pk.substring(0, 8)
+
+      // Show ticket info - in a real implementation, this would open the ticket detail modal
+      // For now, we'll show an alert with the info and note that navigation should be implemented
+      alert(
+        `Ticket: ${ticketId}\nArtifact: ${result.title}\n\nSnippet: ${result.snippet}\n\nNote: Full navigation to ticket detail will be implemented in a future update.`
+      )
+    } catch (err) {
+      // Fallback: just show the artifact info
+      alert(`Artifact: ${result.title}\n\nSnippet: ${result.snippet}`)
+    }
   }
 
   if (!isOpen) return null
