@@ -238,6 +238,121 @@ describe('Kanban UI work button behavior', () => {
     expect(capturedTicketPk).toBe('ticket-pk-1')
   })
 
+  it('handles first click reliably even after component re-render', async () => {
+    let capturedTicketPk: string | undefined
+    let renderCount = 0
+
+    function FirstClickHarness() {
+      const now = makeIsoNow()
+      const [tickets, setTickets] = useState<KanbanTicketRow[]>(() => makeTickets(now))
+      const [pmChatWidgetOpen, setPmChatWidgetOpen] = useState(false)
+      const [_selectedChatTarget, setSelectedChatTarget] =
+        useState<ChatTarget>('project-manager')
+      const [_selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
+      const [_lastWorkButtonClick, setLastWorkButtonClick] = useState<{
+        eventId: string
+        timestamp: Date
+        chatTarget: ChatTarget
+        message: string
+      } | null>(null)
+
+      // Track render count to verify component re-renders
+      renderCount++
+
+      const handleKanbanMoveTicket = async (
+        ticketPk: string,
+        columnId: string,
+        position?: number
+      ) => {
+        capturedTicketPk = ticketPk
+        const movedAt = new Date().toISOString()
+        setTickets((prev) =>
+          prev.map((t) =>
+            t.pk === ticketPk
+              ? {
+                  ...t,
+                  kanban_column_id: columnId,
+                  kanban_position: typeof position === 'number' ? position : 0,
+                  kanban_moved_at: movedAt,
+                  updated_at: movedAt,
+                }
+              : t
+          )
+        )
+      }
+
+      const { handleKanbanOpenChatAndSend } = useKanbanWorkButton({
+        triggerAgentRun: () => {},
+        getDefaultConversationId: () => 'project-manager-1',
+        kanbanTickets: tickets,
+        handleKanbanMoveTicket,
+        handleKanbanMoveTicketAllowWithoutPr: handleKanbanMoveTicket,
+        pmChatWidgetOpen,
+        setPmChatWidgetOpen,
+        setSelectedChatTarget,
+        setSelectedConversationId,
+        setLastWorkButtonClick,
+      })
+
+      return (
+        <KanbanBoard
+          tickets={tickets}
+          columns={makeColumns(now)}
+          agentRunsByTicketPk={{}}
+          repoFullName="beardedphil/portfolio-2026-hal"
+          theme="dark"
+          onMoveTicket={handleKanbanMoveTicket}
+          onOpenChatAndSend={handleKanbanOpenChatAndSend}
+          processReviewRunningForTicketPk={null}
+          implementationAgentTicketId={null}
+          qaAgentTicketId={null}
+          syncStatus="polling"
+          lastSync={null}
+        />
+      )
+    }
+
+    render(<FirstClickHarness />)
+
+    const todoColumn = document.querySelector(
+      '[data-column-id="col-todo"]'
+    ) as HTMLElement | null
+    expect(todoColumn).not.toBeNull()
+
+    // Verify ticket is in To-do before click
+    expect(within(todoColumn!).getByText('Test Ticket A')).toBeInTheDocument()
+
+    const implementButton = within(todoColumn!).getByRole('button', {
+      name: 'Implement top ticket',
+    })
+
+    // Click button once - this should work on first click
+    fireEvent.click(implementButton)
+
+    // Wait for the move to complete
+    await waitFor(() => {
+      expect(capturedTicketPk).toBe('ticket-pk-1')
+    }, { timeout: 1000 })
+
+    // Verify ticket moved to Active Work on first click
+    const activeWork = screen.getByLabelText('Active Work')
+    await waitFor(() => {
+      expect(within(activeWork).getByText('Test Ticket A')).toBeInTheDocument()
+    })
+
+    // Verify ticket is no longer in To-do
+    const todoColumnAfter = document.querySelector(
+      '[data-column-id="col-todo"]'
+    ) as HTMLElement | null
+    expect(todoColumnAfter).not.toBeNull()
+    expect(
+      within(todoColumnAfter!).queryByText('Test Ticket A')
+    ).not.toBeInTheDocument()
+
+    // Verify component re-rendered (which could cause race condition without fix)
+    expect(renderCount).toBeGreaterThan(1)
+  })
+
   it('handles rapid clicks on "Implement top ticket" without errors', async () => {
     let moveCount = 0
 
