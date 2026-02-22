@@ -7,6 +7,127 @@ import { MarkdownImage } from './MarkdownImage'
 import { getAgentTypeDisplayName } from './utils'
 import type { SupabaseAgentArtifactRow } from '../App.types'
 
+// Helper functions extracted for better maintainability
+function isGitDiffArtifact(artifact: SupabaseAgentArtifactRow | null): boolean {
+  if (!artifact) return false
+  const normalizedTitle = artifact.title?.toLowerCase().trim() || ''
+  return normalizedTitle.startsWith('git diff for ticket') || normalizedTitle.startsWith('git-diff for ticket')
+}
+
+function sortArtifactsChronologically(
+  artifacts: SupabaseAgentArtifactRow[],
+  fallbackArtifact: SupabaseAgentArtifactRow | null
+): SupabaseAgentArtifactRow[] {
+  if (artifacts.length === 0 && fallbackArtifact) {
+    return [fallbackArtifact]
+  }
+  return [...artifacts].sort((a, b) => {
+    const timeA = new Date(a.created_at || 0).getTime()
+    const timeB = new Date(b.created_at || 0).getTime()
+    if (timeA !== timeB) {
+      return timeA - timeB
+    }
+    return (a.artifact_id || '').localeCompare(b.artifact_id || '')
+  })
+}
+
+function extractImageSrcFromMarkdown(
+  node: any,
+  bodyMd: string
+): string | null {
+  let src = node?.properties?.src
+  if (src && src !== '') return src
+
+  const position = node?.position
+  if (!position || !bodyMd) return null
+
+  const startOffset = position.start?.offset || 0
+  const endOffset = position.end?.offset || bodyMd.length
+  const markdownSnippet = bodyMd.substring(startOffset, endOffset)
+
+  const dataUrlMatch = markdownSnippet.match(/!\[.*?\]\((data:image\/[^)]+)\)/)
+  if (dataUrlMatch?.[1]) return dataUrlMatch[1]
+
+  const simpleMatch = markdownSnippet.match(/\((data:image\/[^)]+)\)/)
+  return simpleMatch?.[1] || null
+}
+
+function createImageComponent(
+  artifactTitle: string | undefined,
+  bodyMd: string,
+  handleImageClick: (src: string, alt: string) => void
+) {
+  return (props: any) => {
+    const node = props.node
+    const alt = node?.properties?.alt || node?.alt || props.alt || null
+    const src = extractImageSrcFromMarkdown(node, bodyMd)
+
+    if (!src || src === '') {
+      return (
+        <div style={{ border: '2px solid red', padding: '1rem', backgroundColor: '#ffebee' }}>
+          <p style={{ margin: 0, fontWeight: 'bold' }}>Unable to extract image source</p>
+          <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.9rem' }}>
+            Alt: {alt || 'Unknown'}
+          </p>
+        </div>
+      )
+    }
+
+    return (
+      <MarkdownImage
+        src={src}
+        alt={alt}
+        artifactTitle={artifactTitle}
+        onImageClick={handleImageClick}
+      />
+    )
+  }
+}
+
+function renderArtifactContent(
+  artifact: SupabaseAgentArtifactRow | null,
+  isValidArtifact: boolean,
+  isGitDiff: boolean,
+  markdownComponents: Components
+): React.ReactNode {
+  if (!isValidArtifact) {
+    console.error('ArtifactReportViewer: Invalid artifact received', artifact)
+    return (
+      <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
+        {!artifact
+          ? 'No artifact selected. Please select an artifact from the list.'
+          : 'Invalid artifact data. Please try selecting the artifact again.'}
+      </p>
+    )
+  }
+
+  const artifactBodyMd = artifact?.body_md
+  if (!artifactBodyMd || typeof artifactBodyMd !== 'string') {
+    return (
+      <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
+        No content available. This artifact may be missing body_md data.
+      </p>
+    )
+  }
+
+  const trimmedBody = artifactBodyMd.trim()
+  if (trimmedBody.length === 0) {
+    return (
+      <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
+        {isGitDiff
+          ? 'No diff available. This artifact was created but contains no diff content.'
+          : 'No output produced. This artifact was created but contains no content.'}
+      </p>
+    )
+  }
+
+  if (isGitDiff) {
+    return <GitDiffViewer diff={trimmedBody} />
+  }
+
+  return <ReactMarkdown components={markdownComponents}>{trimmedBody}</ReactMarkdown>
+}
+
 /** Artifact report viewer modal (0082) with Previous/Next navigation (0148) */
 export function ArtifactReportViewer({
   open,
@@ -23,10 +144,7 @@ export function ArtifactReportViewer({
   currentIndex: number
   onNavigate: (index: number) => void
 }) {
-  // Early return if modal is not open (before hooks - this is OK)
-  if (!open) return null
-
-  // ALL HOOKS MUST BE CALLED BEFORE ANY OTHER EARLY RETURNS
+  // ALL HOOKS MUST BE CALLED BEFORE ANY CONDITIONAL RETURNS
   // This fixes React error #310 (hooks called conditionally)
   const [imageViewerOpen, setImageViewerOpen] = useState(false)
   const [imageViewerSrc, setImageViewerSrc] = useState<string | null>(null)
@@ -36,7 +154,6 @@ export function ArtifactReportViewer({
 
   useEffect(() => {
     if (!open) {
-      // Close image viewer when artifact viewer closes
       setImageViewerOpen(false)
       return
     }
@@ -91,131 +208,52 @@ export function ArtifactReportViewer({
     setImageViewerOpen(true)
   }, [artifact])
 
-  // Custom image component for ReactMarkdown (0158)
-  const markdownComponents: Components = useMemo(() => {
-    // Create a wrapper that captures the current artifact and handler
-    const artifactTitle = artifact?.title
-    const imageClickHandler = handleImageClick
-    const bodyMd = artifact?.body_md || ''
-    
-    const ImageComponent = (props: any) => {
-      // ReactMarkdown v10 passes node-based props
-      // However, data URLs are being sanitized and node.properties.src is empty
-      // We need to extract the URL from the raw markdown using the node position
-      const node = props.node
-      const alt = node?.properties?.alt || node?.alt || props.alt || null
-      
-      // If src is empty, try to extract from raw markdown using position
-      let src = node?.properties?.src
-      
-      if (!src || src === '') {
-        // Extract from raw markdown using node position
-        const position = node?.position
-        if (position && bodyMd) {
-          const startOffset = position.start?.offset || 0
-          const endOffset = position.end?.offset || bodyMd.length
-          const markdownSnippet = bodyMd.substring(startOffset, endOffset)
-          
-          // Try to extract data URL from markdown: ![alt](data:image/...)
-          const dataUrlMatch = markdownSnippet.match(/!\[.*?\]\((data:image\/[^)]+)\)/)
-          if (dataUrlMatch && dataUrlMatch[1]) {
-            src = dataUrlMatch[1]
-            console.log('[ImageComponent] Extracted data URL from markdown using position')
-          } else {
-            // Try simpler pattern: (data:image/...)
-            const simpleMatch = markdownSnippet.match(/\((data:image\/[^)]+)\)/)
-            if (simpleMatch && simpleMatch[1]) {
-              src = simpleMatch[1]
-              console.log('[ImageComponent] Extracted data URL using simple pattern')
-            }
-          }
-        }
-      }
-      
-      if (!src || src === '') {
-        console.warn('[ImageComponent] Still no src after extraction. Node:', node)
-        return (
-          <div style={{ border: '2px solid red', padding: '1rem', backgroundColor: '#ffebee' }}>
-            <p style={{ margin: 0, fontWeight: 'bold' }}>Unable to extract image source</p>
-            <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.9rem' }}>
-              Alt: {alt || 'Unknown'}
-            </p>
-          </div>
-        )
-      }
-      
-      return (
-        <MarkdownImage
-          src={src}
-          alt={alt}
-          artifactTitle={artifactTitle}
-          onImageClick={imageClickHandler}
-        />
-      )
-    }
-    
-    return {
-      img: ImageComponent,
-    }
-  }, [artifact?.title, artifact?.body_md, handleImageClick, artifact])
+  const isGitDiff = useMemo(() => isGitDiffArtifact(artifact), [artifact])
 
-  // Check if this is a git-diff artifact
-  const isGitDiff = useMemo(() => {
-    if (!artifact) return false
-    const normalizedTitle = artifact.title?.toLowerCase().trim() || ''
-    return normalizedTitle.startsWith('git diff for ticket') || normalizedTitle.startsWith('git-diff for ticket')
-  }, [artifact])
+  const sortedArtifacts = useMemo(
+    () => sortArtifactsChronologically(artifacts, artifact),
+    [artifacts, artifact]
+  )
 
-  // Calculate navigation state (0148) - must be called before any early returns
-  // Sort artifacts chronologically (oldest first)
-  // If artifacts array is empty but we have an artifact, use it as the only item
-  const sortedArtifacts = useMemo(() => {
-    if (artifacts.length === 0 && artifact) {
-      // Fallback: if artifacts array is empty but we have an artifact, use it
-      return [artifact]
-    }
-    return [...artifacts].sort((a, b) => {
-      const timeA = new Date(a.created_at || 0).getTime()
-      const timeB = new Date(b.created_at || 0).getTime()
-      if (timeA !== timeB) {
-        return timeA - timeB
-      }
-      // Secondary sort by artifact_id for deterministic ordering when timestamps are equal (0147)
-      return (a.artifact_id || '').localeCompare(b.artifact_id || '')
-    })
-  }, [artifacts, artifact])
-  
-  // Find the actual index of the current artifact in the sorted list
   const actualIndex = useMemo(() => {
-    if (!artifact || !artifact.artifact_id) return -1
+    if (!artifact?.artifact_id) return -1
     return sortedArtifacts.findIndex(a => a.artifact_id === artifact.artifact_id)
   }, [sortedArtifacts, artifact])
-  
-  // Use actual index if found, otherwise fall back to currentIndex prop, or 0 if artifact is in the list
-  const effectiveIndex = actualIndex >= 0 ? actualIndex : (artifact && sortedArtifacts.length > 0 ? 0 : currentIndex)
-  
+
+  const effectiveIndex = useMemo(() => {
+    if (actualIndex >= 0) return actualIndex
+    return artifact && sortedArtifacts.length > 0 ? 0 : currentIndex
+  }, [actualIndex, artifact, sortedArtifacts.length, currentIndex])
+
   const canGoPrevious = effectiveIndex > 0
   const canGoNext = effectiveIndex < sortedArtifacts.length - 1
-  
+
   const handlePrevious = useCallback(() => {
     if (canGoPrevious) {
       onNavigate(effectiveIndex - 1)
     }
   }, [canGoPrevious, effectiveIndex, onNavigate])
-  
+
   const handleNext = useCallback(() => {
     if (canGoNext) {
       onNavigate(effectiveIndex + 1)
     }
   }, [canGoNext, effectiveIndex, onNavigate])
 
-  // Handle invalid artifacts in render logic (not early returns after hooks)
-  // This ensures hooks are always called in the same order
-  const isValidArtifact = artifact && artifact.artifact_id
-  const artifactTitle = isValidArtifact ? (artifact.title || 'Untitled Artifact') : 'Artifact Viewer'
-  const artifactBodyMd = isValidArtifact ? (artifact.body_md || '') : ''
-  const artifactCreatedAt = isValidArtifact ? (artifact.created_at || new Date().toISOString()) : new Date().toISOString()
-  const artifactAgentType = isValidArtifact ? (artifact.agent_type || 'unknown') : 'unknown'
+  const markdownComponents: Components = useMemo(() => {
+    if (!artifact) return {}
+    return {
+      img: createImageComponent(artifact.title, artifact.body_md || '', handleImageClick),
+    }
+  }, [artifact?.title, artifact?.body_md, handleImageClick])
+
+  // Handle "not open" case in render instead of early return (after all hooks)
+  if (!open) return null
+
+  const isValidArtifact = !!(artifact && artifact.artifact_id)
+  const artifactTitle = isValidArtifact ? (artifact!.title || 'Untitled Artifact') : 'Artifact Viewer'
+  const artifactCreatedAt = isValidArtifact ? (artifact!.created_at || new Date().toISOString()) : new Date().toISOString()
+  const artifactAgentType = isValidArtifact ? (artifact!.agent_type || 'unknown') : 'unknown'
 
   const createdAt = new Date(artifactCreatedAt)
   const displayName = isValidArtifact ? getAgentTypeDisplayName(artifactAgentType) : 'Unknown'
@@ -250,49 +288,9 @@ export function ArtifactReportViewer({
         </div>
         <div className="ticket-detail-body-wrap">
           <div className="ticket-detail-body">
-            {(() => {
-              // Handle invalid artifacts (no early returns after hooks)
-              if (!isValidArtifact) {
-                console.error('ArtifactReportViewer: Invalid artifact received', artifact)
-                return (
-                  <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
-                    {!artifact 
-                      ? 'No artifact selected. Please select an artifact from the list.'
-                      : 'Invalid artifact data. Please try selecting the artifact again.'}
-                  </p>
-                )
-              }
-              
-              // Ensure we have valid content to render
-              if (!artifactBodyMd || typeof artifactBodyMd !== 'string') {
-                return (
-                  <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
-                    No content available. This artifact may be missing body_md data.
-                  </p>
-                )
-              }
-              
-              const trimmedBody = artifactBodyMd.trim()
-              if (trimmedBody.length === 0) {
-                return (
-                  <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
-                    {isGitDiff 
-                      ? 'No diff available. This artifact was created but contains no diff content.'
-                      : 'No output produced. This artifact was created but contains no content.'}
-                  </p>
-                )
-              }
-              
-              // Render content
-              if (isGitDiff) {
-                return <GitDiffViewer diff={trimmedBody} />
-              } else {
-                return <ReactMarkdown components={markdownComponents}>{trimmedBody}</ReactMarkdown>
-              }
-            })()}
+            {renderArtifactContent(artifact, isValidArtifact, isGitDiff, markdownComponents)}
           </div>
         </div>
-        {/* Previous/Next navigation buttons (0148) */}
         {sortedArtifacts.length > 1 && (
           <div className="artifact-navigation">
             <button
