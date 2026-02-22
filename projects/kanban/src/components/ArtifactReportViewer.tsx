@@ -128,6 +128,63 @@ function handleTabKeyTrapping(
   }
 }
 
+/** Extract artifact display data with safe defaults */
+function extractArtifactData(artifact: SupabaseAgentArtifactRow | null) {
+  const isValid = artifact && artifact.artifact_id
+  return {
+    isValid,
+    title: isValid ? (artifact.title || 'Untitled Artifact') : 'Artifact Viewer',
+    bodyMd: isValid ? (artifact.body_md || '') : '',
+    createdAt: isValid ? (artifact.created_at || new Date().toISOString()) : new Date().toISOString(),
+    agentType: isValid ? (artifact.agent_type || 'unknown') : 'unknown',
+  }
+}
+
+/** Render artifact content with proper error handling */
+function renderArtifactContent(
+  isValid: boolean,
+  artifact: SupabaseAgentArtifactRow | null,
+  bodyMd: string,
+  isGitDiff: boolean,
+  markdownComponents: Components
+) {
+  if (!isValid) {
+    console.error('ArtifactReportViewer: Invalid artifact received', artifact)
+    return (
+      <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
+        {!artifact 
+          ? 'No artifact selected. Please select an artifact from the list.'
+          : 'Invalid artifact data. Please try selecting the artifact again.'}
+      </p>
+    )
+  }
+  
+  if (!bodyMd || typeof bodyMd !== 'string') {
+    return (
+      <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
+        No content available. This artifact may be missing body_md data.
+      </p>
+    )
+  }
+  
+  const trimmedBody = bodyMd.trim()
+  if (trimmedBody.length === 0) {
+    return (
+      <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
+        {isGitDiff 
+          ? 'No diff available. This artifact was created but contains no diff content.'
+          : 'No output produced. This artifact was created but contains no content.'}
+      </p>
+    )
+  }
+  
+  if (isGitDiff) {
+    return <GitDiffViewer diff={trimmedBody} />
+  }
+  
+  return <ReactMarkdown components={markdownComponents}>{trimmedBody}</ReactMarkdown>
+}
+
 /** Artifact report viewer modal (0082) with Previous/Next navigation (0148) */
 export function ArtifactReportViewer({
   open,
@@ -233,16 +290,10 @@ export function ArtifactReportViewer({
     }
   }, [canGoNext, effectiveIndex, onNavigate])
 
-  // Handle invalid artifacts in render logic (not early returns after hooks)
-  // This ensures hooks are always called in the same order
-  const isValidArtifact = artifact && artifact.artifact_id
-  const artifactTitle = isValidArtifact ? (artifact.title || 'Untitled Artifact') : 'Artifact Viewer'
-  const artifactBodyMd = isValidArtifact ? (artifact.body_md || '') : ''
-  const artifactCreatedAt = isValidArtifact ? (artifact.created_at || new Date().toISOString()) : new Date().toISOString()
-  const artifactAgentType = isValidArtifact ? (artifact.agent_type || 'unknown') : 'unknown'
-
-  const createdAt = new Date(artifactCreatedAt)
-  const displayName = isValidArtifact ? getAgentTypeDisplayName(artifactAgentType) : 'Unknown'
+  // Extract artifact data with safe defaults (must be called before any early returns)
+  const artifactData = useMemo(() => extractArtifactData(artifact), [artifact])
+  const createdAt = new Date(artifactData.createdAt)
+  const displayName = artifactData.isValid ? getAgentTypeDisplayName(artifactData.agentType) : 'Unknown'
 
   return (
     <div
@@ -256,7 +307,7 @@ export function ArtifactReportViewer({
       <div className="ticket-detail-modal" ref={modalRef}>
         <div className="ticket-detail-header">
           <h2 id="artifact-viewer-title" className="ticket-detail-title">
-            {artifactTitle}
+            {artifactData.title}
           </h2>
           <button
             type="button"
@@ -274,46 +325,13 @@ export function ArtifactReportViewer({
         </div>
         <div className="ticket-detail-body-wrap">
           <div className="ticket-detail-body">
-            {(() => {
-              // Handle invalid artifacts (no early returns after hooks)
-              if (!isValidArtifact) {
-                console.error('ArtifactReportViewer: Invalid artifact received', artifact)
-                return (
-                  <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
-                    {!artifact 
-                      ? 'No artifact selected. Please select an artifact from the list.'
-                      : 'Invalid artifact data. Please try selecting the artifact again.'}
-                  </p>
-                )
-              }
-              
-              // Ensure we have valid content to render
-              if (!artifactBodyMd || typeof artifactBodyMd !== 'string') {
-                return (
-                  <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
-                    No content available. This artifact may be missing body_md data.
-                  </p>
-                )
-              }
-              
-              const trimmedBody = artifactBodyMd.trim()
-              if (trimmedBody.length === 0) {
-                return (
-                  <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
-                    {isGitDiff 
-                      ? 'No diff available. This artifact was created but contains no diff content.'
-                      : 'No output produced. This artifact was created but contains no content.'}
-                  </p>
-                )
-              }
-              
-              // Render content
-              if (isGitDiff) {
-                return <GitDiffViewer diff={trimmedBody} />
-              } else {
-                return <ReactMarkdown components={markdownComponents}>{trimmedBody}</ReactMarkdown>
-              }
-            })()}
+            {renderArtifactContent(
+              artifactData.isValid,
+              artifact,
+              artifactData.bodyMd,
+              isGitDiff,
+              markdownComponents
+            )}
           </div>
         </div>
         {/* Previous/Next navigation buttons (0148) */}
