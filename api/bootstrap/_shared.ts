@@ -4,6 +4,7 @@
 
 import type { IncomingMessage, ServerResponse } from 'http'
 import { parseSupabaseCredentialsWithServiceRole } from '../tickets/_shared.js'
+import { createClient } from '@supabase/supabase-js'
 
 export type BootstrapStepStatus = 'pending' | 'running' | 'succeeded' | 'failed'
 
@@ -192,4 +193,31 @@ export function parseBootstrapCredentials(body: {
   supabaseAnonKey?: string
 }): { supabaseUrl?: string; supabaseKey?: string } {
   return parseSupabaseCredentialsWithServiceRole(body)
+}
+
+/**
+ * Logs an audit event for bootstrap/infra actions.
+ */
+export async function logAuditEvent(
+  supabase: ReturnType<typeof createClient>,
+  projectId: string,
+  actionType: string,
+  status: 'succeeded' | 'failed' | 'pending',
+  summary: string,
+  metadata: Record<string, unknown> = {},
+  actor?: string
+): Promise<void> {
+  try {
+    await supabase.from('audit_logs').insert({
+      project_id: projectId,
+      action_type: actionType,
+      status,
+      summary,
+      metadata,
+      actor,
+    })
+  } catch (err) {
+    console.error('[bootstrap/_shared] Failed to log audit event:', err)
+    // Don't fail the request if audit logging fails
+  }
 }

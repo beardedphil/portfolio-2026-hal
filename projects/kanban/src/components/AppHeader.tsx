@@ -13,6 +13,8 @@ interface AppHeaderProps {
   onDisconnect: () => void
   onOpenNewHalWizard: () => void
   onOpenBootstrap?: () => void
+  onOpenProviders?: () => void
+  onOpenAuditLog?: () => void
 }
 
 export function AppHeader({
@@ -26,6 +28,8 @@ export function AppHeader({
   onDisconnect,
   onOpenNewHalWizard,
   onOpenBootstrap,
+  onOpenProviders,
+  onOpenAuditLog,
 }: AppHeaderProps) {
   const halCtx = useContext(HalKanbanContext)
   
@@ -87,6 +91,24 @@ export function AppHeader({
             onClick={onOpenBootstrap}
           >
             Bootstrap
+          </button>
+        )}
+        {onOpenProviders && (
+          <button
+            type="button"
+            className="providers-btn btn-standard"
+            onClick={onOpenProviders}
+          >
+            Integrations
+          </button>
+        )}
+        {onOpenAuditLog && (
+          <button
+            type="button"
+            className="audit-log-btn btn-standard"
+            onClick={onOpenAuditLog}
+          >
+            Audit Log
           </button>
         )}
         <p className="connection-status" data-status={supabaseConnectionStatus} aria-live="polite">

@@ -46,6 +46,8 @@ import { AppHeader } from './components/AppHeader'
 import { AddColumnForm } from './components/AddColumnForm'
 import { DebugPanel } from './components/DebugPanel'
 import { BootstrapScreen } from './components/BootstrapScreen'
+import { ProvidersView } from './components/ProvidersView'
+import { AuditLogView } from './components/AuditLogView'
 import type { Card, Column } from './lib/columnTypes'
 import type { LogEntry, SupabaseTicketRow, SupabaseAgentArtifactRow, SupabaseAgentRunRow, TicketAttachment } from './App.types'
 import { SUPABASE_CONFIG_KEY, CONNECTED_REPO_KEY, SUPABASE_POLL_INTERVAL_MS, SUPABASE_SAFETY_POLL_INTERVAL_MS, REFETCH_AFTER_MOVE_MS, ROLLBACK_AFTER_FAILURE_MS, KANBAN_BROADCAST_CHANNEL, EMPTY_KANBAN_COLUMNS, DEFAULT_KANBAN_COLUMNS_SEED, _SUPABASE_KANBAN_COLUMNS_SETUP_SQL, DEFAULT_COLUMNS, INITIAL_CARDS, _SUPABASE_SETUP_SQL, _SUPABASE_TICKET_ATTACHMENTS_SETUP_SQL } from './App.constants'
@@ -164,6 +166,10 @@ function App() {
   
   // Bootstrap screen (Roadmap T1)
   const [bootstrapScreenOpen, setBootstrapScreenOpen] = useState(false)
+  // Providers/Integrations view (HAL-0787)
+  const [providersViewOpen, setProvidersViewOpen] = useState(false)
+  // Audit log view (HAL-0787)
+  const [auditLogViewOpen, setAuditLogViewOpen] = useState(false)
   // Supabase (read-only v0)
   const [supabaseProjectUrl, setSupabaseProjectUrl] = useState('')
   const [supabaseAnonKey, setSupabaseAnonKey] = useState('')
@@ -2976,6 +2982,12 @@ function App() {
         onOpenBootstrap={() => {
           setBootstrapScreenOpen(true)
         }}
+        onOpenProviders={() => {
+          setProvidersViewOpen(true)
+        }}
+        onOpenAuditLog={() => {
+          setAuditLogViewOpen(true)
+        }}
       />
 
       {connectError && (
@@ -3218,6 +3230,28 @@ function App() {
           supabaseAnonKey={supabaseAnonKey || ''}
           apiBaseUrl={import.meta.env.VITE_HAL_API_BASE_URL || (typeof window !== 'undefined' ? window.location.origin : '')}
           onClose={() => setBootstrapScreenOpen(false)}
+        />
+      )}
+
+      {providersViewOpen && (
+        <ProvidersView
+          projectId={connectedRepoFullName || projectName || 'default-project'}
+          supabaseUrl={supabaseProjectUrl || ''}
+          supabaseAnonKey={supabaseAnonKey || ''}
+          apiBaseUrl={import.meta.env.VITE_HAL_API_BASE_URL || (typeof window !== 'undefined' ? window.location.origin : '')}
+          isOpen={providersViewOpen}
+          onClose={() => setProvidersViewOpen(false)}
+        />
+      )}
+
+      {auditLogViewOpen && (
+        <AuditLogView
+          projectId={connectedRepoFullName || projectName || 'default-project'}
+          supabaseUrl={supabaseProjectUrl || ''}
+          supabaseAnonKey={supabaseAnonKey || ''}
+          apiBaseUrl={import.meta.env.VITE_HAL_API_BASE_URL || (typeof window !== 'undefined' ? window.location.origin : '')}
+          isOpen={auditLogViewOpen}
+          onClose={() => setAuditLogViewOpen(false)}
         />
       )}
 
