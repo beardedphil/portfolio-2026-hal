@@ -30,7 +30,7 @@ Determine your feature branch name from the ticket (typically `ticket/<id>-<shor
 
 ```bash
 git switch -c ticket/0817-add-a-rule-to-create-and-push-branch-early
-# OR (if using older git versions)
+# Alternative for older git versions: use checkout -b instead
 git checkout -b ticket/0817-add-a-rule-to-create-and-push-branch-early
 ```
 
@@ -38,7 +38,7 @@ git checkout -b ticket/0817-add-a-rule-to-create-and-push-branch-early
 
 ```bash
 git switch ticket/0817-add-a-rule-to-create-and-push-branch-early
-# OR (if using older git versions)
+# Alternative for older git versions: use checkout instead
 git checkout ticket/0817-add-a-rule-to-create-and-push-branch-early
 ```
 
