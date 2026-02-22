@@ -102,6 +102,34 @@ export function AuditLogView({
       .join(' ')
   }
 
+  // Redact sensitive values from metadata before displaying
+  const redactMetadata = (metadata: Record<string, unknown>): Record<string, unknown> => {
+    const redacted: Record<string, unknown> = {}
+    const sensitiveKeys = /^(api[_-]?key|apikey|authorization|secret|password|token|access[_-]?token|supabase[_-]?(anon|service)[_-]?key|client[_-]?secret)$/i
+    const sensitivePatterns = [
+      /sk-[a-zA-Z0-9_-]{20,}/g, // OpenAI keys
+      /eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+/g, // JWTs
+      /https:\/\/([a-zA-Z0-9-]+\.)?supabase\.co(\/[a-zA-Z0-9_-]*)*/gi, // Supabase URLs
+    ]
+
+    for (const [key, value] of Object.entries(metadata)) {
+      if (sensitiveKeys.test(key)) {
+        redacted[key] = '[REDACTED]'
+      } else if (typeof value === 'string') {
+        let redactedValue = value
+        for (const pattern of sensitivePatterns) {
+          redactedValue = redactedValue.replace(pattern, '[REDACTED]')
+        }
+        redacted[key] = redactedValue
+      } else if (value !== null && typeof value === 'object') {
+        redacted[key] = redactMetadata(value as Record<string, unknown>)
+      } else {
+        redacted[key] = value
+      }
+    }
+    return redacted
+  }
+
   // Get unique action types for filter
   const actionTypes = Array.from(new Set(logs.map((log) => log.action_type))).sort()
 
@@ -190,7 +218,7 @@ export function AuditLogView({
                     <details style={{ marginTop: '0.5rem' }}>
                       <summary style={{ cursor: 'pointer', fontSize: '0.9em', color: '#666' }}>Metadata</summary>
                       <pre style={{ marginTop: '0.5rem', padding: '0.5rem', backgroundColor: '#fff', borderRadius: '4px', fontSize: '0.85em', overflow: 'auto' }}>
-                        {JSON.stringify(log.metadata, null, 2)}
+                        {JSON.stringify(redactMetadata(log.metadata || {}), null, 2)}
                       </pre>
                     </details>
                   )}
