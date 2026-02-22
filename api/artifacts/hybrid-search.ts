@@ -26,37 +26,6 @@ function json(res: ServerResponse, statusCode: number, body: unknown) {
   res.end(JSON.stringify(body))
 }
 
-export interface HybridSearchOptions {
-  query?: string // Text query for vector similarity (optional)
-  repoFullName?: string // Filter by repository
-  includePinned?: boolean // Include pinned artifacts
-  recencyDays?: number // Filter by recency (e.g., 30 for last 30 days)
-  limit?: number // Maximum number of results
-  ticketPk?: string // Filter by ticket (optional)
-  deterministic?: boolean // Use deterministic ordering (for same inputs → same results)
-  supabaseUrl?: string
-  supabaseAnonKey?: string
-  openaiApiKey?: string
-}
-
-export interface HybridSearchResult {
-  success: boolean
-  artifacts: Array<{
-    artifact_id: string
-    title: string
-    similarity?: number // Vector similarity score (if query provided)
-    created_at: string
-  }>
-  retrievalMetadata: {
-    repoFilter?: string
-    pinnedIncluded: boolean
-    recencyWindow?: string // e.g., "last 30 days"
-    totalConsidered: number
-    totalSelected: number
-  }
-  error?: string
-}
-
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   // CORS: Allow cross-origin requests
   res.setHeader('Access-Control-Allow-Origin', '*')
