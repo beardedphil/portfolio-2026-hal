@@ -184,7 +184,7 @@ export function buildQAPrompt(
 /**
  * Builds prompt text based on agent type.
  */
-function buildPrompt(
+export function buildPrompt(
   agentType: AgentType,
   repoFullName: string,
   ticketNumber: number,
@@ -225,7 +225,7 @@ function buildPrompt(
 /**
  * Checks if an existing PR is linked to the ticket.
  */
-async function findExistingPrUrl(
+export async function findExistingPrUrl(
   supabase: ReturnType<typeof getServerSupabase>,
   ticketPk: string
 ): Promise<string | null> {
@@ -541,201 +541,318 @@ async function createInitialWorklog(
   }
 }
 
+/**
+ * Parses and validates request body.
+ */
+function parseRequestBody(body: unknown): {
+  agentType: AgentType
+  model: string
+  repoFullName: string
+  ticketNumber: number | null
+  defaultBranch: string
+  message: string
+  conversationId: string
+  projectId: string
+  images: Array<{ dataUrl: string; filename: string; mimeType: string }> | undefined
+} {
+  const b = body as {
+    agentType?: AgentType
+    repoFullName?: string
+    ticketNumber?: number
+    defaultBranch?: string
+    message?: string
+    conversationId?: string
+    projectId?: string
+    images?: Array<{ dataUrl: string; filename: string; mimeType: string }>
+    model?: string
+  }
+  return {
+    agentType: determineAgentType(b.agentType),
+    model: (typeof b.model === 'string' ? b.model.trim() : '') || '',
+    repoFullName: typeof b.repoFullName === 'string' ? b.repoFullName.trim() : '',
+    ticketNumber: typeof b.ticketNumber === 'number' ? b.ticketNumber : null,
+    defaultBranch: (typeof b.defaultBranch === 'string' ? b.defaultBranch.trim() : '') || 'main',
+    message: typeof b.message === 'string' ? b.message.trim() : '',
+    conversationId: typeof b.conversationId === 'string' ? b.conversationId.trim() : '',
+    projectId: typeof b.projectId === 'string' ? b.projectId.trim() : '',
+    images: Array.isArray(b.images) ? b.images : undefined,
+  }
+}
+
+/**
+ * Validates request parameters based on agent type.
+ */
+function validateRequest(
+  agentType: AgentType,
+  repoFullName: string,
+  ticketNumber: number | null,
+  message: string,
+  res: ServerResponse
+): boolean {
+  if (!repoFullName) {
+    json(res, 400, { error: 'repoFullName is required.' })
+    return false
+  }
+
+  const needsTicket = agentType === 'implementation' || agentType === 'qa' || agentType === 'process-review'
+  if (needsTicket && (!ticketNumber || !Number.isFinite(ticketNumber))) {
+    json(res, 400, { error: 'ticketNumber is required.' })
+    return false
+  }
+  if (agentType === 'project-manager' && !message) {
+    json(res, 400, { error: 'message is required for project-manager runs.' })
+    return false
+  }
+  return true
+}
+
+/**
+ * Fetches ticket from database.
+ */
+async function fetchTicket(
+  supabase: ReturnType<typeof getServerSupabase>,
+  repoFullName: string,
+  ticketNumber: number,
+  res: ServerResponse
+): Promise<{ ticketPk: string; displayId: string; bodyMd: string; currentColumnId: string | null } | null> {
+  const { data: ticket, error: ticketErr } = await supabase
+    .from('tickets')
+    .select('pk, repo_full_name, ticket_number, display_id, body_md, kanban_column_id')
+    .eq('repo_full_name', repoFullName)
+    .eq('ticket_number', ticketNumber)
+    .maybeSingle()
+  if (ticketErr || !ticket?.pk) {
+    json(res, 404, { error: `Ticket ${ticketNumber} not found for repo ${repoFullName}.` })
+    return null
+  }
+
+  return {
+    ticketPk: ticket.pk as string,
+    displayId: (ticket as any).display_id ?? String(ticketNumber).padStart(4, '0'),
+    bodyMd: String((ticket as any).body_md ?? ''),
+    currentColumnId: (ticket as any).kanban_column_id as string | null,
+  }
+}
+
+/**
+ * Creates run row for Cursor agent launch.
+ */
+async function createCursorRunRow(
+  supabase: ReturnType<typeof getServerSupabase>,
+  agentType: AgentType,
+  repoFullName: string,
+  ticketPk: string,
+  ticketNumber: number,
+  displayId: string,
+  initialProgress: Array<{ at: string; message: string }>,
+  res: ServerResponse
+): Promise<string | null> {
+  const { data: runRow, error: runInsErr } = await supabase
+    .from('hal_agent_runs')
+    .insert({
+      agent_type: agentType,
+      repo_full_name: repoFullName,
+      ticket_pk: ticketPk,
+      ticket_number: ticketNumber,
+      display_id: displayId,
+      provider: 'cursor',
+      status: 'launching',
+      current_stage: 'preparing',
+      progress: initialProgress,
+    })
+    .select('run_id')
+    .maybeSingle()
+
+  if (runInsErr || !runRow?.run_id) {
+    json(res, 500, { error: `Failed to create run row: ${runInsErr?.message ?? 'unknown'}` })
+    return null
+  }
+
+  return runRow.run_id as string
+}
+
+/**
+ * Updates run stage and status after successful launch.
+ */
+async function updateRunAfterLaunch(
+  supabase: ReturnType<typeof getServerSupabase>,
+  runId: string,
+  agentType: AgentType,
+  agentId: string,
+  status: string,
+  progressAfterLaunch: Array<{ at: string; message: string }>
+): Promise<void> {
+  const nextStage = agentType === 'implementation' ? 'running' : 'reviewing'
+  await supabase
+    .from('hal_agent_runs')
+    .update({
+      status: 'polling',
+      current_stage: nextStage,
+      cursor_agent_id: agentId,
+      cursor_status: status,
+      progress: progressAfterLaunch,
+    })
+    .eq('run_id', runId)
+}
+
+/**
+ * Handles the main flow for launching Cursor agents (implementation/QA).
+ */
+async function launchCursorAgentFlow(
+  supabase: ReturnType<typeof getServerSupabase>,
+  req: IncomingMessage,
+  res: ServerResponse,
+  agentType: AgentType,
+  repoFullName: string,
+  ticketNumber: number,
+  ticketPk: string,
+  displayId: string,
+  bodyMd: string,
+  currentColumnId: string | null,
+  defaultBranch: string,
+  halApiBaseUrl: string,
+  model: string
+): Promise<void> {
+  // Move QA ticket from QA column to Doing when QA agent starts
+  if (agentType === 'qa' && currentColumnId === 'col-qa') {
+    await moveQATicketToDoing(supabase, repoFullName, ticketPk, displayId)
+  }
+
+  // Build prompt
+  const { goal, deliverable, criteria } = extractTicketSections(bodyMd)
+  const promptText = buildPrompt(
+    agentType,
+    repoFullName,
+    ticketNumber,
+    displayId,
+    currentColumnId,
+    defaultBranch,
+    halApiBaseUrl,
+    goal,
+    deliverable,
+    criteria
+  )
+
+  // Create run row
+  const initialProgress = appendProgress([], `Launching ${agentType} run for ${displayId}`)
+  const runId = await createCursorRunRow(supabase, agentType, repoFullName, ticketPk, ticketNumber, displayId, initialProgress, res)
+  if (!runId) {
+    return
+  }
+
+  // Update stages
+  await updateRunStage(supabase, runId, 'fetching_ticket', appendProgress(initialProgress, 'Fetching ticket...'))
+
+  if (agentType === 'qa') {
+    const branchMatch = bodyMd.match(/##\s*QA[^\n]*\n[\s\S]*?Branch[:\s]+([^\n]+)/i)
+    const branchName = branchMatch?.[1]?.trim()
+    if (branchName) {
+      await updateRunStage(supabase, runId, 'fetching_branch', appendProgress(initialProgress, `Finding branch: ${branchName}`))
+    } else {
+      await updateRunStage(supabase, runId, 'fetching_branch')
+    }
+  }
+
+  if (agentType === 'implementation') {
+    await updateRunStage(supabase, runId, 'resolving_repo', appendProgress(initialProgress, 'Resolving repository...'))
+  }
+
+  // Handle repository bootstrap
+  const bootstrapSuccess = await handleRepositoryBootstrap(supabase, runId, initialProgress, res, req, repoFullName, defaultBranch)
+  if (!bootstrapSuccess) {
+    return
+  }
+
+  // Update stage to 'launching'
+  await supabase
+    .from('hal_agent_runs')
+    .update({
+      current_stage: 'launching',
+      status: 'launching',
+      progress: appendProgress(initialProgress, 'Launching agent...'),
+    })
+    .eq('run_id', runId)
+
+  // Launch Cursor agent
+  const existingPrUrl = agentType === 'implementation' ? await findExistingPrUrl(supabase, ticketPk) : null
+  const launchResult = await launchCursorAgent(agentType, repoFullName, ticketNumber, defaultBranch, promptText, existingPrUrl, model)
+
+  if (!launchResult.success) {
+    await handleLaunchFailure(supabase, runId, initialProgress, res, launchResult.error)
+    return
+  }
+
+  const progressAfterLaunch = appendProgress(initialProgress, `Launched Cursor agent (${launchResult.status}).`)
+  await updateRunAfterLaunch(supabase, runId, agentType, launchResult.agentId, launchResult.status, progressAfterLaunch)
+
+  // Create initial worklog for implementation runs
+  if (agentType === 'implementation') {
+    await createInitialWorklog(supabase, ticketPk, repoFullName, displayId, progressAfterLaunch, launchResult.status)
+  }
+
+  json(res, 200, { runId, status: 'polling', cursorAgentId: launchResult.agentId })
+}
+
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   if (!validateMethod(req, res, 'POST')) {
     return
   }
 
   try {
-    const body = (await readJsonBody(req)) as {
-      agentType?: AgentType
-      repoFullName?: string
-      ticketNumber?: number
-      /** Default branch for the repo (e.g. "main"). Used when repo has no branches yet. */
-      defaultBranch?: string
-      // For QA: optionally provide branch hint (still read from ticket body if present)
-      message?: string
-      // PM only: optional conversation routing + attachments
-      conversationId?: string
-      projectId?: string
-      images?: Array<{ dataUrl: string; filename: string; mimeType: string }>
-      /** Optional Cursor Cloud Agent model (e.g. "claude-4-sonnet", "gpt-5.2"). Omit for auto-selection. */
-      model?: string
-    }
+    const body = await readJsonBody(req)
+    const parsed = parseRequestBody(body)
 
-    const agentType = determineAgentType(body.agentType)
-    // Implementation and QA: do not send model — let Cursor auto-select.
-    const model = (typeof body.model === 'string' ? body.model.trim() : '') || ''
-    const repoFullName = typeof body.repoFullName === 'string' ? body.repoFullName.trim() : ''
-    const ticketNumber = typeof body.ticketNumber === 'number' ? body.ticketNumber : null
-    // Use connected repo's default branch (empty repos have no branches until first push)
-    const defaultBranch = (typeof body.defaultBranch === 'string' ? body.defaultBranch.trim() : '') || 'main'
-    const message = typeof body.message === 'string' ? body.message.trim() : ''
-    const conversationId = typeof body.conversationId === 'string' ? body.conversationId.trim() : ''
-    const projectId = typeof body.projectId === 'string' ? body.projectId.trim() : ''
-    const images = Array.isArray(body.images) ? body.images : undefined
-
-    if (!repoFullName) {
-      json(res, 400, { error: 'repoFullName is required.' })
-      return
-    }
-
-    const needsTicket = agentType === 'implementation' || agentType === 'qa' || agentType === 'process-review'
-    if (needsTicket && (!ticketNumber || !Number.isFinite(ticketNumber))) {
-      json(res, 400, { error: 'ticketNumber is required.' })
-      return
-    }
-    if (agentType === 'project-manager' && !message) {
-      json(res, 400, { error: 'message is required for project-manager runs.' })
+    if (!validateRequest(parsed.agentType, parsed.repoFullName, parsed.ticketNumber, parsed.message, res)) {
       return
     }
 
     const supabase = getServerSupabase()
 
     // Project Manager (OpenAI) is async/streamed via agent-runs/work + agent-runs/stream.
-    if (agentType === 'project-manager') {
-      await handleProjectManagerLaunch(supabase, res, repoFullName, message, conversationId, projectId, defaultBranch, images)
+    if (parsed.agentType === 'project-manager') {
+      await handleProjectManagerLaunch(
+        supabase,
+        res,
+        parsed.repoFullName,
+        parsed.message,
+        parsed.conversationId,
+        parsed.projectId,
+        parsed.defaultBranch,
+        parsed.images
+      )
       return
     }
 
     // Fetch ticket (repo-scoped 0079)
-    const { data: ticket, error: ticketErr } = await supabase
-      .from('tickets')
-      .select('pk, repo_full_name, ticket_number, display_id, body_md, kanban_column_id')
-      .eq('repo_full_name', repoFullName)
-      .eq('ticket_number', ticketNumber)
-      .maybeSingle()
-    if (ticketErr || !ticket?.pk) {
-      json(res, 404, { error: `Ticket ${ticketNumber} not found for repo ${repoFullName}.` })
+    const ticket = await fetchTicket(supabase, parsed.repoFullName, parsed.ticketNumber!, res)
+    if (!ticket) {
       return
     }
-
-    const ticketPk = ticket.pk as string
-    const displayId = (ticket as any).display_id ?? String(ticketNumber).padStart(4, '0')
-    const bodyMd = String((ticket as any).body_md ?? '')
-    const currentColumnId = (ticket as any).kanban_column_id as string | null
 
     const halApiBaseUrl = getOrigin(req)
 
-    // Update stage to 'fetching_ticket' (0690) - ticket already fetched, but update stage for consistency
-    // Note: Run row not created yet, so we'll update after creation
-
-    // Move QA ticket from QA column to Doing when QA agent starts (0088)
-    if (agentType === 'qa' && currentColumnId === 'col-qa') {
-      await moveQATicketToDoing(supabase, repoFullName, ticketPk, displayId)
-    }
-
-    // Build prompt
-    const { goal, deliverable, criteria } = extractTicketSections(bodyMd)
-
     // Process Review (OpenAI) launch: just create run row; /work will generate streamed output.
-    if (agentType === 'process-review') {
-      await handleProcessReviewLaunch(supabase, res, repoFullName, ticketPk, ticketNumber!, displayId)
+    if (parsed.agentType === 'process-review') {
+      await handleProcessReviewLaunch(supabase, res, parsed.repoFullName, ticket.ticketPk, parsed.ticketNumber!, ticket.displayId)
       return
     }
 
-    const promptText = buildPrompt(
-      agentType,
-      repoFullName,
-      ticketNumber!,
-      displayId,
-      currentColumnId,
-      defaultBranch,
+    // Launch Cursor agent (implementation/QA)
+    await launchCursorAgentFlow(
+      supabase,
+      req,
+      res,
+      parsed.agentType,
+      parsed.repoFullName,
+      parsed.ticketNumber!,
+      ticket.ticketPk,
+      ticket.displayId,
+      ticket.bodyMd,
+      ticket.currentColumnId,
+      parsed.defaultBranch,
       halApiBaseUrl,
-      goal,
-      deliverable,
-      criteria
+      parsed.model
     )
-
-    // Create run row - start with 'preparing' stage (0690)
-    const initialProgress = appendProgress([], `Launching ${agentType} run for ${displayId}`)
-    const { data: runRow, error: runInsErr } = await supabase
-      .from('hal_agent_runs')
-      .insert({
-        agent_type: agentType,
-        repo_full_name: repoFullName,
-        ticket_pk: ticketPk,
-        ticket_number: ticketNumber,
-        display_id: displayId,
-        provider: 'cursor',
-        status: 'launching',
-        current_stage: 'preparing',
-        progress: initialProgress,
-      })
-      .select('run_id')
-      .maybeSingle()
-
-    if (runInsErr || !runRow?.run_id) {
-      json(res, 500, { error: `Failed to create run row: ${runInsErr?.message ?? 'unknown'}` })
-      return
-    }
-
-    const runId = runRow.run_id as string
-
-    // Update stage to 'fetching_ticket' (0690) - ticket was fetched before run creation
-    await updateRunStage(supabase, runId, 'fetching_ticket', appendProgress(initialProgress, 'Fetching ticket...'))
-
-    // For QA: update to 'fetching_branch' stage (0690)
-    if (agentType === 'qa') {
-      const branchMatch = bodyMd.match(/##\s*QA[^\n]*\n[\s\S]*?Branch[:\s]+([^\n]+)/i)
-      const branchName = branchMatch?.[1]?.trim()
-      if (branchName) {
-        await updateRunStage(supabase, runId, 'fetching_branch', appendProgress(initialProgress, `Finding branch: ${branchName}`))
-      } else {
-        await updateRunStage(supabase, runId, 'fetching_branch')
-      }
-    }
-
-    // For implementation: update to 'resolving_repo' stage (0690)
-    if (agentType === 'implementation') {
-      await updateRunStage(supabase, runId, 'resolving_repo', appendProgress(initialProgress, 'Resolving repository...'))
-    }
-
-    // If repo has no branches (new empty repo), create initial commit so Cursor API can run
-    const bootstrapSuccess = await handleRepositoryBootstrap(supabase, runId, initialProgress, res, req, repoFullName, defaultBranch)
-    if (!bootstrapSuccess) {
-      return
-    }
-
-    // Update stage to 'launching' (0690)
-    await supabase
-      .from('hal_agent_runs')
-      .update({
-        current_stage: 'launching',
-        status: 'launching',
-        progress: appendProgress(initialProgress, 'Launching agent...'),
-      })
-      .eq('run_id', runId)
-
-    // Launch Cursor agent
-    const existingPrUrl = agentType === 'implementation' && ticketPk ? await findExistingPrUrl(supabase, ticketPk) : null
-    const launchResult = await launchCursorAgent(agentType, repoFullName, ticketNumber!, defaultBranch, promptText, existingPrUrl, model)
-    
-    if (!launchResult.success) {
-      await handleLaunchFailure(supabase, runId, initialProgress, res, launchResult.error)
-      return
-    }
-
-    const progressAfterLaunch = appendProgress(initialProgress, `Launched Cursor agent (${launchResult.status}).`)
-    // Update stage to 'polling' (or 'running' for implementation, 'reviewing' for QA) (0690)
-    const nextStage = agentType === 'implementation' ? 'running' : 'reviewing'
-    await supabase
-      .from('hal_agent_runs')
-      .update({
-        status: 'polling',
-        current_stage: nextStage,
-        cursor_agent_id: launchResult.agentId,
-        cursor_status: launchResult.status,
-        progress: progressAfterLaunch,
-      })
-      .eq('run_id', runId)
-
-    // Create/update worklog artifact so it exists from the start (implementation runs only)
-    if (agentType === 'implementation' && ticketPk && repoFullName) {
-      await createInitialWorklog(supabase, ticketPk, repoFullName, displayId, progressAfterLaunch, launchResult.status)
-    }
-
-    json(res, 200, { runId, status: 'polling', cursorAgentId: launchResult.agentId })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     const stack = err instanceof Error ? err.stack : undefined

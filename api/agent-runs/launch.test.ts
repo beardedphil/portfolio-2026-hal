@@ -1,11 +1,14 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
   extractTicketSections,
   determineAgentType,
   generateImplementationBranchName,
   buildImplementationPrompt,
   buildQAPrompt,
+  buildPrompt,
+  findExistingPrUrl,
 } from './launch.js'
+import { getServerSupabase } from './_shared.js'
 
 describe('launch.ts helper functions', () => {
   describe('extractTicketSections', () => {
@@ -195,6 +198,106 @@ Test criteria`
       expect(prompt).toContain('POST /api/artifacts/insert-qa')
       expect(prompt).toContain('Required implementation artifacts')
       expect(prompt).toContain('How to structure and store QA reports')
+    })
+  })
+
+  describe('buildPrompt', () => {
+    it('routes to buildImplementationPrompt for implementation agent', () => {
+      const prompt = buildPrompt(
+        'implementation',
+        'test/repo',
+        123,
+        'HAL-0123',
+        'col-doing',
+        'main',
+        'https://example.com',
+        'Test goal',
+        'Test deliverable',
+        'Test criteria'
+      )
+
+      expect(prompt).toContain('Implement this ticket.')
+      expect(prompt).toContain('**agentType**: implementation')
+      expect(prompt).not.toContain('QA this ticket implementation')
+    })
+
+    it('routes to buildQAPrompt for qa agent', () => {
+      const prompt = buildPrompt(
+        'qa',
+        'test/repo',
+        123,
+        'HAL-0123',
+        'col-qa',
+        'main',
+        'https://example.com',
+        'Test goal',
+        'Test deliverable',
+        'Test criteria'
+      )
+
+      expect(prompt).toContain('QA this ticket implementation')
+      expect(prompt).toContain('**agentType**: qa')
+      expect(prompt).not.toContain('Implement this ticket.')
+    })
+  })
+
+  describe('findExistingPrUrl', () => {
+    let mockSupabase: any
+
+    beforeEach(() => {
+      mockSupabase = {
+        from: vi.fn().mockReturnThis(),
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        not: vi.fn().mockReturnThis(),
+        order: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockReturnThis(),
+      }
+    })
+
+    it('returns PR URL when one exists', async () => {
+      const mockPrUrl = 'https://github.com/test/repo/pull/123'
+      mockSupabase.limit.mockResolvedValue({
+        data: [{ pr_url: mockPrUrl, created_at: '2024-01-01T00:00:00Z' }],
+      })
+
+      const result = await findExistingPrUrl(mockSupabase, 'ticket-pk-123')
+
+      expect(result).toBe(mockPrUrl)
+      expect(mockSupabase.from).toHaveBeenCalledWith('hal_agent_runs')
+      expect(mockSupabase.eq).toHaveBeenCalledWith('ticket_pk', 'ticket-pk-123')
+    })
+
+    it('returns null when no PR exists', async () => {
+      mockSupabase.limit.mockResolvedValue({
+        data: [],
+      })
+
+      const result = await findExistingPrUrl(mockSupabase, 'ticket-pk-123')
+
+      expect(result).toBeNull()
+    })
+
+    it('returns null when PR URL is empty string', async () => {
+      mockSupabase.limit.mockResolvedValue({
+        data: [{ pr_url: '   ', created_at: '2024-01-01T00:00:00Z' }],
+      })
+
+      const result = await findExistingPrUrl(mockSupabase, 'ticket-pk-123')
+
+      expect(result).toBeNull()
+    })
+
+    it('returns most recent PR when multiple exist', async () => {
+      const recentPrUrl = 'https://github.com/test/repo/pull/456'
+      mockSupabase.limit.mockResolvedValue({
+        data: [{ pr_url: recentPrUrl, created_at: '2024-01-02T00:00:00Z' }],
+      })
+
+      const result = await findExistingPrUrl(mockSupabase, 'ticket-pk-123')
+
+      expect(result).toBe(recentPrUrl)
+      expect(mockSupabase.order).toHaveBeenCalledWith('created_at', { ascending: false })
     })
   })
 })
