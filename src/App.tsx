@@ -18,6 +18,7 @@ import { IntegrationManifestModal } from './components/IntegrationManifestModal'
 import { ContextBundleModal } from './components/ContextBundleModal'
 import { AgentRunBundleModal } from './components/AgentRunBundleModal'
 import { NoPrModal } from './components/NoPrModal'
+import { FailuresModal } from './components/FailuresModal'
 import type { ChatTarget, ToolCallRecord, TicketCreationResult } from './types/app'
 import { CHAT_OPTIONS } from './types/app'
 import { useGithub } from './hooks/useGithub'
@@ -288,6 +289,8 @@ function App() {
   /** Agent Run Bundle Builder modal (0756). */
   const [agentRunBundleModalOpen, setAgentRunBundleModalOpen] = useState<boolean>(false)
   const [agentRunBundleRunId, setAgentRunBundleRunId] = useState<string | null>(null)
+  /** Failures Library modal (HAL-0784). */
+  const [failuresModalOpen, setFailuresModalOpen] = useState<boolean>(false)
 
   useEffect(() => {
     selectedChatTargetRef.current = selectedChatTarget
@@ -688,6 +691,7 @@ function App() {
         disconnectButtonRef={disconnectButtonRef}
         onCoverageReportClick={() => setCoverageReportOpen(true)}
         onMaintainabilityReportClick={() => setMaintainabilityReportOpen(true)}
+        onFailuresClick={() => setFailuresModalOpen(true)}
       />
 
       {githubConnectError && (
@@ -999,6 +1003,13 @@ function App() {
           setAgentRunBundleRunId(null)
         }}
         runId={agentRunBundleRunId || implAgentRunId || qaAgentRunId}
+        supabaseUrl={supabaseUrl}
+        supabaseAnonKey={supabaseAnonKey}
+      />
+      {/* Failures Library Modal (HAL-0784) */}
+      <FailuresModal
+        isOpen={failuresModalOpen}
+        onClose={() => setFailuresModalOpen(false)}
         supabaseUrl={supabaseUrl}
         supabaseAnonKey={supabaseAnonKey}
       />

@@ -11,6 +11,7 @@ import { parseAcceptanceCriteria } from './_acceptance-criteria-parser.js'
 import { evaluateCiStatus, type CiStatusSummary } from '../_lib/github/checks.js'
 import { getSession } from '../_lib/github/session.js'
 import { checkDocsConsistency } from './_docs-consistency-check.js'
+import { recordFailure } from '../failures/_record-failure.js'
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   // CORS: Allow cross-origin requests (for scripts calling from different origins)
@@ -290,7 +291,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           const transitionName = await formatTransition(currentColumnId, columnId)
           
           // Store drift attempt record with AC failure
-          await supabase.from('drift_attempts').insert({
+          const driftAttemptInsert = await supabase.from('drift_attempts').insert({
             ticket_pk: resolvedTicketPk,
             transition: transitionName,
             pr_url: null,
@@ -315,7 +316,24 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             ],
             references: {},
             blocked: true,
-          })
+          }).select('id').single()
+
+          // Record failure in failure library (HAL-0784)
+          if (driftAttemptInsert.data) {
+            const driftAttemptId = driftAttemptInsert.data.id
+            await recordFailure(supabase, {
+              failure_type: 'drift',
+              root_cause: `${acStatusRecords.length} acceptance criteria item(s) are marked as unmet`,
+              prevention_candidate: 'Ensure all acceptance criteria are marked as "Met" before attempting transitions',
+              references: {
+                ticket_pk: resolvedTicketPk,
+                drift_attempt_id: driftAttemptId,
+                transition: transitionName,
+              },
+            }).catch((err) => {
+              console.warn(`[drift-gate] Failed to record failure: ${err instanceof Error ? err.message : String(err)}`)
+            })
+          }
 
           json(res, 200, {
             success: false,
@@ -360,7 +378,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         const transitionName = await formatTransition(currentColumnId, columnId)
         
         // Store drift attempt record with normalized failure reasons
-        await supabase.from('drift_attempts').insert({
+        const driftAttemptInsert2 = await supabase.from('drift_attempts').insert({
           ticket_pk: resolvedTicketPk,
           transition: transitionName,
           pr_url: null,
@@ -375,7 +393,24 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           ],
           references: {},
           blocked: true,
-        })
+        }).select('id').single()
+
+        // Record failure in failure library (HAL-0784)
+        if (driftAttemptInsert2.data) {
+          const driftAttemptId = driftAttemptInsert2.data.id
+          await recordFailure(supabase, {
+            failure_type: 'drift',
+            root_cause: 'A GitHub Pull Request must be linked to this ticket before it can be moved to this column',
+            prevention_candidate: 'Link a PR to the ticket before attempting transitions that require CI checks',
+            references: {
+              ticket_pk: resolvedTicketPk,
+              drift_attempt_id: driftAttemptId,
+              transition: transitionName,
+            },
+          }).catch((err) => {
+            console.warn(`[drift-gate] Failed to record failure: ${err instanceof Error ? err.message : String(err)}`)
+          })
+        }
 
         json(res, 200, {
           success: false,
@@ -525,7 +560,30 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       }
 
       // Store drift attempt record (single insert with all data)
-      await supabase.from('drift_attempts').insert(driftAttemptData)
+      const driftAttemptInsert3 = await supabase.from('drift_attempts').insert(driftAttemptData).select('id').single()
+
+      // Record failure in failure library if blocked (HAL-0784)
+      if (driftAttemptData.blocked && driftAttemptInsert3.data) {
+        const driftAttemptId = driftAttemptInsert3.data.id
+        const failureReasons = driftAttemptData.failure_reasons || []
+        const rootCause = failureReasons.length > 0
+          ? failureReasons.map((r: any) => r.message || r.type).join('; ')
+          : driftAttemptData.evaluation_error || 'Drift gate blocked transition'
+        
+        await recordFailure(supabase, {
+          failure_type: 'drift',
+          root_cause: rootCause,
+          prevention_candidate: 'Fix CI checks, resolve docs inconsistencies, or address other blocking issues before attempting transitions',
+          references: {
+            ticket_pk: resolvedTicketPk,
+            drift_attempt_id: driftAttemptId,
+            transition: transitionName,
+            pr_url: driftAttemptData.pr_url,
+          },
+        }).catch((err) => {
+          console.warn(`[drift-gate] Failed to record failure: ${err instanceof Error ? err.message : String(err)}`)
+        })
+      }
 
       // Block transition if CI is failing
       if (!('error' in ciStatus) && ciStatus.overall === 'failing') {

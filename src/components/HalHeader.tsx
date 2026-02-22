@@ -13,6 +13,7 @@ interface HalHeaderProps {
   disconnectButtonRef: React.RefObject<HTMLButtonElement>
   onCoverageReportClick: () => void
   onMaintainabilityReportClick: () => void
+  onFailuresClick: () => void
 }
 
 export function HalHeader({
@@ -25,6 +26,7 @@ export function HalHeader({
   disconnectButtonRef,
   onCoverageReportClick,
   onMaintainabilityReportClick,
+  onFailuresClick,
 }: HalHeaderProps) {
   return (
     <header className="hal-header">
@@ -76,6 +78,16 @@ export function HalHeader({
                 </div>
                 {/* Maintainability badge on the right (0699) */}
                 <MaintainabilityBadge onClick={onMaintainabilityReportClick} />
+                {/* Diagnostics button (HAL-0784) */}
+                <button
+                  type="button"
+                  className="btn-standard"
+                  onClick={onFailuresClick}
+                  style={{ marginLeft: '12px' }}
+                  title="View failures library"
+                >
+                  Diagnostics → Failures
+                </button>
               </>
             )}
           </>
