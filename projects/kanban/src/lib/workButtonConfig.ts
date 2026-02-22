@@ -20,12 +20,8 @@ export type WorkButtonConfig =
  * Determines if a column should show a work button
  */
 export function shouldShowWorkButton(columnId: string): boolean {
-  return (
-    columnId === 'col-unassigned' ||
-    columnId === 'col-todo' ||
-    columnId === 'col-qa' ||
-    columnId === 'col-process-review'
-  )
+  // Only To-do column shows a work button (HAL-0802: removed buttons from Unassigned, Ready for QA, and Process Review)
+  return columnId === 'col-todo'
 }
 
 /**
