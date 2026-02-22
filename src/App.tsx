@@ -14,6 +14,7 @@ import { KanbanErrorBanner } from './components/KanbanErrorBanner'
 import { PmChatWidgetButton } from './components/PmChatWidgetButton'
 import { CoverageReportModal } from './components/CoverageReportModal'
 import { MaintainabilityReportModal } from './components/MaintainabilityReportModal'
+import { DiagnosticsModal } from './components/DiagnosticsModal'
 import { IntegrationManifestModal } from './components/IntegrationManifestModal'
 import { ContextBundleModal } from './components/ContextBundleModal'
 import { AgentRunBundleModal } from './components/AgentRunBundleModal'
@@ -280,6 +281,8 @@ function App() {
   /** Coverage and Maintainability report modals (0693). */
   const [coverageReportOpen, setCoverageReportOpen] = useState<boolean>(false)
   const [maintainabilityReportOpen, setMaintainabilityReportOpen] = useState<boolean>(false)
+  /** Diagnostics modal (0781). */
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState<boolean>(false)
   /** Integration Manifest modal (0773). */
   const [integrationManifestOpen, setIntegrationManifestOpen] = useState<boolean>(false)
   const [contextBundleModalOpen, setContextBundleModalOpen] = useState<boolean>(false)
@@ -688,6 +691,7 @@ function App() {
         disconnectButtonRef={disconnectButtonRef}
         onCoverageReportClick={() => setCoverageReportOpen(true)}
         onMaintainabilityReportClick={() => setMaintainabilityReportOpen(true)}
+        onDiagnosticsClick={() => setDiagnosticsOpen(true)}
       />
 
       {githubConnectError && (
@@ -1001,6 +1005,15 @@ function App() {
         runId={agentRunBundleRunId || implAgentRunId || qaAgentRunId}
         supabaseUrl={supabaseUrl}
         supabaseAnonKey={supabaseAnonKey}
+      />
+
+      {/* Diagnostics Modal (0781) */}
+      <DiagnosticsModal
+        isOpen={diagnosticsOpen}
+        onClose={() => setDiagnosticsOpen(false)}
+        supabaseUrl={supabaseUrl}
+        supabaseAnonKey={supabaseAnonKey}
+        openaiApiKey={process.env.VITE_OPENAI_API_KEY || null}
       />
     </div>
   )
