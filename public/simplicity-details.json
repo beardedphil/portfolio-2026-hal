@@ -42,7 +42,7 @@
     },
     {
       "file": "api/tickets/move.ts",
-      "maintainability": 5.3
+      "maintainability": 2.46
     },
     {
       "file": "agents/src/agents/projectManager.ts",
@@ -125,8 +125,8 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-22T01:20:56.365Z",
-  "filesAnalyzed": 343,
+  "generatedAt": "2026-02-22T01:27:47.478Z",
+  "filesAnalyzed": 344,
   "unroundedMaintainability": 33.4,
   "unroundedSimplicity": 33.4
 }
