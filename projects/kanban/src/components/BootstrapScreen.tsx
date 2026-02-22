@@ -10,21 +10,11 @@ interface BootstrapScreenProps {
 }
 
 interface SupabaseProjectInfo {
-  id: string
-  project_id: string
-  repo_full_name: string | null
-  supabase_project_ref: string
-  supabase_project_id: string | null
-  supabase_api_url: string
+  project_ref: string
+  project_url: string
   status: string
   created_at: string
   updated_at: string
-  created_by: string | null
-  error_summary: string | null
-  error_details: string | null
-  anon_key_masked: string
-  service_role_key_masked: string
-  database_password_masked: string | null
 }
 
 export function BootstrapScreen({
@@ -39,11 +29,9 @@ export function BootstrapScreen({
   const [error, setError] = useState<string | null>(null)
   const [expandedErrorStep, setExpandedErrorStep] = useState<string | null>(null)
   const [polling, setPolling] = useState(false)
-  const [supabaseProject, setSupabaseProject] = useState<SupabaseProjectInfo | null>(null)
-  const [supabaseManagementApiToken, setSupabaseManagementApiToken] = useState('')
-  const [organizationId, setOrganizationId] = useState('')
-  const [projectName, setProjectName] = useState('')
-  const [region, setRegion] = useState('us-east-1')
+  const [supabaseManagementToken, setSupabaseManagementToken] = useState('')
+  const [supabaseOrganizationId, setSupabaseOrganizationId] = useState('')
+  const [supabaseProjectInfo, setSupabaseProjectInfo] = useState<SupabaseProjectInfo | null>(null)
 
   const loadBootstrapRun = useCallback(async () => {
     try {
@@ -76,37 +64,11 @@ export function BootstrapScreen({
     }
   }, [projectId, supabaseUrl, supabaseAnonKey, apiBaseUrl])
 
-  // Load Supabase project metadata
-  const loadSupabaseProject = useCallback(async () => {
-    try {
-      const response = await fetch(`${apiBaseUrl}/api/bootstrap/supabase-project`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectId,
-          supabaseUrl,
-          supabaseAnonKey,
-        }),
-      })
-
-      const result = await response.json()
-
-      if (result.success && result.project) {
-        setSupabaseProject(result.project)
-      } else {
-        setSupabaseProject(null)
-      }
-    } catch (err) {
-      // Silently fail - project may not exist yet
-      setSupabaseProject(null)
-    }
-  }, [projectId, supabaseUrl, supabaseAnonKey, apiBaseUrl])
-
   // Load bootstrap run on mount and when projectId changes
   useEffect(() => {
     loadBootstrapRun()
-    loadSupabaseProject()
-  }, [projectId, loadBootstrapRun, loadSupabaseProject])
+    loadSupabaseProjectInfo()
+  }, [projectId, loadBootstrapRun, loadSupabaseProjectInfo])
 
   // Poll for status updates when run is active
   useEffect(() => {
@@ -160,36 +122,54 @@ export function BootstrapScreen({
     }
   }, [projectId, supabaseUrl, supabaseAnonKey, apiBaseUrl])
 
+  const loadSupabaseProjectInfo = useCallback(async () => {
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/bootstrap/supabase-project`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId,
+          supabaseUrl,
+          supabaseAnonKey,
+        }),
+      })
+
+      const result = await response.json()
+      if (result.success && result.project) {
+        setSupabaseProjectInfo(result.project)
+      } else {
+        setSupabaseProjectInfo(null)
+      }
+    } catch (err) {
+      // Silently fail - project may not exist yet
+      setSupabaseProjectInfo(null)
+    }
+  }, [projectId, supabaseUrl, supabaseAnonKey, apiBaseUrl])
+
   const executeNextStep = useCallback(
     async (runId: string) => {
       try {
-        // Prepare step parameters based on current step
-        const stepParams: any = {
+        const stepBody: any = {
           runId,
           supabaseUrl,
           supabaseAnonKey,
         }
 
-        // Add Supabase Management API parameters for create_supabase_project step
-        if (run?.current_step === 'create_supabase_project') {
-          if (supabaseManagementApiToken) {
-            stepParams.supabaseManagementApiToken = supabaseManagementApiToken
+        // Add Supabase Management API context for create_supabase_project step
+        const currentStep = run?.current_step
+        if (currentStep === 'create_supabase_project') {
+          if (supabaseManagementToken) {
+            stepBody.supabaseManagementToken = supabaseManagementToken
           }
-          if (organizationId) {
-            stepParams.organizationId = organizationId
-          }
-          if (projectName) {
-            stepParams.projectName = projectName
-          }
-          if (region) {
-            stepParams.region = region
+          if (supabaseOrganizationId) {
+            stepBody.supabaseOrganizationId = supabaseOrganizationId
           }
         }
 
         const response = await fetch(`${apiBaseUrl}/api/bootstrap/step`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(stepParams),
+          body: JSON.stringify(stepBody),
         })
 
         const result = await response.json()
@@ -197,36 +177,29 @@ export function BootstrapScreen({
         if (!result.success) {
           setError(result.error || 'Failed to execute step')
           await loadBootstrapRun()
-          await loadSupabaseProject()
           return
         }
 
         setRun(result.run)
 
-        // Reload Supabase project info if create_supabase_project step succeeded
-        if (result.stepResult?.stepId === 'create_supabase_project' && result.stepResult.success) {
-          await loadSupabaseProject()
+        // If create_supabase_project step succeeded, load project info
+        if (result.stepResult?.success && currentStep === 'create_supabase_project') {
+          await loadSupabaseProjectInfo()
         }
 
         // If step succeeded and there are more steps, continue
-        // Skip auto-execution for create_supabase_project if it requires manual input
         if (result.stepResult.success && result.run.status === 'running') {
-          const nextStep = result.run.current_step
-          // Don't auto-execute create_supabase_project - it requires user input
-          if (nextStep !== 'create_supabase_project') {
-            // Wait a bit before executing next step
-            setTimeout(() => {
-              executeNextStep(runId)
-            }, 500)
-          }
+          // Wait a bit before executing next step
+          setTimeout(() => {
+            executeNextStep(runId)
+          }, 500)
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to execute step')
         await loadBootstrapRun()
-        await loadSupabaseProject()
       }
     },
-    [supabaseUrl, supabaseAnonKey, apiBaseUrl, loadBootstrapRun, loadSupabaseProject, run, supabaseManagementApiToken, organizationId, projectName, region]
+    [supabaseUrl, supabaseAnonKey, apiBaseUrl, loadBootstrapRun, run?.current_step, supabaseManagementToken, supabaseOrganizationId, loadSupabaseProjectInfo]
   )
 
   const retryStep = useCallback(
@@ -310,15 +283,59 @@ export function BootstrapScreen({
         )}
 
         {!run && (
-          <div className="modal-actions" style={{ marginBottom: '1rem' }}>
-            <button
-              type="button"
-              className="primary btn-standard"
-              onClick={startBootstrap}
-              disabled={loading}
-            >
-              {loading ? 'Starting...' : 'Start bootstrap'}
-            </button>
+          <div style={{ marginBottom: '1rem' }}>
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+                Supabase Management API Token
+              </label>
+              <input
+                type="password"
+                value={supabaseManagementToken}
+                onChange={(e) => setSupabaseManagementToken(e.target.value)}
+                placeholder="sbp_..."
+                style={{
+                  width: '100%',
+                  padding: '0.5rem',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  fontSize: '0.9rem',
+                }}
+              />
+              <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#666' }}>
+                Generate a Personal Access Token from your Supabase account settings
+              </p>
+            </div>
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+                Organization ID
+              </label>
+              <input
+                type="text"
+                value={supabaseOrganizationId}
+                onChange={(e) => setSupabaseOrganizationId(e.target.value)}
+                placeholder="org_..."
+                style={{
+                  width: '100%',
+                  padding: '0.5rem',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  fontSize: '0.9rem',
+                }}
+              />
+              <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#666' }}>
+                Find your organization ID in your Supabase organization settings
+              </p>
+            </div>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="primary btn-standard"
+                onClick={startBootstrap}
+                disabled={loading || !supabaseManagementToken || !supabaseOrganizationId}
+              >
+                {loading ? 'Starting...' : 'Start bootstrap'}
+              </button>
+            </div>
           </div>
         )}
 
@@ -385,162 +402,6 @@ export function BootstrapScreen({
                         </div>
                         <p style={{ margin: '0.5rem 0 0 0', color: '#666', fontSize: '0.9rem' }}>{stepDef.description}</p>
 
-                        {/* Show input fields for create_supabase_project step when pending */}
-                        {stepDef.id === 'create_supabase_project' && status === 'pending' && (
-                          <div style={{ marginTop: '1rem', padding: '1rem', background: '#f9f9f9', borderRadius: '4px' }}>
-                            <h4 style={{ marginBottom: '0.75rem', fontSize: '0.9rem' }}>Supabase Project Configuration</h4>
-                            <p style={{ marginBottom: '0.75rem', fontSize: '0.85rem', color: '#666' }}>
-                              Fill in the required fields below and click "Create Supabase Project" to proceed.
-                            </p>
-                            <div style={{ marginBottom: '0.75rem' }}>
-                              <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.85rem', fontWeight: 'bold' }}>
-                                Supabase Management API Token *
-                              </label>
-                              <input
-                                type="password"
-                                value={supabaseManagementApiToken}
-                                onChange={(e) => setSupabaseManagementApiToken(e.target.value)}
-                                placeholder="Enter your Supabase Management API token"
-                                style={{
-                                  width: '100%',
-                                  padding: '0.5rem',
-                                  border: '1px solid #ddd',
-                                  borderRadius: '4px',
-                                  fontSize: '0.9rem',
-                                }}
-                              />
-                              <p style={{ marginTop: '0.25rem', fontSize: '0.75rem', color: '#666' }}>
-                                Get your token from{' '}
-                                <a href="https://supabase.com/dashboard/account/tokens" target="_blank" rel="noopener noreferrer">
-                                  Supabase Account Settings
-                                </a>
-                              </p>
-                            </div>
-                            <div style={{ marginBottom: '0.75rem' }}>
-                              <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.85rem', fontWeight: 'bold' }}>
-                                Organization ID *
-                              </label>
-                              <input
-                                type="text"
-                                value={organizationId}
-                                onChange={(e) => setOrganizationId(e.target.value)}
-                                placeholder="Enter your Supabase organization ID"
-                                style={{
-                                  width: '100%',
-                                  padding: '0.5rem',
-                                  border: '1px solid #ddd',
-                                  borderRadius: '4px',
-                                  fontSize: '0.9rem',
-                                }}
-                              />
-                            </div>
-                            <div style={{ marginBottom: '0.75rem' }}>
-                              <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.85rem', fontWeight: 'bold' }}>
-                                Project Name (optional)
-                              </label>
-                              <input
-                                type="text"
-                                value={projectName}
-                                onChange={(e) => setProjectName(e.target.value)}
-                                placeholder={`Default: hal-${projectId.replace(/[^a-z0-9-]/gi, '-').toLowerCase()}`}
-                                style={{
-                                  width: '100%',
-                                  padding: '0.5rem',
-                                  border: '1px solid #ddd',
-                                  borderRadius: '4px',
-                                  fontSize: '0.9rem',
-                                }}
-                              />
-                            </div>
-                            <div>
-                              <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.85rem', fontWeight: 'bold' }}>
-                                Region (optional)
-                              </label>
-                              <select
-                                value={region}
-                                onChange={(e) => setRegion(e.target.value)}
-                                style={{
-                                  width: '100%',
-                                  padding: '0.5rem',
-                                  border: '1px solid #ddd',
-                                  borderRadius: '4px',
-                                  fontSize: '0.9rem',
-                                }}
-                              >
-                                <option value="us-east-1">US East (N. Virginia)</option>
-                                <option value="us-east-2">US East (Ohio)</option>
-                                <option value="us-west-1">US West (N. California)</option>
-                                <option value="us-west-2">US West (Oregon)</option>
-                                <option value="eu-west-1">EU West (Ireland)</option>
-                                <option value="eu-west-2">EU West (London)</option>
-                                <option value="eu-central-1">EU Central (Frankfurt)</option>
-                                <option value="ap-southeast-1">Asia Pacific (Singapore)</option>
-                                <option value="ap-northeast-1">Asia Pacific (Tokyo)</option>
-                              </select>
-                            </div>
-                            <button
-                              type="button"
-                              className="primary btn-standard"
-                              onClick={() => {
-                                if (!supabaseManagementApiToken || !organizationId) {
-                                  setError('Please provide both Supabase Management API token and Organization ID')
-                                  return
-                                }
-                                if (run) {
-                                  executeNextStep(run.id)
-                                }
-                              }}
-                              disabled={loading || !supabaseManagementApiToken || !organizationId}
-                              style={{ marginTop: '0.75rem', width: '100%' }}
-                            >
-                              {loading ? 'Creating...' : 'Create Supabase Project'}
-                            </button>
-                          </div>
-                        )}
-
-                        {/* Show success state for create_supabase_project step */}
-                        {stepDef.id === 'create_supabase_project' && status === 'succeeded' && supabaseProject && (
-                          <div style={{ marginTop: '1rem', padding: '1rem', background: '#e8f5e9', borderRadius: '4px', border: '1px solid #4caf50' }}>
-                            <h4 style={{ marginBottom: '0.75rem', fontSize: '0.9rem', color: '#2e7d32' }}>
-                              ✓ Supabase Project Created Successfully
-                            </h4>
-                            <div style={{ fontSize: '0.85rem' }}>
-                              <div style={{ marginBottom: '0.5rem' }}>
-                                <strong>Project Ref:</strong> {supabaseProject.supabase_project_ref}
-                              </div>
-                              <div style={{ marginBottom: '0.5rem' }}>
-                                <strong>API URL:</strong>{' '}
-                                <a href={supabaseProject.supabase_api_url} target="_blank" rel="noopener noreferrer">
-                                  {supabaseProject.supabase_api_url}
-                                </a>
-                              </div>
-                              <div style={{ marginBottom: '0.5rem' }}>
-                                <strong>Status:</strong> {supabaseProject.status}
-                                {supabaseProject.created_at && (
-                                  <span style={{ marginLeft: '0.5rem', color: '#666' }}>
-                                    (Created: {new Date(supabaseProject.created_at).toLocaleString()})
-                                  </span>
-                                )}
-                              </div>
-                              <div style={{ marginTop: '0.75rem', padding: '0.75rem', background: '#fff', borderRadius: '4px' }}>
-                                <div style={{ marginBottom: '0.5rem' }}>
-                                  <strong>Anon Key:</strong> <span style={{ fontFamily: 'monospace' }}>{supabaseProject.anon_key_masked}</span>
-                                </div>
-                                <div style={{ marginBottom: '0.5rem' }}>
-                                  <strong>Service Role Key:</strong>{' '}
-                                  <span style={{ fontFamily: 'monospace' }}>{supabaseProject.service_role_key_masked}</span>
-                                </div>
-                                {supabaseProject.database_password_masked && (
-                                  <div>
-                                    <strong>Database Password:</strong>{' '}
-                                    <span style={{ fontFamily: 'monospace' }}>{supabaseProject.database_password_masked}</span>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
                         {hasError && stepRecord && (
                           <div style={{ marginTop: '0.75rem' }}>
                             <div style={{ padding: '0.75rem', background: '#fff3cd', borderRadius: '4px', marginBottom: '0.5rem' }}>
@@ -585,6 +446,37 @@ export function BootstrapScreen({
                 )
               })}
             </div>
+
+            {supabaseProjectInfo && (
+              <div style={{ marginTop: '1.5rem', padding: '1rem', background: '#e8f5e9', borderRadius: '4px', border: '1px solid #4caf50' }}>
+                <h3 style={{ marginTop: 0, marginBottom: '0.75rem' }}>Supabase Project</h3>
+                <div style={{ marginBottom: '0.5rem' }}>
+                  <strong>Status:</strong> {supabaseProjectInfo.status === 'created' ? 'Created' : supabaseProjectInfo.status === 'failed' ? 'Failed' : 'Not configured'}
+                </div>
+                <div style={{ marginBottom: '0.5rem' }}>
+                  <strong>Project Ref:</strong> {supabaseProjectInfo.project_ref}
+                </div>
+                <div style={{ marginBottom: '0.5rem' }}>
+                  <strong>Project URL:</strong>{' '}
+                  <a href={supabaseProjectInfo.project_url} target="_blank" rel="noopener noreferrer" style={{ color: '#1976d2' }}>
+                    {supabaseProjectInfo.project_url}
+                  </a>
+                </div>
+                <div style={{ marginBottom: '0.5rem' }}>
+                  <strong>Created:</strong> {new Date(supabaseProjectInfo.created_at).toLocaleString()}
+                </div>
+                <div style={{ marginTop: '0.75rem', padding: '0.75rem', background: '#fff', borderRadius: '4px', border: '1px solid #ddd' }}>
+                  <div style={{ marginBottom: '0.5rem' }}>
+                    <strong>Anon Key:</strong> <span style={{ fontFamily: 'monospace', color: '#666' }}>••••••••••••••••</span>{' '}
+                    <span style={{ color: '#4caf50', fontSize: '0.85rem' }}>✓ Stored securely</span>
+                  </div>
+                  <div>
+                    <strong>Service Role Key:</strong> <span style={{ fontFamily: 'monospace', color: '#666' }}>••••••••••••••••</span>{' '}
+                    <span style={{ color: '#4caf50', fontSize: '0.85rem' }}>✓ Stored securely</span>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {run.logs && run.logs.length > 0 && (
               <div style={{ marginTop: '1.5rem' }}>

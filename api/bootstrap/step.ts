@@ -10,7 +10,7 @@ import {
   allStepsCompleted,
   type BootstrapStepId,
 } from './_shared.js'
-import { createSupabaseProject, fetchSupabaseProjectApiKeys } from '../_lib/supabase-management-api.js'
+import { createSupabaseProject } from './_supabase-management.js'
 import { encryptSecret } from '../_lib/encryption.js'
 
 /**
@@ -20,12 +20,12 @@ async function executeStep(
   stepId: BootstrapStepId,
   projectId: string,
   runId: string,
-  supabase: any,
-  stepParams?: {
-    supabaseManagementApiToken?: string
-    organizationId?: string
-    projectName?: string
-    region?: string
+  supabase: ReturnType<typeof createClient>,
+  context?: {
+    supabaseManagementToken?: string
+    supabaseOrganizationId?: string
+    supabaseProjectName?: string
+    supabaseRegion?: string
   }
 ): Promise<{ success: boolean; error?: string; errorDetails?: string }> {
   switch (stepId) {
@@ -35,136 +35,112 @@ async function executeStep(
       await new Promise((resolve) => setTimeout(resolve, 1000))
       return { success: true }
 
-    case 'create_supabase_project': {
-      // Validate required parameters
-      if (!stepParams?.supabaseManagementApiToken) {
-        return {
-          success: false,
-          error: 'Supabase Management API token is required',
-          errorDetails: 'Please provide a valid Supabase Management API token to create a project.',
-        }
-      }
-
-      if (!stepParams?.organizationId) {
-        return {
-          success: false,
-          error: 'Organization ID is required',
-          errorDetails: 'Please provide a valid Supabase organization ID to create a project.',
-        }
-      }
-
+    case 'create_supabase_project':
       try {
-        // Generate project name from projectId if not provided
-        const projectName = stepParams.projectName || `hal-${projectId.replace(/[^a-z0-9-]/gi, '-').toLowerCase()}`
-        const region = stepParams.region || 'us-east-1'
+        // Validate required context
+        if (!context?.supabaseManagementToken) {
+          return {
+            success: false,
+            error: 'Supabase Management API token is required',
+            errorDetails: 'Please provide a valid Supabase Management API token to create a project.',
+          }
+        }
+
+        if (!context?.supabaseOrganizationId) {
+          return {
+            success: false,
+            error: 'Organization ID is required',
+            errorDetails: 'Please provide a Supabase organization ID to create a project.',
+          }
+        }
+
+        // Generate project name if not provided
+        const projectName = context.supabaseProjectName || `${projectId}-${Date.now()}`
+        const region = context.supabaseRegion || 'us-east-1'
 
         // Create Supabase project via Management API
-        const projectInfo = await createSupabaseProject(
-          stepParams.supabaseManagementApiToken,
+        const { project, apiKeys } = await createSupabaseProject(
+          context.supabaseManagementToken,
           projectName,
-          stepParams.organizationId,
+          context.supabaseOrganizationId,
           region
         )
 
-        // Fetch API keys for the project
-        const apiKeys = await fetchSupabaseProjectApiKeys(
-          stepParams.supabaseManagementApiToken,
-          projectInfo.projectRef
-        )
+        // Construct project URL
+        const projectUrl = `https://${project.ref}.supabase.co`
 
-        // Encrypt the keys before storing
+        // Encrypt sensitive credentials
         const encryptedAnonKey = encryptSecret(apiKeys.anon_key)
         const encryptedServiceRoleKey = encryptSecret(apiKeys.service_role_key)
 
-        // Check if a project already exists for this project_id
-        const { data: existingProject } = await supabase
+        // Store project metadata in database
+        const { error: storeError } = await supabase
           .from('supabase_projects')
-          .select('id')
-          .eq('project_id', projectId)
-          .maybeSingle()
+          .upsert(
+            {
+              repo_full_name: projectId,
+              project_ref: project.ref,
+              project_url: projectUrl,
+              encrypted_anon_key: encryptedAnonKey,
+              encrypted_service_role_key: encryptedServiceRoleKey,
+              status: 'created',
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'repo_full_name' }
+          )
 
-        const projectData = {
-          project_id: projectId,
-          supabase_project_ref: projectInfo.projectRef,
-          supabase_project_id: projectInfo.projectId,
-          supabase_api_url: projectInfo.apiUrl,
-          encrypted_anon_key: encryptedAnonKey,
-          encrypted_service_role_key: encryptedServiceRoleKey,
-          status: 'created',
-          created_by: 'bootstrap',
-        }
-
-        if (existingProject) {
-          // Update existing project
-          const { error: updateError } = await supabase
-            .from('supabase_projects')
-            .update(projectData)
-            .eq('id', existingProject.id)
-
-          if (updateError) {
-            return {
-              success: false,
-              error: 'Failed to update Supabase project metadata',
-              errorDetails: `Database error: ${updateError.message}`,
-            }
-          }
-        } else {
-          // Insert new project
-          const { error: insertError } = await supabase
-            .from('supabase_projects')
-            .insert(projectData)
-
-          if (insertError) {
-            return {
-              success: false,
-              error: 'Failed to store Supabase project metadata',
-              errorDetails: `Database error: ${insertError.message}`,
-            }
+        if (storeError) {
+          return {
+            success: false,
+            error: 'Failed to store project metadata',
+            errorDetails: `Database error: ${storeError.message}`,
           }
         }
 
+        // Success - project created and stored
         return { success: true }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err)
         
-        // Store failure state in database (optional, for auditability)
-        const { data: existingProject } = await supabase
-          .from('supabase_projects')
-          .select('id')
-          .eq('project_id', projectId)
-          .maybeSingle()
-
-        const failureData = {
-          project_id: projectId,
-          status: 'failed',
-          error_summary: errorMessage,
-          error_details: err instanceof Error ? err.stack : undefined,
+        // Determine error type for better user messaging
+        if (errorMessage.includes('Invalid') || errorMessage.includes('token')) {
+          return {
+            success: false,
+            error: 'Invalid Supabase Management API token',
+            errorDetails: errorMessage,
+          }
         }
-
-        if (existingProject) {
-          await supabase
-            .from('supabase_projects')
-            .update(failureData)
-            .eq('id', existingProject.id)
-        } else {
-          await supabase
-            .from('supabase_projects')
-            .insert({
-              ...failureData,
-              supabase_project_ref: '', // Placeholder
-              supabase_api_url: '', // Placeholder
-              encrypted_anon_key: '', // Placeholder
-              encrypted_service_role_key: '', // Placeholder
-            })
+        
+        if (errorMessage.includes('Permission denied') || errorMessage.includes('403')) {
+          return {
+            success: false,
+            error: 'Permission denied',
+            errorDetails: errorMessage,
+          }
+        }
+        
+        if (errorMessage.includes('Rate limit') || errorMessage.includes('429')) {
+          return {
+            success: false,
+            error: 'Rate limit exceeded',
+            errorDetails: errorMessage,
+          }
+        }
+        
+        if (errorMessage.includes('network') || errorMessage.includes('fetch')) {
+          return {
+            success: false,
+            error: 'Network error',
+            errorDetails: errorMessage,
+          }
         }
 
         return {
           success: false,
-          error: errorMessage,
-          errorDetails: err instanceof Error ? err.stack : undefined,
+          error: 'Failed to create Supabase project',
+          errorDetails: errorMessage,
         }
       }
-    }
 
     case 'create_vercel_project':
       // TODO (T5): Implement create_vercel_project via Vercel API
@@ -209,10 +185,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       stepId?: string
       supabaseUrl?: string
       supabaseAnonKey?: string
-      supabaseManagementApiToken?: string
-      organizationId?: string
-      projectName?: string
-      region?: string
+      supabaseManagementToken?: string
+      supabaseOrganizationId?: string
+      supabaseProjectName?: string
+      supabaseRegion?: string
     }
 
     const runId = typeof body.runId === 'string' ? body.runId.trim() : undefined
@@ -303,14 +279,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       })
       .eq('id', runId)
 
-    // Execute the step with step-specific parameters
-    const stepParams = {
-      supabaseManagementApiToken: body.supabaseManagementApiToken,
-      organizationId: body.organizationId,
-      projectName: body.projectName,
-      region: body.region,
+    // Execute the step with context
+    const stepContext = {
+      supabaseManagementToken: typeof body.supabaseManagementToken === 'string' ? body.supabaseManagementToken.trim() : undefined,
+      supabaseOrganizationId: typeof body.supabaseOrganizationId === 'string' ? body.supabaseOrganizationId.trim() : undefined,
+      supabaseProjectName: typeof body.supabaseProjectName === 'string' ? body.supabaseProjectName.trim() : undefined,
+      supabaseRegion: typeof body.supabaseRegion === 'string' ? body.supabaseRegion.trim() : undefined,
     }
-    const stepResult = await executeStep(stepId, run.project_id, runId, supabase, stepParams)
+    const stepResult = await executeStep(stepId, run.project_id, runId, supabase, stepContext)
 
     // Update step with result
     const completedStepHistory = updateStepRecord(runningStepHistory, stepId, {
