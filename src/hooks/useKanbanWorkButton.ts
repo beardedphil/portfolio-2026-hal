@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useRef, useEffect } from 'react'
 import { routeKanbanWorkButtonClick, type KanbanWorkButtonPayload } from '../lib/kanbanWorkButtonRouting'
 import type { ChatTarget } from '../types/app'
 import type { KanbanTicketRow } from 'portfolio-2026-kanban'
@@ -34,6 +34,13 @@ export function useKanbanWorkButton({
   setSelectedConversationId,
   setLastWorkButtonClick,
 }: UseKanbanWorkButtonParams) {
+  // Use a ref to always access the latest kanbanTickets value, avoiding stale closure issues
+  // This fixes the flaky behavior where the first click fails with "assigning to a constant variable" error
+  const kanbanTicketsRef = useRef<KanbanTicketRow[]>(kanbanTickets)
+  useEffect(() => {
+    kanbanTicketsRef.current = kanbanTickets
+  }, [kanbanTickets])
+
   /** Kanban work button: trigger correct Cursor agent run (HAL-0700). */
   const handleKanbanOpenChatAndSend = useCallback(
     async (data: { chatTarget: ChatTarget; message: string; ticketPk?: string }) => {
@@ -56,7 +63,13 @@ export function useKanbanWorkButton({
         triggerAgentRun: (content, target, conversationId) => triggerAgentRun(content, target, undefined, conversationId),
         moveTicketToDoingIfNeeded: async ({ ticketPk, chatTarget }) => {
           if (chatTarget !== 'implementation-agent' && chatTarget !== 'qa-agent') return
-          const doingCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-doing').length
+          // Use ref to get latest tickets value, avoiding stale closure that causes flaky behavior
+          const currentTickets = kanbanTicketsRef.current
+          if (!Array.isArray(currentTickets)) {
+            console.warn('[HAL] kanbanTickets is not an array, using empty array as fallback')
+            return
+          }
+          const doingCount = currentTickets.filter((t) => t.kanban_column_id === 'col-doing').length
           // Implement top ticket should not be blocked by "no PR linked" gating;
           // the Implementation Agent run is configured to auto-create the PR.
           if (chatTarget === 'implementation-agent' && handleKanbanMoveTicketAllowWithoutPr) {
@@ -70,7 +83,6 @@ export function useKanbanWorkButton({
     [
       triggerAgentRun,
       getDefaultConversationId,
-      kanbanTickets,
       handleKanbanMoveTicket,
       handleKanbanMoveTicketAllowWithoutPr,
       pmChatWidgetOpen,

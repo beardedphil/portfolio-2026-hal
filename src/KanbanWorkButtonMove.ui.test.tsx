@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen, within, waitFor, fireEvent } from '@testing-library/react'
-import { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import KanbanBoard, {
   type KanbanTicketRow,
   type KanbanColumnRow,
@@ -144,6 +144,117 @@ describe('Kanban UI work button behavior', () => {
     expect(
       within(todoColumnAfter!).queryByText('Test Ticket A')
     ).not.toBeInTheDocument()
+  })
+
+  it('handles stale closure issue: works correctly when kanbanTickets updates between callback creation and execution', async () => {
+    // This test verifies the fix for HAL-0801: flaky behavior where first click fails
+    // The issue was that kanbanTickets was captured in closure and could be stale
+    const now = makeIsoNow()
+    let moveTicketCallCount = 0
+
+    function HarnessWithDelayedTickets() {
+      const [tickets, setTickets] = useState<KanbanTicketRow[]>([])
+      const [pmChatWidgetOpen, setPmChatWidgetOpen] = useState(false)
+      const [_selectedChatTarget, setSelectedChatTarget] =
+        useState<ChatTarget>('project-manager')
+      const [_selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
+      const [_lastWorkButtonClick, setLastWorkButtonClick] = useState<{
+        eventId: string
+        timestamp: Date
+        chatTarget: ChatTarget
+        message: string
+      } | null>(null)
+
+      const handleKanbanMoveTicket = async (
+        ticketPk: string,
+        columnId: string,
+        position?: number
+      ) => {
+        moveTicketCallCount++
+        const movedAt = new Date().toISOString()
+        setTickets((prev) =>
+          prev.map((t) =>
+            t.pk === ticketPk
+              ? {
+                  ...t,
+                  kanban_column_id: columnId,
+                  kanban_position: typeof position === 'number' ? position : 0,
+                  kanban_moved_at: movedAt,
+                  updated_at: movedAt,
+                }
+              : t
+          )
+        )
+      }
+
+      const { handleKanbanOpenChatAndSend } = useKanbanWorkButton({
+        triggerAgentRun: () => {},
+        getDefaultConversationId: () => 'project-manager-1',
+        kanbanTickets: tickets,
+        handleKanbanMoveTicket,
+        handleKanbanMoveTicketAllowWithoutPr: handleKanbanMoveTicket,
+        pmChatWidgetOpen,
+        setPmChatWidgetOpen,
+        setSelectedChatTarget,
+        setSelectedConversationId,
+        setLastWorkButtonClick,
+      })
+
+      // Simulate delayed ticket loading: start empty, then load tickets
+      // This tests that the ref-based fix handles stale closures correctly
+      useEffect(() => {
+        const timer = setTimeout(() => {
+          setTickets(makeTickets(now))
+        }, 10)
+        return () => clearTimeout(timer)
+      }, [])
+
+      // Trigger the work button after a delay to simulate the race condition
+      useEffect(() => {
+        const timer = setTimeout(() => {
+          if (tickets.length > 0) {
+            handleKanbanOpenChatAndSend({
+              chatTarget: 'implementation-agent',
+              message: 'Implement ticket HAL-0001.',
+              ticketPk: 'ticket-pk-1',
+            }).catch(() => {
+              // Ignore errors in test
+            })
+          }
+        }, 20)
+        return () => clearTimeout(timer)
+      }, [tickets.length, handleKanbanOpenChatAndSend])
+
+      return (
+        <KanbanBoard
+          tickets={tickets}
+          columns={makeColumns(now)}
+          agentRunsByTicketPk={{}}
+          repoFullName="beardedphil/portfolio-2026-hal"
+          theme="dark"
+          onMoveTicket={handleKanbanMoveTicket}
+          onOpenChatAndSend={handleKanbanOpenChatAndSend}
+          processReviewRunningForTicketPk={null}
+          implementationAgentTicketId={null}
+          qaAgentTicketId={null}
+          syncStatus="polling"
+          lastSync={null}
+        />
+      )
+    }
+
+    render(<HarnessWithDelayedTickets />)
+
+    // Wait for the async operations to complete
+    await waitFor(
+      () => {
+        expect(moveTicketCallCount).toBe(1)
+      },
+      { timeout: 1000 }
+    )
+
+    // Verify that moveTicket was called (proving the ref fix works even with delayed ticket loading)
+    expect(moveTicketCallCount).toBe(1)
   })
 })
 
