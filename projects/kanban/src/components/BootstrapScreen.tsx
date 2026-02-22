@@ -17,6 +17,15 @@ interface SupabaseProjectInfo {
   updated_at: string
 }
 
+interface VercelProjectInfo {
+  project_id: string
+  project_name: string
+  preview_url: string
+  status: string
+  created_at: string
+  updated_at: string
+}
+
 export function BootstrapScreen({
   projectId,
   supabaseUrl,
@@ -32,6 +41,12 @@ export function BootstrapScreen({
   const [supabaseManagementToken, setSupabaseManagementToken] = useState('')
   const [supabaseOrganizationId, setSupabaseOrganizationId] = useState('')
   const [supabaseProjectInfo, setSupabaseProjectInfo] = useState<SupabaseProjectInfo | null>(null)
+  const [vercelAccessToken, setVercelAccessToken] = useState('')
+  const [vercelProjectInfo, setVercelProjectInfo] = useState<VercelProjectInfo | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+
+  // Check if projectId is a valid GitHub repo format (owner/repo)
+  const isGithubRepoConnected = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(projectId)
 
   const loadBootstrapRun = useCallback(async () => {
     try {
@@ -87,6 +102,23 @@ export function BootstrapScreen({
       setSupabaseProjectInfo(null)
     }
   }, [projectId, supabaseUrl, supabaseAnonKey, apiBaseUrl])
+
+  const loadVercelProjectInfo = useCallback(async () => {
+    try {
+      // Load Vercel project info from the bootstrap run's step metadata
+      // The preview URL is stored in the step result metadata
+      if (run) {
+        const vercelStep = run.step_history?.find((s) => s.step === 'create_vercel_project')
+        if (vercelStep && vercelStep.status === 'succeeded') {
+          // Try to get preview URL from step metadata or from database
+          // For now, we'll extract it from the run logs or step metadata if available
+        }
+      }
+    } catch (err) {
+      // Silently fail
+      setVercelProjectInfo(null)
+    }
+  }, [run])
 
   // Load bootstrap run on mount and when projectId changes
   useEffect(() => {
@@ -155,7 +187,7 @@ export function BootstrapScreen({
           supabaseAnonKey,
         }
 
-        // Add Supabase Management API context for create_supabase_project step
+        // Add context for specific steps
         const currentStep = run?.current_step
         if (currentStep === 'create_supabase_project') {
           if (supabaseManagementToken) {
@@ -163,6 +195,11 @@ export function BootstrapScreen({
           }
           if (supabaseOrganizationId) {
             stepBody.supabaseOrganizationId = supabaseOrganizationId
+          }
+        }
+        if (currentStep === 'create_vercel_project') {
+          if (vercelAccessToken) {
+            stepBody.vercelAccessToken = vercelAccessToken
           }
         }
 
@@ -187,6 +224,14 @@ export function BootstrapScreen({
           await loadSupabaseProjectInfo()
         }
 
+        // If create_vercel_project step succeeded, extract preview URL from metadata
+        if (result.stepResult?.success && currentStep === 'create_vercel_project') {
+          const metadata = result.stepResult.metadata as { previewUrl?: string } | null
+          if (metadata?.previewUrl) {
+            setPreviewUrl(metadata.previewUrl)
+          }
+        }
+
         // If step succeeded and there are more steps, continue
         if (result.stepResult.success && result.run.status === 'running') {
           // Wait a bit before executing next step
@@ -199,7 +244,7 @@ export function BootstrapScreen({
         await loadBootstrapRun()
       }
     },
-    [supabaseUrl, supabaseAnonKey, apiBaseUrl, loadBootstrapRun, run?.current_step, supabaseManagementToken, supabaseOrganizationId, loadSupabaseProjectInfo]
+    [supabaseUrl, supabaseAnonKey, apiBaseUrl, loadBootstrapRun, run?.current_step, supabaseManagementToken, supabaseOrganizationId, loadSupabaseProjectInfo, vercelAccessToken]
   )
 
   const retryStep = useCallback(
@@ -264,7 +309,7 @@ export function BootstrapScreen({
     <div className="modal-backdrop" role="dialog" aria-label="Bootstrap screen">
       <div className="modal" style={{ maxWidth: '800px' }}>
         <div className="modal-header">
-          <h2 className="modal-title">Roadmap T1 Bootstrap</h2>
+          <h2 className="modal-title">Bootstrap (T5)</h2>
           {onClose && (
             <button type="button" className="modal-close btn-destructive" onClick={onClose}>
               Close
@@ -273,7 +318,9 @@ export function BootstrapScreen({
         </div>
 
         <p className="modal-subtitle">
-          Persist the Roadmap T1 bootstrap workflow as a resumable, idempotent state machine with durable logs.
+          {isGithubRepoConnected
+            ? 'Automatically create a Vercel project for your connected GitHub repository, configure environment variables, and trigger the first deploy.'
+            : 'Persist the Roadmap T1 bootstrap workflow as a resumable, idempotent state machine with durable logs.'}
         </p>
 
         {error && (
@@ -284,58 +331,109 @@ export function BootstrapScreen({
 
         {!run && (
           <div style={{ marginBottom: '1rem' }}>
-            <div style={{ marginBottom: '1rem' }}>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
-                Supabase Management API Token
-              </label>
-              <input
-                type="password"
-                value={supabaseManagementToken}
-                onChange={(e) => setSupabaseManagementToken(e.target.value)}
-                placeholder="sbp_..."
-                style={{
-                  width: '100%',
-                  padding: '0.5rem',
-                  border: '1px solid #ddd',
-                  borderRadius: '4px',
-                  fontSize: '0.9rem',
-                }}
-              />
-              <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#666' }}>
-                Generate a Personal Access Token from your Supabase account settings
-              </p>
-            </div>
-            <div style={{ marginBottom: '1rem' }}>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
-                Organization ID
-              </label>
-              <input
-                type="text"
-                value={supabaseOrganizationId}
-                onChange={(e) => setSupabaseOrganizationId(e.target.value)}
-                placeholder="org_..."
-                style={{
-                  width: '100%',
-                  padding: '0.5rem',
-                  border: '1px solid #ddd',
-                  borderRadius: '4px',
-                  fontSize: '0.9rem',
-                }}
-              />
-              <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#666' }}>
-                Find your organization ID in your Supabase organization settings
-              </p>
-            </div>
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="primary btn-standard"
-                onClick={startBootstrap}
-                disabled={loading || !supabaseManagementToken || !supabaseOrganizationId}
-              >
-                {loading ? 'Starting...' : 'Start bootstrap'}
-              </button>
-            </div>
+            {isGithubRepoConnected ? (
+              <>
+                <div style={{ marginBottom: '1rem', padding: '0.75rem', background: '#e3f2fd', borderRadius: '4px' }}>
+                  <strong>Connected Repository:</strong> {projectId}
+                </div>
+                <div style={{ marginBottom: '1rem' }}>
+                  <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+                    Vercel Access Token
+                  </label>
+                  <input
+                    type="password"
+                    value={vercelAccessToken}
+                    onChange={(e) => setVercelAccessToken(e.target.value)}
+                    placeholder="vercel_..."
+                    style={{
+                      width: '100%',
+                      padding: '0.5rem',
+                      border: '1px solid #ddd',
+                      borderRadius: '4px',
+                      fontSize: '0.9rem',
+                    }}
+                  />
+                  <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#666' }}>
+                    Generate an access token from your{' '}
+                    <a href="https://vercel.com/account/tokens" target="_blank" rel="noopener noreferrer" style={{ color: '#1976d2' }}>
+                      Vercel account settings
+                    </a>
+                  </p>
+                </div>
+                <div className="modal-actions">
+                  <button
+                    type="button"
+                    className="primary btn-standard"
+                    onClick={startBootstrap}
+                    disabled={loading || !vercelAccessToken}
+                    style={{ fontSize: '1rem', padding: '0.75rem 1.5rem' }}
+                  >
+                    {loading ? 'Starting...' : 'Create Vercel project & deploy'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ marginBottom: '1rem', padding: '0.75rem', background: '#fff3cd', borderRadius: '4px' }}>
+                  <strong>⚠️ No GitHub repository connected.</strong>
+                  <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.9rem' }}>
+                    Please connect a GitHub repository first to use the Vercel project creation feature.
+                  </p>
+                </div>
+                <div style={{ marginBottom: '1rem' }}>
+                  <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+                    Supabase Management API Token
+                  </label>
+                  <input
+                    type="password"
+                    value={supabaseManagementToken}
+                    onChange={(e) => setSupabaseManagementToken(e.target.value)}
+                    placeholder="sbp_..."
+                    style={{
+                      width: '100%',
+                      padding: '0.5rem',
+                      border: '1px solid #ddd',
+                      borderRadius: '4px',
+                      fontSize: '0.9rem',
+                    }}
+                  />
+                  <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#666' }}>
+                    Generate a Personal Access Token from your Supabase account settings
+                  </p>
+                </div>
+                <div style={{ marginBottom: '1rem' }}>
+                  <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+                    Organization ID
+                  </label>
+                  <input
+                    type="text"
+                    value={supabaseOrganizationId}
+                    onChange={(e) => setSupabaseOrganizationId(e.target.value)}
+                    placeholder="org_..."
+                    style={{
+                      width: '100%',
+                      padding: '0.5rem',
+                      border: '1px solid #ddd',
+                      borderRadius: '4px',
+                      fontSize: '0.9rem',
+                    }}
+                  />
+                  <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#666' }}>
+                    Find your organization ID in your Supabase organization settings
+                  </p>
+                </div>
+                <div className="modal-actions">
+                  <button
+                    type="button"
+                    className="primary btn-standard"
+                    onClick={startBootstrap}
+                    disabled={loading || !supabaseManagementToken || !supabaseOrganizationId}
+                  >
+                    {loading ? 'Starting...' : 'Start bootstrap'}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -446,6 +544,40 @@ export function BootstrapScreen({
                 )
               })}
             </div>
+
+            {/* Preview URL display when Vercel project is created */}
+            {previewUrl && (
+              <div style={{ marginTop: '1.5rem', padding: '1rem', background: '#e8f5e9', borderRadius: '4px', border: '1px solid #4caf50' }}>
+                <h3 style={{ marginTop: 0, marginBottom: '0.75rem' }}>✅ Deployment Successful</h3>
+                <div style={{ marginBottom: '0.75rem' }}>
+                  <strong>Preview URL:</strong>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem' }}>
+                    <a
+                      href={previewUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: '#1976d2', fontSize: '1rem', fontWeight: 'bold', textDecoration: 'underline' }}
+                    >
+                      {previewUrl}
+                    </a>
+                    <button
+                      type="button"
+                      className="btn-standard"
+                      onClick={() => {
+                        navigator.clipboard.writeText(previewUrl)
+                        alert('Preview URL copied to clipboard!')
+                      }}
+                      style={{ fontSize: '0.85rem', padding: '0.25rem 0.5rem' }}
+                    >
+                      Copy
+                    </button>
+                  </div>
+                </div>
+                <p style={{ margin: 0, fontSize: '0.9rem', color: '#666' }}>
+                  Your app is being deployed. Click the URL above to view it in a new tab.
+                </p>
+              </div>
+            )}
 
             {supabaseProjectInfo && (
               <div style={{ marginTop: '1.5rem', padding: '1rem', background: '#e8f5e9', borderRadius: '4px', border: '1px solid #4caf50' }}>
