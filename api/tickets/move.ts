@@ -501,7 +501,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
         // Construct ticket filename
         const ticketFilename = ticketId
-          ? `${ticketId.padStart(4, '0')}-${slugFromTitle((ticket as any).title || 'ticket'}.md`
+          ? `${ticketId.padStart(4, '0')}-${slugFromTitle((ticket as any).title || 'ticket')}.md`
           : null
 
         // Run docs consistency check
