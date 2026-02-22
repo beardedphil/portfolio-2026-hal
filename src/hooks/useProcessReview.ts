@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useRef } from 'react'
 import { formatTicketId } from '../lib/ticketOperations'
 import type { KanbanTicketRow } from 'portfolio-2026-kanban'
 import type { ImageAttachment } from '../types/app'
@@ -82,6 +82,8 @@ export function useProcessReview({
   setProcessReviewAgentTicketId,
   setProcessReviewAgentProgress,
 }: UseProcessReviewParams) {
+  // Track in-flight requests synchronously to prevent race conditions
+  const inFlightRequestsRef = useRef<Set<string>>(new Set())
   /** Process Review button: trigger Process Review agent for top ticket in Process Review column. */
   const handleKanbanProcessReview = useCallback(
     async (data: { ticketPk: string; ticketId?: string }) => {
@@ -295,6 +297,14 @@ export function useProcessReview({
       const recommendation = processReviewRecommendations.find((r) => r.id === recommendationId)
       if (!recommendation) return
 
+      // Synchronous guard: prevent multiple simultaneous requests for the same recommendation
+      if (inFlightRequestsRef.current.has(recommendationId)) {
+        return // Request already in flight, ignore duplicate click
+      }
+
+      // Mark request as in-flight immediately (synchronously)
+      inFlightRequestsRef.current.add(recommendationId)
+
       // Set loading state
       setProcessReviewRecommendations((prev) =>
         prev ? prev.map((r) => (r.id === recommendationId ? { ...r, isCreating: true, error: undefined } : r)) : null
@@ -362,6 +372,9 @@ export function useProcessReview({
         setProcessReviewRecommendations((prev) =>
           prev ? prev.map((r) => (r.id === recommendationId ? { ...r, isCreating: false, error: errorMsg } : r)) : null
         )
+      } finally {
+        // Always remove from in-flight set when request completes (success or error)
+        inFlightRequestsRef.current.delete(recommendationId)
       }
     },
     [
