@@ -15,6 +15,226 @@ import {
 
 export type AgentType = 'implementation' | 'qa' | 'project-manager' | 'process-review'
 
+/**
+ * Determines agent type from request body, defaulting to 'implementation'.
+ */
+function determineAgentType(body: { agentType?: AgentType }): AgentType {
+  if (body.agentType === 'qa') return 'qa'
+  if (body.agentType === 'project-manager') return 'project-manager'
+  if (body.agentType === 'process-review') return 'process-review'
+  return 'implementation'
+}
+
+/**
+ * Validates required inputs based on agent type.
+ * Returns error message if validation fails, null otherwise.
+ */
+function validateInputs(
+  agentType: AgentType,
+  repoFullName: string,
+  ticketNumber: number | null,
+  message: string
+): string | null {
+  if (!repoFullName) {
+    return 'repoFullName is required.'
+  }
+
+  const needsTicket = agentType === 'implementation' || agentType === 'qa' || agentType === 'process-review'
+  if (needsTicket && (!ticketNumber || !Number.isFinite(ticketNumber))) {
+    return 'ticketNumber is required.'
+  }
+
+  if (agentType === 'project-manager' && !message) {
+    return 'message is required for project-manager runs.'
+  }
+
+  return null
+}
+
+/**
+ * Extracts ticket sections from markdown body.
+ */
+function extractTicketSections(bodyMd: string): { goal: string; deliverable: string; criteria: string } {
+  const goalMatch = bodyMd.match(/##\s*Goal[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
+  const deliverableMatch = bodyMd.match(/##\s*Human-verifiable deliverable[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
+  const criteriaMatch = bodyMd.match(/##\s*Acceptance criteria[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
+  return {
+    goal: (goalMatch?.[1] ?? '').trim(),
+    deliverable: (deliverableMatch?.[1] ?? '').trim(),
+    criteria: (criteriaMatch?.[1] ?? '').trim(),
+  }
+}
+
+/**
+ * Builds prompt text for implementation agent.
+ */
+function buildImplementationPrompt(
+  repoFullName: string,
+  ticketNumber: number,
+  displayId: string,
+  currentColumnId: string | null,
+  defaultBranch: string,
+  halApiBaseUrl: string,
+  goal: string,
+  deliverable: string,
+  criteria: string
+): string {
+  return [
+    'Implement this ticket.',
+    '',
+    '## Inputs (provided by HAL)',
+    `- **agentType**: implementation`,
+    `- **repoFullName**: ${repoFullName}`,
+    `- **ticketNumber**: ${ticketNumber}`,
+    `- **displayId**: ${displayId}`,
+    `- **currentColumnId**: ${currentColumnId || 'col-unassigned'}`,
+    `- **defaultBranch**: ${defaultBranch}`,
+    `- **HAL API base URL**: ${halApiBaseUrl}`,
+    '',
+    '## Tools you can use',
+    '- Cursor Cloud Agent built-ins: read/search/edit files, run shell commands (git, npm), and use `gh` for GitHub.',
+    '- HAL server endpoints (no Supabase creds required): `POST /api/artifacts/insert-implementation`, `POST /api/artifacts/get`, `POST /api/tickets/move`.',
+    '',
+    '## MANDATORY first step: pull latest from main',
+    '',
+    '**Before starting any work**, pull the latest code. Do not assume you have the latest code.',
+    'Run: `git checkout main && git pull origin main`',
+    'Then create or checkout your feature branch and proceed.',
+    '',
+    '## Ticket',
+    `**ID**: ${displayId}`,
+    `**Repo**: ${repoFullName}`,
+    '',
+    '## Goal',
+    goal || '(not specified)',
+    '',
+    '## Human-verifiable deliverable',
+    deliverable || '(not specified)',
+    '',
+    '## Acceptance criteria',
+    criteria || '(not specified)',
+  ].join('\n')
+}
+
+/**
+ * Builds prompt text for QA agent.
+ */
+function buildQAPrompt(
+  repoFullName: string,
+  ticketNumber: number,
+  displayId: string,
+  currentColumnId: string | null,
+  defaultBranch: string,
+  halApiBaseUrl: string,
+  goal: string,
+  deliverable: string,
+  criteria: string
+): string {
+  return [
+    'QA this ticket implementation. Review the code, generate a QA report, and complete the QA workflow.',
+    '',
+    '## Inputs (provided by HAL)',
+    `- **agentType**: qa`,
+    `- **repoFullName**: ${repoFullName}`,
+    `- **ticketNumber**: ${ticketNumber}`,
+    `- **displayId**: ${displayId}`,
+    `- **currentColumnId**: ${currentColumnId || 'col-unassigned'}`,
+    `- **defaultBranch**: ${defaultBranch}`,
+    `- **HAL API base URL**: ${halApiBaseUrl}`,
+    '',
+    '## Tools you can use',
+    '- Cursor Cloud Agent built-ins: read/search/edit files, run shell commands (git, npm), and use `gh` for GitHub.',
+    '- HAL server endpoints (no Supabase creds required): `POST /api/artifacts/insert-qa`, `POST /api/artifacts/get`, `POST /api/tickets/move`.',
+    '',
+    '## MANDATORY first step: pull latest from main',
+    '',
+    '**Before starting any QA work**, pull the latest code. Do not assume you have the latest code.',
+    'Run: `git checkout main && git pull origin main`',
+    '',
+    '',
+    '## MANDATORY: Load Your Instructions First',
+    '',
+    '**BEFORE starting any QA work, you MUST load your basic instructions from Supabase.**',
+    '',
+    '**Step 1: Load basic instructions:**',
+    '```javascript',
+    'const baseUrl = process.env.HAL_API_URL || \'http://localhost:5173\'',
+    'const res = await fetch(`${baseUrl}/api/instructions/get`, {',
+    '  method: \'POST\',',
+    '  headers: { \'Content-Type\': \'application/json\' },',
+    '  body: JSON.stringify({',
+    '    agentType: \'qa\',',
+    '    includeBasic: true,',
+    '    includeSituational: false,',
+    '  }),',
+    '})',
+    'const result = await res.json()',
+    'if (result.success) {',
+    '  // result.instructions contains your basic instructions',
+    '  // These include all mandatory workflows, QA report requirements, and procedures',
+    '  // READ AND FOLLOW THESE INSTRUCTIONS - they contain critical requirements',
+    '}',
+    '```',
+    '',
+    '**The instructions from Supabase contain:**',
+    '- Required implementation artifacts you must verify before starting QA',
+    '- How to structure and store QA reports',
+    '- When to pass/fail tickets',
+    '- How to move tickets after QA',
+    '- Code citation requirements',
+    '- All other mandatory QA workflows',
+    '',
+    '**DO NOT proceed with QA until you have loaded and read your instructions from Supabase.**',
+    '',
+    '## Ticket',
+    `**ID**: ${displayId}`,
+    `**Repo**: ${repoFullName}`,
+    '',
+    '## Goal',
+    goal || '(not specified)',
+    '',
+    '## Human-verifiable deliverable',
+    deliverable || '(not specified)',
+    '',
+    '## Acceptance criteria',
+    criteria || '(not specified)',
+  ].join('\n')
+}
+
+/**
+ * Moves QA ticket from col-qa to col-doing when QA agent starts.
+ * Logs errors but does not fail the launch.
+ */
+async function moveQATicketToDoing(
+  supabase: any,
+  repoFullName: string,
+  ticketPk: string,
+  displayId: string
+): Promise<void> {
+  try {
+    const { data: inColumn } = await supabase
+      .from('tickets')
+      .select('kanban_position')
+      .eq('repo_full_name', repoFullName)
+      .eq('kanban_column_id', 'col-doing')
+      .order('kanban_position', { ascending: false })
+      .limit(1)
+    if (inColumn) {
+      const nextPosition = inColumn.length ? ((inColumn[0] as any)?.kanban_position ?? -1) + 1 : 0
+      const movedAt = new Date().toISOString()
+      const { error: updateErr } = await supabase
+        .from('tickets')
+        .update({ kanban_column_id: 'col-doing', kanban_position: nextPosition, kanban_moved_at: movedAt })
+        .eq('pk', ticketPk)
+      if (updateErr) {
+        console.error(`[QA Agent] Failed to move ticket ${displayId} from QA to Doing:`, updateErr.message)
+      }
+    }
+  } catch (moveErr) {
+    console.error(`[QA Agent] Error moving ticket ${displayId} from QA to Doing:`, moveErr instanceof Error ? moveErr.message : String(moveErr))
+  }
+}
+
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   if (!validateMethod(req, res, 'POST')) {
     return
@@ -37,14 +257,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       model?: string
     }
 
-    const agentType: AgentType =
-      body.agentType === 'qa'
-        ? 'qa'
-        : body.agentType === 'project-manager'
-          ? 'project-manager'
-          : body.agentType === 'process-review'
-            ? 'process-review'
-            : 'implementation'
+    const agentType = determineAgentType(body)
     // Implementation and QA: do not send model — let Cursor auto-select.
     const model = (typeof body.model === 'string' ? body.model.trim() : '') || ''
     const repoFullName = typeof body.repoFullName === 'string' ? body.repoFullName.trim() : ''
@@ -56,18 +269,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const projectId = typeof body.projectId === 'string' ? body.projectId.trim() : ''
     const images = Array.isArray(body.images) ? body.images : undefined
 
-    if (!repoFullName) {
-      json(res, 400, { error: 'repoFullName is required.' })
-      return
-    }
-
-    const needsTicket = agentType === 'implementation' || agentType === 'qa' || agentType === 'process-review'
-    if (needsTicket && (!ticketNumber || !Number.isFinite(ticketNumber))) {
-      json(res, 400, { error: 'ticketNumber is required.' })
-      return
-    }
-    if (agentType === 'project-manager' && !message) {
-      json(res, 400, { error: 'message is required for project-manager runs.' })
+    const validationError = validateInputs(agentType, repoFullName, ticketNumber, message)
+    if (validationError) {
+      json(res, 400, { error: validationError })
       return
     }
 
@@ -135,39 +339,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     // Move QA ticket from QA column to Doing when QA agent starts (0088)
     if (agentType === 'qa' && currentColumnId === 'col-qa') {
-      try {
-        const { data: inColumn } = await supabase
-          .from('tickets')
-          .select('kanban_position')
-          .eq('repo_full_name', repoFullName)
-          .eq('kanban_column_id', 'col-doing')
-          .order('kanban_position', { ascending: false })
-          .limit(1)
-        if (inColumn) {
-          const nextPosition = inColumn.length ? ((inColumn[0] as any)?.kanban_position ?? -1) + 1 : 0
-          const movedAt = new Date().toISOString()
-          const { error: updateErr } = await supabase
-            .from('tickets')
-            .update({ kanban_column_id: 'col-doing', kanban_position: nextPosition, kanban_moved_at: movedAt })
-            .eq('pk', ticketPk)
-          if (updateErr) {
-            // Log error but don't fail the launch - ticket will stay in QA
-            console.error(`[QA Agent] Failed to move ticket ${displayId} from QA to Doing:`, updateErr.message)
-          }
-        }
-      } catch (moveErr) {
-        // Log error but don't fail the launch
-        console.error(`[QA Agent] Error moving ticket ${displayId} from QA to Doing:`, moveErr instanceof Error ? moveErr.message : String(moveErr))
-      }
+      await moveQATicketToDoing(supabase, repoFullName, ticketPk, displayId)
     }
 
-    // Build prompt
-    const goalMatch = bodyMd.match(/##\s*Goal[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
-    const deliverableMatch = bodyMd.match(/##\s*Human-verifiable deliverable[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
-    const criteriaMatch = bodyMd.match(/##\s*Acceptance criteria[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
-    const goal = (goalMatch?.[1] ?? '').trim()
-    const deliverable = (deliverableMatch?.[1] ?? '').trim()
-    const criteria = (criteriaMatch?.[1] ?? '').trim()
+    // Extract ticket sections
+    const { goal, deliverable, criteria } = extractTicketSections(bodyMd)
 
     // Process Review (OpenAI) launch: just create run row; /work will generate streamed output.
     if (agentType === 'process-review') {
@@ -204,109 +380,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const promptText =
       agentType === 'implementation'
-        ? [
-            'Implement this ticket.',
-            '',
-            '## Inputs (provided by HAL)',
-            `- **agentType**: implementation`,
-            `- **repoFullName**: ${repoFullName}`,
-            `- **ticketNumber**: ${ticketNumber}`,
-            `- **displayId**: ${displayId}`,
-            `- **currentColumnId**: ${currentColumnId || 'col-unassigned'}`,
-            `- **defaultBranch**: ${defaultBranch}`,
-            `- **HAL API base URL**: ${halApiBaseUrl}`,
-            '',
-            '## Tools you can use',
-            '- Cursor Cloud Agent built-ins: read/search/edit files, run shell commands (git, npm), and use `gh` for GitHub.',
-            '- HAL server endpoints (no Supabase creds required): `POST /api/artifacts/insert-implementation`, `POST /api/artifacts/get`, `POST /api/tickets/move`.',
-            '',
-            '## MANDATORY first step: pull latest from main',
-            '',
-            '**Before starting any work**, pull the latest code. Do not assume you have the latest code.',
-            'Run: `git checkout main && git pull origin main`',
-            'Then create or checkout your feature branch and proceed.',
-            '',
-            '## Ticket',
-            `**ID**: ${displayId}`,
-            `**Repo**: ${repoFullName}`,
-            '',
-            '## Goal',
-            goal || '(not specified)',
-            '',
-            '## Human-verifiable deliverable',
-            deliverable || '(not specified)',
-            '',
-            '## Acceptance criteria',
-            criteria || '(not specified)',
-          ].join('\n')
-        : [
-            'QA this ticket implementation. Review the code, generate a QA report, and complete the QA workflow.',
-            '',
-            '## Inputs (provided by HAL)',
-            `- **agentType**: qa`,
-            `- **repoFullName**: ${repoFullName}`,
-            `- **ticketNumber**: ${ticketNumber}`,
-            `- **displayId**: ${displayId}`,
-            `- **currentColumnId**: ${currentColumnId || 'col-unassigned'}`,
-            `- **defaultBranch**: ${defaultBranch}`,
-            `- **HAL API base URL**: ${halApiBaseUrl}`,
-            '',
-            '## Tools you can use',
-            '- Cursor Cloud Agent built-ins: read/search/edit files, run shell commands (git, npm), and use `gh` for GitHub.',
-            '- HAL server endpoints (no Supabase creds required): `POST /api/artifacts/insert-qa`, `POST /api/artifacts/get`, `POST /api/tickets/move`.',
-            '',
-            '## MANDATORY first step: pull latest from main',
-            '',
-            '**Before starting any QA work**, pull the latest code. Do not assume you have the latest code.',
-            'Run: `git checkout main && git pull origin main`',
-            '',
-            '## MANDATORY: Load Your Instructions First',
-            '',
-            '**BEFORE starting any QA work, you MUST load your basic instructions from Supabase.**',
-            '',
-            '**Step 1: Load basic instructions:**',
-            '```javascript',
-            'const baseUrl = process.env.HAL_API_URL || \'http://localhost:5173\'',
-            'const res = await fetch(`${baseUrl}/api/instructions/get`, {',
-            '  method: \'POST\',',
-            '  headers: { \'Content-Type\': \'application/json\' },',
-            '  body: JSON.stringify({',
-            '    agentType: \'qa\',',
-            '    includeBasic: true,',
-            '    includeSituational: false,',
-            '  }),',
-            '})',
-            'const result = await res.json()',
-            'if (result.success) {',
-            '  // result.instructions contains your basic instructions',
-            '  // These include all mandatory workflows, QA report requirements, and procedures',
-            '  // READ AND FOLLOW THESE INSTRUCTIONS - they contain critical requirements',
-            '}',
-            '```',
-            '',
-            '**The instructions from Supabase contain:**',
-            '- Required implementation artifacts you must verify before starting QA',
-            '- How to structure and store QA reports',
-            '- When to pass/fail tickets',
-            '- How to move tickets after QA',
-            '- Code citation requirements',
-            '- All other mandatory QA workflows',
-            '',
-            '**DO NOT proceed with QA until you have loaded and read your instructions from Supabase.**',
-            '',
-            '## Ticket',
-            `**ID**: ${displayId}`,
-            `**Repo**: ${repoFullName}`,
-            '',
-            '## Goal',
-            goal || '(not specified)',
-            '',
-            '## Human-verifiable deliverable',
-            deliverable || '(not specified)',
-            '',
-            '## Acceptance criteria',
-            criteria || '(not specified)',
-          ].join('\n')
+        ? buildImplementationPrompt(repoFullName, ticketNumber!, displayId, currentColumnId, defaultBranch, halApiBaseUrl, goal, deliverable, criteria)
+        : buildQAPrompt(repoFullName, ticketNumber!, displayId, currentColumnId, defaultBranch, halApiBaseUrl, goal, deliverable, criteria)
 
     // Create run row - start with 'preparing' stage (0690)
     const initialProgress = appendProgress([], `Launching ${agentType} run for ${displayId}`)
