@@ -129,7 +129,20 @@ export function createWorkButtonHandlers({
 
     // Capture firstCardId at click time to avoid race conditions with optimistic updates
     // This ensures we use the correct ticket PK even if the component re-renders
-    const clickedTicketPk = firstCardId ?? undefined
+    // Re-read from _col.cardIds to get the current value, not the closure value
+    // Fallback to firstCardId from closure if _col.cardIds is empty (defensive)
+    const currentFirstCardId = _col.cardIds.length > 0 ? _col.cardIds[0] ?? null : (firstCardId ?? null)
+    const clickedTicketPk = currentFirstCardId ?? undefined
+
+    // Validate that we have a valid ticketPk before proceeding
+    if (!clickedTicketPk) {
+      console.error('[HAL] handleWorkButtonClick: No ticket PK available at click time', {
+        colCardIds: _col.cardIds,
+        firstCardId,
+        hasTickets,
+      })
+      return
+    }
 
     // Library mode: single ticket for all columns (including QA)
     if (halCtx?.onOpenChatAndSend && 'chatTarget' in buttonConfig) {
