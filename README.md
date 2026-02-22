@@ -9,6 +9,10 @@ This repo assembles the portfolio projects. **Edit agents code only here** so th
 
 See [docs/process/single-source-agents.md](docs/process/single-source-agents.md) for why hal-agents is in-repo and how to optionally sync to an external repo.
 
+## New project setup
+
+**[New Project Setup Guide](docs/NEW_PROJECT_SETUP.md)** — Step-by-step walkthrough for setting up a new HAL project with Vercel and Supabase. Covers manual setup, in-app Bootstrap, and the New HAL project wizard.
+
 ## Scripts
 
 ### `npm run report:lines`

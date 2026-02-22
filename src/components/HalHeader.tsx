@@ -33,12 +33,25 @@ export function HalHeader({
       <div className="hal-header-left">
         <h1>HAL</h1>
         <span className="hal-subtitle">Agent Workspace</span>
+        <a
+          href={
+            (import.meta.env.VITE_SETUP_GUIDE_URL as string | undefined) ||
+            'https://github.com/beardedphil/portfolio-2026-hal/blob/main/docs/NEW_PROJECT_SETUP.md'
+          }
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn-standard"
+          title="New project setup guide (Vercel + Supabase)"
+          style={{ marginLeft: '1rem', fontSize: '0.9rem', padding: '0.4rem 0.8rem', textDecoration: 'none', color: 'inherit' }}
+        >
+          Setup guide
+        </a>
         <button
           type="button"
           className="btn-standard diagnostics-btn"
           onClick={onDiagnosticsClick}
           title="Open Diagnostics"
-          style={{ marginLeft: '1rem', fontSize: '0.9rem', padding: '0.4rem 0.8rem' }}
+          style={{ marginLeft: '0.5rem', fontSize: '0.9rem', padding: '0.4rem 0.8rem' }}
         >
           Diagnostics
         </button>
