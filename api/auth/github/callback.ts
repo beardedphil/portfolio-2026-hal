@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { getOrigin } from '../../_lib/github/config.js'
 import { exchangeCodeForToken } from '../../_lib/github/githubApi.js'
-import { getSession } from '../../_lib/github/session.js'
+import { getSession, encryptSessionTokens } from '../../_lib/github/session.js'
 
 const AUTH_SECRET_MIN = 32
 const CODE_DEDUPE_TTL_MS = 60_000
@@ -186,6 +186,8 @@ async function handleWebRequest(request: Request): Promise<Response> {
       scope: token.scope,
       tokenType: token.token_type,
     }
+    // Encrypt tokens before saving
+    encryptSessionTokens(session)
     await session.save()
 
     const headers = new Headers({ Location: `${origin}/?github=connected`, 'Cache-Control': 'no-store' })
@@ -313,6 +315,8 @@ export default async function handler(req: IncomingMessage | Request, res?: Serv
       scope: token.scope,
       tokenType: token.token_type,
     }
+    // Encrypt tokens before saving
+    encryptSessionTokens(session)
     await session.save()
 
     redirect(res, `${origin}/?github=connected`)

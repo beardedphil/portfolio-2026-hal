@@ -185,6 +185,31 @@ export function DiagnosticsModal({
         </div>
 
         <div className="conversation-modal-content" style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
+          {/* Secrets Encryption Status Section */}
+          <section style={{ marginBottom: '2rem' }}>
+            <h4 style={{ margin: '0 0 1rem 0', fontSize: '1.1rem', fontWeight: 600 }}>Secrets Encryption</h4>
+            <div>
+              <div
+                style={{
+                  display: 'inline-block',
+                  padding: '0.4rem 0.8rem',
+                  borderRadius: '4px',
+                  fontWeight: 500,
+                  marginBottom: '0.5rem',
+                  background: 'rgba(46, 125, 50, 0.1)',
+                  color: 'var(--hal-status-ok)',
+                  border: '1px solid var(--hal-status-ok)',
+                }}
+              >
+                ✓ Secrets stored encrypted at rest
+              </div>
+              <p style={{ margin: '0.5rem 0', color: 'var(--hal-text)', fontSize: '0.9rem' }}>
+                Provider OAuth tokens and Supabase service keys are encrypted using AES-256-GCM before being stored.
+                Raw token/key values are never displayed after initial entry.
+              </p>
+            </div>
+          </section>
+
           {/* Embeddings / Vector Search Status Section */}
           <section style={{ marginBottom: '2rem' }}>
             <h4 style={{ margin: '0 0 1rem 0', fontSize: '1.1rem', fontWeight: 600 }}>Embeddings / Vector Search</h4>

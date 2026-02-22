@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'http'
-import { getSession } from '../_lib/github/session.js'
+import { getSession, encryptSessionTokens } from '../_lib/github/session.js'
 import { getViewer } from '../_lib/github/githubApi.js'
 
 const AUTH_SECRET_MIN = 32
@@ -53,6 +53,8 @@ async function handleWebRequest(request: Request): Promise<Response> {
     try {
       const viewer = await getViewer(github.accessToken)
       session.github = { ...github, login: viewer.login }
+      // Re-encrypt tokens before saving
+      encryptSessionTokens(session)
       await session.save()
     } catch {
       // Non-fatal; continue returning authenticated=true without login.
@@ -115,6 +117,8 @@ export default async function handler(req: IncomingMessage | Request, res?: Serv
       try {
         const viewer = await getViewer(github.accessToken)
         session.github = { ...github, login: viewer.login }
+        // Re-encrypt tokens before saving
+        encryptSessionTokens(session)
         await session.save()
       } catch {
         // Non-fatal

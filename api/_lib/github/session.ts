@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'http'
 import * as IronSession from 'iron-session'
 import type { SessionOptions } from 'iron-session'
 import { requireEnv } from './config.js'
+import { encryptSecret, decryptSecret, isEncrypted } from './encryption.js'
 
 export type GithubSession = {
   accessToken: string
@@ -46,5 +47,44 @@ export async function getSession(
   req: IncomingMessage,
   res: ServerResponse
 ): Promise<Session> {
-  return IronSession.getIronSession(req, res, sessionOptions())
+  const session = await IronSession.getIronSession(req, res, sessionOptions())
+  
+  // Decrypt OAuth tokens if they're encrypted (for migration compatibility)
+  if (session.github?.accessToken) {
+    if (isEncrypted(session.github.accessToken)) {
+      try {
+        session.github = {
+          ...session.github,
+          accessToken: decryptSecret(session.github.accessToken),
+        }
+      } catch (err) {
+        // If decryption fails, clear the session to force re-auth
+        console.error('[session] Failed to decrypt OAuth token:', err instanceof Error ? err.message : String(err))
+        session.github = undefined
+        await session.save()
+      }
+    }
+  }
+  
+  return session
+}
+
+/**
+ * Encrypts OAuth tokens before storing in session.
+ * This adds an extra layer of encryption beyond iron-session's cookie encryption.
+ */
+export function encryptSessionTokens(session: Session): void {
+  if (session.github?.accessToken && !isEncrypted(session.github.accessToken)) {
+    try {
+      session.github = {
+        ...session.github,
+        accessToken: encryptSecret(session.github.accessToken),
+      }
+    } catch (err) {
+      // If encryption fails (e.g., HAL_ENCRYPTION_KEY missing), don't store plaintext
+      // Clear the session to force re-auth with proper encryption
+      console.error('[session] Failed to encrypt OAuth token:', err instanceof Error ? err.message : String(err))
+      throw new Error('Secret encryption failed. Set HAL_ENCRYPTION_KEY environment variable.')
+    }
+  }
 }
