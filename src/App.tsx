@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import type { Agent, Message, Conversation, ImageAttachment } from './lib/conversationStorage'
 import * as Kanban from 'portfolio-2026-kanban'
 import type { KanbanBoardProps } from 'portfolio-2026-kanban'
@@ -40,6 +40,7 @@ import { useDisconnectHandlers } from './hooks/useDisconnectHandlers'
 import { useConversationSelection } from './hooks/useConversationSelection'
 import { useProcessReviewWelcome } from './hooks/useProcessReviewWelcome'
 import { useConversationLoading } from './hooks/useConversationLoading'
+import { isNonTerminalRunStatus } from './lib/agentRuns'
 // formatTicketId imported via useProcessReview hook
 
 const KanbanBoard = Kanban.default
@@ -649,13 +650,55 @@ function App() {
   // Derive sync status from realtime connection status (0737)
   const kanbanSyncStatus: 'realtime' | 'polling' = kanbanRealtimeStatus === 'connected' ? 'realtime' : 'polling'
 
+  // Wrapper to automatically trigger agents when tickets move to specific columns (HAL-0802)
+  const handleKanbanMoveTicketWithAutoTrigger = useCallback(
+    async (ticketPk: string, columnId: string, position?: number) => {
+      // Perform the move first
+      await handleKanbanMoveTicket(ticketPk, columnId, position)
+
+      // After successful move, check if we should automatically trigger an agent
+      const ticket = kanbanTickets.find((t) => t.pk === ticketPk)
+      if (!ticket) return
+
+      // Check for idempotency: don't trigger if agent is already running for this ticket
+      const existingRun = kanbanAgentRunsByTicketPk[ticketPk]
+      const isQARunning = existingRun?.agent_type === 'qa' && isNonTerminalRunStatus(existingRun.status)
+      const isProcessReviewRunning = existingRun?.agent_type === 'process-review' && isNonTerminalRunStatus(existingRun.status)
+
+      // Auto-trigger QA agent when ticket moves to Ready for QA (col-qa)
+      if (columnId === 'col-qa' && !isQARunning) {
+        const ticketId = ticket.display_id ?? ticket.id ?? ticket.ticket_number?.toString() ?? null
+        if (ticketId && connectedGithubRepo?.fullName) {
+          // Trigger QA agent via the same mechanism as the button click
+          const convId = getDefaultConversationIdForAgent('qa-agent')
+          await triggerAgentRunWrapper(`QA ticket ${ticketId}`, 'qa-agent', undefined, convId)
+        }
+      }
+
+      // Auto-trigger Process Review agent when ticket moves to Process Review (col-process-review)
+      if (columnId === 'col-process-review' && !isProcessReviewRunning) {
+        const ticketId = ticket.display_id ?? ticket.id ?? ticket.ticket_number?.toString() ?? undefined
+        await handleKanbanProcessReview({ ticketPk, ticketId })
+      }
+    },
+    [
+      handleKanbanMoveTicket,
+      kanbanTickets,
+      kanbanAgentRunsByTicketPk,
+      connectedGithubRepo,
+      getDefaultConversationIdForAgent,
+      triggerAgentRunWrapper,
+      handleKanbanProcessReview,
+    ]
+  )
+
   const kanbanBoardProps: KanbanBoardProps = {
     tickets: kanbanTickets,
     columns: kanbanColumns,
     agentRunsByTicketPk: kanbanAgentRunsByTicketPk,
     repoFullName: connectedProject ?? null,
     theme,
-    onMoveTicket: handleKanbanMoveTicket,
+    onMoveTicket: handleKanbanMoveTicketWithAutoTrigger,
     onReorderColumn: handleKanbanReorderColumn,
     onUpdateTicketBody: handleKanbanUpdateTicketBody,
     onOpenChatAndSend: handleKanbanOpenChatAndSend,
