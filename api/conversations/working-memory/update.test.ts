@@ -3,17 +3,23 @@
  * Tests input validation, sequence checking, OpenAI response parsing, and error handling.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-
-// Test helper functions extracted from the implementation
-// These test the core logic without requiring full HTTP/Supabase setup
+import { describe, it, expect } from 'vitest'
+import {
+  trimString,
+  getCurrentSequence,
+  getLastProcessedSequence,
+  shouldUpdateMemory,
+  extractJsonFromResponse,
+  formatConversationText,
+  transformWorkingMemory,
+} from './update'
 
 describe('update.ts - Input Validation', () => {
   describe('projectId and agent validation', () => {
     it('requires both projectId and agent', () => {
       const validateRequired = (body: any): { valid: boolean; error?: string } => {
-        const projectId = typeof body.projectId === 'string' ? body.projectId.trim() || undefined : undefined
-        const agent = typeof body.agent === 'string' ? body.agent.trim() || undefined : undefined
+        const projectId = trimString(body.projectId)
+        const agent = trimString(body.agent)
 
         if (!projectId || !agent) {
           return { valid: false, error: 'projectId and agent are required.' }
@@ -29,16 +35,12 @@ describe('update.ts - Input Validation', () => {
     })
 
     it('trims whitespace from projectId and agent', () => {
-      const extractProjectId = (body: any): string | undefined => {
-        return typeof body.projectId === 'string' ? body.projectId.trim() || undefined : undefined
-      }
-      const extractAgent = (body: any): string | undefined => {
-        return typeof body.agent === 'string' ? body.agent.trim() || undefined : undefined
-      }
-
-      expect(extractProjectId({ projectId: '  proj-1  ' })).toBe('proj-1')
-      expect(extractAgent({ agent: '  pm  ' })).toBe('pm')
-      expect(extractProjectId({ projectId: '   ' })).toBeUndefined()
+      expect(trimString('  proj-1  ')).toBe('proj-1')
+      expect(trimString('  pm  ')).toBe('pm')
+      expect(trimString('   ')).toBeUndefined()
+      expect(trimString(undefined)).toBeUndefined()
+      expect(trimString(null)).toBeUndefined()
+      expect(trimString(123)).toBeUndefined()
     })
   })
 
@@ -46,12 +48,12 @@ describe('update.ts - Input Validation', () => {
     it('requires supabaseUrl and supabaseAnonKey from body or env', () => {
       const validateCredentials = (body: any, env: any): { valid: boolean; error?: string } => {
         const supabaseUrl =
-          (typeof body.supabaseUrl === 'string' ? body.supabaseUrl.trim() : undefined) ||
+          trimString(body.supabaseUrl) ||
           env.SUPABASE_URL?.trim() ||
           env.VITE_SUPABASE_URL?.trim() ||
           undefined
         const supabaseAnonKey =
-          (typeof body.supabaseAnonKey === 'string' ? body.supabaseAnonKey.trim() : undefined) ||
+          trimString(body.supabaseAnonKey) ||
           env.SUPABASE_ANON_KEY?.trim() ||
           env.VITE_SUPABASE_ANON_KEY?.trim() ||
           undefined
@@ -81,8 +83,8 @@ describe('update.ts - Input Validation', () => {
   describe('OpenAI credentials validation', () => {
     it('requires openaiApiKey and openaiModel', () => {
       const validateOpenAI = (body: any): { valid: boolean; error?: string } => {
-        const openaiApiKey = typeof body.openaiApiKey === 'string' ? body.openaiApiKey.trim() : undefined
-        const openaiModel = typeof body.openaiModel === 'string' ? body.openaiModel.trim() : undefined
+        const openaiApiKey = trimString(body.openaiApiKey)
+        const openaiModel = trimString(body.openaiModel)
 
         if (!openaiApiKey || !openaiModel) {
           return {
@@ -108,22 +110,13 @@ describe('update.ts - Input Validation', () => {
 
 describe('update.ts - Sequence Checking Logic', () => {
   it('determines if update is needed based on forceRefresh and sequence', () => {
-    const shouldUpdate = (forceRefresh: boolean, currentSequence: number, lastProcessedSequence: number): boolean => {
-      if (forceRefresh) return true
-      return currentSequence > lastProcessedSequence
-    }
-
-    expect(shouldUpdate(true, 5, 10)).toBe(true) // forceRefresh overrides
-    expect(shouldUpdate(false, 10, 5)).toBe(true) // new messages
-    expect(shouldUpdate(false, 5, 5)).toBe(false) // no new messages
-    expect(shouldUpdate(false, 3, 5)).toBe(false) // sequence went backwards (shouldn't happen, but handled)
+    expect(shouldUpdateMemory(true, 5, 10)).toBe(true) // forceRefresh overrides
+    expect(shouldUpdateMemory(false, 10, 5)).toBe(true) // new messages
+    expect(shouldUpdateMemory(false, 5, 5)).toBe(false) // no new messages
+    expect(shouldUpdateMemory(false, 3, 5)).toBe(false) // sequence went backwards (shouldn't happen, but handled)
   })
 
   it('extracts current sequence from messages array', () => {
-    const getCurrentSequence = (messages: Array<{ sequence?: number }>): number => {
-      return messages[messages.length - 1]?.sequence ?? 0
-    }
-
     expect(getCurrentSequence([{ sequence: 1 }, { sequence: 2 }, { sequence: 5 }])).toBe(5)
     expect(getCurrentSequence([{ sequence: 1 }])).toBe(1)
     expect(getCurrentSequence([])).toBe(0)
@@ -131,10 +124,6 @@ describe('update.ts - Sequence Checking Logic', () => {
   })
 
   it('handles lastProcessedSequence from existing memory', () => {
-    const getLastProcessedSequence = (existingMemory: { through_sequence?: number } | null): number => {
-      return existingMemory?.through_sequence ?? 0
-    }
-
     expect(getLastProcessedSequence({ through_sequence: 10 })).toBe(10)
     expect(getLastProcessedSequence({})).toBe(0)
     expect(getLastProcessedSequence(null)).toBe(0)
@@ -143,15 +132,6 @@ describe('update.ts - Sequence Checking Logic', () => {
 
 describe('update.ts - OpenAI Response Parsing', () => {
   it('extracts JSON from markdown code blocks', () => {
-    const extractJsonFromResponse = (content: string): string => {
-      let jsonStr = content
-      const jsonMatch = content.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/s)
-      if (jsonMatch) {
-        jsonStr = jsonMatch[1]
-      }
-      return jsonStr
-    }
-
     const plainJson = '{"summary": "test", "goals": []}'
     expect(extractJsonFromResponse(plainJson)).toBe(plainJson)
 
@@ -173,20 +153,6 @@ describe('update.ts - OpenAI Response Parsing', () => {
   })
 
   it('parses working memory structure correctly', () => {
-    const parseWorkingMemory = (jsonStr: string) => {
-      return JSON.parse(jsonStr) as {
-        summary?: string
-        goals?: string[]
-        requirements?: string[]
-        constraints?: string[]
-        decisions?: string[]
-        assumptions?: string[]
-        openQuestions?: string[]
-        glossary?: Record<string, string>
-        stakeholders?: string[]
-      }
-    }
-
     const validMemory = {
       summary: 'Test summary',
       goals: ['goal1', 'goal2'],
@@ -199,28 +165,15 @@ describe('update.ts - OpenAI Response Parsing', () => {
       stakeholders: ['stakeholder1'],
     }
 
-    const parsed = parseWorkingMemory(JSON.stringify(validMemory))
+    const jsonStr = extractJsonFromResponse(JSON.stringify(validMemory))
+    const parsed = JSON.parse(jsonStr)
     expect(parsed.summary).toBe('Test summary')
     expect(parsed.goals).toEqual(['goal1', 'goal2'])
     expect(parsed.glossary).toEqual({ term1: 'definition1' })
   })
 
   it('handles missing fields with defaults', () => {
-    const applyDefaults = (workingMemory: any) => {
-      return {
-        summary: workingMemory.summary || '',
-        goals: workingMemory.goals || [],
-        requirements: workingMemory.requirements || [],
-        constraints: workingMemory.constraints || [],
-        decisions: workingMemory.decisions || [],
-        assumptions: workingMemory.assumptions || [],
-        openQuestions: workingMemory.openQuestions || [],
-        glossary: workingMemory.glossary || {},
-        stakeholders: workingMemory.stakeholders || [],
-      }
-    }
-
-    expect(applyDefaults({})).toEqual({
+    expect(transformWorkingMemory({})).toEqual({
       summary: '',
       goals: [],
       requirements: [],
@@ -232,7 +185,7 @@ describe('update.ts - OpenAI Response Parsing', () => {
       stakeholders: [],
     })
 
-    expect(applyDefaults({ summary: 'test', goals: ['goal1'] })).toEqual({
+    expect(transformWorkingMemory({ summary: 'test', goals: ['goal1'] })).toEqual({
       summary: 'test',
       goals: ['goal1'],
       requirements: [],
@@ -248,25 +201,17 @@ describe('update.ts - OpenAI Response Parsing', () => {
 
 describe('update.ts - Conversation Text Formatting', () => {
   it('formats conversation messages into text', () => {
-    const formatConversation = (messages: Array<{ role: string; content: string }>): string => {
-      return messages.map((m) => `**${m.role}**: ${m.content}`).join('\n\n')
-    }
-
     const messages = [
       { role: 'user', content: 'Hello' },
       { role: 'assistant', content: 'Hi there' },
       { role: 'user', content: 'How are you?' },
     ]
 
-    const formatted = formatConversation(messages)
+    const formatted = formatConversationText(messages)
     expect(formatted).toBe('**user**: Hello\n\n**assistant**: Hi there\n\n**user**: How are you?')
   })
 
   it('handles empty messages array', () => {
-    const formatConversation = (messages: Array<{ role: string; content: string }>): string => {
-      return messages.map((m) => `**${m.role}**: ${m.content}`).join('\n\n')
-    }
-
-    expect(formatConversation([])).toBe('')
+    expect(formatConversationText([])).toBe('')
   })
 })

@@ -49,7 +49,7 @@ function json(res: ServerResponse, statusCode: number, body: unknown) {
   res.end(JSON.stringify(body))
 }
 
-function trimString(value: unknown): string | undefined {
+export function trimString(value: unknown): string | undefined {
   return typeof value === 'string' ? value.trim() || undefined : undefined
 }
 
@@ -93,7 +93,7 @@ function parseInput(body: RequestBody): ParsedInput | { error: string } {
   }
 }
 
-function formatConversationText(messages: Array<{ role: string; content: string }>): string {
+export function formatConversationText(messages: Array<{ role: string; content: string }>): string {
   return messages.map((m) => `**${m.role}**: ${m.content}`).join('\n\n')
 }
 
@@ -130,7 +130,7 @@ Return ONLY a valid JSON object with this exact structure:
 Return ONLY the JSON object, no other text.`
 }
 
-function extractJsonFromResponse(content: string): string {
+export function extractJsonFromResponse(content: string): string {
   const jsonMatch = content.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/)
   return jsonMatch ? jsonMatch[1] : content
 }
@@ -174,7 +174,7 @@ async function callOpenAI(apiKey: string, model: string, prompt: string): Promis
   }
 }
 
-function transformWorkingMemory(memory: WorkingMemory) {
+export function transformWorkingMemory(memory: WorkingMemory) {
   return {
     summary: memory.summary || '',
     goals: memory.goals || [],
@@ -202,6 +202,86 @@ function transformExistingMemory(existing: any) {
     lastUpdatedAt: existing.last_updated_at || null,
     throughSequence: existing.through_sequence || 0,
   }
+}
+
+export function getCurrentSequence(messages: Array<{ sequence?: number }>): number {
+  return messages[messages.length - 1]?.sequence ?? 0
+}
+
+export function getLastProcessedSequence(existingMemory: { through_sequence?: number } | null): number {
+  return existingMemory?.through_sequence ?? 0
+}
+
+export function shouldUpdateMemory(forceRefresh: boolean, currentSequence: number, lastProcessedSequence: number): boolean {
+  return forceRefresh || currentSequence > lastProcessedSequence
+}
+
+async function fetchMessages(supabase: any, projectId: string, agent: string) {
+  const { data: messages, error: messagesError } = await supabase
+    .from('hal_conversation_messages')
+    .select('role, content, sequence')
+    .eq('project_id', projectId)
+    .eq('agent', agent)
+    .order('sequence', { ascending: true })
+
+  if (messagesError) {
+    return { error: `Failed to fetch conversation messages: ${messagesError.message}` }
+  }
+
+  if (!messages || messages.length === 0) {
+    return { error: 'No conversation messages found.' }
+  }
+
+  return { messages }
+}
+
+async function getExistingMemorySequence(supabase: any, projectId: string, agent: string) {
+  const { data: existingMemory } = await supabase
+    .from('hal_conversation_working_memory')
+    .select('through_sequence')
+    .eq('project_id', projectId)
+    .eq('agent', agent)
+    .maybeSingle()
+
+  return existingMemory
+}
+
+async function getExistingMemory(supabase: any, projectId: string, agent: string) {
+  const { data: existing } = await supabase
+    .from('hal_conversation_working_memory')
+    .select('*')
+    .eq('project_id', projectId)
+    .eq('agent', agent)
+    .maybeSingle()
+
+  return existing
+}
+
+async function upsertWorkingMemory(
+  supabase: any,
+  projectId: string,
+  agent: string,
+  transformed: ReturnType<typeof transformWorkingMemory>,
+  currentSequence: number
+) {
+  return await supabase.from('hal_conversation_working_memory').upsert(
+    {
+      project_id: projectId,
+      agent,
+      summary: transformed.summary,
+      goals: transformed.goals,
+      requirements: transformed.requirements,
+      constraints: transformed.constraints,
+      decisions: transformed.decisions,
+      assumptions: transformed.assumptions,
+      open_questions: transformed.openQuestions,
+      glossary: transformed.glossary,
+      stakeholders: transformed.stakeholders,
+      through_sequence: currentSequence,
+      last_updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'project_id,agent' }
+  )
 }
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
@@ -234,50 +314,22 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const supabase = createClient(input.supabaseUrl, input.supabaseAnonKey)
 
     // Fetch conversation messages
-    const { data: messages, error: messagesError } = await supabase
-      .from('hal_conversation_messages')
-      .select('role, content, sequence')
-      .eq('project_id', input.projectId)
-      .eq('agent', input.agent)
-      .order('sequence', { ascending: true })
-
-    if (messagesError) {
-      json(res, 200, {
-        success: false,
-        error: `Failed to fetch conversation messages: ${messagesError.message}`,
-      })
+    const messagesResult = await fetchMessages(supabase, input.projectId, input.agent)
+    if ('error' in messagesResult) {
+      json(res, 200, { success: false, error: messagesResult.error })
       return
     }
-
-    if (!messages || messages.length === 0) {
-      json(res, 200, {
-        success: false,
-        error: 'No conversation messages found.',
-      })
-      return
-    }
+    const { messages } = messagesResult
 
     // Check if we need to update
-    const { data: existingMemory } = await supabase
-      .from('hal_conversation_working_memory')
-      .select('through_sequence')
-      .eq('project_id', input.projectId)
-      .eq('agent', input.agent)
-      .maybeSingle()
+    const existingMemory = await getExistingMemorySequence(supabase, input.projectId, input.agent)
+    const currentSequence = getCurrentSequence(messages)
+    const lastProcessedSequence = getLastProcessedSequence(existingMemory)
+    const needsUpdate = shouldUpdateMemory(input.forceRefresh, currentSequence, lastProcessedSequence)
 
-    const currentSequence = messages[messages.length - 1]?.sequence ?? 0
-    const lastProcessedSequence = existingMemory?.through_sequence ?? 0
-    const shouldUpdate = input.forceRefresh || currentSequence > lastProcessedSequence
-
-    if (!shouldUpdate) {
+    if (!needsUpdate) {
       // Return existing memory
-      const { data: existing } = await supabase
-        .from('hal_conversation_working_memory')
-        .select('*')
-        .eq('project_id', input.projectId)
-        .eq('agent', input.agent)
-        .maybeSingle()
-
+      const existing = await getExistingMemory(supabase, input.projectId, input.agent)
       if (existing) {
         json(res, 200, {
           success: true,
@@ -301,26 +353,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const transformed = transformWorkingMemory(result)
 
     // Upsert working memory
-    const { error: upsertError } = await supabase
-      .from('hal_conversation_working_memory')
-      .upsert(
-        {
-          project_id: input.projectId,
-          agent: input.agent,
-          summary: transformed.summary,
-          goals: transformed.goals,
-          requirements: transformed.requirements,
-          constraints: transformed.constraints,
-          decisions: transformed.decisions,
-          assumptions: transformed.assumptions,
-          open_questions: transformed.openQuestions,
-          glossary: transformed.glossary,
-          stakeholders: transformed.stakeholders,
-          through_sequence: currentSequence,
-          last_updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'project_id,agent' }
-      )
+    const { error: upsertError } = await upsertWorkingMemory(
+      supabase,
+      input.projectId,
+      input.agent,
+      transformed,
+      currentSequence
+    )
 
     if (upsertError) {
       json(res, 200, {
