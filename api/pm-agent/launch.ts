@@ -1,21 +1,38 @@
 import type { IncomingMessage, ServerResponse } from 'http'
-import { getServerSupabase, getCursorApiKey, humanReadableCursorError, appendProgress } from '../agent-runs/_shared.js'
+import { getServerSupabase, getCursorApiKey, humanReadableCursorError, appendProgress, readJsonBody, json } from '../agent-runs/_shared.js'
 import { getOrigin } from '../_lib/github/config.js'
 
 const PM_CURSOR_MODEL = 'gpt-5.2'
 
-async function readJsonBody(req: IncomingMessage): Promise<unknown> {
-  const chunks: Uint8Array[] = []
-  for await (const chunk of req) chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk)
-  const raw = Buffer.concat(chunks).toString('utf8').trim()
-  if (!raw) return {}
-  return JSON.parse(raw) as unknown
+async function getAgentStatus(cursorAgentId: string, auth: string): Promise<string | null> {
+  try {
+    const statusRes = await fetch(`https://api.cursor.com/v0/agents/${cursorAgentId}`, {
+      method: 'GET',
+      headers: { Authorization: `Basic ${auth}` },
+    })
+    if (!statusRes.ok) return null
+    const statusData = (await statusRes.json()) as { status?: string }
+    return statusData.status ?? null
+  } catch (e) {
+    console.warn('[pm-agent/launch] Failed to check existing agent status:', e instanceof Error ? e.message : e)
+    return null
+  }
 }
 
-function json(res: ServerResponse, statusCode: number, body: unknown) {
-  res.statusCode = statusCode
-  res.setHeader('Content-Type', 'application/json')
-  res.end(JSON.stringify(body))
+async function findActiveRun(supabase: any, cursorAgentId: string): Promise<string | null> {
+  const { data: existingRun } = await supabase
+    .from('hal_agent_runs')
+    .select('run_id, status')
+    .eq('cursor_agent_id', cursorAgentId)
+    .eq('agent_type', 'project-manager')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  
+  if (existingRun?.run_id && existingRun.status === 'polling') {
+    return existingRun.run_id as string
+  }
+  return null
 }
 
 async function checkExistingThread(
@@ -33,33 +50,15 @@ async function checkExistingThread(
   
   if (!thread?.cursor_agent_id) return { cursorAgentId: null, runId: null }
   
-  try {
-    const statusRes = await fetch(`https://api.cursor.com/v0/agents/${thread.cursor_agent_id}`, {
-      method: 'GET',
-      headers: { Authorization: `Basic ${auth}` },
-    })
-    if (statusRes.ok) {
-      const statusData = (await statusRes.json()) as { status?: string }
-      const status = statusData.status ?? ''
-      if (status === 'RUNNING' || status === 'CREATING') {
-        const { data: existingRun } = await supabase
-          .from('hal_agent_runs')
-          .select('run_id, status')
-          .eq('cursor_agent_id', thread.cursor_agent_id)
-          .eq('agent_type', 'project-manager')
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle()
-        
-        if (existingRun?.run_id && existingRun.status === 'polling') {
-          return { cursorAgentId: thread.cursor_agent_id, runId: existingRun.run_id as string }
-        }
-      }
-    }
-  } catch (e) {
-    console.warn('[pm-agent/launch] Failed to check existing agent status:', e instanceof Error ? e.message : e)
+  const status = await getAgentStatus(thread.cursor_agent_id, auth)
+  if (status !== 'RUNNING' && status !== 'CREATING') {
+    return { cursorAgentId: null, runId: null }
   }
-  return { cursorAgentId: null, runId: null }
+  
+  const runId = await findActiveRun(supabase, thread.cursor_agent_id)
+  if (!runId) return { cursorAgentId: null, runId: null }
+  
+  return { cursorAgentId: thread.cursor_agent_id, runId }
 }
 
 function buildPromptText(repoFullName: string, defaultBranch: string, halApiBaseUrl: string, message: string): string {
@@ -80,15 +79,7 @@ function buildPromptText(repoFullName: string, defaultBranch: string, halApiBase
   ].join('\n')
 }
 
-async function createNewAgent(
-  supabase: any,
-  repoFullName: string,
-  defaultBranch: string,
-  message: string,
-  halApiBaseUrl: string,
-  auth: string,
-  repoUrl: string
-): Promise<{ runId: string; cursorAgentId: string; cursorStatus: string }> {
+async function createRunRow(supabase: any, repoFullName: string): Promise<string> {
   const initialProgress = appendProgress([], `Launching PM agent for ${repoFullName}`)
   const { data: runRow, error: runInsErr } = await supabase
     .from('hal_agent_runs')
@@ -108,9 +99,27 @@ async function createNewAgent(
     throw new Error(`Failed to create run row: ${runInsErr?.message ?? 'unknown'}`)
   }
 
-  const runId = runRow.run_id as string
-  const promptText = buildPromptText(repoFullName, defaultBranch, halApiBaseUrl, message)
+  return runRow.run_id as string
+}
 
+async function updateRunOnError(supabase: any, runId: string, initialProgress: any[], error: string): Promise<void> {
+  await supabase
+    .from('hal_agent_runs')
+    .update({
+      status: 'failed',
+      error,
+      progress: appendProgress(initialProgress, error),
+      finished_at: new Date().toISOString(),
+    })
+    .eq('run_id', runId)
+}
+
+async function launchCursorAgent(
+  promptText: string,
+  repoUrl: string,
+  defaultBranch: string,
+  auth: string
+): Promise<{ id: string; status: string }> {
   const launchRes = await fetch('https://api.cursor.com/v0/agents', {
     method: 'POST',
     headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/json' },
@@ -124,64 +133,140 @@ async function createNewAgent(
 
   const launchText = await launchRes.text()
   if (!launchRes.ok) {
-    const msg = humanReadableCursorError(launchRes.status, launchText)
-    await supabase
-      .from('hal_agent_runs')
-      .update({
-        status: 'failed',
-        error: msg,
-        progress: appendProgress(initialProgress, `Launch failed: ${msg}`),
-        finished_at: new Date().toISOString(),
-      })
-      .eq('run_id', runId)
-    throw new Error(msg)
+    throw new Error(humanReadableCursorError(launchRes.status, launchText))
   }
 
   let launchData: { id?: string; status?: string }
   try {
     launchData = JSON.parse(launchText) as typeof launchData
   } catch {
-    const msg = 'Invalid response from Cursor API when launching agent.'
-    await supabase
-      .from('hal_agent_runs')
-      .update({
-        status: 'failed',
-        error: msg,
-        progress: appendProgress(initialProgress, msg),
-        finished_at: new Date().toISOString(),
-      })
-      .eq('run_id', runId)
-    throw new Error(msg)
+    throw new Error('Invalid response from Cursor API when launching agent.')
   }
 
   const cursorAgentId = launchData.id ?? ''
-  const cursorStatus = launchData.status ?? 'CREATING'
   if (!cursorAgentId) {
-    const msg = 'Cursor API did not return an agent ID.'
+    throw new Error('Cursor API did not return an agent ID.')
+  }
+
+  return { id: cursorAgentId, status: launchData.status ?? 'CREATING' }
+}
+
+async function createNewAgent(
+  supabase: any,
+  repoFullName: string,
+  defaultBranch: string,
+  message: string,
+  halApiBaseUrl: string,
+  auth: string,
+  repoUrl: string
+): Promise<{ runId: string; cursorAgentId: string; cursorStatus: string }> {
+  const initialProgress = appendProgress([], `Launching PM agent for ${repoFullName}`)
+  let runId: string
+  try {
+    runId = await createRunRow(supabase, repoFullName)
+  } catch (err) {
+    throw err
+  }
+
+  const promptText = buildPromptText(repoFullName, defaultBranch, halApiBaseUrl, message)
+
+  try {
+    const { id: cursorAgentId, status: cursorStatus } = await launchCursorAgent(promptText, repoUrl, defaultBranch, auth)
+    
+    const progressAfterLaunch = appendProgress(initialProgress, `Launched Cursor agent (${cursorStatus}).`)
     await supabase
       .from('hal_agent_runs')
       .update({
-        status: 'failed',
-        error: msg,
-        progress: appendProgress(initialProgress, msg),
-        finished_at: new Date().toISOString(),
+        status: 'polling',
+        cursor_agent_id: cursorAgentId,
+        cursor_status: cursorStatus,
+        progress: progressAfterLaunch,
       })
       .eq('run_id', runId)
-    throw new Error(msg)
+
+    return { runId, cursorAgentId, cursorStatus }
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err ?? 'Unknown error')
+    const fullErrorMsg = errorMsg.startsWith('Launch failed:') ? errorMsg : `Launch failed: ${errorMsg}`
+    await updateRunOnError(supabase, runId, initialProgress, fullErrorMsg)
+    throw new Error(errorMsg)
+  }
+}
+
+function parseRequestBody(body: unknown): {
+  message: string
+  repoFullName: string
+  defaultBranch: string
+  conversationId?: string
+  projectId?: string
+  restart?: boolean
+} {
+  const parsed = body as {
+    message?: string
+    repoFullName?: string
+    defaultBranch?: string
+    conversationId?: string
+    projectId?: string
+    restart?: boolean
   }
 
-  const progressAfterLaunch = appendProgress(initialProgress, `Launched Cursor agent (${cursorStatus}).`)
-  await supabase
-    .from('hal_agent_runs')
-    .update({
-      status: 'polling',
-      cursor_agent_id: cursorAgentId,
-      cursor_status: cursorStatus,
-      progress: progressAfterLaunch,
-    })
-    .eq('run_id', runId)
+  return {
+    message: typeof parsed.message === 'string' ? parsed.message.trim() : '',
+    repoFullName: typeof parsed.repoFullName === 'string' ? parsed.repoFullName.trim() : '',
+    defaultBranch: (typeof parsed.defaultBranch === 'string' ? parsed.defaultBranch.trim() : '') || 'main',
+    conversationId: typeof parsed.conversationId === 'string' ? parsed.conversationId.trim() : undefined,
+    projectId: typeof parsed.projectId === 'string' ? parsed.projectId.trim() : undefined,
+    restart: parsed.restart === true,
+  }
+}
 
-  return { runId, cursorAgentId, cursorStatus }
+function validateRequest(message: string, repoFullName: string, restart: boolean): string | null {
+  if (!restart && !message) {
+    return 'message is required.'
+  }
+  if (!repoFullName) {
+    return 'repoFullName is required. Connect a GitHub repo first.'
+  }
+  return null
+}
+
+async function handleRestart(supabase: any, conversationId: string, projectId: string, res: ServerResponse): Promise<void> {
+  await supabase
+    .from('hal_pm_conversation_threads')
+    .delete()
+    .eq('project_id', projectId)
+    .eq('conversation_id', conversationId)
+  json(res, 200, { success: true, message: 'Conversation thread mapping cleared' })
+}
+
+async function handleContinueExisting(
+  existingRunId: string,
+  existingCursorAgentId: string,
+  conversationId: string | undefined,
+  projectId: string | undefined,
+  cursorAgentId: string,
+  supabase: any,
+  res: ServerResponse
+): Promise<void> {
+  if (conversationId && projectId) {
+    await supabase
+      .from('hal_pm_conversation_threads')
+      .upsert(
+        {
+          project_id: projectId,
+          conversation_id: conversationId,
+          cursor_agent_id: cursorAgentId,
+        },
+        { onConflict: 'project_id,conversation_id' }
+      )
+  }
+
+  json(res, 200, {
+    runId: existingRunId,
+    status: 'polling',
+    cursorAgentId: existingCursorAgentId,
+    isContinuing: true,
+  })
 }
 
 /**
@@ -196,96 +281,60 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   }
 
   try {
-    const body = (await readJsonBody(req)) as {
-      message?: string
-      repoFullName?: string
-      defaultBranch?: string
-      conversationId?: string
-      projectId?: string
-      restart?: boolean
-    }
+    const body = await readJsonBody(req)
+    const { message, repoFullName, defaultBranch, conversationId, projectId, restart } = parseRequestBody(body)
 
-    const message = typeof body.message === 'string' ? body.message.trim() : ''
-    const repoFullName = typeof body.repoFullName === 'string' ? body.repoFullName.trim() : ''
-    const defaultBranch = (typeof body.defaultBranch === 'string' ? body.defaultBranch.trim() : '') || 'main'
-    const conversationId = typeof body.conversationId === 'string' ? body.conversationId.trim() : undefined
-    const projectId = typeof body.projectId === 'string' ? body.projectId.trim() : undefined
-    const restart = body.restart === true
-
-    // If restarting, message is optional (just clearing the mapping)
-    if (!restart && !message) {
-      json(res, 400, { error: 'message is required.' })
-      return
-    }
-    if (!repoFullName) {
-      json(res, 400, { error: 'repoFullName is required. Connect a GitHub repo first.' })
+    const validationError = validateRequest(message, repoFullName, restart)
+    if (validationError) {
+      json(res, 400, { error: validationError })
       return
     }
 
     const halApiBaseUrl = getOrigin(req)
-
     const cursorKey = getCursorApiKey()
     const auth = Buffer.from(`${cursorKey}:`).toString('base64')
     const repoUrl = `https://github.com/${repoFullName}`
     const supabase = getServerSupabase()
 
-    // Check for existing cursor_agent_id if conversationId and projectId are provided
+    // Handle restart request
+    if (restart && conversationId && projectId) {
+      await handleRestart(supabase, conversationId, projectId, res)
+      return
+    }
+
+    // Check for existing thread
     let existingCursorAgentId: string | null = null
-    let isContinuing = false
     let existingRunId: string | null = null
-    if (conversationId && projectId && !restart) {
+    if (conversationId && projectId) {
       const existing = await checkExistingThread(supabase, conversationId, projectId, auth)
       if (existing.cursorAgentId && existing.runId) {
         existingCursorAgentId = existing.cursorAgentId
         existingRunId = existing.runId
-        isContinuing = true
       }
     }
 
-    // If restarting, clear the mapping and return early
-    if (restart && conversationId && projectId) {
-      await supabase
-        .from('hal_pm_conversation_threads')
-        .delete()
-        .eq('project_id', projectId)
-        .eq('conversation_id', conversationId)
-      json(res, 200, { success: true, message: 'Conversation thread mapping cleared' })
+    // Continue existing or create new
+    if (existingCursorAgentId && existingRunId) {
+      await handleContinueExisting(existingRunId, existingCursorAgentId, conversationId, projectId, existingCursorAgentId, supabase, res)
       return
     }
 
+    // Create new agent
     let cursorAgentId: string
     let cursorStatus: string
     let runId: string
-
-    if (isContinuing && existingCursorAgentId && existingRunId) {
-      // Continuing existing conversation - reuse the existing run
-      runId = existingRunId
-      cursorAgentId = existingCursorAgentId
-      cursorStatus = 'RUNNING'
-      
-      // Note: Cursor Cloud Agents API doesn't appear to support sending follow-up messages
-      // to existing agents. Each agent run is independent. However, we're reusing the same
-      // cursor_agent_id mapping so the frontend knows this is a continuation.
-      // The agent will need to be recreated for the new message, but we maintain the mapping
-      // so future messages can also reference the same conversation thread.
-      // 
-      // TODO: If Cursor API adds support for multi-turn conversations on the same agent,
-      // we should use that here instead of creating a new agent.
-    } else {
-      // Creating new agent
-      try {
-        const result = await createNewAgent(supabase, repoFullName, defaultBranch, message, halApiBaseUrl, auth, repoUrl)
-        runId = result.runId
-        cursorAgentId = result.cursorAgentId
-        cursorStatus = result.cursorStatus
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        json(res, 200, { runId: '', status: 'failed', error: msg })
-        return
-      }
+    try {
+      const result = await createNewAgent(supabase, repoFullName, defaultBranch, message, halApiBaseUrl, auth, repoUrl)
+      runId = result.runId
+      cursorAgentId = result.cursorAgentId
+      cursorStatus = result.cursorStatus
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : err ? String(err) : 'Unknown error'
+      json(res, 200, { runId: '', status: 'failed', error: msg })
+      return
     }
 
-    // Store or update the conversation thread mapping
+    // Store conversation thread mapping
     if (conversationId && projectId) {
       await supabase
         .from('hal_pm_conversation_threads')
@@ -299,14 +348,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         )
     }
 
-    json(res, 200, { 
-      runId, 
-      status: 'polling', 
+    json(res, 200, {
+      runId,
+      status: 'polling',
       cursorAgentId,
-      isContinuing: isContinuing,
+      isContinuing: false,
     })
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
+    const message = err instanceof Error ? err.message : err ? String(err) : 'Unknown error'
     console.error('[pm-agent/launch] Error:', message)
     const isConfigError =
       /Supabase server env is missing|Cursor API is not configured/i.test(message)
