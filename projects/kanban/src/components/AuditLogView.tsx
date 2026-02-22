@@ -102,6 +102,42 @@ export function AuditLogView({
       .join(' ')
   }
 
+  // Redact sensitive values from metadata to prevent exposing secrets/tokens
+  const redactMetadata = (metadata: Record<string, unknown>): Record<string, unknown> => {
+    const REDACTED = '[REDACTED]'
+    const SENSITIVE_KEYS = /^(api[_-]?key|apikey|authorization|secret|password|token|access[_-]?token|refresh[_-]?token|supabase[_-]?(anon|service|secret)[_-]?key|client[_-]?secret|auth[_-]?secret)$/i
+    const OPENAI_KEY_PATTERN = /sk-[a-zA-Z0-9_-]{20,}/g
+    const JWT_PATTERN = /eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+/g
+
+    const redactValue = (value: unknown, key?: string): unknown => {
+      if (key && typeof value === 'string' && SENSITIVE_KEYS.test(key)) {
+        return REDACTED
+      }
+      if (typeof value === 'string') {
+        return value
+          .replace(OPENAI_KEY_PATTERN, REDACTED)
+          .replace(JWT_PATTERN, REDACTED)
+      }
+      if (Array.isArray(value)) {
+        return value.map((v) => redactValue(v))
+      }
+      if (value !== null && typeof value === 'object') {
+        const out: Record<string, unknown> = {}
+        for (const [k, v] of Object.entries(value)) {
+          out[k] = redactValue(v, k)
+        }
+        return out
+      }
+      return value
+    }
+
+    const redacted: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(metadata)) {
+      redacted[key] = redactValue(value, key)
+    }
+    return redacted
+  }
+
   // Get unique action types for filter
   const actionTypes = Array.from(new Set(logs.map((log) => log.action_type))).sort()
 
@@ -190,7 +226,7 @@ export function AuditLogView({
                     <details style={{ marginTop: '0.5rem' }}>
                       <summary style={{ cursor: 'pointer', fontSize: '0.9em', color: '#666' }}>Metadata</summary>
                       <pre style={{ marginTop: '0.5rem', padding: '0.5rem', backgroundColor: '#fff', borderRadius: '4px', fontSize: '0.85em', overflow: 'auto' }}>
-                        {JSON.stringify(log.metadata, null, 2)}
+                        {JSON.stringify(redactMetadata(log.metadata || {}), null, 2)}
                       </pre>
                     </details>
                   )}
