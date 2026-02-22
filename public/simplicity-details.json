@@ -81,9 +81,16 @@
       "maintainability": 17.97
     }
   ],
-  "mostRecentImprovements": [],
-  "generatedAt": "2026-02-22T00:15:47.268Z",
-  "filesAnalyzed": 327,
-  "unroundedMaintainability": 33.8,
-  "unroundedSimplicity": 33.8
+  "mostRecentImprovements": [
+    {
+      "file": "projects/kanban/src/components/ArtifactReportViewer.tsx",
+      "before": 24.62,
+      "after": 34.85,
+      "delta": 10.23
+    }
+  ],
+  "generatedAt": "2026-02-22T00:27:57.421Z",
+  "filesAnalyzed": 329,
+  "unroundedMaintainability": 33.7,
+  "unroundedSimplicity": 33.7
 }
