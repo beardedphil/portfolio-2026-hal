@@ -67,6 +67,44 @@ interface PreviewResult {
   error?: string
 }
 
+interface ContinuityCheckResult {
+  success: boolean
+  passed: boolean
+  originalChecksum: string
+  rebuiltChecksum: string
+  checksumMatch: boolean
+  runIdContinuity?: {
+    originalRunId?: string | null
+    resumedRunId?: string | null
+    continuityMaintained: boolean
+    explanation: string
+  }
+  errors: string[]
+  warnings: string[]
+  details: {
+    receiptId: string
+    bundleId: string
+    ticketPk: string
+    ticketId: string
+    repoFullName: string
+    role: string
+    rebuiltFrom: {
+      redReference?: { red_id: string; version: number } | null
+      integrationManifestReference?: {
+        manifest_id: string
+        version: number
+        schema_version: string
+      } | null
+      gitRef?: {
+        pr_url?: string
+        pr_number?: number
+        base_sha?: string
+        head_sha?: string
+      } | null
+    }
+  }
+}
+
 type RoleOption = 'project-manager' | 'implementation-agent' | 'qa-agent' | 'process-review'
 
 const ROLE_OPTIONS: Array<{ value: RoleOption; label: string }> = [
@@ -98,6 +136,9 @@ export function ContextBundleModal({
   const [showReceipt, setShowReceipt] = useState(false)
   const [showBreakdown, setShowBreakdown] = useState(false)
   const [bundlePreviewText, setBundlePreviewText] = useState<string>('')
+  const [continuityCheckResult, setContinuityCheckResult] = useState<ContinuityCheckResult | null>(null)
+  const [continuityCheckLoading, setContinuityCheckLoading] = useState(false)
+  const [showContinuityCheck, setShowContinuityCheck] = useState(false)
   const apiBaseUrlRef = useRef<string>('')
 
   // Load API base URL
@@ -131,6 +172,8 @@ export function ContextBundleModal({
       setShowReceipt(false)
       setShowBreakdown(false)
       setBundlePreviewText('')
+      setContinuityCheckResult(null)
+      setShowContinuityCheck(false)
       if (repoFullName) {
         loadBundles()
       }
@@ -323,6 +366,56 @@ export function ContextBundleModal({
     // This would typically trigger an agent run with the selected bundle
     console.log('Use bundle:', selectedBundleId, selectedRole)
     alert('"Use this bundle" functionality will be implemented to trigger agent run with selected bundle.')
+  }
+
+  const runContinuityCheck = async () => {
+    if (!receipt || !supabaseUrl || !supabaseAnonKey) return
+
+    setContinuityCheckLoading(true)
+    setContinuityCheckResult(null)
+    setShowContinuityCheck(true)
+
+    try {
+      const apiBaseUrl = apiBaseUrlRef.current || window.location.origin
+      const response = await fetch(`${apiBaseUrl}/api/context-bundles/check-continuity`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          receiptId: receipt.receipt_id,
+          supabaseUrl,
+          supabaseAnonKey,
+        }),
+      })
+
+      const data = (await response.json()) as ContinuityCheckResult
+
+      if (!data.success) {
+        throw new Error(data.errors?.join(', ') || 'Failed to run continuity check')
+      }
+
+      setContinuityCheckResult(data)
+    } catch (err) {
+      setContinuityCheckResult({
+        success: false,
+        passed: false,
+        originalChecksum: receipt.content_checksum,
+        rebuiltChecksum: '',
+        checksumMatch: false,
+        errors: [err instanceof Error ? err.message : 'Failed to run continuity check'],
+        warnings: [],
+        details: {
+          receiptId: receipt.receipt_id,
+          bundleId: receipt.bundle_id,
+          ticketPk: '',
+          ticketId: receipt.ticket_id,
+          repoFullName: '',
+          role: receipt.role,
+          rebuiltFrom: {},
+        },
+      })
+    } finally {
+      setContinuityCheckLoading(false)
+    }
   }
 
   const formatNumber = (num: number): string => {
@@ -611,6 +704,146 @@ export function ContextBundleModal({
                           )}
                           <div>
                             <strong>Created:</strong> {new Date(receipt.created_at).toLocaleString()}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Cold-start Continuity Check */}
+                  {receipt && (
+                    <div style={{ border: '1px solid var(--hal-border)', borderRadius: '8px', padding: '16px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                        <h3 style={{ margin: 0, fontSize: '16px' }}>Cold-start Continuity Check</h3>
+                        <button
+                          type="button"
+                          onClick={runContinuityCheck}
+                          disabled={continuityCheckLoading}
+                          style={{
+                            padding: '8px 16px',
+                            fontSize: '14px',
+                            border: '1px solid var(--hal-border)',
+                            borderRadius: '4px',
+                            background: continuityCheckLoading ? 'var(--hal-surface-alt)' : 'var(--hal-primary, #1976d2)',
+                            color: 'white',
+                            cursor: continuityCheckLoading ? 'not-allowed' : 'pointer',
+                            opacity: continuityCheckLoading ? 0.6 : 1,
+                          }}
+                        >
+                          {continuityCheckLoading ? 'Running...' : 'Run Check'}
+                        </button>
+                      </div>
+                      {showContinuityCheck && continuityCheckResult && (
+                        <div style={{ fontSize: '14px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                          {/* Pass/Fail Status */}
+                          <div
+                            style={{
+                              padding: '12px',
+                              background: continuityCheckResult.passed
+                                ? 'var(--hal-status-success, #2e7d32)'
+                                : 'var(--hal-status-error, #c62828)',
+                              color: 'white',
+                              borderRadius: '4px',
+                              fontWeight: 'bold',
+                            }}
+                          >
+                            {continuityCheckResult.passed ? '✓ PASS' : '✗ FAIL'}
+                          </div>
+
+                          {/* Checksum Comparison */}
+                          <div style={{ padding: '12px', background: 'var(--hal-surface-alt)', borderRadius: '4px' }}>
+                            <div style={{ marginBottom: '8px' }}>
+                              <strong>Content Checksum Match:</strong>{' '}
+                              {continuityCheckResult.checksumMatch ? (
+                                <span style={{ color: 'var(--hal-status-success, #2e7d32)' }}>✓ Match</span>
+                              ) : (
+                                <span style={{ color: 'var(--hal-status-error, #c62828)' }}>✗ Mismatch</span>
+                              )}
+                            </div>
+                            <div style={{ fontSize: '12px', fontFamily: 'monospace', marginTop: '4px' }}>
+                              <div>
+                                <strong>Original:</strong> {continuityCheckResult.originalChecksum.substring(0, 32)}...
+                              </div>
+                              <div>
+                                <strong>Rebuilt:</strong> {continuityCheckResult.rebuiltChecksum.substring(0, 32)}...
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Run ID Continuity */}
+                          {continuityCheckResult.runIdContinuity && (
+                            <div style={{ padding: '12px', background: 'var(--hal-surface-alt)', borderRadius: '4px' }}>
+                              <div style={{ marginBottom: '8px' }}>
+                                <strong>Run ID Continuity:</strong>{' '}
+                                {continuityCheckResult.runIdContinuity.continuityMaintained ? (
+                                  <span style={{ color: 'var(--hal-status-success, #2e7d32)' }}>✓ Maintained</span>
+                                ) : (
+                                  <span style={{ color: 'var(--hal-status-error, #c62828)' }}>✗ Broken</span>
+                                )}
+                              </div>
+                              <div style={{ fontSize: '12px', marginTop: '4px' }}>
+                                {continuityCheckResult.runIdContinuity.explanation}
+                              </div>
+                              {continuityCheckResult.runIdContinuity.originalRunId && (
+                                <div style={{ fontSize: '12px', fontFamily: 'monospace', marginTop: '4px' }}>
+                                  <div>
+                                    <strong>Original Run ID:</strong> {continuityCheckResult.runIdContinuity.originalRunId}
+                                  </div>
+                                  {continuityCheckResult.runIdContinuity.resumedRunId && (
+                                    <div>
+                                      <strong>Resumed Run ID:</strong> {continuityCheckResult.runIdContinuity.resumedRunId}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Errors */}
+                          {continuityCheckResult.errors.length > 0 && (
+                            <div style={{ padding: '12px', background: 'var(--hal-status-error, #c62828)', color: 'white', borderRadius: '4px' }}>
+                              <strong>Errors:</strong>
+                              <ul style={{ margin: '8px 0 0 0', paddingLeft: '20px' }}>
+                                {continuityCheckResult.errors.map((error, idx) => (
+                                  <li key={idx} style={{ marginTop: '4px' }}>
+                                    {error}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {/* Warnings */}
+                          {continuityCheckResult.warnings.length > 0 && (
+                            <div style={{ padding: '12px', background: 'var(--hal-surface-alt)', borderRadius: '4px', border: '1px solid #ff9800' }}>
+                              <strong>Warnings:</strong>
+                              <ul style={{ margin: '8px 0 0 0', paddingLeft: '20px' }}>
+                                {continuityCheckResult.warnings.map((warning, idx) => (
+                                  <li key={idx} style={{ marginTop: '4px' }}>
+                                    {warning}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {/* Details */}
+                          <div style={{ padding: '12px', background: 'var(--hal-surface-alt)', borderRadius: '4px', fontSize: '12px' }}>
+                            <strong>Rebuilt From:</strong>
+                            <div style={{ marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              {continuityCheckResult.details.rebuiltFrom.redReference && (
+                                <div>
+                                  RED: {continuityCheckResult.details.rebuiltFrom.redReference.red_id} (v
+                                  {continuityCheckResult.details.rebuiltFrom.redReference.version})
+                                </div>
+                              )}
+                              {continuityCheckResult.details.rebuiltFrom.integrationManifestReference && (
+                                <div>
+                                  Integration Manifest: {continuityCheckResult.details.rebuiltFrom.integrationManifestReference.manifest_id} (v
+                                  {continuityCheckResult.details.rebuiltFrom.integrationManifestReference.version})
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </div>
                       )}
