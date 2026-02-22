@@ -650,6 +650,50 @@ function App() {
   // Derive sync status from realtime connection status (0737)
   const kanbanSyncStatus: 'realtime' | 'polling' = kanbanRealtimeStatus === 'connected' ? 'realtime' : 'polling'
 
+  // Auto-trigger agents for tickets already in Ready for QA and Process Review columns (HAL-0802)
+  // This handles tickets that are already in those columns when the page loads or data refreshes
+  useEffect(() => {
+    if (!connectedGithubRepo?.fullName || !kanbanTickets.length) return
+
+    const triggerAgentsForExistingTickets = async () => {
+      for (const ticket of kanbanTickets) {
+        const existingRun = kanbanAgentRunsByTicketPk[ticket.pk]
+        const isQARunning = existingRun?.agent_type === 'qa' && isNonTerminalRunStatus(existingRun.status)
+        const isProcessReviewRunning = existingRun?.agent_type === 'process-review' && isNonTerminalRunStatus(existingRun.status)
+
+        // Auto-trigger QA agent for tickets in Ready for QA column
+        if (ticket.kanban_column_id === 'col-qa' && !isQARunning) {
+          const ticketId = ticket.display_id ?? ticket.id ?? ticket.ticket_number?.toString() ?? null
+          if (ticketId) {
+            const convId = getDefaultConversationIdForAgent('qa-agent')
+            try {
+              await triggerAgentRunWrapper(`QA ticket ${ticketId}`, 'qa-agent', undefined, convId)
+            } catch (err) {
+              console.warn(`Failed to auto-trigger QA agent for ticket ${ticketId}:`, err)
+            }
+          }
+        }
+
+        // Auto-trigger Process Review agent for tickets in Process Review column
+        if (ticket.kanban_column_id === 'col-process-review' && !isProcessReviewRunning) {
+          const ticketId = ticket.display_id ?? ticket.id ?? ticket.ticket_number?.toString() ?? undefined
+          try {
+            await handleKanbanProcessReview({ ticketPk: ticket.pk, ticketId })
+          } catch (err) {
+            console.warn(`Failed to auto-trigger Process Review agent for ticket ${ticket.pk}:`, err)
+          }
+        }
+      }
+    }
+
+    // Use a small delay to avoid triggering on every render, and to let agent runs update first
+    const timeoutId = setTimeout(() => {
+      triggerAgentsForExistingTickets()
+    }, 1000)
+
+    return () => clearTimeout(timeoutId)
+  }, [kanbanTickets, kanbanAgentRunsByTicketPk, connectedGithubRepo, getDefaultConversationIdForAgent, triggerAgentRunWrapper, handleKanbanProcessReview])
+
   // Wrapper to automatically trigger agents when tickets move to specific columns (HAL-0802)
   const handleKanbanMoveTicketWithAutoTrigger = useCallback(
     async (ticketPk: string, columnId: string, position?: number) => {
