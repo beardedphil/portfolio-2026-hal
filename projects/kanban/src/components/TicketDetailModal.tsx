@@ -10,6 +10,7 @@ import { ProcessReviewSection } from './ProcessReviewSection'
 import { HumanValidationSection } from './HumanValidationSection'
 import { AutoDismissMessage } from './AutoDismissMessage'
 import { PullRequestSection } from './PullRequestSection'
+import { AcceptanceCriteriaStatusSection } from './AcceptanceCriteriaStatusSection'
 
 /** Ticket detail modal (0033): title, metadata, markdown body, close/escape/backdrop, scroll lock, focus trap */
 export function TicketDetailModal({
@@ -260,6 +261,13 @@ export function TicketDetailModal({
                   <p className="ticket-detail-empty">No content.</p>
                 )}
               </div>
+              <AcceptanceCriteriaStatusSection
+                ticketId={ticketId}
+                ticketPk={ticketId}
+                supabaseUrl={supabaseUrl}
+                supabaseKey={supabaseKey}
+                onUpdate={_onTicketUpdate}
+              />
               <ArtifactsSection
                 artifacts={artifacts}
                 loading={artifactsLoading}

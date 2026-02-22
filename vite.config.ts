@@ -34,6 +34,8 @@ import {
   ticketsCheckFailureEscalationPlugin,
   conversationsWorkingMemoryGetPlugin,
   conversationsWorkingMemoryUpdatePlugin,
+  acceptanceCriteriaStatusGetPlugin,
+  acceptanceCriteriaStatusUpdatePlugin,
 } from './vite/middleware/simple-handlers'
 import { pmCheckUnassignedPlugin } from './vite/middleware/pm-check-unassigned'
 import { pmFileAccessPlugin } from './vite/middleware/pm-file-access'
@@ -146,6 +148,8 @@ export default defineConfig({
     ticketsCheckFailureEscalationPlugin(),
     conversationsWorkingMemoryGetPlugin(),
     conversationsWorkingMemoryUpdatePlugin(),
+    acceptanceCriteriaStatusGetPlugin(),
+    acceptanceCriteriaStatusUpdatePlugin(),
     serveCoveragePlugin(),
   ],
   server: {

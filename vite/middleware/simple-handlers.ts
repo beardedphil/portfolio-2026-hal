@@ -204,3 +204,59 @@ export function conversationsWorkingMemoryUpdatePlugin(): Plugin {
     },
   }
 }
+
+/** Acceptance criteria status get endpoint */
+export function acceptanceCriteriaStatusGetPlugin(): Plugin {
+  return {
+    name: 'acceptance-criteria-status-get-endpoint',
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        if (req.url !== '/api/acceptance-criteria-status/get' || (req.method !== 'POST' && req.method !== 'OPTIONS')) {
+          next()
+          return
+        }
+        try {
+          const getHandler = await import('../../api/acceptance-criteria-status/get')
+          await getHandler.default(req, res)
+        } catch (err) {
+          res.statusCode = 500
+          res.setHeader('Content-Type', 'application/json')
+          res.end(
+            JSON.stringify({
+              success: false,
+              error: err instanceof Error ? err.message : String(err),
+            })
+          )
+        }
+      })
+    },
+  }
+}
+
+/** Acceptance criteria status update endpoint */
+export function acceptanceCriteriaStatusUpdatePlugin(): Plugin {
+  return {
+    name: 'acceptance-criteria-status-update-endpoint',
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        if (req.url !== '/api/acceptance-criteria-status/update' || (req.method !== 'POST' && req.method !== 'OPTIONS')) {
+          next()
+          return
+        }
+        try {
+          const updateHandler = await import('../../api/acceptance-criteria-status/update')
+          await updateHandler.default(req, res)
+        } catch (err) {
+          res.statusCode = 500
+          res.setHeader('Content-Type', 'application/json')
+          res.end(
+            JSON.stringify({
+              success: false,
+              error: err instanceof Error ? err.message : String(err),
+            })
+          )
+        }
+      })
+    },
+  }
+}

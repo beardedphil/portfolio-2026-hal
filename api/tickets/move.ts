@@ -7,6 +7,7 @@ import {
 } from '../artifacts/_shared.js'
 import { readJsonBody, json, parseSupabaseCredentialsWithServiceRole, fetchTicketByPkOrId } from './_shared.js'
 import { resolveColumnId, calculateTargetPosition } from './_move-helpers.js'
+import { parseAcceptanceCriteria } from './_acceptance-criteria-parser.js'
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   // CORS: Allow cross-origin requests (for scripts calling from different origins)
@@ -228,6 +229,56 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             'Add a "Missing Artifact Explanation" artifact via POST /api/artifacts/insert-implementation with artifactType "missing-artifact-explanation" and title "Missing Artifact Explanation". The artifact body_md must explain which artifact(s) are missing and why they were intentionally not created. Then retry POST /api/tickets/move.',
         })
         return
+      }
+    }
+
+    // Gate: Drift gate - block transitions when any AC is unmet (HAL-0765)
+    // Check for unmet ACs when moving to columns that indicate completion/progress
+    const driftGatedColumns = ['col-qa', 'col-human-in-the-loop', 'col-process-review', 'col-done']
+    if (columnId && driftGatedColumns.includes(columnId) && resolvedTicketPk) {
+      // Parse AC items from ticket body
+      const acItems = parseAcceptanceCriteria((ticket as any).body_md || null)
+      
+      if (acItems.length > 0) {
+        // Check for unmet AC status records
+        const { data: acStatusRecords, error: acStatusErr } = await supabase
+          .from('acceptance_criteria_status')
+          .select('ac_index, status')
+          .eq('ticket_pk', resolvedTicketPk)
+          .eq('status', 'unmet')
+
+        if (acStatusErr) {
+          json(res, 200, {
+            success: false,
+            error: `Cannot move ticket: failed to check AC status (${acStatusErr.message}).`,
+          })
+          return
+        }
+
+        // If any AC item has status 'unmet', block the transition
+        if (acStatusRecords && acStatusRecords.length > 0) {
+          const unmetIndices = acStatusRecords.map((r: any) => r.ac_index).sort((a, b) => a - b)
+          const unmetTexts = unmetIndices
+            .map((idx: number) => {
+              const item = acItems[idx]
+              return item ? `  ${idx + 1}. ${item.text}` : null
+            })
+            .filter(Boolean)
+            .join('\n')
+
+          json(res, 200, {
+            success: false,
+            error: `Cannot move ticket: ${acStatusRecords.length} acceptance criteria item(s) are marked as unmet. All acceptance criteria must be met before moving to this column.`,
+            errorCode: 'UNMET_AC_BLOCKER',
+            unmetCount: acStatusRecords.length,
+            unmetIndices,
+            remedy: `Mark all acceptance criteria as "Met" in the ticket details panel before moving to ${columnId}. Unmet items:\n${unmetTexts}`,
+          })
+          return
+        }
+
+        // If ticket has AC items but no status records exist yet, allow the move
+        // (AC status may not have been initialized yet, which is fine for v0)
       }
     }
 
