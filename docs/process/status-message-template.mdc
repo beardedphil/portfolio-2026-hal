@@ -93,7 +93,7 @@ Agents must post **consistent, scan-friendly progress updates** during ticket ex
 ### Example 1: Starting
 
 ```markdown
-## Status Update
+## Example Status Update: Starting
 
 **Context:** Beginning implementation of dark mode toggle button on settings page.
 
@@ -118,7 +118,7 @@ Agents must post **consistent, scan-friendly progress updates** during ticket ex
 ### Example 2: In Progress
 
 ```markdown
-## Status Update
+## Example Status Update: In Progress
 
 **Context:** Implementing dark mode toggle with localStorage persistence.
 
@@ -146,7 +146,7 @@ Agents must post **consistent, scan-friendly progress updates** during ticket ex
 ### Example 3: Blocked
 
 ```markdown
-## Status Update
+## Example Status Update: Blocked
 
 **Context:** Blocked on localStorage persistence - need to verify existing state management approach.
 
@@ -175,7 +175,7 @@ Agents must post **consistent, scan-friendly progress updates** during ticket ex
 ### Example 4: Done
 
 ```markdown
-## Status Update
+## Example Status Update: Done
 
 **Context:** Completed dark mode toggle implementation with full persistence and accessibility support.
 

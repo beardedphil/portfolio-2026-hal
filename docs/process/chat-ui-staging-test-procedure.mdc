@@ -191,7 +191,7 @@ All staging test reports must include this heading structure for consistency:
 ### Example Staging Test Report Section
 
 ```markdown
-## Staging Test Results
+## Example: Staging Test Results
 
 ### Environment
 - **Staging URL:** https://portfolio-2026-hal-git-feature-branch.vercel.app
@@ -241,7 +241,7 @@ All chat UI functionality verified in staging. Ready for production deployment.
 ### Example Failure Report
 
 ```markdown
-## Staging Test Results
+## Example: Staging Test Results (Failure Case)
 
 ### Environment
 - **Staging URL:** [Unable to access - Preview deployment failed]
