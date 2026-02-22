@@ -1,5 +1,6 @@
 import type { LogEntry } from '../App.types'
 import { SUPABASE_POLL_INTERVAL_MS } from '../App.constants'
+import { FailuresSection } from './FailuresSection'
 
 interface DebugPanelProps {
   columnsForDisplay: Array<{ id: string; title: string; cardIds: string[] }>
@@ -136,6 +137,10 @@ export function DebugPanel({
           {runtimeError ?? 'No errors.'}
         </div>
       </section>
+      <FailuresSection
+        supabaseUrl={supabaseProjectUrl || null}
+        supabaseAnonKey={envKey || null}
+      />
     </div>
   )
 }
