@@ -29,7 +29,6 @@ export function BootstrapScreen({
   const [error, setError] = useState<string | null>(null)
   const [expandedErrorStep, setExpandedErrorStep] = useState<string | null>(null)
   const [polling, setPolling] = useState(false)
-<<<<<<< HEAD
   const [supabaseProject, setSupabaseProject] = useState<SupabaseProjectInfo | null>(null)
   const [supabaseManagementApiToken, setSupabaseManagementApiToken] = useState('')
   const [organizationId, setOrganizationId] = useState('')
@@ -68,7 +67,7 @@ export function BootstrapScreen({
     }
   }, [projectId, supabaseUrl, supabaseAnonKey, apiBaseUrl])
 
-  const loadSupabaseProjectInfo = useCallback(async () => {
+  const loadSupabaseProject = useCallback(async () => {
     try {
       const response = await fetch(`${apiBaseUrl}/api/bootstrap/supabase-project`, {
         method: 'POST',
@@ -82,21 +81,21 @@ export function BootstrapScreen({
 
       const result = await response.json()
       if (result.success && result.project) {
-        setSupabaseProjectInfo(result.project)
+        setSupabaseProject(result.project)
       } else {
-        setSupabaseProjectInfo(null)
+        setSupabaseProject(null)
       }
     } catch (err) {
       // Silently fail - project may not exist yet
-      setSupabaseProjectInfo(null)
+      setSupabaseProject(null)
     }
   }, [projectId, supabaseUrl, supabaseAnonKey, apiBaseUrl])
 
   // Load bootstrap run on mount and when projectId changes
   useEffect(() => {
     loadBootstrapRun()
-    loadSupabaseProjectInfo()
-  }, [projectId, loadBootstrapRun, loadSupabaseProjectInfo])
+    loadSupabaseProject()
+  }, [projectId, loadBootstrapRun, loadSupabaseProject])
 
   // Poll for status updates when run is active
   useEffect(() => {
@@ -159,28 +158,26 @@ export function BootstrapScreen({
           supabaseAnonKey,
         }
 
-        // Add Supabase Management API context for create_supabase_project step
-        const currentStep = run?.current_step
-        if (currentStep === 'create_supabase_project') {
-          if (supabaseManagementToken) {
-            stepBody.supabaseManagementToken = supabaseManagementToken
+        // Add Supabase Management API parameters for create_supabase_project step
+        if (run?.current_step === 'create_supabase_project') {
+          if (supabaseManagementApiToken) {
+            stepBody.supabaseManagementApiToken = supabaseManagementApiToken
           }
-          if (supabaseOrganizationId) {
-            stepBody.supabaseOrganizationId = supabaseOrganizationId
+          if (organizationId) {
+            stepBody.organizationId = organizationId
           }
-        }
-
-        // Add preview URL for verify_preview step
-        if (currentStep === 'verify_preview') {
-          if (previewUrl) {
-            stepBody.previewUrl = previewUrl
+          if (projectName) {
+            stepBody.projectName = projectName
+          }
+          if (region) {
+            stepBody.region = region
           }
         }
 
         // Add preview URL for verify_preview step
         if (run?.current_step === 'verify_preview') {
           if (previewUrl) {
-            stepParams.previewUrl = previewUrl
+            stepBody.previewUrl = previewUrl
           }
         }
 
@@ -200,13 +197,12 @@ export function BootstrapScreen({
 
         setRun(result.run)
 
-        // If create_supabase_project step succeeded, load project info
-        if (result.stepResult?.success && currentStep === 'create_supabase_project') {
-          await loadSupabaseProjectInfo()
+        // Reload Supabase project info if create_supabase_project step succeeded
+        if (result.stepResult?.stepId === 'create_supabase_project' && result.stepResult.success) {
+          await loadSupabaseProject()
         }
 
         // If step succeeded and there are more steps, continue
-<<<<<<< HEAD
         // Skip auto-execution for steps that require manual input
         if (result.stepResult.success && result.run.status === 'running') {
           const nextStep = result.run.current_step
@@ -315,8 +311,8 @@ export function BootstrapScreen({
               </label>
               <input
                 type="password"
-                value={supabaseManagementToken}
-                onChange={(e) => setSupabaseManagementToken(e.target.value)}
+                value={supabaseManagementApiToken}
+                onChange={(e) => setSupabaseManagementApiToken(e.target.value)}
                 placeholder="sbp_..."
                 style={{
                   width: '100%',
@@ -336,8 +332,8 @@ export function BootstrapScreen({
               </label>
               <input
                 type="text"
-                value={supabaseOrganizationId}
-                onChange={(e) => setSupabaseOrganizationId(e.target.value)}
+                value={organizationId}
+                onChange={(e) => setOrganizationId(e.target.value)}
                 placeholder="org_..."
                 style={{
                   width: '100%',
@@ -356,7 +352,7 @@ export function BootstrapScreen({
                 type="button"
                 className="primary btn-standard"
                 onClick={startBootstrap}
-                disabled={loading || !supabaseManagementToken || !supabaseOrganizationId}
+                disabled={loading || !supabaseManagementApiToken || !organizationId}
               >
                 {loading ? 'Starting...' : 'Start bootstrap'}
               </button>
@@ -440,8 +436,8 @@ export function BootstrapScreen({
                               </label>
                               <input
                                 type="password"
-                                value={supabaseManagementToken}
-                                onChange={(e) => setSupabaseManagementToken(e.target.value)}
+                                value={supabaseManagementApiToken}
+                                onChange={(e) => setSupabaseManagementApiToken(e.target.value)}
                                 placeholder="Enter your Supabase Management API token"
                                 style={{
                                   width: '100%',
@@ -464,8 +460,8 @@ export function BootstrapScreen({
                               </label>
                               <input
                                 type="text"
-                                value={supabaseOrganizationId}
-                                onChange={(e) => setSupabaseOrganizationId(e.target.value)}
+                                value={organizationId}
+                                onChange={(e) => setOrganizationId(e.target.value)}
                                 placeholder="Enter your Supabase organization ID"
                                 style={{
                                   width: '100%',
@@ -524,7 +520,7 @@ export function BootstrapScreen({
                               type="button"
                               className="primary btn-standard"
                               onClick={() => {
-                                if (!supabaseManagementToken || !supabaseOrganizationId) {
+                                if (!supabaseManagementApiToken || !organizationId) {
                                   setError('Please provide both Supabase Management API token and Organization ID')
                                   return
                                 }
@@ -532,7 +528,7 @@ export function BootstrapScreen({
                                   executeNextStep(run.id)
                                 }
                               }}
-                              disabled={loading || !supabaseManagementToken || !supabaseOrganizationId}
+                              disabled={loading || !supabaseManagementApiToken || !organizationId}
                               style={{ marginTop: '0.75rem', width: '100%' }}
                             >
                               {loading ? 'Creating...' : 'Create Supabase Project'}
@@ -615,42 +611,27 @@ export function BootstrapScreen({
                         )}
 
                         {/* Show success state for create_supabase_project step */}
-                        {stepDef.id === 'create_supabase_project' && status === 'succeeded' && supabaseProjectInfo && (
+                        {stepDef.id === 'create_supabase_project' && status === 'succeeded' && supabaseProject && (
                           <div style={{ marginTop: '1rem', padding: '1rem', background: '#e8f5e9', borderRadius: '4px', border: '1px solid #4caf50' }}>
                             <h4 style={{ marginBottom: '0.75rem', fontSize: '0.9rem', color: '#2e7d32' }}>
                               ✓ Supabase Project Created Successfully
                             </h4>
                             <div style={{ fontSize: '0.85rem' }}>
                               <div style={{ marginBottom: '0.5rem' }}>
-                                <strong>Project Ref:</strong> {supabaseProjectInfo.supabase_project_ref}
+                                <strong>Project Ref:</strong> {supabaseProject.project_ref}
                               </div>
                               <div style={{ marginBottom: '0.5rem' }}>
-                                <strong>API URL:</strong>{' '}
-                                <a href={supabaseProjectInfo.supabase_api_url} target="_blank" rel="noopener noreferrer">
-                                  {supabaseProjectInfo.supabase_api_url}
+                                <strong>Project URL:</strong>{' '}
+                                <a href={supabaseProject.project_url} target="_blank" rel="noopener noreferrer">
+                                  {supabaseProject.project_url}
                                 </a>
                               </div>
                               <div style={{ marginBottom: '0.5rem' }}>
-                                <strong>Status:</strong> {supabaseProjectInfo.status}
-                                {supabaseProjectInfo.created_at && (
+                                <strong>Status:</strong> {supabaseProject.status}
+                                {supabaseProject.created_at && (
                                   <span style={{ marginLeft: '0.5rem', color: '#666' }}>
-                                    (Created: {new Date(supabaseProjectInfo.created_at).toLocaleString()})
+                                    (Created: {new Date(supabaseProject.created_at).toLocaleString()})
                                   </span>
-                                )}
-                              </div>
-                              <div style={{ marginTop: '0.75rem', padding: '0.75rem', background: '#fff', borderRadius: '4px' }}>
-                                <div style={{ marginBottom: '0.5rem' }}>
-                                  <strong>Anon Key:</strong> <span style={{ fontFamily: 'monospace' }}>{supabaseProjectInfo.anon_key_masked}</span>
-                                </div>
-                                <div style={{ marginBottom: '0.5rem' }}>
-                                  <strong>Service Role Key:</strong>{' '}
-                                  <span style={{ fontFamily: 'monospace' }}>{supabaseProjectInfo.service_role_key_masked}</span>
-                                </div>
-                                {supabaseProjectInfo.database_password_masked && (
-                                  <div>
-                                    <strong>Database Password:</strong>{' '}
-                                    <span style={{ fontFamily: 'monospace' }}>{supabaseProjectInfo.database_password_masked}</span>
-                                  </div>
                                 )}
                               </div>
                             </div>
@@ -740,7 +721,6 @@ export function BootstrapScreen({
                           </div>
                         )}
 
->>>>>>> a6955ce2 (Implement verify_preview step for bootstrap flow)
                         {hasError && stepRecord && (
                           <div style={{ marginTop: '0.75rem' }}>
                             <div style={{ padding: '0.75rem', background: '#fff3cd', borderRadius: '4px', marginBottom: '0.5rem' }}>
@@ -786,23 +766,23 @@ export function BootstrapScreen({
               })}
             </div>
 
-            {supabaseProjectInfo && (
+            {supabaseProject && (
               <div style={{ marginTop: '1.5rem', padding: '1rem', background: '#e8f5e9', borderRadius: '4px', border: '1px solid #4caf50' }}>
                 <h3 style={{ marginTop: 0, marginBottom: '0.75rem' }}>Supabase Project</h3>
                 <div style={{ marginBottom: '0.5rem' }}>
-                  <strong>Status:</strong> {supabaseProjectInfo.status === 'created' ? 'Created' : supabaseProjectInfo.status === 'failed' ? 'Failed' : 'Not configured'}
+                  <strong>Status:</strong> {supabaseProject.status === 'created' ? 'Created' : supabaseProject.status === 'failed' ? 'Failed' : 'Not configured'}
                 </div>
                 <div style={{ marginBottom: '0.5rem' }}>
-                  <strong>Project Ref:</strong> {supabaseProjectInfo.project_ref}
+                  <strong>Project Ref:</strong> {supabaseProject.project_ref}
                 </div>
                 <div style={{ marginBottom: '0.5rem' }}>
                   <strong>Project URL:</strong>{' '}
-                  <a href={supabaseProjectInfo.project_url} target="_blank" rel="noopener noreferrer" style={{ color: '#1976d2' }}>
-                    {supabaseProjectInfo.project_url}
+                  <a href={supabaseProject.project_url} target="_blank" rel="noopener noreferrer" style={{ color: '#1976d2' }}>
+                    {supabaseProject.project_url}
                   </a>
                 </div>
                 <div style={{ marginBottom: '0.5rem' }}>
-                  <strong>Created:</strong> {new Date(supabaseProjectInfo.created_at).toLocaleString()}
+                  <strong>Created:</strong> {new Date(supabaseProject.created_at).toLocaleString()}
                 </div>
                 <div style={{ marginTop: '0.75rem', padding: '0.75rem', background: '#fff', borderRadius: '4px', border: '1px solid #ddd' }}>
                   <div style={{ marginBottom: '0.5rem' }}>
