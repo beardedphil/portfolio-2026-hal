@@ -8,6 +8,7 @@ import {
   addLogEntry,
   getNextStep,
   allStepsCompleted,
+  STEP_DEFINITIONS,
   type BootstrapStepId,
 } from './_shared.js'
 
@@ -224,6 +225,25 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       })
       return
     }
+
+    // Create audit log entry for bootstrap step
+    const stepDefinition = STEP_DEFINITIONS[stepId]
+    const stepName = stepDefinition?.name || stepId
+    await supabase.from('project_audit_log').insert({
+      project_id: run.project_id,
+      action_type: 'bootstrap_step',
+      action_status: stepResult.success ? 'succeeded' : 'failed',
+      summary: stepResult.success
+        ? `Bootstrap step "${stepName}" completed successfully`
+        : `Bootstrap step "${stepName}" failed: ${stepResult.error || 'Unknown error'}`,
+      details: {
+        step_id: stepId,
+        step_name: stepName,
+        error: stepResult.error || null,
+        error_details: stepResult.errorDetails || null,
+      },
+      related_entity_id: runId,
+    })
 
     json(res, 200, {
       success: true,

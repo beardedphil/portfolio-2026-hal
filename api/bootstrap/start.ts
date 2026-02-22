@@ -122,6 +122,15 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
+    // Create audit log entry for bootstrap start
+    await supabase.from('project_audit_log').insert({
+      project_id: projectId,
+      action_type: 'bootstrap_start',
+      action_status: 'succeeded',
+      summary: `Bootstrap workflow started for project: ${projectId}`,
+      related_entity_id: newRun.id,
+    })
+
     json(res, 200, {
       success: true,
       run: newRun,
