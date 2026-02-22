@@ -15,6 +15,348 @@ import {
 
 export type AgentType = 'implementation' | 'qa' | 'project-manager' | 'process-review'
 
+type TicketContent = {
+  goal: string
+  deliverable: string
+  criteria: string
+}
+
+type LaunchContext = {
+  agentType: AgentType
+  repoFullName: string
+  ticketNumber: number
+  displayId: string
+  ticketPk: string
+  currentColumnId: string | null
+  defaultBranch: string
+  halApiBaseUrl: string
+  ticketContent: TicketContent
+}
+
+/**
+ * Parses ticket body to extract goal, deliverable, and acceptance criteria.
+ */
+function parseTicketContent(bodyMd: string): TicketContent {
+  const goalMatch = bodyMd.match(/##\s*Goal[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
+  const deliverableMatch = bodyMd.match(/##\s*Human-verifiable deliverable[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
+  const criteriaMatch = bodyMd.match(/##\s*Acceptance criteria[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
+  return {
+    goal: (goalMatch?.[1] ?? '').trim(),
+    deliverable: (deliverableMatch?.[1] ?? '').trim(),
+    criteria: (criteriaMatch?.[1] ?? '').trim(),
+  }
+}
+
+/**
+ * Moves QA ticket from QA column to Doing when QA agent starts.
+ */
+async function moveQATicketToDoing(
+  supabase: ReturnType<typeof getServerSupabase>,
+  repoFullName: string,
+  ticketPk: string,
+  displayId: string
+): Promise<void> {
+  try {
+    const { data: inColumn } = await supabase
+      .from('tickets')
+      .select('kanban_position')
+      .eq('repo_full_name', repoFullName)
+      .eq('kanban_column_id', 'col-doing')
+      .order('kanban_position', { ascending: false })
+      .limit(1)
+    if (inColumn) {
+      const nextPosition = inColumn.length ? ((inColumn[0] as any)?.kanban_position ?? -1) + 1 : 0
+      const movedAt = new Date().toISOString()
+      const { error: updateErr } = await supabase
+        .from('tickets')
+        .update({ kanban_column_id: 'col-doing', kanban_position: nextPosition, kanban_moved_at: movedAt })
+        .eq('pk', ticketPk)
+      if (updateErr) {
+        console.error(`[QA Agent] Failed to move ticket ${displayId} from QA to Doing:`, updateErr.message)
+      }
+    }
+  } catch (moveErr) {
+    console.error(`[QA Agent] Error moving ticket ${displayId} from QA to Doing:`, moveErr instanceof Error ? moveErr.message : String(moveErr))
+  }
+}
+
+/**
+ * Extracts branch name from ticket body for QA agents.
+ */
+function extractBranchNameFromTicket(bodyMd: string): string | null {
+  const branchMatch = bodyMd.match(/##\s*QA[^\n]*\n[\s\S]*?Branch[:\s]+([^\n]+)/i)
+  return branchMatch?.[1]?.trim() || null
+}
+
+/**
+ * Builds prompt text for implementation or QA agents.
+ */
+function buildPromptText(context: LaunchContext): string {
+  const { agentType, repoFullName, ticketNumber, displayId, currentColumnId, defaultBranch, halApiBaseUrl, ticketContent } = context
+  const { goal, deliverable, criteria } = ticketContent
+
+  if (agentType === 'implementation') {
+    return [
+      'Implement this ticket.',
+      '',
+      '## Inputs (provided by HAL)',
+      `- **agentType**: implementation`,
+      `- **repoFullName**: ${repoFullName}`,
+      `- **ticketNumber**: ${ticketNumber}`,
+      `- **displayId**: ${displayId}`,
+      `- **currentColumnId**: ${currentColumnId || 'col-unassigned'}`,
+      `- **defaultBranch**: ${defaultBranch}`,
+      `- **HAL API base URL**: ${halApiBaseUrl}`,
+      '',
+      '## Tools you can use',
+      '- Cursor Cloud Agent built-ins: read/search/edit files, run shell commands (git, npm), and use `gh` for GitHub.',
+      '- HAL server endpoints (no Supabase creds required): `POST /api/artifacts/insert-implementation`, `POST /api/artifacts/get`, `POST /api/tickets/move`.',
+      '',
+      '## MANDATORY first step: pull latest from main',
+      '',
+      '**Before starting any work**, pull the latest code. Do not assume you have the latest code.',
+      'Run: `git checkout main && git pull origin main`',
+      'Then create or checkout your feature branch and proceed.',
+      '',
+      '## Ticket',
+      `**ID**: ${displayId}`,
+      `**Repo**: ${repoFullName}`,
+      '',
+      '## Goal',
+      goal || '(not specified)',
+      '',
+      '## Human-verifiable deliverable',
+      deliverable || '(not specified)',
+      '',
+      '## Acceptance criteria',
+      criteria || '(not specified)',
+    ].join('\n')
+  }
+
+  return [
+    'QA this ticket implementation. Review the code, generate a QA report, and complete the QA workflow.',
+    '',
+    '## Inputs (provided by HAL)',
+    `- **agentType**: qa`,
+    `- **repoFullName**: ${repoFullName}`,
+    `- **ticketNumber**: ${ticketNumber}`,
+    `- **displayId**: ${displayId}`,
+    `- **currentColumnId**: ${currentColumnId || 'col-unassigned'}`,
+    `- **defaultBranch**: ${defaultBranch}`,
+    `- **HAL API base URL**: ${halApiBaseUrl}`,
+    '',
+    '## Tools you can use',
+    '- Cursor Cloud Agent built-ins: read/search/edit files, run shell commands (git, npm), and use `gh` for GitHub.',
+    '- HAL server endpoints (no Supabase creds required): `POST /api/artifacts/insert-qa`, `POST /api/artifacts/get`, `POST /api/tickets/move`.',
+    '',
+    '## MANDATORY first step: pull latest from main',
+    '',
+    '**Before starting any QA work**, pull the latest code. Do not assume you have the latest code.',
+    'Run: `git checkout main && git pull origin main`',
+    '',
+    '## MANDATORY: Load Your Instructions First',
+    '',
+    '**BEFORE starting any QA work, you MUST load your basic instructions from Supabase.**',
+    '',
+    '**Step 1: Load basic instructions:**',
+    '```javascript',
+    'const baseUrl = process.env.HAL_API_URL || \'http://localhost:5173\'',
+    'const res = await fetch(`${baseUrl}/api/instructions/get`, {',
+    '  method: \'POST\',',
+    '  headers: { \'Content-Type\': \'application/json\' },',
+    '  body: JSON.stringify({',
+    '    agentType: \'qa\',',
+    '    includeBasic: true,',
+    '    includeSituational: false,',
+    '  }),',
+    '})',
+    'const result = await res.json()',
+    'if (result.success) {',
+    '  // result.instructions contains your basic instructions',
+    '  // These include all mandatory workflows, QA report requirements, and procedures',
+    '  // READ AND FOLLOW THESE INSTRUCTIONS - they contain critical requirements',
+    '}',
+    '```',
+    '',
+    '**The instructions from Supabase contain:**',
+    '- Required implementation artifacts you must verify before starting QA',
+    '- How to structure and store QA reports',
+    '- When to pass/fail tickets',
+    '- How to move tickets after QA',
+    '- Code citation requirements',
+    '- All other mandatory QA workflows',
+    '',
+    '**DO NOT proceed with QA until you have loaded and read your instructions from Supabase.**',
+    '',
+    '## Ticket',
+    `**ID**: ${displayId}`,
+    `**Repo**: ${repoFullName}`,
+    '',
+    '## Goal',
+    goal || '(not specified)',
+    '',
+    '## Human-verifiable deliverable',
+    deliverable || '(not specified)',
+    '',
+    '## Acceptance criteria',
+    criteria || '(not specified)',
+  ].join('\n')
+}
+
+/**
+ * Updates run stage with progress message.
+ */
+async function updateRunStage(
+  supabase: ReturnType<typeof getServerSupabase>,
+  runId: string,
+  stage: string,
+  progress: any[],
+  message: string,
+  additionalUpdates?: Record<string, unknown>
+): Promise<void> {
+  await supabase
+    .from('hal_agent_runs')
+    .update({
+      current_stage: stage,
+      progress: appendProgress(progress, message),
+      ...additionalUpdates,
+    })
+    .eq('run_id', runId)
+}
+
+/**
+ * Handles repository bootstrap for empty repos.
+ */
+async function handleBootstrapIfNeeded(
+  req: IncomingMessage,
+  res: ServerResponse,
+  supabase: ReturnType<typeof getServerSupabase>,
+  repoFullName: string,
+  defaultBranch: string,
+  runId: string,
+  initialProgress: any[]
+): Promise<{ shouldReturn: boolean; error?: string }> {
+  let ghToken: string | undefined
+  try {
+    const session = await getSession(req, res)
+    ghToken = session.github?.accessToken
+  } catch (sessionErr) {
+    console.warn('[agent-runs/launch] Session unavailable (missing AUTH_SESSION_SECRET?):', sessionErr instanceof Error ? sessionErr.message : sessionErr)
+  }
+
+  if (!ghToken) {
+    return { shouldReturn: false }
+  }
+
+  const branchesResult = await listBranches(ghToken, repoFullName)
+  if ('branches' in branchesResult && branchesResult.branches.length === 0) {
+    const bootstrap = await ensureInitialCommit(ghToken, repoFullName, defaultBranch)
+    if ('error' in bootstrap) {
+      await supabase
+        .from('hal_agent_runs')
+        .update({
+          status: 'failed',
+          current_stage: 'failed',
+          error: `Repository has no branches and initial commit failed: ${bootstrap.error}. Ensure you have push access and try again.`,
+          progress: appendProgress(initialProgress, `Bootstrap failed: ${bootstrap.error}`),
+          finished_at: new Date().toISOString(),
+        })
+        .eq('run_id', runId)
+      return { shouldReturn: true, error: bootstrap.error }
+    }
+  }
+
+  return { shouldReturn: false }
+}
+
+/**
+ * Launches Cursor agent and handles response.
+ */
+async function launchCursorAgent(
+  promptText: string,
+  repoFullName: string,
+  defaultBranch: string,
+  agentType: AgentType,
+  ticketNumber: number,
+  model: string,
+  existingPrUrl: string | null
+): Promise<{ success: true; agentId: string; status: string } | { success: false; error: string }> {
+  const cursorKey = getCursorApiKey()
+  const auth = Buffer.from(`${cursorKey}:`).toString('base64')
+  const repoUrl = `https://github.com/${repoFullName}`
+  const branchName =
+    agentType === 'implementation'
+      ? `ticket/${String(ticketNumber).padStart(4, '0')}-implementation`
+      : defaultBranch
+
+  const target =
+    agentType === 'implementation'
+      ? existingPrUrl
+        ? { branchName }
+        : { autoCreatePr: true, branchName }
+      : { branchName: defaultBranch }
+
+  const promptTextForLaunch =
+    agentType === 'implementation' && existingPrUrl
+      ? `${promptText}\n\n## Existing PR linked\n\nA PR is already linked to this ticket:\n\n- ${existingPrUrl}\n\nDo NOT create a new PR. Push changes to the branch above so the existing PR updates.`
+      : promptText
+
+  const launchRes = await fetch('https://api.cursor.com/v0/agents', {
+    method: 'POST',
+    headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      prompt: { text: promptTextForLaunch },
+      source: { repository: repoUrl, ref: defaultBranch },
+      target,
+      ...(model ? { model } : {}),
+    }),
+  })
+
+  const launchText = await launchRes.text()
+  if (!launchRes.ok) {
+    const branchNotFound =
+      launchRes.status === 400 &&
+      (/branch\s+.*\s+does not exist/i.test(launchText) || /does not exist.*branch/i.test(launchText))
+    const msg = branchNotFound
+      ? `The repository has no "${defaultBranch}" branch yet. If the repo is new and empty, create an initial commit and push (e.g. add a README) so the default branch exists, then try again.`
+      : humanReadableCursorError(launchRes.status, launchText)
+    return { success: false, error: msg }
+  }
+
+  let launchData: { id?: string; status?: string }
+  try {
+    launchData = JSON.parse(launchText) as typeof launchData
+  } catch {
+    return { success: false, error: 'Invalid response from Cursor API when launching agent.' }
+  }
+
+  const cursorAgentId = launchData.id
+  const cursorStatus = launchData.status ?? 'CREATING'
+  if (!cursorAgentId) {
+    return { success: false, error: 'Cursor API did not return an agent ID.' }
+  }
+
+  return { success: true, agentId: cursorAgentId, status: cursorStatus }
+}
+
+/**
+ * Finds existing PR URL for a ticket if one exists.
+ */
+async function findExistingPrUrl(
+  supabase: ReturnType<typeof getServerSupabase>,
+  ticketPk: string
+): Promise<string | null> {
+  const { data: linked } = await supabase
+    .from('hal_agent_runs')
+    .select('pr_url, created_at')
+    .eq('ticket_pk', ticketPk)
+    .not('pr_url', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(1)
+  const prUrl = Array.isArray(linked) && linked.length ? (linked[0] as any)?.pr_url : null
+  return typeof prUrl === 'string' && prUrl.trim() ? prUrl.trim() : null
+}
+
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   if (!validateMethod(req, res, 'POST')) {
     return
@@ -130,44 +472,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const halApiBaseUrl = getOrigin(req)
 
-    // Update stage to 'fetching_ticket' (0690) - ticket already fetched, but update stage for consistency
-    // Note: Run row not created yet, so we'll update after creation
-
     // Move QA ticket from QA column to Doing when QA agent starts (0088)
     if (agentType === 'qa' && currentColumnId === 'col-qa') {
-      try {
-        const { data: inColumn } = await supabase
-          .from('tickets')
-          .select('kanban_position')
-          .eq('repo_full_name', repoFullName)
-          .eq('kanban_column_id', 'col-doing')
-          .order('kanban_position', { ascending: false })
-          .limit(1)
-        if (inColumn) {
-          const nextPosition = inColumn.length ? ((inColumn[0] as any)?.kanban_position ?? -1) + 1 : 0
-          const movedAt = new Date().toISOString()
-          const { error: updateErr } = await supabase
-            .from('tickets')
-            .update({ kanban_column_id: 'col-doing', kanban_position: nextPosition, kanban_moved_at: movedAt })
-            .eq('pk', ticketPk)
-          if (updateErr) {
-            // Log error but don't fail the launch - ticket will stay in QA
-            console.error(`[QA Agent] Failed to move ticket ${displayId} from QA to Doing:`, updateErr.message)
-          }
-        }
-      } catch (moveErr) {
-        // Log error but don't fail the launch
-        console.error(`[QA Agent] Error moving ticket ${displayId} from QA to Doing:`, moveErr instanceof Error ? moveErr.message : String(moveErr))
-      }
+      await moveQATicketToDoing(supabase, repoFullName, ticketPk, displayId)
     }
 
-    // Build prompt
-    const goalMatch = bodyMd.match(/##\s*Goal[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
-    const deliverableMatch = bodyMd.match(/##\s*Human-verifiable deliverable[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
-    const criteriaMatch = bodyMd.match(/##\s*Acceptance criteria[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
-    const goal = (goalMatch?.[1] ?? '').trim()
-    const deliverable = (deliverableMatch?.[1] ?? '').trim()
-    const criteria = (criteriaMatch?.[1] ?? '').trim()
+    // Parse ticket content
+    const ticketContent = parseTicketContent(bodyMd)
 
     // Process Review (OpenAI) launch: just create run row; /work will generate streamed output.
     if (agentType === 'process-review') {
@@ -202,111 +513,19 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
-    const promptText =
-      agentType === 'implementation'
-        ? [
-            'Implement this ticket.',
-            '',
-            '## Inputs (provided by HAL)',
-            `- **agentType**: implementation`,
-            `- **repoFullName**: ${repoFullName}`,
-            `- **ticketNumber**: ${ticketNumber}`,
-            `- **displayId**: ${displayId}`,
-            `- **currentColumnId**: ${currentColumnId || 'col-unassigned'}`,
-            `- **defaultBranch**: ${defaultBranch}`,
-            `- **HAL API base URL**: ${halApiBaseUrl}`,
-            '',
-            '## Tools you can use',
-            '- Cursor Cloud Agent built-ins: read/search/edit files, run shell commands (git, npm), and use `gh` for GitHub.',
-            '- HAL server endpoints (no Supabase creds required): `POST /api/artifacts/insert-implementation`, `POST /api/artifacts/get`, `POST /api/tickets/move`.',
-            '',
-            '## MANDATORY first step: pull latest from main',
-            '',
-            '**Before starting any work**, pull the latest code. Do not assume you have the latest code.',
-            'Run: `git checkout main && git pull origin main`',
-            'Then create or checkout your feature branch and proceed.',
-            '',
-            '## Ticket',
-            `**ID**: ${displayId}`,
-            `**Repo**: ${repoFullName}`,
-            '',
-            '## Goal',
-            goal || '(not specified)',
-            '',
-            '## Human-verifiable deliverable',
-            deliverable || '(not specified)',
-            '',
-            '## Acceptance criteria',
-            criteria || '(not specified)',
-          ].join('\n')
-        : [
-            'QA this ticket implementation. Review the code, generate a QA report, and complete the QA workflow.',
-            '',
-            '## Inputs (provided by HAL)',
-            `- **agentType**: qa`,
-            `- **repoFullName**: ${repoFullName}`,
-            `- **ticketNumber**: ${ticketNumber}`,
-            `- **displayId**: ${displayId}`,
-            `- **currentColumnId**: ${currentColumnId || 'col-unassigned'}`,
-            `- **defaultBranch**: ${defaultBranch}`,
-            `- **HAL API base URL**: ${halApiBaseUrl}`,
-            '',
-            '## Tools you can use',
-            '- Cursor Cloud Agent built-ins: read/search/edit files, run shell commands (git, npm), and use `gh` for GitHub.',
-            '- HAL server endpoints (no Supabase creds required): `POST /api/artifacts/insert-qa`, `POST /api/artifacts/get`, `POST /api/tickets/move`.',
-            '',
-            '## MANDATORY first step: pull latest from main',
-            '',
-            '**Before starting any QA work**, pull the latest code. Do not assume you have the latest code.',
-            'Run: `git checkout main && git pull origin main`',
-            '',
-            '## MANDATORY: Load Your Instructions First',
-            '',
-            '**BEFORE starting any QA work, you MUST load your basic instructions from Supabase.**',
-            '',
-            '**Step 1: Load basic instructions:**',
-            '```javascript',
-            'const baseUrl = process.env.HAL_API_URL || \'http://localhost:5173\'',
-            'const res = await fetch(`${baseUrl}/api/instructions/get`, {',
-            '  method: \'POST\',',
-            '  headers: { \'Content-Type\': \'application/json\' },',
-            '  body: JSON.stringify({',
-            '    agentType: \'qa\',',
-            '    includeBasic: true,',
-            '    includeSituational: false,',
-            '  }),',
-            '})',
-            'const result = await res.json()',
-            'if (result.success) {',
-            '  // result.instructions contains your basic instructions',
-            '  // These include all mandatory workflows, QA report requirements, and procedures',
-            '  // READ AND FOLLOW THESE INSTRUCTIONS - they contain critical requirements',
-            '}',
-            '```',
-            '',
-            '**The instructions from Supabase contain:**',
-            '- Required implementation artifacts you must verify before starting QA',
-            '- How to structure and store QA reports',
-            '- When to pass/fail tickets',
-            '- How to move tickets after QA',
-            '- Code citation requirements',
-            '- All other mandatory QA workflows',
-            '',
-            '**DO NOT proceed with QA until you have loaded and read your instructions from Supabase.**',
-            '',
-            '## Ticket',
-            `**ID**: ${displayId}`,
-            `**Repo**: ${repoFullName}`,
-            '',
-            '## Goal',
-            goal || '(not specified)',
-            '',
-            '## Human-verifiable deliverable',
-            deliverable || '(not specified)',
-            '',
-            '## Acceptance criteria',
-            criteria || '(not specified)',
-          ].join('\n')
+    // Build prompt
+    const context: LaunchContext = {
+      agentType,
+      repoFullName,
+      ticketNumber,
+      displayId,
+      ticketPk,
+      currentColumnId,
+      defaultBranch,
+      halApiBaseUrl,
+      ticketContent,
+    }
+    const promptText = buildPromptText(context)
 
     // Create run row - start with 'preparing' stage (0690)
     const initialProgress = appendProgress([], `Launching ${agentType} run for ${displayId}`)
@@ -334,201 +553,65 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const runId = runRow.run_id as string
 
     // Update stage to 'fetching_ticket' (0690) - ticket was fetched before run creation
-    await supabase
-      .from('hal_agent_runs')
-      .update({
-        current_stage: 'fetching_ticket',
-        progress: appendProgress(initialProgress, 'Fetching ticket...'),
-      })
-      .eq('run_id', runId)
+    await updateRunStage(supabase, runId, 'fetching_ticket', initialProgress, 'Fetching ticket...')
 
     // For QA: update to 'fetching_branch' stage (0690)
-    // Extract branch name from ticket body for QA
     if (agentType === 'qa') {
-      const branchMatch = bodyMd.match(/##\s*QA[^\n]*\n[\s\S]*?Branch[:\s]+([^\n]+)/i)
-      const branchName = branchMatch?.[1]?.trim()
+      const branchName = extractBranchNameFromTicket(bodyMd)
       if (branchName) {
-        await supabase
-          .from('hal_agent_runs')
-          .update({
-            current_stage: 'fetching_branch',
-            progress: appendProgress(initialProgress, `Finding branch: ${branchName}`),
-          })
-          .eq('run_id', runId)
+        await updateRunStage(supabase, runId, 'fetching_branch', initialProgress, `Finding branch: ${branchName}`)
       } else {
-        await supabase
-          .from('hal_agent_runs')
-          .update({ current_stage: 'fetching_branch' })
-          .eq('run_id', runId)
+        await updateRunStage(supabase, runId, 'fetching_branch', initialProgress, 'Finding branch...')
       }
     }
 
     // For implementation: update to 'resolving_repo' stage (0690)
     if (agentType === 'implementation') {
-      await supabase
-        .from('hal_agent_runs')
-        .update({
-          current_stage: 'resolving_repo',
-          progress: appendProgress(initialProgress, 'Resolving repository...'),
-        })
-        .eq('run_id', runId)
+      await updateRunStage(supabase, runId, 'resolving_repo', initialProgress, 'Resolving repository...')
     }
 
-    // If repo has no branches (new empty repo), create initial commit so Cursor API can run
-    let ghToken: string | undefined
-    try {
-      const session = await getSession(req, res)
-      ghToken = session.github?.accessToken
-    } catch (sessionErr) {
-      // AUTH_SESSION_SECRET may be missing in deployment; proceed without GitHub token (bootstrap will be skipped)
-      console.warn('[agent-runs/launch] Session unavailable (missing AUTH_SESSION_SECRET?):', sessionErr instanceof Error ? sessionErr.message : sessionErr)
-    }
-    if (ghToken) {
-      const branchesResult = await listBranches(ghToken, repoFullName)
-      if ('branches' in branchesResult && branchesResult.branches.length === 0) {
-        const bootstrap = await ensureInitialCommit(ghToken, repoFullName, defaultBranch)
-        if ('error' in bootstrap) {
-      await supabase
-        .from('hal_agent_runs')
-        .update({
-          status: 'failed',
-          current_stage: 'failed',
-          error: `Repository has no branches and initial commit failed: ${bootstrap.error}. Ensure you have push access and try again.`,
-          progress: appendProgress(initialProgress, `Bootstrap failed: ${bootstrap.error}`),
-          finished_at: new Date().toISOString(),
-        })
-        .eq('run_id', runId)
-          json(res, 200, { runId, status: 'failed', error: bootstrap.error })
-          return
-        }
-      }
+    // Handle bootstrap for empty repos
+    const bootstrapResult = await handleBootstrapIfNeeded(req, res, supabase, repoFullName, defaultBranch, runId, initialProgress)
+    if (bootstrapResult.shouldReturn) {
+      json(res, 200, { runId, status: 'failed', error: bootstrapResult.error })
+      return
     }
 
     // Update stage to 'launching' (0690)
-    await supabase
-      .from('hal_agent_runs')
-      .update({
-        current_stage: 'launching',
-        status: 'launching',
-        progress: appendProgress(initialProgress, 'Launching agent...'),
-      })
-      .eq('run_id', runId)
+    await updateRunStage(supabase, runId, 'launching', initialProgress, 'Launching agent...', { status: 'launching' })
+
+    // Find existing PR URL if applicable
+    const existingPrUrl = agentType === 'implementation' && ticketPk ? await findExistingPrUrl(supabase, ticketPk) : null
 
     // Launch Cursor agent
-    const cursorKey = getCursorApiKey()
-    const auth = Buffer.from(`${cursorKey}:`).toString('base64')
-    const repoUrl = `https://github.com/${repoFullName}`
-    const branchName =
-      agentType === 'implementation'
-        ? `ticket/${String(ticketNumber).padStart(4, '0')}-implementation`
-        : defaultBranch
-    // If a PR is already linked for this ticket, do not ask Cursor to create a new one.
-    let existingPrUrl: string | null = null
-    if (agentType === 'implementation' && ticketPk) {
-      const { data: linked } = await supabase
-        .from('hal_agent_runs')
-        .select('pr_url, created_at')
-        .eq('ticket_pk', ticketPk)
-        .not('pr_url', 'is', null)
-        .order('created_at', { ascending: false })
-        .limit(1)
-      const prUrl = Array.isArray(linked) && linked.length ? (linked[0] as any)?.pr_url : null
-      if (typeof prUrl === 'string' && prUrl.trim()) existingPrUrl = prUrl.trim()
-    }
-    const target =
-      agentType === 'implementation'
-        ? existingPrUrl
-          ? { branchName }
-          : { autoCreatePr: true, branchName }
-        : { branchName: defaultBranch }
-    const promptTextForLaunch =
-      agentType === 'implementation' && existingPrUrl
-        ? `${promptText}\n\n## Existing PR linked\n\nA PR is already linked to this ticket:\n\n- ${existingPrUrl}\n\nDo NOT create a new PR. Push changes to the branch above so the existing PR updates.`
-        : promptText
+    const launchResult = await launchCursorAgent(promptText, repoFullName, defaultBranch, agentType, ticketNumber, model, existingPrUrl)
 
-    const launchRes = await fetch('https://api.cursor.com/v0/agents', {
-      method: 'POST',
-      headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        prompt: { text: promptTextForLaunch },
-        source: { repository: repoUrl, ref: defaultBranch },
-        target,
-        ...(model ? { model } : {}),
-      }),
-    })
-
-    const launchText = await launchRes.text()
-    if (!launchRes.ok) {
-      const branchNotFound =
-        launchRes.status === 400 &&
-        (/branch\s+.*\s+does not exist/i.test(launchText) || /does not exist.*branch/i.test(launchText))
-      const msg = branchNotFound
-        ? `The repository has no "${defaultBranch}" branch yet. If the repo is new and empty, create an initial commit and push (e.g. add a README) so the default branch exists, then try again.`
-        : humanReadableCursorError(launchRes.status, launchText)
+    if (!launchResult.success) {
       await supabase
         .from('hal_agent_runs')
         .update({
           status: 'failed',
           current_stage: 'failed',
-          error: msg,
-          progress: appendProgress(initialProgress, `Launch failed: ${msg}`),
+          error: launchResult.error,
+          progress: appendProgress(initialProgress, `Launch failed: ${launchResult.error}`),
           finished_at: new Date().toISOString(),
         })
         .eq('run_id', runId)
-      json(res, 200, { runId, status: 'failed', error: msg })
+      json(res, 200, { runId, status: 'failed', error: launchResult.error })
       return
     }
 
-    let launchData: { id?: string; status?: string }
-    try {
-      launchData = JSON.parse(launchText) as typeof launchData
-    } catch {
-      const msg = 'Invalid response from Cursor API when launching agent.'
-      await supabase
-        .from('hal_agent_runs')
-        .update({
-          status: 'failed',
-          current_stage: 'failed',
-          error: msg,
-          progress: appendProgress(initialProgress, msg),
-          finished_at: new Date().toISOString(),
-        })
-        .eq('run_id', runId)
-      json(res, 200, { runId, status: 'failed', error: msg })
-      return
-    }
-
-    const cursorAgentId = launchData.id
-    const cursorStatus = launchData.status ?? 'CREATING'
-    if (!cursorAgentId) {
-      const msg = 'Cursor API did not return an agent ID.'
-      await supabase
-        .from('hal_agent_runs')
-        .update({
-          status: 'failed',
-          current_stage: 'failed',
-          error: msg,
-          progress: appendProgress(initialProgress, msg),
-          finished_at: new Date().toISOString(),
-        })
-        .eq('run_id', runId)
-      json(res, 200, { runId, status: 'failed', error: msg })
-      return
-    }
+    const cursorAgentId = launchResult.agentId
+    const cursorStatus = launchResult.status
 
     const progressAfterLaunch = appendProgress(initialProgress, `Launched Cursor agent (${cursorStatus}).`)
     // Update stage to 'polling' (or 'running' for implementation, 'reviewing' for QA) (0690)
     const nextStage = agentType === 'implementation' ? 'running' : 'reviewing'
-    await supabase
-      .from('hal_agent_runs')
-      .update({
-        status: 'polling',
-        current_stage: nextStage,
-        cursor_agent_id: cursorAgentId,
-        cursor_status: cursorStatus,
-        progress: progressAfterLaunch,
-      })
-      .eq('run_id', runId)
+    await updateRunStage(supabase, runId, nextStage, initialProgress, `Launched Cursor agent (${cursorStatus}).`, {
+      status: 'polling',
+      cursor_agent_id: cursorAgentId,
+      cursor_status: cursorStatus,
+    })
 
     // Create/update worklog artifact so it exists from the start (implementation runs only)
     if (agentType === 'implementation' && ticketPk && repoFullName) {
