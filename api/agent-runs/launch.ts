@@ -25,7 +25,7 @@ type TicketSections = {
 /**
  * Determines agent type from request body, defaulting to 'implementation'.
  */
-function determineAgentType(body: { agentType?: AgentType }): AgentType {
+export function determineAgentType(body: { agentType?: AgentType }): AgentType {
   if (body.agentType === 'qa') return 'qa'
   if (body.agentType === 'project-manager') return 'project-manager'
   if (body.agentType === 'process-review') return 'process-review'
@@ -35,7 +35,7 @@ function determineAgentType(body: { agentType?: AgentType }): AgentType {
 /**
  * Extracts Goal, Human-verifiable deliverable, and Acceptance criteria from ticket body.
  */
-function parseTicketSections(bodyMd: string): TicketSections {
+export function parseTicketSections(bodyMd: string): TicketSections {
   const goalMatch = bodyMd.match(/##\s*Goal[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
   const deliverableMatch = bodyMd.match(/##\s*Human-verifiable deliverable[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
   const criteriaMatch = bodyMd.match(/##\s*Acceptance criteria[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
@@ -49,7 +49,7 @@ function parseTicketSections(bodyMd: string): TicketSections {
 /**
  * Builds implementation agent prompt text.
  */
-function buildImplementationPrompt(
+export function buildImplementationPrompt(
   repoFullName: string,
   ticketNumber: number,
   displayId: string,
@@ -98,7 +98,7 @@ function buildImplementationPrompt(
 /**
  * Builds QA agent prompt text.
  */
-function buildQAPrompt(
+export function buildQAPrompt(
   repoFullName: string,
   ticketNumber: number,
   displayId: string,
