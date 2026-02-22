@@ -642,8 +642,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     // Store drift attempt for successful transitions that didn't go through drift gate
     // (drift-gated transitions already stored their attempts above)
-    const driftGatedColumns = ['col-qa', 'col-human-in-the-loop', 'col-process-review', 'col-done']
-    if (!driftGatedColumns.includes(columnId || '')) {
+    const driftGateTargetColumns = ['col-qa', 'col-human-in-the-loop', 'col-process-review', 'col-done']
+    if (!driftGateTargetColumns.includes(columnId || '')) {
       const transitionName = await formatTransition(currentColumnId, columnId)
       if (transitionName && resolvedTicketPk) {
         // Store attempt record for non-drift-gated transitions
