@@ -16,6 +16,7 @@ import {
   validateMethod,
   type ProgressEntry,
 } from './_shared.js'
+import { createFailureFromAgentOutcome } from '../failures/_shared.js'
 
 type AgentType = 'implementation' | 'qa' | 'project-manager' | 'process-review'
 
@@ -481,6 +482,30 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     if (updErr) {
       json(res, 500, { error: `Supabase update failed: ${updErr.message}` })
       return
+    }
+
+    // Create failure record if agent run failed or has an error
+    if (updated && (nextStatus === 'failed' || errMsg)) {
+      const failureType = nextStatus === 'failed' ? 'AGENT_RUN_FAILED' : 'AGENT_RUN_ERROR'
+      const rootCause = errMsg || `Agent run ${nextStatus === 'failed' ? 'failed' : 'completed with error'}`
+      
+      await createFailureFromAgentOutcome(
+        supabase,
+        runId,
+        run.agent_type,
+        run.ticket_pk,
+        failureType,
+        rootCause,
+        null, // prevention_candidate - could be enhanced in future
+        {
+          cursorStatus,
+          summary: summary || null,
+          prUrl: prUrl || null,
+        }
+      ).catch((err) => {
+        // Log but don't fail - failure recording should not break agent run status updates
+        console.warn(`[api/agent-runs/status] Failed to create failure record: ${err instanceof Error ? err.message : String(err)}`)
+      })
     }
 
     const payload = updated ?? run

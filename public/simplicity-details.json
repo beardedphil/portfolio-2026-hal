@@ -50,7 +50,7 @@
     },
     {
       "file": "src/components/DiagnosticsModal.tsx",
-      "maintainability": 6.13
+      "maintainability": 3.46
     },
     {
       "file": "agents/src/agents/projectManager.ts",
@@ -113,8 +113,8 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-22T05:42:47.242Z",
-  "filesAnalyzed": 372,
+  "generatedAt": "2026-02-22T05:57:52.707Z",
+  "filesAnalyzed": 375,
   "unroundedMaintainability": 32.7,
   "unroundedSimplicity": 32.7
 }
