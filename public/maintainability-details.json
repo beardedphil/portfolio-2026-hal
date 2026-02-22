@@ -33,6 +33,10 @@
       "maintainability": 0
     },
     {
+      "file": "api/tickets/move.ts",
+      "maintainability": 0
+    },
+    {
       "file": "agents/src/agents/projectManager/contextBuilding.ts",
       "maintainability": 0
     },
@@ -45,6 +49,10 @@
       "maintainability": 9
     },
     {
+      "file": "api/context-bundles/_builder.ts",
+      "maintainability": 11.28
+    },
+    {
       "file": "src/hooks/useProcessReview.ts",
       "maintainability": 14.04
     },
@@ -53,8 +61,8 @@
       "maintainability": 15.27
     },
     {
-      "file": "api/context-bundles/_builder.ts",
-      "maintainability": 15.28
+      "file": "api/conversations/working-memory/update.ts",
+      "maintainability": 15.29
     },
     {
       "file": "api/tickets/create-pr.ts",
@@ -69,35 +77,21 @@
       "maintainability": 16.29
     },
     {
-      "file": "api/qa-agent/run.ts",
-      "maintainability": 16.69
-    },
-    {
-      "file": "api/process-review/create-tickets.ts",
-      "maintainability": 17.61
-    },
-    {
-      "file": "api/tickets/move.ts",
-      "maintainability": 17.97
+      "file": "projects/kanban/src/components/ArtifactReportViewer.tsx",
+      "maintainability": 18.61
     }
   ],
   "mostRecentImprovements": [
     {
-      "file": "agents/src/agents/projectManager.ts",
-      "before": 0,
-      "after": 9,
-      "delta": 9
+      "file": "api/conversations/working-memory/update.ts",
+      "before": 13.76,
+      "after": 15.29,
+      "delta": 1.53
     },
     {
       "file": "api/instructions/migrate-process-docs.ts",
       "before": 15.59,
       "after": 15.59,
-      "delta": 0
-    },
-    {
-      "file": "api/qa-agent/run.ts",
-      "before": 16.69,
-      "after": 16.69,
       "delta": 0
     },
     {
@@ -107,9 +101,9 @@
       "delta": 0
     },
     {
-      "file": "api/process-review/create-tickets.ts",
-      "before": 17.61,
-      "after": 17.61,
+      "file": "agents/src/agents/projectManager.ts",
+      "before": 9,
+      "after": 9,
       "delta": 0
     },
     {
@@ -119,14 +113,20 @@
       "delta": 0
     },
     {
+      "file": "projects/kanban/src/components/ArtifactReportViewer.tsx",
+      "before": 18.61,
+      "after": 18.61,
+      "delta": 0
+    },
+    {
       "file": "api/auth/github/callback.ts",
       "before": 16.29,
       "after": 16.29,
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-22T00:33:40.004Z",
-  "filesAnalyzed": 335,
-  "unroundedMaintainability": 33.6,
-  "unroundedSimplicity": 33.6
+  "generatedAt": "2026-02-22T02:14:14.858Z",
+  "filesAnalyzed": 347,
+  "unroundedMaintainability": 33.2,
+  "unroundedSimplicity": 33.2
 }

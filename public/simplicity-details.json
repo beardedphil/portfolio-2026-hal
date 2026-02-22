@@ -61,6 +61,10 @@
       "maintainability": 15.27
     },
     {
+      "file": "api/conversations/working-memory/update.ts",
+      "maintainability": 15.29
+    },
+    {
       "file": "api/tickets/create-pr.ts",
       "maintainability": 15.41
     },
@@ -73,26 +77,16 @@
       "maintainability": 16.29
     },
     {
-      "file": "api/conversations/working-memory/update.ts",
-      "maintainability": 18.36
-    },
-    {
       "file": "projects/kanban/src/components/ArtifactReportViewer.tsx",
       "maintainability": 18.61
     }
   ],
   "mostRecentImprovements": [
     {
-      "file": "api/process-review/create-tickets.ts",
-      "before": 17.61,
-      "after": 58.19,
-      "delta": 40.58
-    },
-    {
-      "file": "api/qa-agent/run.ts",
-      "before": 16.69,
-      "after": 28.76,
-      "delta": 12.07
+      "file": "api/conversations/working-memory/update.ts",
+      "before": 13.76,
+      "after": 15.29,
+      "delta": 1.53
     },
     {
       "file": "api/instructions/migrate-process-docs.ts",
@@ -119,14 +113,20 @@
       "delta": 0
     },
     {
+      "file": "projects/kanban/src/components/ArtifactReportViewer.tsx",
+      "before": 18.61,
+      "after": 18.61,
+      "delta": 0
+    },
+    {
       "file": "api/auth/github/callback.ts",
       "before": 16.29,
       "after": 16.29,
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-22T01:48:43.508Z",
-  "filesAnalyzed": 346,
-  "unroundedMaintainability": 33.3,
-  "unroundedSimplicity": 33.3
+  "generatedAt": "2026-02-22T02:14:14.858Z",
+  "filesAnalyzed": 347,
+  "unroundedMaintainability": 33.2,
+  "unroundedSimplicity": 33.2
 }
