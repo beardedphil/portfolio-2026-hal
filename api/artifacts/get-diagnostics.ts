@@ -217,6 +217,56 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       }
     })
 
+    // Fetch embedding jobs for this ticket (via artifacts)
+    const artifactIds = artifactsList.map((a) => a.artifact_id)
+    let embeddingJobs: Array<{
+      job_id: string
+      artifact_id: string
+      status: string
+      created_at: string
+      started_at?: string
+      completed_at?: string
+      chunks_processed?: number
+      chunks_skipped?: number
+      chunks_failed?: number
+      error_message?: string
+    }> = []
+
+    if (artifactIds.length > 0) {
+      const { data: jobs, error: jobsError } = await supabase
+        .from('embedding_jobs')
+        .select(
+          'job_id, artifact_id, status, created_at, started_at, completed_at, chunks_processed, chunks_skipped, chunks_failed, error_message'
+        )
+        .in('artifact_id', artifactIds)
+        .order('created_at', { ascending: false })
+        .limit(100)
+
+      if (!jobsError && jobs) {
+        embeddingJobs = jobs as Array<{
+          job_id: string
+          artifact_id: string
+          status: string
+          created_at: string
+          started_at?: string
+          completed_at?: string
+          chunks_processed?: number
+          chunks_skipped?: number
+          chunks_failed?: number
+          error_message?: string
+        }>
+      }
+    }
+
+    // Calculate embedding job statistics
+    const embeddingStats = {
+      queued: embeddingJobs.filter((j) => j.status === 'queued').length,
+      processing: embeddingJobs.filter((j) => j.status === 'processing').length,
+      succeeded: embeddingJobs.filter((j) => j.status === 'succeeded').length,
+      failed: embeddingJobs.filter((j) => j.status === 'failed').length,
+      total: embeddingJobs.length,
+    }
+
     // Check if retrieval failed
     const retrievalError = artifactsError ? {
       message: artifactsError.message,
@@ -227,6 +277,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       success: true,
       diagnostics,
       retrievalError,
+      embeddingJobs: embeddingJobs.slice(0, 50), // Limit to most recent 50
+      embeddingStats,
     })
   } catch (err) {
     json(res, 500, {
