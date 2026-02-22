@@ -7,54 +7,34 @@ import { MarkdownImage } from './MarkdownImage'
 import { getAgentTypeDisplayName } from './utils'
 import type { SupabaseAgentArtifactRow } from '../App.types'
 
-// Helper functions extracted for better maintainability
+// Helper functions extracted to reduce component complexity
 
-/**
- * Extracts image source from markdown snippet using position data
- */
-function extractImageSourceFromMarkdown(
-  markdownSnippet: string
-): string | null {
-  // Try to extract data URL from markdown: ![alt](data:image/...)
+/** Extract data URL from markdown snippet using regex patterns */
+function extractDataUrlFromMarkdown(markdownSnippet: string): string | null {
   const dataUrlMatch = markdownSnippet.match(/!\[.*?\]\((data:image\/[^)]+)\)/)
   if (dataUrlMatch?.[1]) {
     return dataUrlMatch[1]
   }
-  
-  // Try simpler pattern: (data:image/...)
   const simpleMatch = markdownSnippet.match(/\((data:image\/[^)]+)\)/)
   return simpleMatch?.[1] || null
 }
 
-/**
- * Gets image source from ReactMarkdown node, with fallback extraction from markdown
- */
-function getImageSource(
-  node: any,
-  bodyMd: string
-): string | null {
-  // First try to get src from node properties
-  const srcFromNode = node?.properties?.src
-  if (srcFromNode) {
-    return srcFromNode
-  }
-  
-  // If src is empty, try to extract from raw markdown using position
+/** Extract image source from ReactMarkdown node, falling back to markdown extraction */
+function extractImageSource(node: any, bodyMd: string): string | null {
+  const src = node?.properties?.src
+  if (src) return src
+
   const position = node?.position
-  if (!position || !bodyMd) {
-    return null
-  }
-  
+  if (!position || !bodyMd) return null
+
   const startOffset = position.start?.offset || 0
   const endOffset = position.end?.offset || bodyMd.length
   const markdownSnippet = bodyMd.substring(startOffset, endOffset)
   
-  return extractImageSourceFromMarkdown(markdownSnippet)
+  return extractDataUrlFromMarkdown(markdownSnippet)
 }
 
-/**
- * Creates the image component for ReactMarkdown
- */
+/** Create image component for ReactMarkdown */
 function createImageComponent(
   artifactTitle: string | undefined,
   bodyMd: string,
@@ -63,11 +43,10 @@ function createImageComponent(
   return (props: any) => {
     const node = props.node
     const alt = node?.properties?.alt || node?.alt || props.alt || null
-    
-    const src = getImageSource(node, bodyMd)
-    
+    const src = extractImageSource(node, bodyMd)
+
     if (!src) {
-      console.warn('[ImageComponent] Still no src after extraction. Node:', node)
+      console.warn('[ImageComponent] Unable to extract image source. Node:', node)
       return (
         <div style={{ border: '2px solid red', padding: '1rem', backgroundColor: '#ffebee' }}>
           <p style={{ margin: 0, fontWeight: 'bold' }}>Unable to extract image source</p>
@@ -77,7 +56,7 @@ function createImageComponent(
         </div>
       )
     }
-    
+
     return (
       <MarkdownImage
         src={src}
@@ -89,21 +68,14 @@ function createImageComponent(
   }
 }
 
-/**
- * Checks if an artifact is a git-diff artifact based on title
- */
+/** Check if artifact is a git-diff artifact by title */
 function isGitDiffArtifact(artifact: SupabaseAgentArtifactRow | null): boolean {
   if (!artifact) return false
   const normalizedTitle = artifact.title?.toLowerCase().trim() || ''
-  return (
-    normalizedTitle.startsWith('git diff for ticket') ||
-    normalizedTitle.startsWith('git-diff for ticket')
-  )
+  return normalizedTitle.startsWith('git diff for ticket') || normalizedTitle.startsWith('git-diff for ticket')
 }
 
-/**
- * Sorts artifacts chronologically (oldest first) with deterministic secondary sort
- */
+/** Sort artifacts chronologically (oldest first) with deterministic secondary sort */
 function sortArtifactsChronologically(
   artifacts: SupabaseAgentArtifactRow[],
   fallbackArtifact: SupabaseAgentArtifactRow | null
@@ -111,38 +83,83 @@ function sortArtifactsChronologically(
   if (artifacts.length === 0 && fallbackArtifact) {
     return [fallbackArtifact]
   }
-  
   return [...artifacts].sort((a, b) => {
     const timeA = new Date(a.created_at || 0).getTime()
     const timeB = new Date(b.created_at || 0).getTime()
     if (timeA !== timeB) {
       return timeA - timeB
     }
-    // Secondary sort by artifact_id for deterministic ordering when timestamps are equal
     return (a.artifact_id || '').localeCompare(b.artifact_id || '')
   })
 }
 
-/**
- * Finds the index of an artifact in a sorted list
- */
-function findArtifactIndex(
+/** Calculate effective index of current artifact in sorted list */
+function calculateEffectiveIndex(
   artifact: SupabaseAgentArtifactRow | null,
-  sortedArtifacts: SupabaseAgentArtifactRow[]
+  sortedArtifacts: SupabaseAgentArtifactRow[],
+  currentIndex: number
 ): number {
-  if (!artifact?.artifact_id) return -1
-  return sortedArtifacts.findIndex(a => a.artifact_id === artifact.artifact_id)
+  if (!artifact?.artifact_id) return currentIndex
+  const actualIndex = sortedArtifacts.findIndex(a => a.artifact_id === artifact.artifact_id)
+  if (actualIndex >= 0) return actualIndex
+  return sortedArtifacts.length > 0 ? 0 : currentIndex
 }
 
-/**
- * Renders the artifact content (git diff or markdown)
- */
+/** Handle tab key trapping for modal focus management */
+function handleTabKeyTrapping(
+  e: React.KeyboardEvent,
+  modalRef: React.RefObject<HTMLDivElement>
+): void {
+  if (e.key !== 'Tab' || !modalRef.current) return
+
+  const focusable = modalRef.current.querySelectorAll<HTMLElement>(
+    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  )
+  const list = Array.from(focusable)
+  const first = list[0]
+  const last = list[list.length - 1]
+
+  if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault()
+    last?.focus()
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault()
+    first?.focus()
+  }
+}
+
+/** Extract artifact display data with safe defaults */
+function extractArtifactData(artifact: SupabaseAgentArtifactRow | null) {
+  const isValid = artifact && artifact.artifact_id
+  return {
+    isValid,
+    title: isValid ? (artifact.title || 'Untitled Artifact') : 'Artifact Viewer',
+    bodyMd: isValid ? (artifact.body_md || '') : '',
+    createdAt: isValid ? (artifact.created_at || new Date().toISOString()) : new Date().toISOString(),
+    agentType: isValid ? (artifact.agent_type || 'unknown') : 'unknown',
+  }
+}
+
+/** Render artifact content with proper error handling */
 function renderArtifactContent(
-  artifactBodyMd: string,
+  isValid: boolean,
+  artifact: SupabaseAgentArtifactRow | null,
+  bodyMd: string,
   isGitDiff: boolean,
   markdownComponents: Components
-): React.ReactNode {
-  if (!artifactBodyMd || typeof artifactBodyMd !== 'string') {
+) {
+  if (!isValid) {
+    console.error('ArtifactReportViewer: Invalid artifact received', artifact)
+    return (
+      <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
+        {!artifact 
+          ? 'No artifact selected. Please select an artifact from the list.'
+          : 'Invalid artifact data. Please try selecting the artifact again.'}
+      </p>
+    )
+  }
+  
+  if (!bodyMd || typeof bodyMd !== 'string') {
     return (
       <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
         No content available. This artifact may be missing body_md data.
@@ -150,11 +167,11 @@ function renderArtifactContent(
     )
   }
   
-  const trimmedBody = artifactBodyMd.trim()
+  const trimmedBody = bodyMd.trim()
   if (trimmedBody.length === 0) {
     return (
       <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
-        {isGitDiff
+        {isGitDiff 
           ? 'No diff available. This artifact was created but contains no diff content.'
           : 'No output produced. This artifact was created but contains no content.'}
       </p>
@@ -224,24 +241,7 @@ export function ArtifactReportViewer({
         onClose()
         return
       }
-      if (e.key !== 'Tab' || !modalRef.current) return
-      const focusable = modalRef.current.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-      )
-      const list = Array.from(focusable)
-      const first = list[0]
-      const last = list[list.length - 1]
-      if (e.shiftKey) {
-        if (document.activeElement === first) {
-          e.preventDefault()
-          last?.focus()
-        }
-      } else {
-        if (document.activeElement === last) {
-          e.preventDefault()
-          first?.focus()
-        }
-      }
+      handleTabKeyTrapping(e, modalRef)
     },
     [onClose, imageViewerOpen]
   )
@@ -256,10 +256,8 @@ export function ArtifactReportViewer({
   const markdownComponents: Components = useMemo(() => {
     const artifactTitle = artifact?.title
     const bodyMd = artifact?.body_md || ''
-    const imageComponent = createImageComponent(artifactTitle, bodyMd, handleImageClick)
-    
     return {
-      img: imageComponent,
+      img: createImageComponent(artifactTitle, bodyMd, handleImageClick),
     }
   }, [artifact?.title, artifact?.body_md, handleImageClick])
 
@@ -272,16 +270,10 @@ export function ArtifactReportViewer({
     [artifacts, artifact]
   )
   
-  // Find the actual index of the current artifact in the sorted list
-  const actualIndex = useMemo(
-    () => findArtifactIndex(artifact, sortedArtifacts),
-    [sortedArtifacts, artifact]
+  const effectiveIndex = useMemo(
+    () => calculateEffectiveIndex(artifact, sortedArtifacts, currentIndex),
+    [artifact, sortedArtifacts, currentIndex]
   )
-  
-  // Use actual index if found, otherwise fall back to currentIndex prop, or 0 if artifact is in the list
-  const effectiveIndex = actualIndex >= 0 
-    ? actualIndex 
-    : (artifact && sortedArtifacts.length > 0 ? 0 : currentIndex)
   
   const canGoPrevious = effectiveIndex > 0
   const canGoNext = effectiveIndex < sortedArtifacts.length - 1
@@ -298,23 +290,10 @@ export function ArtifactReportViewer({
     }
   }, [canGoNext, effectiveIndex, onNavigate])
 
-  // Handle invalid artifacts in render logic (not early returns after hooks)
-  // This ensures hooks are always called in the same order
-  const isValidArtifact = artifact && artifact.artifact_id
-  const artifactTitle = isValidArtifact ? (artifact.title || 'Untitled Artifact') : 'Artifact Viewer'
-  const artifactBodyMd = isValidArtifact ? (artifact.body_md || '') : ''
-  const artifactCreatedAt = isValidArtifact ? (artifact.created_at || new Date().toISOString()) : new Date().toISOString()
-  const artifactAgentType = isValidArtifact ? (artifact.agent_type || 'unknown') : 'unknown'
-
-  const createdAt = new Date(artifactCreatedAt)
-  const displayName = isValidArtifact ? getAgentTypeDisplayName(artifactAgentType) : 'Unknown'
-
-  // Log invalid artifacts for debugging
-  useEffect(() => {
-    if (!isValidArtifact && artifact !== null) {
-      console.error('ArtifactReportViewer: Invalid artifact received', artifact)
-    }
-  }, [isValidArtifact, artifact])
+  // Extract artifact data with safe defaults (must be called before any early returns)
+  const artifactData = useMemo(() => extractArtifactData(artifact), [artifact])
+  const createdAt = new Date(artifactData.createdAt)
+  const displayName = artifactData.isValid ? getAgentTypeDisplayName(artifactData.agentType) : 'Unknown'
 
   return (
     <div
@@ -328,7 +307,7 @@ export function ArtifactReportViewer({
       <div className="ticket-detail-modal" ref={modalRef}>
         <div className="ticket-detail-header">
           <h2 id="artifact-viewer-title" className="ticket-detail-title">
-            {artifactTitle}
+            {artifactData.title}
           </h2>
           <button
             type="button"
@@ -346,14 +325,12 @@ export function ArtifactReportViewer({
         </div>
         <div className="ticket-detail-body-wrap">
           <div className="ticket-detail-body">
-            {!isValidArtifact ? (
-              <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
-                {!artifact
-                  ? 'No artifact selected. Please select an artifact from the list.'
-                  : 'Invalid artifact data. Please try selecting the artifact again.'}
-              </p>
-            ) : (
-              renderArtifactContent(artifactBodyMd, isGitDiff, markdownComponents)
+            {renderArtifactContent(
+              artifactData.isValid,
+              artifact,
+              artifactData.bodyMd,
+              isGitDiff,
+              markdownComponents
             )}
           </div>
         </div>
