@@ -64,20 +64,18 @@ function createImageComponent(
   artifactTitle: string | undefined,
   bodyMd: string,
   handleImageClick: (src: string, alt: string) => void
-) {
+): React.ComponentType<any> {
   return (props: any) => {
     const node = props.node
     const alt = node?.properties?.alt || node?.alt || props.alt || null
     const src = extractImageSrcFromMarkdown(node, bodyMd)
 
-    if (!src || src === '') {
+    if (!src) {
       console.warn('[ImageComponent] Unable to extract image source. Node:', node)
       return (
         <div style={{ border: '2px solid red', padding: '1rem', backgroundColor: '#ffebee' }}>
           <p style={{ margin: 0, fontWeight: 'bold' }}>Unable to extract image source</p>
-          <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.9rem' }}>
-            Alt: {alt || 'Unknown'}
-          </p>
+          <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.9rem' }}>Alt: {alt || 'Unknown'}</p>
         </div>
       )
     }
@@ -228,40 +226,38 @@ export function ArtifactReportViewer({
   const createdAt = new Date(artifactCreatedAt)
   const displayName = isValidArtifact ? getAgentTypeDisplayName(artifactAgentType) : 'Unknown'
 
-  function renderArtifactContent() {
-    if (!isValidArtifact) {
-      console.error('ArtifactReportViewer: Invalid artifact received', artifact)
-      return (
-        <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
-          {!artifact 
-            ? 'No artifact selected. Please select an artifact from the list.'
-            : 'Invalid artifact data. Please try selecting the artifact again.'}
-        </p>
-      )
-    }
-    
-    if (!artifactBodyMd || typeof artifactBodyMd !== 'string') {
-      return (
-        <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
-          No content available. This artifact may be missing body_md data.
-        </p>
-      )
-    }
-    
+  // Render artifact content with early returns for error cases
+  let artifactContent: React.ReactNode
+  if (!isValidArtifact) {
+    console.error('ArtifactReportViewer: Invalid artifact received', artifact)
+    artifactContent = (
+      <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
+        {!artifact 
+          ? 'No artifact selected. Please select an artifact from the list.'
+          : 'Invalid artifact data. Please try selecting the artifact again.'}
+      </p>
+    )
+  } else if (!artifactBodyMd || typeof artifactBodyMd !== 'string') {
+    artifactContent = (
+      <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
+        No content available. This artifact may be missing body_md data.
+      </p>
+    )
+  } else {
     const trimmedBody = artifactBodyMd.trim()
     if (trimmedBody.length === 0) {
-      return (
+      artifactContent = (
         <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
           {isGitDiff 
             ? 'No diff available. This artifact was created but contains no diff content.'
             : 'No output produced. This artifact was created but contains no content.'}
         </p>
       )
+    } else {
+      artifactContent = isGitDiff 
+        ? <GitDiffViewer diff={trimmedBody} />
+        : <ReactMarkdown components={markdownComponents}>{trimmedBody}</ReactMarkdown>
     }
-    
-    return isGitDiff 
-      ? <GitDiffViewer diff={trimmedBody} />
-      : <ReactMarkdown components={markdownComponents}>{trimmedBody}</ReactMarkdown>
   }
 
   return (
@@ -294,7 +290,7 @@ export function ArtifactReportViewer({
         </div>
         <div className="ticket-detail-body-wrap">
           <div className="ticket-detail-body">
-            {renderArtifactContent()}
+            {artifactContent}
           </div>
         </div>
         {/* Previous/Next navigation buttons (0148) */}
