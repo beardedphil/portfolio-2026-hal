@@ -222,12 +222,12 @@ export function TicketDetailModal({
         <div className="ticket-detail-meta">
           <span className="ticket-detail-id">ID: {ticketId}</span>
           {priority != null && <span className="ticket-detail-priority">Priority: {priority}</span>}
-          {failureCounts?.qa > 0 && (
+          {failureCounts && failureCounts.qa > 0 && (
             <span className="ticket-detail-failure-count" style={{ color: failureCounts.qa >= 3 ? '#d32f2f' : '#f57c00' }}>
               QA fails: {failureCounts.qa}
             </span>
           )}
-          {failureCounts?.hitl > 0 && (
+          {failureCounts && failureCounts.hitl > 0 && (
             <span className="ticket-detail-failure-count" style={{ color: failureCounts.hitl >= 3 ? '#d32f2f' : '#f57c00' }}>
               HITL fails: {failureCounts.hitl}
             </span>
@@ -263,7 +263,6 @@ export function TicketDetailModal({
                 )}
               </div>
               <AcceptanceCriteriaStatusSection
-                ticketId={ticketId}
                 ticketPk={ticketId}
                 supabaseUrl={supabaseUrl}
                 supabaseKey={supabaseKey}
