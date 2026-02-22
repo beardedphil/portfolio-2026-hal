@@ -102,7 +102,7 @@ function getSupabaseCredentials(body: {
  * Returns { pk: string } on success, { error: string } on failure.
  */
 async function lookupTicketPk(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   ticketId: string
 ): Promise<{ pk: string } | { error: string }> {
   const ticketNumber = parseInt(ticketId, 10)
@@ -122,8 +122,11 @@ async function lookupTicketPk(
       .or(`ticket_number.eq.${ticketNumber},id.eq.${ticketId}`)
       .maybeSingle()
 
-    if (!ticketError && ticket?.pk) {
-      return { pk: ticket.pk }
+    if (!ticketError && ticket) {
+      const pk = (ticket as { pk: string }).pk
+      if (pk) {
+        return { pk }
+      }
     }
 
     if (ticketError) {
@@ -140,7 +143,7 @@ async function lookupTicketPk(
  * Fetches artifacts for a ticket with retry logic.
  */
 async function fetchArtifacts(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   ticketPk: string
 ): Promise<{ data: any[] | null; error: any }> {
   const maxRetries = 3
