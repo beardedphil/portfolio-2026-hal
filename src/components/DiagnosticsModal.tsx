@@ -26,6 +26,7 @@ interface DiagnosticsModalProps {
   supabaseUrl: string | null
   supabaseAnonKey: string | null
   openaiApiKey?: string | null
+  connectedGithubRepo?: { fullName: string } | null
 }
 
 export function DiagnosticsModal({
@@ -34,6 +35,7 @@ export function DiagnosticsModal({
   supabaseUrl,
   supabaseAnonKey,
   openaiApiKey,
+  connectedGithubRepo,
 }: DiagnosticsModalProps) {
   const [embeddingsStatus, setEmbeddingsStatus] = useState<EmbeddingsStatus | null>(null)
   const [loadingStatus, setLoadingStatus] = useState(false)
@@ -41,6 +43,21 @@ export function DiagnosticsModal({
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
   const [searching, setSearching] = useState(false)
   const [searchError, setSearchError] = useState<string | null>(null)
+  const [repoInitStatus, setRepoInitStatus] = useState<{
+    loading: boolean
+    success: boolean | null
+    message: string | null
+    default_branch: string | null
+    initial_commit_sha: string | null
+    alreadyInitialized: boolean | null
+  }>({
+    loading: false,
+    success: null,
+    message: null,
+    default_branch: null,
+    initial_commit_sha: null,
+    alreadyInitialized: null,
+  })
 
   // Load embeddings status when modal opens
   useEffect(() => {
@@ -167,6 +184,93 @@ export function DiagnosticsModal({
     }
   }
 
+  async function handleEnsureRepoInitialized() {
+    if (!connectedGithubRepo?.fullName) {
+      setRepoInitStatus({
+        loading: false,
+        success: false,
+        message: 'No GitHub repository connected. Please connect a repository first.',
+        default_branch: null,
+        initial_commit_sha: null,
+        alreadyInitialized: null,
+      })
+      return
+    }
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      setRepoInitStatus({
+        loading: false,
+        success: false,
+        message: 'Supabase credentials not configured.',
+        default_branch: null,
+        initial_commit_sha: null,
+        alreadyInitialized: null,
+      })
+      return
+    }
+
+    setRepoInitStatus({
+      loading: true,
+      success: null,
+      message: null,
+      default_branch: null,
+      initial_commit_sha: null,
+      alreadyInitialized: null,
+    })
+
+    try {
+      const res = await fetch('/api/github/ensure-initialized', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repoFullName: connectedGithubRepo.fullName,
+          supabaseUrl,
+          supabaseAnonKey,
+        }),
+      })
+
+      const data = (await res.json()) as {
+        success: boolean
+        alreadyInitialized?: boolean
+        default_branch?: string
+        initial_commit_sha?: string
+        error?: string
+      }
+
+      if (!data.success) {
+        setRepoInitStatus({
+          loading: false,
+          success: false,
+          message: data.error || 'Failed to initialize repository',
+          default_branch: null,
+          initial_commit_sha: null,
+          alreadyInitialized: null,
+        })
+        return
+      }
+
+      setRepoInitStatus({
+        loading: false,
+        success: true,
+        message: data.alreadyInitialized
+          ? 'Repository is already initialized.'
+          : 'Repository initialized successfully. A main branch with an initial commit has been created.',
+        default_branch: data.default_branch || null,
+        initial_commit_sha: data.initial_commit_sha || null,
+        alreadyInitialized: data.alreadyInitialized || false,
+      })
+    } catch (err) {
+      setRepoInitStatus({
+        loading: false,
+        success: false,
+        message: err instanceof Error ? err.message : 'Failed to initialize repository',
+        default_branch: null,
+        initial_commit_sha: null,
+        alreadyInitialized: null,
+      })
+    }
+  }
+
   if (!isOpen) return null
 
   return (
@@ -185,6 +289,71 @@ export function DiagnosticsModal({
         </div>
 
         <div className="conversation-modal-content" style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
+          {/* Bootstrap / Diagnostics Section */}
+          <section style={{ marginBottom: '2rem' }}>
+            <h4 style={{ margin: '0 0 1rem 0', fontSize: '1.1rem', fontWeight: 600 }}>Bootstrap / Diagnostics</h4>
+            <div style={{ marginBottom: '1rem' }}>
+              <button
+                type="button"
+                className="btn-standard"
+                onClick={handleEnsureRepoInitialized}
+                disabled={repoInitStatus.loading || !connectedGithubRepo?.fullName || !supabaseUrl || !supabaseAnonKey}
+                style={{ marginBottom: '0.5rem' }}
+              >
+                {repoInitStatus.loading ? 'Initializing...' : 'Ensure repo initialized'}
+              </button>
+              {!connectedGithubRepo?.fullName && (
+                <p style={{ color: 'var(--hal-text-muted)', fontSize: '0.9rem', marginTop: '0.5rem' }}>
+                  Connect a GitHub repository to enable this feature.
+                </p>
+              )}
+              {repoInitStatus.message && (
+                <div
+                  style={{
+                    marginTop: '0.5rem',
+                    padding: '0.75rem',
+                    borderRadius: '4px',
+                    background:
+                      repoInitStatus.success === true
+                        ? 'rgba(46, 125, 50, 0.1)'
+                        : repoInitStatus.success === false
+                          ? 'rgba(198, 40, 40, 0.1)'
+                          : 'rgba(108, 117, 125, 0.1)',
+                    color:
+                      repoInitStatus.success === true
+                        ? 'var(--hal-status-ok)'
+                        : repoInitStatus.success === false
+                          ? 'var(--hal-status-error)'
+                          : 'var(--hal-text)',
+                    border:
+                      repoInitStatus.success === true
+                        ? '1px solid var(--hal-status-ok)'
+                        : repoInitStatus.success === false
+                          ? '1px solid var(--hal-status-error)'
+                          : '1px solid var(--hal-border)',
+                  }}
+                >
+                  {repoInitStatus.message}
+                </div>
+              )}
+              {repoInitStatus.success === true && repoInitStatus.default_branch && (
+                <div style={{ marginTop: '0.75rem', fontSize: '0.9rem', color: 'var(--hal-text)' }}>
+                  <div style={{ marginBottom: '0.25rem' }}>
+                    <strong>Default branch:</strong> {repoInitStatus.default_branch}
+                  </div>
+                  {repoInitStatus.initial_commit_sha && (
+                    <div>
+                      <strong>Initial commit SHA:</strong>{' '}
+                      <code style={{ fontSize: '0.85em', background: 'var(--hal-surface-alt)', padding: '0.2em 0.4em', borderRadius: '3px' }}>
+                        {repoInitStatus.initial_commit_sha}
+                      </code>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </section>
+
           {/* Embeddings / Vector Search Status Section */}
           <section style={{ marginBottom: '2rem' }}>
             <h4 style={{ margin: '0 0 1rem 0', fontSize: '1.1rem', fontWeight: 600 }}>Embeddings / Vector Search</h4>

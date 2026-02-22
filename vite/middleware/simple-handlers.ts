@@ -260,3 +260,8 @@ export function acceptanceCriteriaStatusUpdatePlugin(): Plugin {
     },
   }
 }
+
+/** GitHub ensure initialized endpoint */
+export function githubEnsureInitializedPlugin(): Plugin {
+  return createHandlerPlugin('github-ensure-initialized-endpoint', '/api/github/ensure-initialized', 'POST')
+}
