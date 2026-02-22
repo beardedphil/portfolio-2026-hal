@@ -37,12 +37,12 @@
       "maintainability": 0
     },
     {
-      "file": "agents/src/agents/projectManager.ts",
+      "file": "projects/kanban/src/App.tsx",
       "maintainability": 0
     },
     {
-      "file": "projects/kanban/src/App.tsx",
-      "maintainability": 0
+      "file": "agents/src/agents/projectManager.ts",
+      "maintainability": 9
     },
     {
       "file": "src/hooks/useProcessReview.ts",
@@ -83,6 +83,12 @@
   ],
   "mostRecentImprovements": [
     {
+      "file": "agents/src/agents/projectManager.ts",
+      "before": 0,
+      "after": 9,
+      "delta": 9
+    },
+    {
       "file": "api/instructions/migrate-process-docs.ts",
       "before": 15.59,
       "after": 15.59,
@@ -119,8 +125,8 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-22T00:48:49.413Z",
-  "filesAnalyzed": 327,
-  "unroundedMaintainability": 33.8,
-  "unroundedSimplicity": 33.8
+  "generatedAt": "2026-02-22T00:33:40.004Z",
+  "filesAnalyzed": 335,
+  "unroundedMaintainability": 33.6,
+  "unroundedSimplicity": 33.6
 }
