@@ -1,31 +1,60 @@
-import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import type { SupabaseAgentArtifactRow } from '../App.types'
 
-// Don't mock helpers - let them use the actual implementation
-// The helpers file already has React imported, so it should work
+// Mock dependencies using factory functions that have access to React at runtime
+vi.mock('react-markdown', () => {
+  return {
+    default: function ReactMarkdown({ children }: { children: string }) {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const React = require('react')
+      return React.createElement('div', { 'data-testid': 'react-markdown' }, children)
+    },
+  }
+})
 
-// Mock dependencies BEFORE importing the component
-vi.mock('react-markdown', () => ({
-  default: ({ children }: { children: string }) => <div data-testid="react-markdown">{children}</div>,
-}))
+vi.mock('../GitDiffViewer', () => {
+  return {
+    GitDiffViewer: function GitDiffViewer({ diff }: { diff: string }) {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const React = require('react')
+      return React.createElement('div', { 'data-testid': 'git-diff-viewer' }, diff)
+    },
+  }
+})
 
-vi.mock('../GitDiffViewer', () => ({
-  GitDiffViewer: ({ diff }: { diff: string }) => <div data-testid="git-diff-viewer">{diff}</div>,
-}))
+vi.mock('./ImageViewerModal', () => {
+  return {
+    ImageViewerModal: function ImageViewerModal({ open, onClose, imageSrc, imageAlt }: any) {
+      if (!open || !imageSrc) return null
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const React = require('react')
+      return React.createElement('div', { 'data-testid': 'image-viewer-modal' },
+        React.createElement('button', { onClick: onClose }, 'Close Image'),
+        React.createElement('img', { src: imageSrc, alt: imageAlt })
+      )
+    },
+  }
+})
 
-vi.mock('./ImageViewerModal', () => ({
-  ImageViewerModal: ({ open, onClose, imageSrc, imageAlt }: any) => {
-    if (!open || !imageSrc) return null
-    return (
-      <div data-testid="image-viewer-modal">
-        <button onClick={onClose}>Close Image</button>
-        <img src={imageSrc} alt={imageAlt} />
-      </div>
-    )
-  },
-}))
+// Mock MarkdownImage to avoid React resolution issues when helpers import it
+vi.mock('./MarkdownImage', () => {
+  return {
+    MarkdownImage: function MarkdownImage({ src, alt, onImageClick }: any) {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const React = require('react')
+      return React.createElement('img', {
+        'data-testid': 'markdown-image',
+        src,
+        alt,
+        onClick: () => onImageClick?.(src, alt),
+      })
+    },
+  }
+})
+
+// Don't mock helpers - import them directly to avoid React resolution issues
+// The helpers file already imports React, so it should work
 
 // Import component AFTER mocks are set up
 import { ArtifactReportViewer } from './ArtifactReportViewer'
