@@ -232,7 +232,7 @@ function App() {
   const [activeWorkAgentTypes, setActiveWorkAgentTypes] = useState<Record<string, 'Implementation' | 'QA' | 'Process Review'>>({})
   // Sync with Docs removed (Supabase-only) (0065)
   // Ticket persistence tracking (0047)
-  const [lastMovePersisted, setLastMovePersisted] = useState<{ success: boolean; timestamp: Date; ticketId: string; error?: string; isValidationBlock?: boolean; errorCode?: string; ciStatus?: { overall: string; evaluatedSha?: string; failingCheckNames?: string[]; checksPageUrl?: string } } | null>(null)
+  const [lastMovePersisted, setLastMovePersisted] = useState<{ success: boolean; timestamp: Date; ticketId: string; error?: string; isValidationBlock?: boolean; errorCode?: string; ciStatus?: { overall: string; evaluatedSha?: string; failingCheckNames?: string[]; checksPageUrl?: string }; unmetCount?: number; unmetIndices?: number[]; inconsistentDocs?: string[]; driftCheckPassed?: boolean } | null>(null)
   const [pendingMoves, setPendingMoves] = useState<Set<string>>(new Set())
   // Track when each move was initiated to prevent premature rollback on slow API responses (0790)
   const [pendingMoveTimestamps, setPendingMoveTimestamps] = useState<Map<string, number>>(new Map())
@@ -1417,7 +1417,7 @@ function App() {
       ticketPk: string,
       columnId: string,
       position?: number
-    ): Promise<{ ok: true } | { ok: false; error: string; actionableSteps?: string; missingArtifacts?: string[]; errorCode?: string; ciStatus?: any }> => {
+    ): Promise<{ ok: true; driftCheckPassed?: boolean } | { ok: false; error: string; actionableSteps?: string; missingArtifacts?: string[]; errorCode?: string; ciStatus?: any; unmetCount?: number; unmetIndices?: number[]; inconsistentDocs?: string[] }> => {
       try {
         // Get API base URL from environment or use current origin
         const apiBaseUrl = import.meta.env.VITE_HAL_API_BASE_URL || window.location.origin
@@ -1455,10 +1455,14 @@ function App() {
             missingArtifacts: result.missingArtifacts,
             errorCode: result.errorCode,
             ciStatus: result.ciStatus,
+            unmetCount: result.unmetCount,
+            unmetIndices: result.unmetIndices,
+            inconsistentDocs: result.inconsistentDocs,
           }
         }
 
-        return { ok: true }
+        // Success - drift check passed
+        return { ok: true, driftCheckPassed: true }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
         return { ok: false, error: `Failed to move ticket via HAL API: ${msg}` }
@@ -2140,19 +2144,24 @@ function App() {
               kanban_moved_at: movedAt,
             })
           : await moveTicketViaHalApi(ticketPk, overColumn.id, overIndex)
-          if (result.ok) {
-            // Notify other tabs via BroadcastChannel (0703)
-            if (typeof BroadcastChannel !== 'undefined') {
-              try {
-                const channel = new BroadcastChannel(KANBAN_BROADCAST_CHANNEL)
-                channel.postMessage({ type: 'TICKET_MOVED', ticketPk })
-                channel.close()
-              } catch (e) {
-                // Ignore BroadcastChannel errors (e.g., in environments where it's not supported)
-              }
+        if (result.ok) {
+          // Notify other tabs via BroadcastChannel (0703)
+          if (typeof BroadcastChannel !== 'undefined') {
+            try {
+              const channel = new BroadcastChannel(KANBAN_BROADCAST_CHANNEL)
+              channel.postMessage({ type: 'TICKET_MOVED', ticketPk })
+              channel.close()
+            } catch (e) {
+              // Ignore BroadcastChannel errors (e.g., in environments where it's not supported)
             }
-            setLastMovePersisted({ success: true, timestamp: new Date(), ticketId: ticketPk })
-            addLog(`Move succeeded: Ticket moved to ${overColumn.title}`)
+          }
+          setLastMovePersisted({ 
+            success: true, 
+            timestamp: new Date(), 
+            ticketId: ticketPk,
+            driftCheckPassed: 'driftCheckPassed' in result && result.driftCheckPassed === true,
+          })
+          addLog(`Move succeeded: Ticket moved to ${overColumn.title}`)
             // Store expected optimistic position to verify backend confirmation (0144)
             const expectedColumnId = overColumn.id
             const expectedPosition = overIndex
@@ -2221,7 +2230,16 @@ function App() {
             : result.error
           
           // Show error message immediately (0790)
-          setLastMovePersisted({ success: false, timestamp: new Date(), ticketId: ticketPk, error: errorMessage })
+          setLastMovePersisted({ 
+            success: false, 
+            timestamp: new Date(), 
+            ticketId: ticketPk, 
+            error: errorMessage,
+            errorCode: 'errorCode' in result && typeof result.errorCode === 'string' ? result.errorCode : undefined,
+            unmetCount: 'unmetCount' in result && typeof result.unmetCount === 'number' ? result.unmetCount : undefined,
+            unmetIndices: 'unmetIndices' in result && Array.isArray(result.unmetIndices) ? result.unmetIndices : undefined,
+            inconsistentDocs: 'inconsistentDocs' in result && Array.isArray(result.inconsistentDocs) ? result.inconsistentDocs : undefined,
+          })
           addLog(`Move failed: ${errorMessage}`)
           
           // Wait for rollback delay before reverting optimistic update (0790)
@@ -2334,7 +2352,12 @@ function App() {
               // Ignore BroadcastChannel errors
             }
           }
-          setLastMovePersisted({ success: true, timestamp: new Date(), ticketId: ticketPk })
+          setLastMovePersisted({ 
+            success: true, 
+            timestamp: new Date(), 
+            ticketId: ticketPk,
+            driftCheckPassed: 'driftCheckPassed' in result && result.driftCheckPassed === true,
+          })
           addLog(`Move succeeded: Ticket moved to Active Work`)
           const expectedColumnId = 'col-doing'
           const expectedPosition = overIndex
@@ -2393,6 +2416,9 @@ function App() {
             error: errorMessage,
             errorCode: 'errorCode' in result && typeof result.errorCode === 'string' ? result.errorCode : undefined,
             ciStatus: 'ciStatus' in result && typeof result.ciStatus === 'object' && result.ciStatus !== null ? result.ciStatus as { overall: string; evaluatedSha?: string; failingCheckNames?: string[]; checksPageUrl?: string } : undefined,
+            unmetCount: 'unmetCount' in result && typeof result.unmetCount === 'number' ? result.unmetCount : undefined,
+            unmetIndices: 'unmetIndices' in result && Array.isArray(result.unmetIndices) ? result.unmetIndices : undefined,
+            inconsistentDocs: 'inconsistentDocs' in result && Array.isArray(result.inconsistentDocs) ? result.inconsistentDocs : undefined,
           })
           addLog(`Move failed: ${errorMessage}`)
           
@@ -2985,7 +3011,14 @@ function App() {
           role={lastMovePersisted.success ? 'status' : 'alert'}
         >
           {lastMovePersisted.success ? (
-            <>✓ Move succeeded: Ticket moved successfully at {lastMovePersisted.timestamp.toLocaleTimeString()}</>
+            <>
+              ✓ Move succeeded: Ticket moved successfully at {lastMovePersisted.timestamp.toLocaleTimeString()}
+              {lastMovePersisted.driftCheckPassed && (
+                <div style={{ marginTop: '8px', padding: '8px', backgroundColor: 'rgba(46, 125, 50, 0.1)', borderRadius: '4px', fontSize: '0.9em' }}>
+                  <strong>Drift check passed</strong> — All acceptance criteria met, CI checks passing, and documentation consistent.
+                </div>
+              )}
+            </>
           ) : (
             <>
               <div style={{ whiteSpace: 'pre-line' }}>
@@ -2993,6 +3026,19 @@ function App() {
                 {lastMovePersisted.errorCode === 'NO_PR_REQUIRED' && (
                   <div style={{ marginTop: '8px', padding: '8px', backgroundColor: 'rgba(255, 193, 7, 0.1)', borderRadius: '4px' }}>
                     <strong>No PR linked:</strong> A GitHub Pull Request must be linked to this ticket before it can be moved to this column. The drift gate requires CI checks to pass before allowing transitions.
+                  </div>
+                )}
+                {lastMovePersisted.errorCode === 'UNMET_AC_BLOCKER' && (
+                  <div style={{ marginTop: '8px', padding: '8px', backgroundColor: 'rgba(220, 53, 69, 0.1)', borderRadius: '4px' }}>
+                    <strong>Unmet Acceptance Criteria:</strong> {lastMovePersisted.unmetCount || 0} acceptance criteria item(s) are marked as unmet.
+                    {lastMovePersisted.unmetIndices && lastMovePersisted.unmetIndices.length > 0 && (
+                      <div style={{ marginTop: '4px', fontSize: '0.9em' }}>
+                        Unmet AC indices: {lastMovePersisted.unmetIndices.map((idx) => idx + 1).join(', ')}
+                      </div>
+                    )}
+                    <div style={{ marginTop: '4px', fontSize: '0.9em' }}>
+                      Mark all acceptance criteria as "Met" in the ticket details panel before moving to this column.
+                    </div>
                   </div>
                 )}
                 {lastMovePersisted.errorCode === 'CI_CHECKS_FAILING' && lastMovePersisted.ciStatus && (
@@ -3025,6 +3071,19 @@ function App() {
                         </a>
                       </div>
                     )}
+                  </div>
+                )}
+                {lastMovePersisted.errorCode === 'DOCS_INCONSISTENT' && lastMovePersisted.inconsistentDocs && lastMovePersisted.inconsistentDocs.length > 0 && (
+                  <div style={{ marginTop: '8px', padding: '8px', backgroundColor: 'rgba(220, 53, 69, 0.1)', borderRadius: '4px' }}>
+                    <strong>Documentation Inconsistencies:</strong> The following documents are inconsistent with code:
+                    <ul style={{ margin: '4px 0 0 20px', padding: 0 }}>
+                      {lastMovePersisted.inconsistentDocs.map((path, idx) => (
+                        <li key={idx} style={{ fontSize: '0.9em' }}>{path}</li>
+                      ))}
+                    </ul>
+                    <div style={{ marginTop: '4px', fontSize: '0.9em' }}>
+                      Fix documentation inconsistencies and ensure all docs are consistent with code before moving to this column.
+                    </div>
                   </div>
                 )}
               </div>
