@@ -1,10 +1,18 @@
 /**
  * Unit tests for api/artifacts/get.ts helper functions.
- * Tests the behavior of isArtifactBlank and extractSnippet functions.
+ * Tests the behavior of isArtifactBlank, extractSnippet, parseRequestBody, lookupTicketPk, fetchArtifacts, and summarizeArtifacts functions.
  */
 
-import { describe, it, expect } from 'vitest'
-import { isArtifactBlank, extractSnippet } from './get.js'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { createClient } from '@supabase/supabase-js'
+import {
+  isArtifactBlank,
+  extractSnippet,
+  parseRequestBody,
+  lookupTicketPk,
+  fetchArtifacts,
+  summarizeArtifacts,
+} from './get.js'
 
 describe('isArtifactBlank', () => {
   it('returns true for null or undefined body_md', () => {
@@ -160,5 +168,346 @@ describe('extractSnippet', () => {
     const snippet = extractSnippet(justOver200)
     expect(snippet.length).toBeLessThanOrEqual(203) // 200 + '...'
     expect(snippet).toContain('...')
+  })
+})
+
+describe('parseRequestBody', () => {
+  beforeEach(() => {
+    // Clear environment variables
+    delete process.env.SUPABASE_URL
+    delete process.env.VITE_SUPABASE_URL
+    delete process.env.SUPABASE_ANON_KEY
+    delete process.env.VITE_SUPABASE_ANON_KEY
+  })
+
+  it('extracts ticketId and ticketPk from request body', () => {
+    const body = {
+      ticketId: '123',
+      ticketPk: 'pk-456',
+      supabaseUrl: 'https://test.supabase.co',
+      supabaseAnonKey: 'test-key',
+    }
+    const result = parseRequestBody(body)
+    expect(result.ticketId).toBe('123')
+    expect(result.ticketPk).toBe('pk-456')
+    expect(result.credentials?.supabaseUrl).toBe('https://test.supabase.co')
+    expect(result.credentials?.supabaseAnonKey).toBe('test-key')
+    expect(result.summary).toBe(false)
+  })
+
+  it('trims whitespace from ticketId and ticketPk', () => {
+    const body = {
+      ticketId: '  123  ',
+      ticketPk: '  pk-456  ',
+      supabaseUrl: 'https://test.supabase.co',
+      supabaseAnonKey: 'test-key',
+    }
+    const result = parseRequestBody(body)
+    expect(result.ticketId).toBe('123')
+    expect(result.ticketPk).toBe('pk-456')
+  })
+
+  it('treats empty string ticketId as undefined', () => {
+    const body = {
+      ticketId: '',
+      supabaseUrl: 'https://test.supabase.co',
+      supabaseAnonKey: 'test-key',
+    }
+    const result = parseRequestBody(body)
+    expect(result.ticketId).toBeUndefined()
+  })
+
+  it('falls back to environment variables for Supabase credentials', () => {
+    process.env.SUPABASE_URL = 'https://env.supabase.co'
+    process.env.SUPABASE_ANON_KEY = 'env-key'
+    const body = {}
+    const result = parseRequestBody(body)
+    expect(result.credentials?.supabaseUrl).toBe('https://env.supabase.co')
+    expect(result.credentials?.supabaseAnonKey).toBe('env-key')
+  })
+
+  it('prefers request body credentials over environment variables', () => {
+    process.env.SUPABASE_URL = 'https://env.supabase.co'
+    process.env.SUPABASE_ANON_KEY = 'env-key'
+    const body = {
+      supabaseUrl: 'https://body.supabase.co',
+      supabaseAnonKey: 'body-key',
+    }
+    const result = parseRequestBody(body)
+    expect(result.credentials?.supabaseUrl).toBe('https://body.supabase.co')
+    expect(result.credentials?.supabaseAnonKey).toBe('body-key')
+  })
+
+  it('returns undefined credentials when neither body nor env vars are provided', () => {
+    const body = {}
+    const result = parseRequestBody(body)
+    expect(result.credentials).toBeUndefined()
+  })
+
+  it('sets summary to true when body.summary is true', () => {
+    const body = {
+      summary: true,
+      supabaseUrl: 'https://test.supabase.co',
+      supabaseAnonKey: 'test-key',
+    }
+    const result = parseRequestBody(body)
+    expect(result.summary).toBe(true)
+  })
+
+  it('sets summary to false when body.summary is false or missing', () => {
+    const body1 = { summary: false, supabaseUrl: 'https://test.supabase.co', supabaseAnonKey: 'test-key' }
+    const body2 = { supabaseUrl: 'https://test.supabase.co', supabaseAnonKey: 'test-key' }
+    expect(parseRequestBody(body1).summary).toBe(false)
+    expect(parseRequestBody(body2).summary).toBe(false)
+  })
+})
+
+describe('lookupTicketPk', () => {
+  it('returns pk when ticket is found on first attempt', async () => {
+    const mockSupabase = {
+      from: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          or: vi.fn().mockReturnValue({
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: { pk: 'found-pk' },
+              error: null,
+            }),
+          }),
+        }),
+      }),
+    } as any
+
+    const result = await lookupTicketPk(mockSupabase, '123')
+    expect(result).toEqual({ pk: 'found-pk' })
+  })
+
+  it('retries on error and succeeds on second attempt', async () => {
+    let attemptCount = 0
+    const mockSupabase = {
+      from: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          or: vi.fn().mockReturnValue({
+            maybeSingle: vi.fn().mockImplementation(() => {
+              attemptCount++
+              if (attemptCount === 1) {
+                return Promise.resolve({ data: null, error: new Error('Network error') })
+              }
+              return Promise.resolve({ data: { pk: 'found-pk' }, error: null })
+            }),
+          }),
+        }),
+      }),
+    } as any
+
+    vi.useFakeTimers()
+    const resultPromise = lookupTicketPk(mockSupabase, '123', 3)
+    await vi.advanceTimersByTimeAsync(200) // First retry delay
+    const result = await resultPromise
+    vi.useRealTimers()
+
+    expect(result).toEqual({ pk: 'found-pk' })
+  })
+
+  it('returns null when ticket is not found after all retries', async () => {
+    const mockSupabase = {
+      from: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          or: vi.fn().mockReturnValue({
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: null,
+              error: null,
+            }),
+          }),
+        }),
+      }),
+    } as any
+
+    const result = await lookupTicketPk(mockSupabase, '123', 2)
+    expect(result).toBeNull()
+  })
+
+  it('throws error for invalid non-numeric ticket ID', async () => {
+    const mockSupabase = {} as any
+    await expect(lookupTicketPk(mockSupabase, 'invalid')).rejects.toThrow('Invalid ticket ID: invalid. Expected numeric ID.')
+  })
+})
+
+describe('fetchArtifacts', () => {
+  it('returns artifacts on first successful attempt', async () => {
+    const mockArtifacts = [
+      { artifact_id: '1', ticket_pk: 'pk-1', title: 'Test' },
+      { artifact_id: '2', ticket_pk: 'pk-1', title: 'Test 2' },
+    ]
+    const mockSupabase = {
+      from: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            order: vi.fn().mockReturnValue({
+              order: vi.fn().mockResolvedValue({
+                data: mockArtifacts,
+                error: null,
+              }),
+            }),
+          }),
+        }),
+      }),
+    } as any
+
+    const result = await fetchArtifacts(mockSupabase, 'pk-1')
+    expect(result.data).toEqual(mockArtifacts)
+    expect(result.error).toBeNull()
+  })
+
+  it('retries on retryable errors and succeeds on retry', async () => {
+    let attemptCount = 0
+    const mockArtifacts = [{ artifact_id: '1', ticket_pk: 'pk-1', title: 'Test' }]
+    const mockSupabase = {
+      from: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            order: vi.fn().mockReturnValue({
+              order: vi.fn().mockImplementation(() => {
+                attemptCount++
+                if (attemptCount === 1) {
+                  return Promise.resolve({
+                    data: null,
+                    error: { message: 'timeout error', code: null },
+                  })
+                }
+                return Promise.resolve({ data: mockArtifacts, error: null })
+              }),
+            }),
+          }),
+        }),
+      }),
+    } as any
+
+    vi.useFakeTimers()
+    const resultPromise = fetchArtifacts(mockSupabase, 'pk-1', 3, 100)
+    await vi.advanceTimersByTimeAsync(100) // First retry delay
+    const result = await resultPromise
+    vi.useRealTimers()
+
+    expect(result.data).toEqual(mockArtifacts)
+    expect(result.error).toBeNull()
+  })
+
+  it('does not retry on non-retryable errors', async () => {
+    const nonRetryableError = { message: 'Validation error', code: 'PGRST100' }
+    const mockSupabase = {
+      from: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            order: vi.fn().mockReturnValue({
+              order: vi.fn().mockResolvedValue({
+                data: null,
+                error: nonRetryableError,
+              }),
+            }),
+          }),
+        }),
+      }),
+    } as any
+
+    const result = await fetchArtifacts(mockSupabase, 'pk-1', 3)
+    expect(result.data).toBeNull()
+    expect(result.error).toEqual(nonRetryableError)
+  })
+
+  it('returns error after max retries exhausted', async () => {
+    const retryableError = { message: 'timeout error', code: null }
+    const mockSupabase = {
+      from: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            order: vi.fn().mockReturnValue({
+              order: vi.fn().mockResolvedValue({
+                data: null,
+                error: retryableError,
+              }),
+            }),
+          }),
+        }),
+      }),
+    } as any
+
+    const result = await fetchArtifacts(mockSupabase, 'pk-1', 2)
+    expect(result.data).toBeNull()
+    expect(result.error).toEqual(retryableError)
+  })
+})
+
+describe('summarizeArtifacts', () => {
+  it('summarizes artifacts with blank detection and snippets', () => {
+    const artifacts = [
+      {
+        artifact_id: '1',
+        agent_type: 'implementation',
+        title: 'Test Artifact',
+        body_md: 'This is a substantial artifact body with enough content to be considered non-blank.',
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z',
+      },
+      {
+        artifact_id: '2',
+        agent_type: 'qa',
+        title: 'Blank Artifact',
+        body_md: 'TODO',
+        created_at: '2024-01-02T00:00:00Z',
+      },
+    ]
+
+    const result = summarizeArtifacts(artifacts)
+    expect(result.artifacts).toHaveLength(2)
+    expect(result.artifacts[0].is_blank).toBe(false)
+    expect(result.artifacts[1].is_blank).toBe(true)
+    expect(result.summary.total).toBe(2)
+    expect(result.summary.blank).toBe(1)
+    expect(result.summary.populated).toBe(1)
+  })
+
+  it('uses created_at as updated_at when updated_at is missing', () => {
+    const artifacts = [
+      {
+        artifact_id: '1',
+        agent_type: 'implementation',
+        title: 'Test',
+        body_md: 'Content',
+        created_at: '2024-01-01T00:00:00Z',
+      },
+    ]
+
+    const result = summarizeArtifacts(artifacts)
+    expect(result.artifacts[0].updated_at).toBe('2024-01-01T00:00:00Z')
+  })
+
+  it('calculates content length correctly', () => {
+    const artifacts = [
+      {
+        artifact_id: '1',
+        agent_type: 'implementation',
+        title: 'Test',
+        body_md: '12345',
+        created_at: '2024-01-01T00:00:00Z',
+      },
+    ]
+
+    const result = summarizeArtifacts(artifacts)
+    expect(result.artifacts[0].content_length).toBe(5)
+  })
+
+  it('generates snippets correctly', () => {
+    const artifacts = [
+      {
+        artifact_id: '1',
+        agent_type: 'implementation',
+        title: 'Test',
+        body_md: '# Title\n\nThis is the actual content that should be extracted.',
+        created_at: '2024-01-01T00:00:00Z',
+      },
+    ]
+
+    const result = summarizeArtifacts(artifacts)
+    expect(result.artifacts[0].snippet).toBe('This is the actual content that should be extracted.')
   })
 })

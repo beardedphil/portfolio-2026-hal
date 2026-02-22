@@ -93,6 +93,203 @@ export function extractSnippet(body_md: string | null | undefined): string {
   return snippet.substring(0, 197) + '...'
 }
 
+interface RequestBody {
+  ticketId?: string
+  ticketPk?: string
+  supabaseUrl?: string
+  supabaseAnonKey?: string
+  summary?: boolean
+}
+
+interface SupabaseCredentials {
+  supabaseUrl: string
+  supabaseAnonKey: string
+}
+
+/**
+ * Parses and validates the request body, extracting ticket identifiers and Supabase credentials.
+ */
+export function parseRequestBody(body: unknown): {
+  ticketId?: string
+  ticketPk?: string
+  credentials?: SupabaseCredentials
+  summary: boolean
+} {
+  const parsed = body as RequestBody
+
+  const ticketId = typeof parsed.ticketId === 'string' ? parsed.ticketId.trim() || undefined : undefined
+  const ticketPk = typeof parsed.ticketPk === 'string' ? parsed.ticketPk.trim() || undefined : undefined
+
+  // Use credentials from request body if provided, otherwise fall back to server environment variables
+  const supabaseUrl =
+    (typeof parsed.supabaseUrl === 'string' ? parsed.supabaseUrl.trim() : undefined) ||
+    process.env.SUPABASE_URL?.trim() ||
+    process.env.VITE_SUPABASE_URL?.trim() ||
+    undefined
+  const supabaseAnonKey =
+    (typeof parsed.supabaseAnonKey === 'string' ? parsed.supabaseAnonKey.trim() : undefined) ||
+    process.env.SUPABASE_ANON_KEY?.trim() ||
+    process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
+    undefined
+
+  const credentials =
+    supabaseUrl && supabaseAnonKey ? { supabaseUrl, supabaseAnonKey } : undefined
+
+  return {
+    ticketId,
+    ticketPk,
+    credentials,
+    summary: parsed.summary === true,
+  }
+}
+
+/**
+ * Looks up a ticket's primary key (pk) from a ticket ID, with retry logic.
+ * Returns the pk if found, or null if not found after all retries.
+ */
+export async function lookupTicketPk(
+  supabase: any,
+  ticketId: string,
+  maxRetries = 3
+): Promise<{ pk: string } | null> {
+  const ticketNumber = parseInt(ticketId, 10)
+  if (!Number.isFinite(ticketNumber)) {
+    throw new Error(`Invalid ticket ID: ${ticketId}. Expected numeric ID.`)
+  }
+
+  let lastError: Error | null = null
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    if (attempt > 0) {
+      await new Promise((resolve) => setTimeout(resolve, Math.pow(2, attempt) * 100))
+    }
+
+    const { data: ticket, error: ticketError } = await supabase
+      .from('tickets')
+      .select('pk')
+      .or(`ticket_number.eq.${ticketNumber},id.eq.${ticketId}`)
+      .maybeSingle()
+
+    if (!ticketError && ticket && 'pk' in ticket && ticket.pk) {
+      return { pk: ticket.pk as string }
+    }
+
+    if (ticketError) {
+      lastError = ticketError
+    }
+  }
+
+  return null
+}
+
+/**
+ * Fetches artifacts for a ticket with retry logic.
+ * Only retries on network/timeout errors, not validation errors.
+ */
+export async function fetchArtifacts(
+  supabase: any,
+  ticketPk: string,
+  maxRetries = 3,
+  retryDelay = 1000
+): Promise<{ data: any[] | null; error: any }> {
+  let artifactsError: any = null
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    if (attempt > 0) {
+      await new Promise((resolve) => setTimeout(resolve, retryDelay * attempt))
+    }
+
+    const { data, error } = await supabase
+      .from('agent_artifacts')
+      .select('artifact_id, ticket_pk, repo_full_name, agent_type, title, body_md, created_at, updated_at')
+      .eq('ticket_pk', ticketPk)
+      .order('created_at', { ascending: true })
+      .order('artifact_id', { ascending: true })
+
+    if (!error && data !== null) {
+      return { data, error: null }
+    }
+
+    if (error) {
+      artifactsError = error
+
+      // Only retry on network/timeout errors, not validation errors
+      const isRetryableError =
+        error.message?.includes('timeout') ||
+        error.message?.includes('network') ||
+        error.message?.includes('ECONNREFUSED') ||
+        error.message?.includes('ETIMEDOUT') ||
+        error.code === 'PGRST116' // PostgREST connection error
+
+      if (!isRetryableError || attempt === maxRetries - 1) {
+        break
+      }
+    }
+  }
+
+  return { data: null, error: artifactsError }
+}
+
+/**
+ * Processes artifacts into summary format with blank detection and snippets.
+ */
+export function summarizeArtifacts(
+  artifacts: Array<{
+    artifact_id: string
+    agent_type: string
+    title: string
+    body_md?: string
+    created_at: string
+    updated_at?: string
+  }>
+): {
+  artifacts: Array<{
+    artifact_id: string
+    agent_type: string
+    title: string
+    is_blank: boolean
+    content_length: number
+    snippet: string
+    created_at: string
+    updated_at: string
+  }>
+  summary: {
+    total: number
+    blank: number
+    populated: number
+  }
+} {
+  const summarized = artifacts.map((artifact) => {
+    const body_md = artifact.body_md || ''
+    const isBlank = isArtifactBlank(body_md, artifact.title || '')
+    const snippet = extractSnippet(body_md)
+    const contentLength = body_md.length
+
+    return {
+      artifact_id: artifact.artifact_id,
+      agent_type: artifact.agent_type,
+      title: artifact.title,
+      is_blank: isBlank,
+      content_length: contentLength,
+      snippet: snippet,
+      created_at: artifact.created_at,
+      updated_at: artifact.updated_at || artifact.created_at,
+    }
+  })
+
+  const blankCount = summarized.filter((a) => a.is_blank).length
+  const populatedCount = summarized.length - blankCount
+
+  return {
+    artifacts: summarized,
+    summary: {
+      total: summarized.length,
+      blank: blankCount,
+      populated: populatedCount,
+    },
+  }
+}
+
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   // CORS: Allow cross-origin requests
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -112,28 +309,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   }
 
   try {
-    const body = (await readJsonBody(req)) as {
-      ticketId?: string
-      ticketPk?: string
-      supabaseUrl?: string
-      supabaseAnonKey?: string
-      summary?: boolean
-    }
-
-    const ticketId = typeof body.ticketId === 'string' ? body.ticketId.trim() || undefined : undefined
-    const ticketPk = typeof body.ticketPk === 'string' ? body.ticketPk.trim() || undefined : undefined
-
-    // Use credentials from request body if provided, otherwise fall back to server environment variables
-    const supabaseUrl =
-      (typeof body.supabaseUrl === 'string' ? body.supabaseUrl.trim() : undefined) ||
-      process.env.SUPABASE_URL?.trim() ||
-      process.env.VITE_SUPABASE_URL?.trim() ||
-      undefined
-    const supabaseAnonKey =
-      (typeof body.supabaseAnonKey === 'string' ? body.supabaseAnonKey.trim() : undefined) ||
-      process.env.SUPABASE_ANON_KEY?.trim() ||
-      process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
-      undefined
+    const body = await readJsonBody(req)
+    const { ticketId, ticketPk, credentials, summary: summaryMode } = parseRequestBody(body)
 
     if (!ticketId && !ticketPk) {
       json(res, 400, {
@@ -143,7 +320,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
-    if (!supabaseUrl || !supabaseAnonKey) {
+    if (!credentials) {
       json(res, 400, {
         success: false,
         error: 'Supabase credentials required (provide in request body or set SUPABASE_URL and SUPABASE_ANON_KEY in server environment).',
@@ -151,49 +328,27 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey)
+    const supabase = createClient(credentials.supabaseUrl, credentials.supabaseAnonKey)
 
     // If ticketId provided, look up ticket to get pk
     let finalTicketPk = ticketPk
     if (!finalTicketPk && ticketId) {
-      const ticketNumber = parseInt(ticketId, 10)
-      if (!Number.isFinite(ticketNumber)) {
+      try {
+        const lookupResult = await lookupTicketPk(supabase, ticketId)
+        if (lookupResult) {
+          finalTicketPk = lookupResult.pk
+        } else {
+          json(res, 200, {
+            success: false,
+            error: `Ticket ${ticketId} not found in Supabase.`,
+            artifacts: [],
+          })
+          return
+        }
+      } catch (err) {
         json(res, 400, {
           success: false,
-          error: `Invalid ticket ID: ${ticketId}. Expected numeric ID.`,
-        })
-        return
-      }
-
-      // Retry logic for ticket lookup (up to 3 attempts with exponential backoff)
-      let ticketLookupError: Error | null = null
-      for (let attempt = 0; attempt < 3; attempt++) {
-        if (attempt > 0) {
-          await new Promise((resolve) => setTimeout(resolve, Math.pow(2, attempt) * 100))
-        }
-        
-        const { data: ticket, error: ticketError } = await supabase
-          .from('tickets')
-          .select('pk')
-          .or(`ticket_number.eq.${ticketNumber},id.eq.${ticketId}`)
-          .maybeSingle()
-
-        if (!ticketError && ticket?.pk) {
-          finalTicketPk = ticket.pk
-          ticketLookupError = null
-          break
-        }
-        
-        if (ticketError) {
-          ticketLookupError = ticketError
-        }
-      }
-
-      if (ticketLookupError || !finalTicketPk) {
-        json(res, 200, {
-          success: false,
-          error: `Ticket ${ticketId} not found in Supabase${ticketLookupError ? `: ${ticketLookupError.message}` : ''}.`,
-          artifacts: [],
+          error: err instanceof Error ? err.message : String(err),
         })
         return
       }
@@ -208,52 +363,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
-    // Fetch all artifacts for this ticket with retry logic (0196)
-    // Order by created_at ascending (oldest first) with secondary sort by artifact_id for deterministic ordering (0147)
-    let artifacts: any[] | null = null
-    let artifactsError: any = null
-    const maxRetries = 3
-    const retryDelay = 1000 // 1 second
-    
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      if (attempt > 0) {
-        await new Promise((resolve) => setTimeout(resolve, retryDelay * attempt))
-      }
-      
-      const { data, error } = await supabase
-        .from('agent_artifacts')
-        .select('artifact_id, ticket_pk, repo_full_name, agent_type, title, body_md, created_at, updated_at')
-        .eq('ticket_pk', finalTicketPk)
-        .order('created_at', { ascending: true })
-        .order('artifact_id', { ascending: true })
-
-      if (!error && data !== null) {
-        artifacts = data
-        artifactsError = null
-        break
-      }
-      
-      if (error) {
-        artifactsError = error
-        
-        // Only retry on network/timeout errors, not validation errors
-        const isRetryableError = 
-          error.message?.includes('timeout') ||
-          error.message?.includes('network') ||
-          error.message?.includes('ECONNREFUSED') ||
-          error.message?.includes('ETIMEDOUT') ||
-          error.code === 'PGRST116' // PostgREST connection error
-        
-        if (!isRetryableError || attempt === maxRetries - 1) {
-          break
-        }
-      }
-    }
+    // Fetch all artifacts for this ticket with retry logic
+    const { data: artifacts, error: artifactsError } = await fetchArtifacts(supabase, finalTicketPk)
 
     if (artifactsError) {
       json(res, 200, {
         success: false,
-        error: `Failed to fetch artifacts after ${maxRetries} attempts: ${artifactsError.message}`,
+        error: `Failed to fetch artifacts after 3 attempts: ${artifactsError.message}`,
         artifacts: [],
       })
       return
@@ -271,38 +387,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }>
 
     // If summary mode is requested, return summarized data
-    const summaryMode = body.summary === true
     if (summaryMode) {
-
-      const summarized = artifactsList.map((artifact: any) => {
-        const body_md = artifact.body_md || ''
-        const isBlank = isArtifactBlank(body_md, artifact.title || '')
-        const snippet = extractSnippet(body_md)
-        const contentLength = body_md.length
-
-        return {
-          artifact_id: artifact.artifact_id,
-          agent_type: artifact.agent_type,
-          title: artifact.title,
-          is_blank: isBlank,
-          content_length: contentLength,
-          snippet: snippet,
-          created_at: artifact.created_at,
-          updated_at: artifact.updated_at || artifact.created_at,
-        }
-      })
-
-      const blankCount = summarized.filter((a: any) => a.is_blank).length
-      const populatedCount = summarized.length - blankCount
-
+      const { artifacts: summarized, summary } = summarizeArtifacts(artifactsList)
       json(res, 200, {
         success: true,
         artifacts: summarized,
-        summary: {
-          total: summarized.length,
-          blank: blankCount,
-          populated: populatedCount,
-        },
+        summary,
       })
       return
     }
