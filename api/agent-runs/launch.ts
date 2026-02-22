@@ -12,8 +12,14 @@ import {
   json,
   validateMethod,
 } from './_shared.js'
-
-export type AgentType = 'implementation' | 'qa' | 'project-manager' | 'process-review'
+import {
+  type AgentType,
+  parseTicketBodySections,
+  buildImplementationPrompt,
+  buildQAPrompt,
+  determineBranchName,
+  checkForExistingPrUrl,
+} from './launch-helpers.js'
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   if (!validateMethod(req, res, 'POST')) {
@@ -195,13 +201,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       }
     }
 
-    // Build prompt
-    const goalMatch = bodyMd.match(/##\s*Goal[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
-    const deliverableMatch = bodyMd.match(/##\s*Human-verifiable deliverable[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
-    const criteriaMatch = bodyMd.match(/##\s*Acceptance criteria[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
-    const goal = (goalMatch?.[1] ?? '').trim()
-    const deliverable = (deliverableMatch?.[1] ?? '').trim()
-    const criteria = (criteriaMatch?.[1] ?? '').trim()
+    // Parse ticket body sections
+    const { goal, deliverable, criteria } = parseTicketBodySections(bodyMd)
 
     // Process Review (OpenAI) launch: just create run row; /work will generate streamed output.
     if (agentType === 'process-review') {
@@ -236,111 +237,22 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
+    // Build prompt using helper functions
+    const promptParams = {
+      repoFullName,
+      ticketNumber,
+      displayId,
+      currentColumnId,
+      defaultBranch,
+      halApiBaseUrl,
+      goal,
+      deliverable,
+      criteria,
+    }
     const promptText =
       agentType === 'implementation'
-        ? [
-            'Implement this ticket.',
-            '',
-            '## Inputs (provided by HAL)',
-            `- **agentType**: implementation`,
-            `- **repoFullName**: ${repoFullName}`,
-            `- **ticketNumber**: ${ticketNumber}`,
-            `- **displayId**: ${displayId}`,
-            `- **currentColumnId**: ${currentColumnId || 'col-unassigned'}`,
-            `- **defaultBranch**: ${defaultBranch}`,
-            `- **HAL API base URL**: ${halApiBaseUrl}`,
-            '',
-            '## Tools you can use',
-            '- Cursor Cloud Agent built-ins: read/search/edit files, run shell commands (git, npm), and use `gh` for GitHub.',
-            '- HAL server endpoints (no Supabase creds required): `POST /api/artifacts/insert-implementation`, `POST /api/artifacts/get`, `POST /api/tickets/move`.',
-            '',
-            '## MANDATORY first step: pull latest from main',
-            '',
-            '**Before starting any work**, pull the latest code. Do not assume you have the latest code.',
-            'Run: `git checkout main && git pull origin main`',
-            'Then create or checkout your feature branch and proceed.',
-            '',
-            '## Ticket',
-            `**ID**: ${displayId}`,
-            `**Repo**: ${repoFullName}`,
-            '',
-            '## Goal',
-            goal || '(not specified)',
-            '',
-            '## Human-verifiable deliverable',
-            deliverable || '(not specified)',
-            '',
-            '## Acceptance criteria',
-            criteria || '(not specified)',
-          ].join('\n')
-        : [
-            'QA this ticket implementation. Review the code, generate a QA report, and complete the QA workflow.',
-            '',
-            '## Inputs (provided by HAL)',
-            `- **agentType**: qa`,
-            `- **repoFullName**: ${repoFullName}`,
-            `- **ticketNumber**: ${ticketNumber}`,
-            `- **displayId**: ${displayId}`,
-            `- **currentColumnId**: ${currentColumnId || 'col-unassigned'}`,
-            `- **defaultBranch**: ${defaultBranch}`,
-            `- **HAL API base URL**: ${halApiBaseUrl}`,
-            '',
-            '## Tools you can use',
-            '- Cursor Cloud Agent built-ins: read/search/edit files, run shell commands (git, npm), and use `gh` for GitHub.',
-            '- HAL server endpoints (no Supabase creds required): `POST /api/artifacts/insert-qa`, `POST /api/artifacts/get`, `POST /api/tickets/move`.',
-            '',
-            '## MANDATORY first step: pull latest from main',
-            '',
-            '**Before starting any QA work**, pull the latest code. Do not assume you have the latest code.',
-            'Run: `git checkout main && git pull origin main`',
-            '',
-            '## MANDATORY: Load Your Instructions First',
-            '',
-            '**BEFORE starting any QA work, you MUST load your basic instructions from Supabase.**',
-            '',
-            '**Step 1: Load basic instructions:**',
-            '```javascript',
-            'const baseUrl = process.env.HAL_API_URL || \'http://localhost:5173\'',
-            'const res = await fetch(`${baseUrl}/api/instructions/get`, {',
-            '  method: \'POST\',',
-            '  headers: { \'Content-Type\': \'application/json\' },',
-            '  body: JSON.stringify({',
-            '    agentType: \'qa\',',
-            '    includeBasic: true,',
-            '    includeSituational: false,',
-            '  }),',
-            '})',
-            'const result = await res.json()',
-            'if (result.success) {',
-            '  // result.instructions contains your basic instructions',
-            '  // These include all mandatory workflows, QA report requirements, and procedures',
-            '  // READ AND FOLLOW THESE INSTRUCTIONS - they contain critical requirements',
-            '}',
-            '```',
-            '',
-            '**The instructions from Supabase contain:**',
-            '- Required implementation artifacts you must verify before starting QA',
-            '- How to structure and store QA reports',
-            '- When to pass/fail tickets',
-            '- How to move tickets after QA',
-            '- Code citation requirements',
-            '- All other mandatory QA workflows',
-            '',
-            '**DO NOT proceed with QA until you have loaded and read your instructions from Supabase.**',
-            '',
-            '## Ticket',
-            `**ID**: ${displayId}`,
-            `**Repo**: ${repoFullName}`,
-            '',
-            '## Goal',
-            goal || '(not specified)',
-            '',
-            '## Human-verifiable deliverable',
-            deliverable || '(not specified)',
-            '',
-            '## Acceptance criteria',
-            criteria || '(not specified)',
-          ].join('\n')
+        ? buildImplementationPrompt(promptParams)
+        : buildQAPrompt(promptParams)
 
     // Create run row - start with 'preparing' stage (0690)
     const initialProgress = appendProgress([], `Launching ${agentType} run for ${displayId}`)
@@ -452,32 +364,25 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const cursorKey = getCursorApiKey()
     const auth = Buffer.from(`${cursorKey}:`).toString('base64')
     const repoUrl = `https://github.com/${repoFullName}`
-    const branchName =
-      agentType === 'implementation'
-        ? `ticket/${String(ticketNumber).padStart(4, '0')}-implementation`
-        : defaultBranch
+    const branchName = determineBranchName(agentType, ticketNumber, defaultBranch)
+    
     // If a PR is already linked for this ticket, do not ask Cursor to create a new one.
     let existingPrUrl: string | null = null
     if (agentType === 'implementation' && ticketPk) {
-      const { data: linked } = await supabase
-        .from('hal_agent_runs')
-        .select('pr_url, created_at')
-        .eq('ticket_pk', ticketPk)
-        .not('pr_url', 'is', null)
-        .order('created_at', { ascending: false })
-        .limit(1)
-      const prUrl = Array.isArray(linked) && linked.length ? (linked[0] as any)?.pr_url : null
-      if (typeof prUrl === 'string' && prUrl.trim()) existingPrUrl = prUrl.trim()
+      existingPrUrl = await checkForExistingPrUrl(supabase, ticketPk)
     }
+    
     const target =
       agentType === 'implementation'
         ? existingPrUrl
           ? { branchName }
           : { autoCreatePr: true, branchName }
         : { branchName: defaultBranch }
+    
+    // Update prompt if existing PR URL found
     const promptTextForLaunch =
       agentType === 'implementation' && existingPrUrl
-        ? `${promptText}\n\n## Existing PR linked\n\nA PR is already linked to this ticket:\n\n- ${existingPrUrl}\n\nDo NOT create a new PR. Push changes to the branch above so the existing PR updates.`
+        ? buildImplementationPrompt({ ...promptParams, existingPrUrl })
         : promptText
 
     const launchRes = await fetch('https://api.cursor.com/v0/agents', {
