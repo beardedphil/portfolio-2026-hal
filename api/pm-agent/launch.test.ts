@@ -350,4 +350,271 @@ describe('PM agent launch thread lookup', () => {
       message: 'Conversation thread mapping cleared',
     })
   })
+
+  it('should handle empty request body by returning empty object', async () => {
+    // Create request with empty body
+    mockReq[Symbol.asyncIterator] = async function* () {
+      yield Buffer.from('')
+    }
+
+    await handler(mockReq as IncomingMessage, mockRes as ServerResponse)
+
+    // Should fail validation (no message), but body parsing should work
+    expect(responseStatus).toBe(400)
+    expect(responseBody).toMatchObject({
+      error: expect.stringContaining('message is required'),
+    })
+  })
+
+  it('should handle invalid JSON in request body gracefully', async () => {
+    // Create request with invalid JSON
+    mockReq[Symbol.asyncIterator] = async function* () {
+      yield Buffer.from('{ invalid json }')
+    }
+
+    // Should throw during JSON parsing, caught by handler's try-catch
+    await handler(mockReq as IncomingMessage, mockRes as ServerResponse)
+
+    // Should return 500 error
+    expect(responseStatus).toBe(500)
+    expect(responseBody).toMatchObject({
+      error: expect.any(String),
+    })
+  })
+
+  it('should build prompt text with correct format and inputs', async () => {
+    const body = {
+      message: 'Help me plan a feature',
+      repoFullName: 'test/repo',
+      defaultBranch: 'main',
+    }
+    
+    const runInsertChain = {
+      insert: vi.fn(() => runInsertChain),
+      select: vi.fn(() => runInsertChain),
+      maybeSingle: vi.fn().mockResolvedValue({ 
+        data: { run_id: 'test-run-id' }, 
+        error: null 
+      }),
+    }
+    
+    const runUpdateChain = {
+      update: vi.fn(() => runUpdateChain),
+      eq: vi.fn(() => runUpdateChain),
+    }
+    
+    // No conversationId/projectId, so no thread lookup needed
+    mockSupabase.from
+      .mockReturnValueOnce(runInsertChain) // run insert
+      .mockReturnValueOnce(runUpdateChain) // run update (success case)
+    
+    // Mock: cursor agent launch response
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      text: async () => JSON.stringify({ id: 'test-agent-id', status: 'CREATING' }),
+    } as Response)
+
+    mockReq[Symbol.asyncIterator] = async function* () {
+      yield Buffer.from(JSON.stringify(body))
+    }
+
+    await handler(mockReq as IncomingMessage, mockRes as ServerResponse)
+
+    // Verify prompt was built correctly by checking the fetch call
+    const fetchCalls = vi.mocked(global.fetch).mock.calls
+    const launchCall = fetchCalls.find(call => 
+      typeof call[0] === 'string' && call[0].includes('/v0/agents') && call[1]?.method === 'POST'
+    )
+    
+    expect(launchCall).toBeDefined()
+    if (launchCall && launchCall[1]?.body) {
+      const launchBody = JSON.parse(launchCall[1].body as string)
+      expect(launchBody.prompt.text).toContain('test/repo')
+      expect(launchBody.prompt.text).toContain('main')
+      expect(launchBody.prompt.text).toContain('Help me plan a feature')
+      expect(launchBody.prompt.text).toContain('Project Manager agent')
+    }
+  })
+
+  it('should handle createNewAgent failure when run insert fails', async () => {
+    const body = {
+      message: 'Test message',
+      repoFullName: 'test/repo',
+      defaultBranch: 'main',
+    }
+    
+    const runInsertChain = {
+      insert: vi.fn(() => runInsertChain),
+      select: vi.fn(() => runInsertChain),
+      maybeSingle: vi.fn().mockResolvedValue({ 
+        data: null, 
+        error: { message: 'Database error' } 
+      }),
+    }
+    
+    // No conversationId/projectId, so no thread lookup needed
+    mockSupabase.from
+      .mockReturnValueOnce(runInsertChain) // run insert (fails)
+
+    mockReq[Symbol.asyncIterator] = async function* () {
+      yield Buffer.from(JSON.stringify(body))
+    }
+
+    await handler(mockReq as IncomingMessage, mockRes as ServerResponse)
+
+    // Should return error response
+    expect(responseStatus).toBe(200)
+    expect(responseBody).toMatchObject({
+      status: 'failed',
+      error: expect.stringContaining('Database error'),
+      runId: '',
+    })
+  })
+
+  it('should handle createNewAgent failure when Cursor API returns error', async () => {
+    const body = {
+      message: 'Test message',
+      repoFullName: 'test/repo',
+      defaultBranch: 'main',
+    }
+
+    const threadChain = {
+      select: vi.fn(() => threadChain),
+      eq: vi.fn(() => threadChain),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+    }
+    
+    const runInsertChain = {
+      insert: vi.fn(() => runInsertChain),
+      select: vi.fn(() => runInsertChain),
+      maybeSingle: vi.fn().mockResolvedValue({ 
+        data: { run_id: 'test-run-id' }, 
+        error: null 
+      }),
+    }
+    
+    const runUpdateChain = {
+      update: vi.fn(() => runUpdateChain),
+      eq: vi.fn(() => runUpdateChain),
+    }
+    
+    mockSupabase.from
+      .mockReturnValueOnce(threadChain) // thread lookup
+      .mockReturnValueOnce(runInsertChain) // run insert
+      .mockReturnValueOnce(runUpdateChain) // run update (for error)
+    
+    // Mock: cursor agent launch returns error
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      text: async () => 'Bad Request',
+    } as Response)
+
+    mockReq[Symbol.asyncIterator] = async function* () {
+      yield Buffer.from(JSON.stringify(body))
+    }
+
+    await handler(mockReq as IncomingMessage, mockRes as ServerResponse)
+
+    // Should return error response
+    expect(responseStatus).toBe(200)
+    expect(responseBody).toMatchObject({
+      status: 'failed',
+      error: expect.any(String),
+    })
+  })
+
+  it('should handle createNewAgent failure when Cursor API returns invalid JSON', async () => {
+    const body = {
+      message: 'Test message',
+      repoFullName: 'test/repo',
+      defaultBranch: 'main',
+    }
+    
+    const runInsertChain = {
+      insert: vi.fn(() => runInsertChain),
+      select: vi.fn(() => runInsertChain),
+      maybeSingle: vi.fn().mockResolvedValue({ 
+        data: { run_id: 'test-run-id' }, 
+        error: null 
+      }),
+    }
+    
+    const runUpdateChain = {
+      update: vi.fn(() => runUpdateChain),
+      eq: vi.fn(() => runUpdateChain),
+    }
+    
+    // No conversationId/projectId, so no thread lookup needed
+    mockSupabase.from
+      .mockReturnValueOnce(runInsertChain) // run insert
+      .mockReturnValueOnce(runUpdateChain) // run update (for error on invalid JSON)
+    
+    // Mock: cursor agent launch returns invalid JSON
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      text: async () => 'not valid json',
+    } as Response)
+
+    mockReq[Symbol.asyncIterator] = async function* () {
+      yield Buffer.from(JSON.stringify(body))
+    }
+
+    await handler(mockReq as IncomingMessage, mockRes as ServerResponse)
+
+    // Should return error response - runId is empty because createNewAgent throws before returning
+    expect(responseStatus).toBe(200)
+    expect(responseBody).toMatchObject({
+      status: 'failed',
+      error: expect.stringContaining('Invalid response'),
+      runId: '',
+    })
+  })
+
+  it('should handle createNewAgent failure when Cursor API returns no agent ID', async () => {
+    const body = {
+      message: 'Test message',
+      repoFullName: 'test/repo',
+      defaultBranch: 'main',
+    }
+    
+    const runInsertChain = {
+      insert: vi.fn(() => runInsertChain),
+      select: vi.fn(() => runInsertChain),
+      maybeSingle: vi.fn().mockResolvedValue({ 
+        data: { run_id: 'test-run-id' }, 
+        error: null 
+      }),
+    }
+    
+    const runUpdateChain = {
+      update: vi.fn(() => runUpdateChain),
+      eq: vi.fn(() => runUpdateChain),
+    }
+    
+    // No conversationId/projectId, so no thread lookup needed
+    mockSupabase.from
+      .mockReturnValueOnce(runInsertChain) // run insert
+      .mockReturnValueOnce(runUpdateChain) // run update (for error on no ID)
+    
+    // Mock: cursor agent launch returns response without ID
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      text: async () => JSON.stringify({ status: 'CREATING' }), // no id field
+    } as Response)
+
+    mockReq[Symbol.asyncIterator] = async function* () {
+      yield Buffer.from(JSON.stringify(body))
+    }
+
+    await handler(mockReq as IncomingMessage, mockRes as ServerResponse)
+
+    // Should return error response - runId is empty because createNewAgent throws before returning
+    expect(responseStatus).toBe(200)
+    expect(responseBody).toMatchObject({
+      status: 'failed',
+      error: expect.stringContaining('agent ID'),
+      runId: '',
+    })
+  })
 })

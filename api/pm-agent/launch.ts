@@ -38,27 +38,31 @@ async function checkExistingThread(
       method: 'GET',
       headers: { Authorization: `Basic ${auth}` },
     })
-    if (statusRes.ok) {
-      const statusData = (await statusRes.json()) as { status?: string }
-      const status = statusData.status ?? ''
-      if (status === 'RUNNING' || status === 'CREATING') {
-        const { data: existingRun } = await supabase
-          .from('hal_agent_runs')
-          .select('run_id, status')
-          .eq('cursor_agent_id', thread.cursor_agent_id)
-          .eq('agent_type', 'project-manager')
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle()
-        
-        if (existingRun?.run_id && existingRun.status === 'polling') {
-          return { cursorAgentId: thread.cursor_agent_id, runId: existingRun.run_id as string }
-        }
-      }
+    
+    if (!statusRes.ok) return { cursorAgentId: null, runId: null }
+    
+    const statusData = (await statusRes.json()) as { status?: string }
+    const status = statusData.status ?? ''
+    if (status !== 'RUNNING' && status !== 'CREATING') {
+      return { cursorAgentId: null, runId: null }
+    }
+    
+    const { data: existingRun } = await supabase
+      .from('hal_agent_runs')
+      .select('run_id, status')
+      .eq('cursor_agent_id', thread.cursor_agent_id)
+      .eq('agent_type', 'project-manager')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    
+    if (existingRun?.run_id && existingRun.status === 'polling') {
+      return { cursorAgentId: thread.cursor_agent_id, runId: existingRun.run_id as string }
     }
   } catch (e) {
     console.warn('[pm-agent/launch] Failed to check existing agent status:', e instanceof Error ? e.message : e)
   }
+  
   return { cursorAgentId: null, runId: null }
 }
 
@@ -78,6 +82,41 @@ function buildPromptText(repoFullName: string, defaultBranch: string, halApiBase
     '**User message:**',
     message,
   ].join('\n')
+}
+
+async function markRunAsFailed(
+  supabase: any,
+  runId: string,
+  initialProgress: string[],
+  errorMessage: string
+): Promise<void> {
+  await supabase
+    .from('hal_agent_runs')
+    .update({
+      status: 'failed',
+      error: errorMessage,
+      progress: appendProgress(initialProgress, errorMessage),
+      finished_at: new Date().toISOString(),
+    })
+    .eq('run_id', runId)
+}
+
+function validateRequest(body: {
+  message?: string
+  repoFullName?: string
+  restart?: boolean
+}): { isValid: boolean; error?: string } {
+  const { message, repoFullName, restart } = body
+  
+  if (!restart && !message) {
+    return { isValid: false, error: 'message is required.' }
+  }
+  
+  if (!repoFullName) {
+    return { isValid: false, error: 'repoFullName is required. Connect a GitHub repo first.' }
+  }
+  
+  return { isValid: true }
 }
 
 async function createNewAgent(
@@ -125,15 +164,7 @@ async function createNewAgent(
   const launchText = await launchRes.text()
   if (!launchRes.ok) {
     const msg = humanReadableCursorError(launchRes.status, launchText)
-    await supabase
-      .from('hal_agent_runs')
-      .update({
-        status: 'failed',
-        error: msg,
-        progress: appendProgress(initialProgress, `Launch failed: ${msg}`),
-        finished_at: new Date().toISOString(),
-      })
-      .eq('run_id', runId)
+    await markRunAsFailed(supabase, runId, initialProgress, `Launch failed: ${msg}`)
     throw new Error(msg)
   }
 
@@ -142,15 +173,7 @@ async function createNewAgent(
     launchData = JSON.parse(launchText) as typeof launchData
   } catch {
     const msg = 'Invalid response from Cursor API when launching agent.'
-    await supabase
-      .from('hal_agent_runs')
-      .update({
-        status: 'failed',
-        error: msg,
-        progress: appendProgress(initialProgress, msg),
-        finished_at: new Date().toISOString(),
-      })
-      .eq('run_id', runId)
+    await markRunAsFailed(supabase, runId, initialProgress, msg)
     throw new Error(msg)
   }
 
@@ -158,15 +181,7 @@ async function createNewAgent(
   const cursorStatus = launchData.status ?? 'CREATING'
   if (!cursorAgentId) {
     const msg = 'Cursor API did not return an agent ID.'
-    await supabase
-      .from('hal_agent_runs')
-      .update({
-        status: 'failed',
-        error: msg,
-        progress: appendProgress(initialProgress, msg),
-        finished_at: new Date().toISOString(),
-      })
-      .eq('run_id', runId)
+    await markRunAsFailed(supabase, runId, initialProgress, msg)
     throw new Error(msg)
   }
 
@@ -212,13 +227,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const projectId = typeof body.projectId === 'string' ? body.projectId.trim() : undefined
     const restart = body.restart === true
 
-    // If restarting, message is optional (just clearing the mapping)
-    if (!restart && !message) {
-      json(res, 400, { error: 'message is required.' })
-      return
-    }
-    if (!repoFullName) {
-      json(res, 400, { error: 'repoFullName is required. Connect a GitHub repo first.' })
+    const validation = validateRequest({ message, repoFullName, restart })
+    if (!validation.isValid) {
+      json(res, 400, { error: validation.error })
       return
     }
 

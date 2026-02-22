@@ -73,12 +73,12 @@
       "maintainability": 16.69
     },
     {
-      "file": "api/tickets/move.ts",
-      "maintainability": 17.97
+      "file": "api/process-review/create-tickets.ts",
+      "maintainability": 17.61
     },
     {
-      "file": "api/conversations/working-memory/update.ts",
-      "maintainability": 18.36
+      "file": "api/tickets/move.ts",
+      "maintainability": 17.97
     }
   ],
   "mostRecentImprovements": [
@@ -101,9 +101,9 @@
       "delta": 0
     },
     {
-      "file": "api/conversations/working-memory/update.ts",
-      "before": 18.36,
-      "after": 18.36,
+      "file": "api/process-review/create-tickets.ts",
+      "before": 17.61,
+      "after": 17.61,
       "delta": 0
     },
     {
@@ -119,8 +119,8 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-22T00:51:34.849Z",
-  "filesAnalyzed": 328,
+  "generatedAt": "2026-02-22T00:48:49.413Z",
+  "filesAnalyzed": 327,
   "unroundedMaintainability": 33.8,
   "unroundedSimplicity": 33.8
 }
