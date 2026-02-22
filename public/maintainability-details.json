@@ -2,170 +2,109 @@
   "topOffenders": [
     {
       "file": "api/agent-runs/launch.ts",
-      "codeQuality": 8.54,
+      "codeQuality": 5.12,
       "maintainability": 0
     },
     {
       "file": "agents/src/agents/projectManager/redDocumentTool.ts",
-      "codeQuality": 21.88,
+      "codeQuality": 18.45,
       "maintainability": 19.4
     },
     {
       "file": "api/agent-tools/execute.ts",
-      "codeQuality": 24.86,
+      "codeQuality": 21.44,
       "maintainability": 20.55
     },
     {
       "file": "api/acceptance-criteria-status/update.ts",
-      "codeQuality": 32.97,
+      "codeQuality": 29.54,
       "maintainability": 24.17
     },
     {
       "file": "api/artifacts/insert-implementation.ts",
-      "codeQuality": 33.14,
+      "codeQuality": 29.71,
       "maintainability": 22.44
     },
     {
       "file": "api/instructions/get-topic.ts",
-      "codeQuality": 36.74,
+      "codeQuality": 33.31,
       "maintainability": 8.93
     },
     {
       "file": "agents/src/agents/projectManager/ticketTools.ts",
-      "codeQuality": 36.79,
+      "codeQuality": 33.36,
       "maintainability": 12.86
     },
     {
       "file": "api/implementation-agent/run.ts",
-      "codeQuality": 37.11,
+      "codeQuality": 33.68,
       "maintainability": 12.68
     },
     {
       "file": "api/agent-runs/status.ts",
-      "codeQuality": 37.21,
+      "codeQuality": 33.78,
       "maintainability": 0
     },
     {
       "file": "api/red/backfill-artifacts-todo.ts",
-      "codeQuality": 37.88,
+      "codeQuality": 34.46,
       "maintainability": 19.76
     },
     {
       "file": "api/tickets/get.ts",
-      "codeQuality": 37.95,
+      "codeQuality": 34.53,
       "maintainability": 12.05
     },
     {
       "file": "api/drift-attempts/get.ts",
-      "codeQuality": 39.21,
+      "codeQuality": 35.78,
       "maintainability": 26.53
     },
     {
       "file": "api/agent-runs/sync-artifacts.ts",
-      "codeQuality": 39.24,
+      "codeQuality": 35.81,
       "maintainability": 26.06
     },
     {
       "file": "api/agent-runs/providers/openai.ts",
-      "codeQuality": 39.31,
+      "codeQuality": 35.89,
       "maintainability": 0
     },
     {
       "file": "src/hooks/useAgentRuns.ts",
-      "codeQuality": 39.6,
+      "codeQuality": 36.17,
       "maintainability": 0
     },
     {
       "file": "api/context-bundles/build-from-run.ts",
-      "codeQuality": 39.77,
+      "codeQuality": 36.35,
       "maintainability": 15.39
     },
     {
       "file": "api/tickets/move.ts",
-      "codeQuality": 40.02,
+      "codeQuality": 36.59,
       "maintainability": 0
     },
     {
       "file": "api/conversations/working-memory/update.ts",
-      "codeQuality": 41.15,
+      "codeQuality": 37.72,
       "maintainability": 10.74
     },
     {
       "file": "api/red/list.ts",
-      "codeQuality": 41.35,
+      "codeQuality": 37.92,
       "maintainability": 21.43
     },
     {
       "file": "api/instructions/get-index.ts",
-      "codeQuality": 41.68,
+      "codeQuality": 38.25,
       "maintainability": 0
     }
   ],
-  "mostRecentImprovements": [
-    {
-      "file": "agents/src/agents/projectManager/contextBuilding.ts",
-      "before": 0,
-      "after": 47.45,
-      "delta": 47.45
-    },
-    {
-      "file": "src/App.tsx",
-      "before": 0,
-      "after": 46.2,
-      "delta": 46.2
-    },
-    {
-      "file": "api/context-bundles/_builder.ts",
-      "before": 1.42,
-      "after": 47.12,
-      "delta": 45.7
-    },
-    {
-      "file": "src/hooks/useKanban.ts",
-      "before": 0,
-      "after": 45.18,
-      "delta": 45.18
-    },
-    {
-      "file": "projects/kanban/src/App.tsx",
-      "before": 0,
-      "after": 44.26,
-      "delta": 44.26
-    },
-    {
-      "file": "src/components/DiagnosticsModal.tsx",
-      "before": 2.02,
-      "after": 45.8,
-      "delta": 43.78
-    },
-    {
-      "file": "src/components/ContextBundleModal.tsx",
-      "before": 0,
-      "after": 42.88,
-      "delta": 42.88
-    },
-    {
-      "file": "api/instructions/get-index.ts",
-      "before": 0,
-      "after": 41.68,
-      "delta": 41.68
-    },
-    {
-      "file": "api/tickets/move.ts",
-      "before": 0,
-      "after": 40.02,
-      "delta": 40.02
-    },
-    {
-      "file": "src/hooks/useAgentRuns.ts",
-      "before": 0,
-      "after": 39.6,
-      "delta": 39.6
-    }
-  ],
-  "generatedAt": "2026-02-22T06:13:51.772Z",
-  "filesAnalyzed": 375,
-  "unroundedCodeQuality": 54.6,
-  "unroundedMaintainability": 54.6,
-  "unroundedSimplicity": 54.6
+  "mostRecentImprovements": [],
+  "generatedAt": "2026-02-22T06:15:34.618Z",
+  "filesAnalyzed": 379,
+  "unroundedCodeQuality": 51.1,
+  "unroundedMaintainability": 51.1,
+  "unroundedSimplicity": 51.1
 }
