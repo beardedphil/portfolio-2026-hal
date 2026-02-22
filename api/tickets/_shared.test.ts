@@ -1,5 +1,13 @@
-import { describe, it, expect } from 'vitest'
-import { slugFromTitle, repoHintPrefix, isUniqueViolation } from './_shared.js'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import {
+  slugFromTitle,
+  repoHintPrefix,
+  isUniqueViolation,
+  parseSupabaseCredentials,
+  parseSupabaseCredentialsWithServiceRole,
+} from './_shared.js'
+
+const originalEnv = process.env
 
 describe('slugFromTitle', () => {
   it('converts title to lowercase slug', () => {
@@ -119,5 +127,112 @@ describe('isUniqueViolation', () => {
   it('returns false for other error messages', () => {
     expect(isUniqueViolation({ message: 'syntax error' })).toBe(false)
     expect(isUniqueViolation({ message: 'permission denied' })).toBe(false)
+  })
+})
+
+describe('parseSupabaseCredentials', () => {
+  beforeEach(() => {
+    process.env = { ...originalEnv }
+    delete process.env.SUPABASE_URL
+    delete process.env.VITE_SUPABASE_URL
+    delete process.env.SUPABASE_ANON_KEY
+    delete process.env.VITE_SUPABASE_ANON_KEY
+  })
+
+  afterEach(() => {
+    process.env = originalEnv
+  })
+
+  it('uses body values when provided', () => {
+    const result = parseSupabaseCredentials({
+      supabaseUrl: 'https://test.supabase.co',
+      supabaseAnonKey: 'test-key',
+    })
+    expect(result.supabaseUrl).toBe('https://test.supabase.co')
+    expect(result.supabaseAnonKey).toBe('test-key')
+  })
+
+  it('trims whitespace from body values', () => {
+    const result = parseSupabaseCredentials({
+      supabaseUrl: '  https://test.supabase.co  ',
+      supabaseAnonKey: '  test-key  ',
+    })
+    expect(result.supabaseUrl).toBe('https://test.supabase.co')
+    expect(result.supabaseAnonKey).toBe('test-key')
+  })
+
+  it('falls back to SUPABASE_URL env var', () => {
+    process.env.SUPABASE_URL = 'https://env.supabase.co'
+    const result = parseSupabaseCredentials({})
+    expect(result.supabaseUrl).toBe('https://env.supabase.co')
+  })
+
+  it('falls back to VITE_SUPABASE_URL env var', () => {
+    process.env.VITE_SUPABASE_URL = 'https://vite.supabase.co'
+    const result = parseSupabaseCredentials({})
+    expect(result.supabaseUrl).toBe('https://vite.supabase.co')
+  })
+
+  it('prefers body over env vars', () => {
+    process.env.SUPABASE_URL = 'https://env.supabase.co'
+    const result = parseSupabaseCredentials({
+      supabaseUrl: 'https://body.supabase.co',
+    })
+    expect(result.supabaseUrl).toBe('https://body.supabase.co')
+  })
+
+  it('handles empty body values', () => {
+    const result = parseSupabaseCredentials({})
+    expect(result.supabaseUrl).toBeUndefined()
+    expect(result.supabaseAnonKey).toBeUndefined()
+  })
+})
+
+describe('parseSupabaseCredentialsWithServiceRole', () => {
+  beforeEach(() => {
+    process.env = { ...originalEnv }
+    delete process.env.SUPABASE_URL
+    delete process.env.VITE_SUPABASE_URL
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY
+    delete process.env.SUPABASE_SECRET_KEY
+    delete process.env.SUPABASE_ANON_KEY
+    delete process.env.VITE_SUPABASE_ANON_KEY
+  })
+
+  afterEach(() => {
+    process.env = originalEnv
+  })
+
+  it('prefers service role key from env', () => {
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-key'
+    const result = parseSupabaseCredentialsWithServiceRole({})
+    expect(result.supabaseKey).toBe('service-key')
+  })
+
+  it('falls back to secret key', () => {
+    process.env.SUPABASE_SECRET_KEY = 'secret-key'
+    const result = parseSupabaseCredentialsWithServiceRole({})
+    expect(result.supabaseKey).toBe('secret-key')
+  })
+
+  it('falls back to body anon key', () => {
+    const result = parseSupabaseCredentialsWithServiceRole({
+      supabaseAnonKey: 'body-key',
+    })
+    expect(result.supabaseKey).toBe('body-key')
+  })
+
+  it('prefers service role over body key', () => {
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-key'
+    const result = parseSupabaseCredentialsWithServiceRole({
+      supabaseAnonKey: 'body-key',
+    })
+    expect(result.supabaseKey).toBe('service-key')
+  })
+
+  it('trims whitespace', () => {
+    process.env.SUPABASE_SERVICE_ROLE_KEY = '  service-key  '
+    const result = parseSupabaseCredentialsWithServiceRole({})
+    expect(result.supabaseKey).toBe('service-key')
   })
 })
