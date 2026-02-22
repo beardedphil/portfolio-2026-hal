@@ -650,7 +650,7 @@ function App() {
   // Derive sync status from realtime connection status (0737)
   const kanbanSyncStatus: 'realtime' | 'polling' = kanbanRealtimeStatus === 'connected' ? 'realtime' : 'polling'
 
-  // Auto-trigger agents for tickets already in Ready for QA and Process Review columns (HAL-0802)
+  // Auto-trigger agents for tickets already in Unassigned, Ready for QA, and Process Review columns (HAL-0802)
   // This handles tickets that are already in those columns when the page loads or data refreshes
   useEffect(() => {
     if (!connectedGithubRepo?.fullName || !kanbanTickets.length) return
@@ -658,8 +658,22 @@ function App() {
     const triggerAgentsForExistingTickets = async () => {
       for (const ticket of kanbanTickets) {
         const existingRun = kanbanAgentRunsByTicketPk[ticket.pk]
+        const isPMRunning = existingRun?.agent_type === 'project-manager' && isNonTerminalRunStatus(existingRun.status)
         const isQARunning = existingRun?.agent_type === 'qa' && isNonTerminalRunStatus(existingRun.status)
         const isProcessReviewRunning = existingRun?.agent_type === 'process-review' && isNonTerminalRunStatus(existingRun.status)
+
+        // Auto-trigger Project Manager agent for tickets in Unassigned column
+        if (ticket.kanban_column_id === 'col-unassigned' && !isPMRunning) {
+          const ticketId = ticket.display_id ?? ticket.id ?? ticket.ticket_number?.toString() ?? null
+          if (ticketId) {
+            const convId = getDefaultConversationIdForAgent('project-manager')
+            try {
+              await triggerAgentRunWrapper(`Please prepare ticket ${ticketId} and get it ready (Definition of Ready).`, 'project-manager', undefined, convId)
+            } catch (err) {
+              console.warn(`Failed to auto-trigger Project Manager agent for ticket ${ticketId}:`, err)
+            }
+          }
+        }
 
         // Auto-trigger QA agent for tickets in Ready for QA column
         if (ticket.kanban_column_id === 'col-qa' && !isQARunning) {
@@ -706,8 +720,18 @@ function App() {
 
       // Check for idempotency: don't trigger if agent is already running for this ticket
       const existingRun = kanbanAgentRunsByTicketPk[ticketPk]
+      const isPMRunning = existingRun?.agent_type === 'project-manager' && isNonTerminalRunStatus(existingRun.status)
       const isQARunning = existingRun?.agent_type === 'qa' && isNonTerminalRunStatus(existingRun.status)
       const isProcessReviewRunning = existingRun?.agent_type === 'process-review' && isNonTerminalRunStatus(existingRun.status)
+
+      // Auto-trigger Project Manager agent when ticket moves to Unassigned (col-unassigned)
+      if (columnId === 'col-unassigned' && !isPMRunning) {
+        const ticketId = ticket.display_id ?? ticket.id ?? ticket.ticket_number?.toString() ?? null
+        if (ticketId && connectedGithubRepo?.fullName) {
+          const convId = getDefaultConversationIdForAgent('project-manager')
+          await triggerAgentRunWrapper(`Please prepare ticket ${ticketId} and get it ready (Definition of Ready).`, 'project-manager', undefined, convId)
+        }
+      }
 
       // Auto-trigger QA agent when ticket moves to Ready for QA (col-qa)
       if (columnId === 'col-qa' && !isQARunning) {
