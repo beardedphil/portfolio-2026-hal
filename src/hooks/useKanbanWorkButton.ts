@@ -47,6 +47,7 @@ export function useKanbanWorkButton({
       })
 
       // Route work button action; PM opens PM widget, non-PM never touches PM widget/history (HAL-0700)
+      // Note: data.ticketPk is already captured at click time, so no need to re-capture here
       await routeKanbanWorkButtonClick(data as KanbanWorkButtonPayload, {
         pmChatWidgetOpen,
         openPmChatWidget: () => setPmChatWidgetOpen(true),
@@ -56,6 +57,11 @@ export function useKanbanWorkButton({
         triggerAgentRun: (content, target, conversationId) => triggerAgentRun(content, target, undefined, conversationId),
         moveTicketToDoingIfNeeded: async ({ ticketPk, chatTarget }) => {
           if (chatTarget !== 'implementation-agent' && chatTarget !== 'qa-agent') return
+          if (!ticketPk) {
+            console.error('[HAL] moveTicketToDoingIfNeeded: ticketPk is required but was undefined')
+            return
+          }
+          // Use current kanbanTickets state, but with the captured ticketPk to avoid stale closures
           const doingCount = kanbanTickets.filter((t) => t.kanban_column_id === 'col-doing').length
           // Implement top ticket should not be blocked by "no PR linked" gating;
           // the Implementation Agent run is configured to auto-create the PR.

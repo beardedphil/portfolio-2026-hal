@@ -127,12 +127,16 @@ export function createWorkButtonHandlers({
       return
     }
 
+    // Capture firstCardId at click time to avoid race conditions with optimistic updates
+    // This ensures we use the correct ticket PK even if the component re-renders
+    const clickedTicketPk = firstCardId ?? undefined
+
     // Library mode: single ticket for all columns (including QA)
     if (halCtx?.onOpenChatAndSend && 'chatTarget' in buttonConfig) {
       halCtx.onOpenChatAndSend({
         chatTarget: buttonConfig.chatTarget,
         message: buttonConfig.message,
-        ticketPk: firstCardId ?? undefined,
+        ticketPk: clickedTicketPk,
       })
       return
     }
@@ -144,10 +148,10 @@ export function createWorkButtonHandlers({
       supabaseBoardActive &&
       updateSupabaseTicketKanban &&
       refetchSupabaseTickets &&
-      firstCardId
+      clickedTicketPk
     ) {
       await handleImplementationAgentMove(
-        firstCardId,
+        clickedTicketPk,
         supabaseColumns,
         supabaseTickets,
         updateSupabaseTicketKanban,
@@ -164,10 +168,10 @@ export function createWorkButtonHandlers({
       supabaseBoardActive &&
       updateSupabaseTicketKanban &&
       refetchSupabaseTickets &&
-      firstCardId
+      clickedTicketPk
     ) {
       await handleQAAgentMove(
-        firstCardId,
+        clickedTicketPk,
         supabaseColumns,
         supabaseTickets,
         updateSupabaseTicketKanban,

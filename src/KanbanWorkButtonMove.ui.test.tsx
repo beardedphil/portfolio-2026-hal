@@ -145,5 +145,97 @@ describe('Kanban UI work button behavior', () => {
       within(todoColumnAfter!).queryByText('Test Ticket A')
     ).not.toBeInTheDocument()
   })
+
+  it('handles race condition when ticket moves optimistically before async handler completes', async () => {
+    let capturedTicketPk: string | undefined
+
+    function RaceConditionHarness() {
+      const now = makeIsoNow()
+      const [tickets, setTickets] = useState<KanbanTicketRow[]>(() => makeTickets(now))
+      const [pmChatWidgetOpen, setPmChatWidgetOpen] = useState(false)
+      const [_selectedChatTarget, setSelectedChatTarget] =
+        useState<ChatTarget>('project-manager')
+      const [_selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
+      const [_lastWorkButtonClick, setLastWorkButtonClick] = useState<{
+        eventId: string
+        timestamp: Date
+        chatTarget: ChatTarget
+        message: string
+      } | null>(null)
+
+      const moveTicketSpy = async (ticketPk: string, columnId: string, position?: number) => {
+        capturedTicketPk = ticketPk
+        // Simulate optimistic update that happens immediately
+        const movedAt = new Date().toISOString()
+        setTickets((prev) =>
+          prev.map((t) =>
+            t.pk === ticketPk
+              ? {
+                  ...t,
+                  kanban_column_id: columnId,
+                  kanban_position: typeof position === 'number' ? position : 0,
+                  kanban_moved_at: movedAt,
+                  updated_at: movedAt,
+                }
+              : t
+          )
+        )
+        // Simulate async delay
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      }
+
+      const { handleKanbanOpenChatAndSend } = useKanbanWorkButton({
+        triggerAgentRun: () => {},
+        getDefaultConversationId: () => 'project-manager-1',
+        kanbanTickets: tickets,
+        handleKanbanMoveTicket: moveTicketSpy,
+        handleKanbanMoveTicketAllowWithoutPr: moveTicketSpy,
+        pmChatWidgetOpen,
+        setPmChatWidgetOpen,
+        setSelectedChatTarget,
+        setSelectedConversationId,
+        setLastWorkButtonClick,
+      })
+
+      return (
+        <KanbanBoard
+          tickets={tickets}
+          columns={makeColumns(now)}
+          agentRunsByTicketPk={{}}
+          repoFullName="beardedphil/portfolio-2026-hal"
+          theme="dark"
+          onMoveTicket={moveTicketSpy}
+          onOpenChatAndSend={handleKanbanOpenChatAndSend}
+          processReviewRunningForTicketPk={null}
+          implementationAgentTicketId={null}
+          qaAgentTicketId={null}
+          syncStatus="polling"
+          lastSync={null}
+        />
+      )
+    }
+
+    render(<RaceConditionHarness />)
+
+    const todoColumn = document.querySelector(
+      '[data-column-id="col-todo"]'
+    ) as HTMLElement | null
+    expect(todoColumn).not.toBeNull()
+
+    const implementButton = within(todoColumn!).getByRole('button', {
+      name: 'Implement top ticket',
+    })
+    
+    // Click button - this should capture ticketPk before any state updates
+    fireEvent.click(implementButton)
+
+    // Wait for async operations to complete
+    await waitFor(() => {
+      expect(capturedTicketPk).toBe('ticket-pk-1')
+    }, { timeout: 1000 })
+
+    // Verify the correct ticketPk was captured and used, even after optimistic update
+    expect(capturedTicketPk).toBe('ticket-pk-1')
+  })
 })
 
