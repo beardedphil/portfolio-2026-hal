@@ -1009,7 +1009,6 @@ function App() {
 
       {/* Diagnostics Modal (0781) */}
       <DiagnosticsModal
-        connectedGithubRepo={connectedGithubRepo}
         isOpen={diagnosticsOpen}
         onClose={() => setDiagnosticsOpen(false)}
         supabaseUrl={supabaseUrl}
