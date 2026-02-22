@@ -45,6 +45,10 @@
       "maintainability": 0
     },
     {
+      "file": "api/agent-runs/launch.test.ts",
+      "maintainability": 10.54
+    },
+    {
       "file": "src/hooks/useProcessReview.ts",
       "maintainability": 14.04
     },
@@ -75,19 +79,9 @@
     {
       "file": "api/tickets/move.ts",
       "maintainability": 17.97
-    },
-    {
-      "file": "api/conversations/working-memory/update.ts",
-      "maintainability": 18.36
     }
   ],
   "mostRecentImprovements": [
-    {
-      "file": "api/process-review/create-tickets.ts",
-      "before": 17.61,
-      "after": 58.19,
-      "delta": 40.58
-    },
     {
       "file": "api/instructions/migrate-process-docs.ts",
       "before": 15.59,
@@ -107,6 +101,12 @@
       "delta": 0
     },
     {
+      "file": "api/agent-runs/launch.test.ts",
+      "before": 10.54,
+      "after": 10.54,
+      "delta": 0
+    },
+    {
       "file": "api/tickets/create-pr.ts",
       "before": 15.41,
       "after": 15.41,
@@ -119,8 +119,8 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-22T00:58:36.427Z",
-  "filesAnalyzed": 328,
-  "unroundedMaintainability": 33.8,
-  "unroundedSimplicity": 33.8
+  "generatedAt": "2026-02-22T01:03:18.390Z",
+  "filesAnalyzed": 329,
+  "unroundedMaintainability": 33.7,
+  "unroundedSimplicity": 33.7
 }

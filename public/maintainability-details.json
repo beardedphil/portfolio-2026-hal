@@ -45,6 +45,10 @@
       "maintainability": 0
     },
     {
+      "file": "api/agent-runs/launch.test.ts",
+      "maintainability": 10.54
+    },
+    {
       "file": "src/hooks/useProcessReview.ts",
       "maintainability": 14.04
     },
@@ -73,10 +77,6 @@
       "maintainability": 16.69
     },
     {
-      "file": "api/process-review/create-tickets.ts",
-      "maintainability": 17.61
-    },
-    {
       "file": "api/tickets/move.ts",
       "maintainability": 17.97
     }
@@ -101,9 +101,9 @@
       "delta": 0
     },
     {
-      "file": "api/process-review/create-tickets.ts",
-      "before": 17.61,
-      "after": 17.61,
+      "file": "api/agent-runs/launch.test.ts",
+      "before": 10.54,
+      "after": 10.54,
       "delta": 0
     },
     {
@@ -119,8 +119,8 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-22T00:48:49.413Z",
-  "filesAnalyzed": 327,
-  "unroundedMaintainability": 33.8,
-  "unroundedSimplicity": 33.8
+  "generatedAt": "2026-02-22T01:03:18.390Z",
+  "filesAnalyzed": 329,
+  "unroundedMaintainability": 33.7,
+  "unroundedSimplicity": 33.7
 }
