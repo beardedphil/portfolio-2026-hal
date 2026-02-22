@@ -11,6 +11,7 @@ import { HumanValidationSection } from './HumanValidationSection'
 import { AutoDismissMessage } from './AutoDismissMessage'
 import { PullRequestSection } from './PullRequestSection'
 import { AcceptanceCriteriaStatusSection } from './AcceptanceCriteriaStatusSection'
+import { DriftAttemptsSection } from './DriftAttemptsSection'
 
 /** Ticket detail modal (0033): title, metadata, markdown body, close/escape/backdrop, scroll lock, focus trap */
 export function TicketDetailModal({
@@ -287,6 +288,12 @@ export function TicketDetailModal({
                 supabaseUrl={supabaseUrl}
                 supabaseKey={supabaseKey}
                 onRefresh={_onTicketUpdate}
+              />
+              <DriftAttemptsSection
+                ticketId={ticketId}
+                ticketPk={ticketId}
+                supabaseUrl={supabaseUrl}
+                supabaseKey={supabaseKey}
               />
               {showValidationSection && (
                 <>

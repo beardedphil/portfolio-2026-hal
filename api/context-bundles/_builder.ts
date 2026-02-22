@@ -156,10 +156,41 @@ export async function buildContextBundleV0(
     // 4. Get repo context (file pointers + snippets)
     const repoContext = await getRepoContext(repoFullName, gitRef)
 
-    // 5. Get state snapshot (placeholder for now - can be enhanced later)
+    // 5. Get state snapshot with open_findings from latest failing drift attempts
+    const openFindings: string[] = []
+    try {
+      // Fetch latest failing drift attempts for this ticket
+      const { data: failingAttempts, error: driftErr } = await supabase
+        .from('drift_attempts')
+        .select('failure_reasons, transition, attempted_at')
+        .eq('ticket_pk', ticketPk)
+        .or('blocked.eq.true,overall_status.eq.failing')
+        .order('attempted_at', { ascending: false })
+        .limit(5) // Get last 5 failing attempts
+
+      if (!driftErr && failingAttempts && failingAttempts.length > 0) {
+        // Extract failure reasons from latest failing attempts
+        for (const attempt of failingAttempts) {
+          if (attempt.failure_reasons && Array.isArray(attempt.failure_reasons)) {
+            for (const reason of attempt.failure_reasons) {
+              const finding = attempt.transition
+                ? `[${attempt.transition}] ${reason.type}: ${reason.message}`
+                : `${reason.type}: ${reason.message}`
+              if (!openFindings.includes(finding)) {
+                openFindings.push(finding)
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(`[context-bundle] Failed to fetch drift attempts for open_findings:`, err)
+      // Continue without open_findings if drift attempts fetch fails
+    }
+
     const stateSnapshot = {
       statuses: {},
-      open_findings: [],
+      open_findings: openFindings,
       failing_tests: [],
       last_known_good_commit: gitRef?.base_sha || null,
     }

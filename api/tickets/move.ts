@@ -112,6 +112,23 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const currentColumnId = (ticket as any).kanban_column_id
     const resolvedTicketPk = (ticket as any).pk as string
 
+    // Helper function to get column title from ID
+    const getColumnTitle = async (colId: string | null | undefined): Promise<string | null> => {
+      if (!colId) return null
+      const { data: col } = await supabase.from('kanban_columns').select('title').eq('id', colId).single()
+      return col?.title || null
+    }
+
+    // Helper function to format transition name
+    const formatTransition = async (fromColId: string | null | undefined, toColId: string | null | undefined): Promise<string | null> => {
+      const fromTitle = fromColId ? await getColumnTitle(fromColId) : null
+      const toTitle = toColId ? await getColumnTitle(toColId) : null
+      if (!fromTitle && !toTitle) return null
+      if (!fromTitle) return `→ ${toTitle}`
+      if (!toTitle) return `${fromTitle} →`
+      return `${fromTitle} → ${toTitle}`
+    }
+
     // Gate: prevent moving tickets from To Do to beyond-To-Do columns without a linked PR (HAL-0772)
     const columnsBeyondTodo = ['col-doing', 'col-qa', 'col-human-in-the-loop', 'col-done']
     const isTodoToDoingAllowlisted = allowWithoutPr && columnId === 'col-doing'
@@ -307,9 +324,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
       // If no PR linked, block the transition
       if (!prUrl || prUrl.length === 0) {
-        // Store drift attempt record
+        // Format transition name
+        const transitionName = await formatTransition(currentColumnId, columnId)
+        
+        // Store drift attempt record with normalized failure reasons
         await supabase.from('drift_attempts').insert({
           ticket_pk: resolvedTicketPk,
+          transition: transitionName,
           pr_url: null,
           evaluated_head_sha: null,
           overall_status: null,
@@ -317,6 +338,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           failing_check_names: null,
           checks_page_url: null,
           evaluation_error: 'No PR linked',
+          failure_reasons: [
+            { type: 'NO_PR_LINKED', message: 'A GitHub Pull Request must be linked to this ticket before it can be moved to this column.' }
+          ],
+          references: {},
           blocked: true,
         })
 
@@ -352,11 +377,48 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         ciStatus = { error: evaluationError }
       }
 
+      // Format transition name
+      const transitionName = await formatTransition(currentColumnId, columnId)
+      
+      // Build normalized failure reasons
+      const failureReasons: Array<{ type: string; message: string }> = []
+      if ('error' in ciStatus) {
+        failureReasons.push({
+          type: 'CI_EVALUATION_ERROR',
+          message: evaluationError || 'Failed to evaluate CI status',
+        })
+      } else if (ciStatus.overall === 'failing') {
+        if (ciStatus.failingCheckNames && ciStatus.failingCheckNames.length > 0) {
+          ciStatus.failingCheckNames.forEach((checkName: string) => {
+            failureReasons.push({
+              type: 'CI_CHECK_FAILED',
+              message: `CI check "${checkName}" is failing`,
+            })
+          })
+        } else {
+          failureReasons.push({
+            type: 'CI_CHECKS_FAILING',
+            message: 'Required CI checks are failing',
+          })
+        }
+      }
+
+      // Build references object
+      const references: any = {
+        pr_url: prUrl,
+      }
+      if (!('error' in ciStatus) && ciStatus.evaluatedSha) {
+        references.head_sha = ciStatus.evaluatedSha
+      }
+
       // Store drift attempt record
       const driftAttemptData: any = {
         ticket_pk: resolvedTicketPk,
+        transition: transitionName,
         pr_url: prUrl,
+        references,
         blocked: false,
+        failure_reasons: failureReasons.length > 0 ? failureReasons : null,
       }
 
       if ('error' in ciStatus) {
@@ -400,6 +462,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         console.warn(`[drift-gate] CI evaluation failed for ticket ${resolvedTicketPk}: ${evaluationError}`)
         // Continue with the move - don't block on CI evaluation errors
       }
+      
+      // Note: Drift attempt was already stored above, even for successful transitions
     }
 
     if (!columnId) {
@@ -453,6 +517,30 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         error: `Supabase update failed: ${update.error.message}`,
       })
       return
+    }
+
+    // Store drift attempt for successful transitions that didn't go through drift gate
+    // (drift-gated transitions already stored their attempts above)
+    const driftGatedColumns = ['col-qa', 'col-human-in-the-loop', 'col-process-review', 'col-done']
+    if (!driftGatedColumns.includes(columnId || '')) {
+      const transitionName = await formatTransition(currentColumnId, columnId)
+      if (transitionName && resolvedTicketPk) {
+        // Store attempt record for non-drift-gated transitions
+        await supabase.from('drift_attempts').insert({
+          ticket_pk: resolvedTicketPk,
+          transition: transitionName,
+          pr_url: null,
+          evaluated_head_sha: null,
+          overall_status: null,
+          required_checks: null,
+          failing_check_names: null,
+          checks_page_url: null,
+          evaluation_error: null,
+          failure_reasons: null,
+          references: {},
+          blocked: false,
+        })
+      }
     }
 
     json(res, 200, {
