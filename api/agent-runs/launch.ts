@@ -20,6 +20,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return
   }
 
+  let runId: string | undefined // Declare outside try so catch can access it
+  const supabase = getServerSupabase()
+
   try {
     const body = (await readJsonBody(req)) as {
       agentType?: AgentType
@@ -70,8 +73,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       json(res, 400, { error: 'message is required for project-manager runs.' })
       return
     }
-
-    const supabase = getServerSupabase()
 
     // Project Manager (OpenAI) is async/streamed via agent-runs/work + agent-runs/stream.
     if (agentType === 'project-manager') {
@@ -590,13 +591,33 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const message = err instanceof Error ? err.message : String(err)
     const stack = err instanceof Error ? err.stack : undefined
     console.error('[agent-runs/launch] Error:', message, stack ?? '')
+    
+    // If we have a runId, update it with the error (so UI can show it)
+    // This handles cases where the run was created but something failed later
+    if (runId) {
+      try {
+        await supabase
+          .from('hal_agent_runs')
+          .update({
+            status: 'failed',
+            current_stage: 'failed',
+            error: message.slice(0, 500), // Limit error message length
+            finished_at: new Date().toISOString(),
+          })
+          .eq('run_id', runId)
+      } catch (updateErr) {
+        // Log but don't fail - we still want to return the error to the caller
+        console.error('[agent-runs/launch] Failed to update run with error:', updateErr instanceof Error ? updateErr.message : String(updateErr))
+      }
+    }
+    
     // Return 503 for config errors so the UI can show a clear message
     const isConfigError =
       /Supabase server env is missing|Cursor API is not configured|Missing .* in environment/i.test(message)
     const statusCode = isConfigError ? 503 : 500
     // Always return the real error message so the UI can display it (no stack or internal details)
     const safeMessage = message.slice(0, 500)
-    json(res, statusCode, { error: safeMessage })
+    json(res, statusCode, { error: safeMessage, ...(runId ? { runId, status: 'failed' } : {}) })
   }
 }
 
