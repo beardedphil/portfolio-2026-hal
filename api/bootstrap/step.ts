@@ -225,6 +225,36 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
+    // Log audit event for step completion
+    const { logAuditEvent } = await import('./_shared.js')
+    await logAuditEvent(
+      supabase,
+      run.project_id,
+      'bootstrap_step',
+      stepResult.success ? 'succeeded' : 'failed',
+      stepResult.success
+        ? `Bootstrap step ${stepId} completed successfully`
+        : `Bootstrap step ${stepId} failed: ${stepResult.error || 'Unknown error'}`,
+      {
+        run_id: runId,
+        step_id: stepId,
+        error: stepResult.error || null,
+        error_details: stepResult.errorDetails || null,
+      }
+    )
+
+    // Log audit event if bootstrap run completed
+    if (allCompleted) {
+      await logAuditEvent(
+        supabase,
+        run.project_id,
+        'bootstrap_complete',
+        'succeeded',
+        `Bootstrap run completed successfully for project: ${run.project_id}`,
+        { run_id: runId }
+      )
+    }
+
     json(res, 200, {
       success: true,
       run: updatedRun,

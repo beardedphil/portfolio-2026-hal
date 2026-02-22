@@ -122,6 +122,17 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
+    // Log audit event
+    const { logAuditEvent } = await import('./_shared.js')
+    await logAuditEvent(
+      supabase,
+      projectId,
+      'bootstrap_start',
+      'pending',
+      `Bootstrap run started for project: ${projectId}`,
+      { run_id: newRun.id, current_step: newRun.current_step }
+    )
+
     json(res, 200, {
       success: true,
       run: newRun,
