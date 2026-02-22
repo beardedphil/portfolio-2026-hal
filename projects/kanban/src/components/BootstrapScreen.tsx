@@ -9,6 +9,18 @@ interface BootstrapScreenProps {
   onClose?: () => void
 }
 
+interface SupabaseProjectDetails {
+  project_ref: string
+  project_name: string
+  api_url: string
+  organization_id?: string
+  region?: string
+  status: string
+  created_at: string
+  updated_at: string
+  keysStored: boolean
+}
+
 export function BootstrapScreen({
   projectId,
   supabaseUrl,
@@ -21,6 +33,9 @@ export function BootstrapScreen({
   const [error, setError] = useState<string | null>(null)
   const [expandedErrorStep, setExpandedErrorStep] = useState<string | null>(null)
   const [polling, setPolling] = useState(false)
+  const [supabaseManagementToken, setSupabaseManagementToken] = useState<string>('')
+  const [organizationId, setOrganizationId] = useState<string>('')
+  const [supabaseProject, setSupabaseProject] = useState<SupabaseProjectDetails | null>(null)
 
   const loadBootstrapRun = useCallback(async () => {
     try {
@@ -56,7 +71,16 @@ export function BootstrapScreen({
   // Load bootstrap run on mount and when projectId changes
   useEffect(() => {
     loadBootstrapRun()
-  }, [projectId, loadBootstrapRun])
+    loadSupabaseProject()
+  }, [projectId, loadBootstrapRun, loadSupabaseProject])
+
+  // Reload project details when create_supabase_project step succeeds
+  useEffect(() => {
+    const supabaseStep = run?.step_history?.find((s) => s.step === 'create_supabase_project')
+    if (supabaseStep?.status === 'succeeded') {
+      loadSupabaseProject()
+    }
+  }, [run?.step_history, loadSupabaseProject])
 
   // Poll for status updates when run is active
   useEffect(() => {
@@ -110,17 +134,59 @@ export function BootstrapScreen({
     }
   }, [projectId, supabaseUrl, supabaseAnonKey, apiBaseUrl])
 
+  const loadSupabaseProject = useCallback(async () => {
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/bootstrap/supabase-project`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId,
+          supabaseUrl,
+          supabaseAnonKey,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (result.success && result.project) {
+        setSupabaseProject(result.project)
+      } else {
+        setSupabaseProject(null)
+      }
+    } catch (err) {
+      // Silently fail - project may not exist yet
+      setSupabaseProject(null)
+    }
+  }, [projectId, supabaseUrl, supabaseAnonKey, apiBaseUrl])
+
   const executeNextStep = useCallback(
     async (runId: string) => {
       try {
+        // Determine which step is being executed
+        const currentStep = run?.current_step
+        const stepId = currentStep || run?.step_history?.find((s) => s.status === 'pending' || s.status === 'running')?.step
+
+        // Prepare request body
+        const requestBody: any = {
+          runId,
+          supabaseUrl,
+          supabaseAnonKey,
+        }
+
+        // Add Supabase Management API token and organization ID if this is the create_supabase_project step
+        if (stepId === 'create_supabase_project') {
+          if (supabaseManagementToken) {
+            requestBody.supabaseManagementToken = supabaseManagementToken
+          }
+          if (organizationId) {
+            requestBody.organizationId = organizationId
+          }
+        }
+
         const response = await fetch(`${apiBaseUrl}/api/bootstrap/step`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            runId,
-            supabaseUrl,
-            supabaseAnonKey,
-          }),
+          body: JSON.stringify(requestBody),
         })
 
         const result = await response.json()
@@ -132,6 +198,11 @@ export function BootstrapScreen({
         }
 
         setRun(result.run)
+
+        // If create_supabase_project succeeded, load project details
+        if (result.stepResult?.stepId === 'create_supabase_project' && result.stepResult.success) {
+          await loadSupabaseProject()
+        }
 
         // If step succeeded and there are more steps, continue
         if (result.stepResult.success && result.run.status === 'running') {
@@ -145,7 +216,7 @@ export function BootstrapScreen({
         await loadBootstrapRun()
       }
     },
-    [supabaseUrl, supabaseAnonKey, apiBaseUrl, loadBootstrapRun]
+    [supabaseUrl, supabaseAnonKey, apiBaseUrl, loadBootstrapRun, run, supabaseManagementToken, loadSupabaseProject]
   )
 
   const retryStep = useCallback(
@@ -179,7 +250,7 @@ export function BootstrapScreen({
         setRun(retryResult.run)
         setLoading(false)
 
-        // Execute the retried step
+        // Execute the retried step (executeNextStep will include token if needed)
         executeNextStep(run.id)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to retry step')
@@ -303,6 +374,91 @@ export function BootstrapScreen({
                           </span>
                         </div>
                         <p style={{ margin: '0.5rem 0 0 0', color: '#666', fontSize: '0.9rem' }}>{stepDef.description}</p>
+
+                        {/* Supabase Management API token input for create_supabase_project step */}
+                        {stepDef.id === 'create_supabase_project' && (status === 'pending' || status === 'running' || status === 'failed') && (
+                          <div style={{ marginTop: '0.75rem', padding: '0.75rem', background: '#f9f9f9', borderRadius: '4px' }}>
+                            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+                              Supabase Management API Token: <span style={{ color: '#d32f2f' }}>*</span>
+                            </label>
+                            <input
+                              type="password"
+                              value={supabaseManagementToken}
+                              onChange={(e) => setSupabaseManagementToken(e.target.value)}
+                              placeholder="Enter your Supabase Management API token"
+                              style={{
+                                width: '100%',
+                                padding: '0.5rem',
+                                border: '1px solid #ddd',
+                                borderRadius: '4px',
+                                fontSize: '0.9rem',
+                                marginBottom: '0.75rem',
+                              }}
+                              disabled={status === 'running'}
+                            />
+                            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+                              Organization ID (optional):
+                            </label>
+                            <input
+                              type="text"
+                              value={organizationId}
+                              onChange={(e) => setOrganizationId(e.target.value)}
+                              placeholder="Enter your organization ID (optional)"
+                              style={{
+                                width: '100%',
+                                padding: '0.5rem',
+                                border: '1px solid #ddd',
+                                borderRadius: '4px',
+                                fontSize: '0.9rem',
+                                marginBottom: '0.5rem',
+                              }}
+                              disabled={status === 'running'}
+                            />
+                            <p style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#666' }}>
+                              Get your token from{' '}
+                              <a href="https://supabase.com/dashboard/account/tokens" target="_blank" rel="noopener noreferrer">
+                                Supabase Account Settings
+                              </a>
+                              . Organization ID can be found in your Supabase dashboard URL or organization settings.
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Show project details when create_supabase_project succeeds */}
+                        {stepDef.id === 'create_supabase_project' && status === 'succeeded' && supabaseProject && (
+                          <div style={{ marginTop: '0.75rem', padding: '0.75rem', background: '#e8f5e9', borderRadius: '4px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                              <strong style={{ color: '#2e7d32' }}>✓ Project Created Successfully</strong>
+                            </div>
+                            <div style={{ fontSize: '0.9rem' }}>
+                              <p style={{ margin: '0.25rem 0' }}>
+                                <strong>Project Name:</strong> {supabaseProject.project_name}
+                              </p>
+                              <p style={{ margin: '0.25rem 0' }}>
+                                <strong>Project Ref:</strong> {supabaseProject.project_ref}
+                              </p>
+                              <p style={{ margin: '0.25rem 0' }}>
+                                <strong>API URL:</strong>{' '}
+                                <a href={supabaseProject.api_url} target="_blank" rel="noopener noreferrer">
+                                  {supabaseProject.api_url}
+                                </a>
+                              </p>
+                              {supabaseProject.region && (
+                                <p style={{ margin: '0.25rem 0' }}>
+                                  <strong>Region:</strong> {supabaseProject.region}
+                                </p>
+                              )}
+                              <p style={{ margin: '0.5rem 0 0 0', padding: '0.5rem', background: '#fff', borderRadius: '4px', fontSize: '0.85rem' }}>
+                                <strong>Status:</strong> Created at {new Date(supabaseProject.created_at).toLocaleString()}
+                              </p>
+                              {supabaseProject.keysStored && (
+                                <p style={{ margin: '0.5rem 0 0 0', padding: '0.5rem', background: '#fff', borderRadius: '4px', fontSize: '0.85rem', color: '#2e7d32' }}>
+                                  <strong>✓ Keys stored securely</strong> (encrypted at rest)
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        )}
 
                         {hasError && stepRecord && (
                           <div style={{ marginTop: '0.75rem' }}>
