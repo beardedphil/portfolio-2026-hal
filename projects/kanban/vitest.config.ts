@@ -16,13 +16,14 @@ const reactDedupePlugin = (): Plugin => {
   return {
     name: 'react-dedupe-kanban',
     enforce: 'pre',
-    resolveId(id, importer) {
+    resolveId(id) {
       // Always resolve React and React DOM from root when running tests
+      // This ensures all React imports use the same instance
       if (id === 'react') {
-        return { id: rootReact, external: false }
+        return rootReact
       }
       if (id === 'react-dom') {
-        return { id: rootReactDom, external: false }
+        return rootReactDom
       }
       return null
     },
@@ -30,7 +31,12 @@ const reactDedupePlugin = (): Plugin => {
 }
 
 export default defineConfig({
-  plugins: [reactDedupePlugin(), react()],
+  plugins: [
+    reactDedupePlugin(),
+    react({
+      jsxRuntime: 'automatic',
+    }),
+  ],
   resolve: {
     dedupe: ['react', 'react-dom'],
     alias: {

@@ -3,6 +3,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import type { SupabaseAgentArtifactRow } from '../App.types'
 
+// Don't mock helpers - let them use the actual implementation
+// The helpers file already has React imported, so it should work
+
 // Mock dependencies BEFORE importing the component
 vi.mock('react-markdown', () => ({
   default: ({ children }: { children: string }) => <div data-testid="react-markdown">{children}</div>,
@@ -22,17 +25,6 @@ vi.mock('./ImageViewerModal', () => ({
       </div>
     )
   },
-}))
-
-vi.mock('./MarkdownImage', () => ({
-  MarkdownImage: ({ src, alt, onImageClick }: any) => (
-    <img
-      data-testid="markdown-image"
-      src={src}
-      alt={alt}
-      onClick={() => onImageClick(src, alt)}
-    />
-  ),
 }))
 
 // Import component AFTER mocks are set up
