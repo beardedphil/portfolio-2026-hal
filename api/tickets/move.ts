@@ -11,6 +11,7 @@ import { parseAcceptanceCriteria } from './_acceptance-criteria-parser.js'
 import { evaluateCiStatus, type CiStatusSummary } from '../_lib/github/checks.js'
 import { getSession } from '../_lib/github/session.js'
 import { checkDocsConsistency } from './_docs-consistency-check.js'
+import { recordFailureFromDriftAttempt } from '../failures/_record-failure.js'
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   // CORS: Allow cross-origin requests (for scripts calling from different origins)
@@ -290,32 +291,50 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           const transitionName = await formatTransition(currentColumnId, columnId)
           
           // Store drift attempt record with AC failure
-          await supabase.from('drift_attempts').insert({
-            ticket_pk: resolvedTicketPk,
-            transition: transitionName,
-            pr_url: null,
-            evaluated_head_sha: null,
-            overall_status: null,
-            required_checks: null,
-            failing_check_names: null,
-            checks_page_url: null,
-            evaluation_error: null,
-            failure_reasons: [
-              {
-                type: 'UNMET_AC',
-                message: `${acStatusRecords.length} acceptance criteria item(s) are marked as unmet`,
-              },
-              ...unmetIndices.map((idx: number) => {
-                const item = acItems[idx]
-                return {
-                  type: 'UNMET_AC_ITEM',
-                  message: item ? `AC ${idx + 1}: ${item.text}` : `AC ${idx + 1}`,
-                }
-              }),
-            ],
-            references: {},
-            blocked: true,
-          })
+          const { data: driftAttemptData, error: driftInsertError } = await supabase
+            .from('drift_attempts')
+            .insert({
+              ticket_pk: resolvedTicketPk,
+              transition: transitionName,
+              pr_url: null,
+              evaluated_head_sha: null,
+              overall_status: null,
+              required_checks: null,
+              failing_check_names: null,
+              checks_page_url: null,
+              evaluation_error: null,
+              failure_reasons: [
+                {
+                  type: 'UNMET_AC',
+                  message: `${acStatusRecords.length} acceptance criteria item(s) are marked as unmet`,
+                },
+                ...unmetIndices.map((idx: number) => {
+                  const item = acItems[idx]
+                  return {
+                    type: 'UNMET_AC_ITEM',
+                    message: item ? `AC ${idx + 1}: ${item.text}` : `AC ${idx + 1}`,
+                  }
+                }),
+              ],
+              references: {},
+              blocked: true,
+            })
+            .select('id')
+            .single()
+
+          // Record failure in failure library (HAL-0784)
+          if (driftAttemptData?.id && supabaseUrl && supabaseAnonKey) {
+            try {
+              await recordFailureFromDriftAttempt({
+                supabaseUrl,
+                supabaseAnonKey,
+                driftAttemptId: driftAttemptData.id,
+              })
+            } catch (failureRecordError) {
+              // Log but don't fail - failure recording is non-blocking
+              console.warn(`[tickets/move] Failed to record failure from drift attempt: ${failureRecordError instanceof Error ? failureRecordError.message : String(failureRecordError)}`)
+            }
+          }
 
           json(res, 200, {
             success: false,
@@ -360,22 +379,40 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         const transitionName = await formatTransition(currentColumnId, columnId)
         
         // Store drift attempt record with normalized failure reasons
-        await supabase.from('drift_attempts').insert({
-          ticket_pk: resolvedTicketPk,
-          transition: transitionName,
-          pr_url: null,
-          evaluated_head_sha: null,
-          overall_status: null,
-          required_checks: null,
-          failing_check_names: null,
-          checks_page_url: null,
-          evaluation_error: 'No PR linked',
-          failure_reasons: [
-            { type: 'NO_PR_LINKED', message: 'A GitHub Pull Request must be linked to this ticket before it can be moved to this column.' }
-          ],
-          references: {},
-          blocked: true,
-        })
+        const { data: driftAttemptData2, error: driftInsertError2 } = await supabase
+          .from('drift_attempts')
+          .insert({
+            ticket_pk: resolvedTicketPk,
+            transition: transitionName,
+            pr_url: null,
+            evaluated_head_sha: null,
+            overall_status: null,
+            required_checks: null,
+            failing_check_names: null,
+            checks_page_url: null,
+            evaluation_error: 'No PR linked',
+            failure_reasons: [
+              { type: 'NO_PR_LINKED', message: 'A GitHub Pull Request must be linked to this ticket before it can be moved to this column.' }
+            ],
+            references: {},
+            blocked: true,
+          })
+          .select('id')
+          .single()
+
+        // Record failure in failure library (HAL-0784)
+        if (driftAttemptData2?.id && supabaseUrl && supabaseAnonKey) {
+          try {
+            await recordFailureFromDriftAttempt({
+              supabaseUrl,
+              supabaseAnonKey,
+              driftAttemptId: driftAttemptData2.id,
+            })
+          } catch (failureRecordError) {
+            // Log but don't fail - failure recording is non-blocking
+            console.warn(`[tickets/move] Failed to record failure from drift attempt: ${failureRecordError instanceof Error ? failureRecordError.message : String(failureRecordError)}`)
+          }
+        }
 
         json(res, 200, {
           success: false,
@@ -525,7 +562,25 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       }
 
       // Store drift attempt record (single insert with all data)
-      await supabase.from('drift_attempts').insert(driftAttemptData)
+      const { data: driftAttemptData3, error: driftInsertError3 } = await supabase
+        .from('drift_attempts')
+        .insert(driftAttemptData)
+        .select('id')
+        .single()
+
+      // Record failure in failure library if blocked (HAL-0784)
+      if (driftAttemptData3?.id && driftAttemptData.blocked && supabaseUrl && supabaseAnonKey) {
+        try {
+          await recordFailureFromDriftAttempt({
+            supabaseUrl,
+            supabaseAnonKey,
+            driftAttemptId: driftAttemptData3.id,
+          })
+        } catch (failureRecordError) {
+          // Log but don't fail - failure recording is non-blocking
+          console.warn(`[tickets/move] Failed to record failure from drift attempt: ${failureRecordError instanceof Error ? failureRecordError.message : String(failureRecordError)}`)
+        }
+      }
 
       // Block transition if CI is failing
       if (!('error' in ciStatus) && ciStatus.overall === 'failing') {

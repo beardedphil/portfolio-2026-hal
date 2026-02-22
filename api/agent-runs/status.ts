@@ -16,6 +16,7 @@ import {
   validateMethod,
   type ProgressEntry,
 } from './_shared.js'
+import { recordFailureFromAgentOutcome } from '../failures/_record-failure.js'
 
 type AgentType = 'implementation' | 'qa' | 'project-manager' | 'process-review'
 
@@ -216,6 +217,23 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         .from('hal_agent_runs')
         .update({ status: 'failed', current_stage: 'failed', error: msg, progress: nextProgress, finished_at: new Date().toISOString() })
         .eq('run_id', runId)
+      
+      // Record failure in failure library (HAL-0784)
+      try {
+        const supabaseUrl = process.env.SUPABASE_URL?.trim() || process.env.VITE_SUPABASE_URL?.trim()
+        const supabaseAnonKey = process.env.SUPABASE_ANON_KEY?.trim() || process.env.VITE_SUPABASE_ANON_KEY?.trim()
+        if (supabaseUrl && supabaseAnonKey) {
+          await recordFailureFromAgentOutcome({
+            supabaseUrl,
+            supabaseAnonKey,
+            agentRunId: runId,
+          })
+        }
+      } catch (failureRecordError) {
+        // Log but don't fail - failure recording is non-blocking
+        console.warn(`[agent-runs/status] Failed to record failure from agent outcome: ${failureRecordError instanceof Error ? failureRecordError.message : String(failureRecordError)}`)
+      }
+      
       json(res, 200, { ...(run as any), status: 'failed', error: msg, progress: nextProgress })
       return
     }
@@ -230,6 +248,23 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         .from('hal_agent_runs')
         .update({ status: 'failed', current_stage: 'failed', error: msg, progress: nextProgress, finished_at: new Date().toISOString() })
         .eq('run_id', runId)
+      
+      // Record failure in failure library (HAL-0784)
+      try {
+        const supabaseUrl = process.env.SUPABASE_URL?.trim() || process.env.VITE_SUPABASE_URL?.trim()
+        const supabaseAnonKey = process.env.SUPABASE_ANON_KEY?.trim() || process.env.VITE_SUPABASE_ANON_KEY?.trim()
+        if (supabaseUrl && supabaseAnonKey) {
+          await recordFailureFromAgentOutcome({
+            supabaseUrl,
+            supabaseAnonKey,
+            agentRunId: runId,
+          })
+        }
+      } catch (failureRecordError) {
+        // Log but don't fail - failure recording is non-blocking
+        console.warn(`[agent-runs/status] Failed to record failure from agent outcome: ${failureRecordError instanceof Error ? failureRecordError.message : String(failureRecordError)}`)
+      }
+      
       json(res, 200, { ...(run as any), status: 'failed', error: msg, progress: nextProgress })
       return
     }
@@ -481,6 +516,24 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     if (updErr) {
       json(res, 500, { error: `Supabase update failed: ${updErr.message}` })
       return
+    }
+
+    // Record failure in failure library if status is 'failed' (HAL-0784)
+    if (nextStatus === 'failed' && updated) {
+      try {
+        const supabaseUrl = process.env.SUPABASE_URL?.trim() || process.env.VITE_SUPABASE_URL?.trim()
+        const supabaseAnonKey = process.env.SUPABASE_ANON_KEY?.trim() || process.env.VITE_SUPABASE_ANON_KEY?.trim()
+        if (supabaseUrl && supabaseAnonKey) {
+          await recordFailureFromAgentOutcome({
+            supabaseUrl,
+            supabaseAnonKey,
+            agentRunId: runId,
+          })
+        }
+      } catch (failureRecordError) {
+        // Log but don't fail - failure recording is non-blocking
+        console.warn(`[agent-runs/status] Failed to record failure from agent outcome: ${failureRecordError instanceof Error ? failureRecordError.message : String(failureRecordError)}`)
+      }
     }
 
     const payload = updated ?? run
