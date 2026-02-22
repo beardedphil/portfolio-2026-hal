@@ -56,6 +56,65 @@ Instructions are loaded from `.cursor/rules` and `docs/`. See `docs/process/hal-
 
 **This check prevents build failures in CI/CD and ensures code quality.**
 
+## Branch Management: Never Work on Detached HEAD or Non-Ticket Branches
+
+**MANDATORY:** Agents must **never** perform work on a detached HEAD or a non-ticket branch. All work must be performed on the correct feature branch for the ticket.
+
+### Before Starting Work
+
+**Always verify you're on the correct branch:**
+```bash
+git branch --show-current
+```
+
+- **If you're on detached HEAD:** You **MUST** immediately create or checkout the correct feature branch before making any changes.
+- **If you're on the wrong branch:** You **MUST** immediately switch to the correct feature branch before making any changes.
+- **If you're on `main`:** You **MUST** create or checkout the feature branch for your ticket before making any changes.
+
+### If Work Has Already Landed on the Wrong Branch
+
+**If you discover that work has already been committed on the wrong branch (detached HEAD, `main`, or another branch), you MUST immediately fix it:**
+
+1. **Identify the commit hash(es) that need to be moved:**
+   ```bash
+   git log --oneline -n 5  # Find the commit hash(es)
+   ```
+
+2. **Create or checkout the correct feature branch:**
+   ```bash
+   git checkout -b <ticket-branch>  # If branch doesn't exist
+   # OR
+   git switch <ticket-branch>  # If branch already exists
+   ```
+
+3. **Cherry-pick the commit(s) to the correct branch:**
+   ```bash
+   git cherry-pick <commit-hash>
+   # If multiple commits:
+   git cherry-pick <first-hash>^..<last-hash>
+   ```
+
+4. **Push the corrected branch:**
+   ```bash
+   git push -u origin <ticket-branch>
+   ```
+
+5. **If commits were made on `main` or another branch, remove them from that branch** (after confirming they're safely on the feature branch):
+   ```bash
+   git checkout <wrong-branch>
+   git reset --hard <commit-before-wrong-work>  # Reset to before the wrong commits
+   git push --force-with-lease origin <wrong-branch>  # Only if necessary and safe
+   ```
+
+**CRITICAL RULES:**
+- **NEVER commit to detached HEAD** - always create/checkout a branch first
+- **NEVER commit to `main`** - always use a feature branch
+- **NEVER commit to a different ticket's branch** - always use the correct ticket branch
+- **If you discover wrong-branch commits, fix them immediately** - don't continue working until the branch is correct
+- **Cherry-pick is the preferred method** for moving commits to the correct branch
+
+**This ensures all work is properly tracked, associated with the correct ticket, and can be reviewed/merged correctly.**
+
 ## Moving Tickets After Implementation
 
 **MANDATORY:** After implementation, the implementation agent **MUST** automatically move the ticket to **Ready for QA** before sending a completion summary. **DO NOT wait for user interaction or ask for permission - just move it.**

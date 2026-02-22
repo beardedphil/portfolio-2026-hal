@@ -18,6 +18,8 @@ git checkout main && git pull origin main
 - **Implementation agents:** Then create or checkout your feature branch and proceed.
 - **QA agents:** Then proceed with loading instructions and QA workflow.
 
+**IMPORTANT:** After pulling from `main`, verify you're on the correct branch (not detached HEAD or wrong branch). If you discover you're on the wrong branch or detached HEAD, immediately fix it per the branch management rules in `agent-instructions.mdc`.
+
 ## Why
 
 Cloud agents run in an environment that may have cloned the repo earlier or from a different ref. The board and tickets reflect the current state of `main`; working from a stale clone can cause merge conflicts, duplicate work, or missed changes. Always start from an up-to-date `main`.
