@@ -12,6 +12,7 @@ interface AppHeaderProps {
   onConnectProjectFolder: () => void
   onDisconnect: () => void
   onOpenNewHalWizard: () => void
+  onOpenBootstrap?: () => void
 }
 
 export function AppHeader({
@@ -24,6 +25,7 @@ export function AppHeader({
   onConnectProjectFolder,
   onDisconnect,
   onOpenNewHalWizard,
+  onOpenBootstrap,
 }: AppHeaderProps) {
   const halCtx = useContext(HalKanbanContext)
   
@@ -78,6 +80,15 @@ export function AppHeader({
         >
           New HAL project
         </button>
+        {onOpenBootstrap && (
+          <button
+            type="button"
+            className="bootstrap-btn btn-standard"
+            onClick={onOpenBootstrap}
+          >
+            Bootstrap
+          </button>
+        )}
         <p className="connection-status" data-status={supabaseConnectionStatus} aria-live="polite">
           {supabaseConnectionStatus === 'connecting'
             ? 'Connecting…'

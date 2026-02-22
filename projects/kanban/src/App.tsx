@@ -45,6 +45,7 @@ import { DroppableActiveWorkRow } from './components/DroppableActiveWorkRow'
 import { AppHeader } from './components/AppHeader'
 import { AddColumnForm } from './components/AddColumnForm'
 import { DebugPanel } from './components/DebugPanel'
+import { BootstrapScreen } from './components/BootstrapScreen'
 import type { Card, Column } from './lib/columnTypes'
 import type { LogEntry, SupabaseTicketRow, SupabaseAgentArtifactRow, SupabaseAgentRunRow, TicketAttachment } from './App.types'
 import { SUPABASE_CONFIG_KEY, CONNECTED_REPO_KEY, SUPABASE_POLL_INTERVAL_MS, SUPABASE_SAFETY_POLL_INTERVAL_MS, REFETCH_AFTER_MOVE_MS, ROLLBACK_AFTER_FAILURE_MS, KANBAN_BROADCAST_CHANNEL, EMPTY_KANBAN_COLUMNS, DEFAULT_KANBAN_COLUMNS_SEED, _SUPABASE_KANBAN_COLUMNS_SETUP_SQL, DEFAULT_COLUMNS, INITIAL_CARDS, _SUPABASE_SETUP_SQL, _SUPABASE_TICKET_ATTACHMENTS_SETUP_SQL } from './App.constants'
@@ -160,6 +161,9 @@ function App() {
   const [newHalTargetRoot, setNewHalTargetRoot] = useState<FileSystemDirectoryHandle | null>(null)
   const [newHalBootstrapLog, setNewHalBootstrapLog] = useState<string | null>(null)
   const [newHalBootstrapError, setNewHalBootstrapError] = useState<string | null>(null)
+  
+  // Bootstrap screen (Roadmap T1)
+  const [bootstrapScreenOpen, setBootstrapScreenOpen] = useState(false)
   // Supabase (read-only v0)
   const [supabaseProjectUrl, setSupabaseProjectUrl] = useState('')
   const [supabaseAnonKey, setSupabaseAnonKey] = useState('')
@@ -2969,6 +2973,9 @@ function App() {
           setNewHalWizardOpen(true)
           setNewHalReport(null)
         }}
+        onOpenBootstrap={() => {
+          setBootstrapScreenOpen(true)
+        }}
       />
 
       {connectError && (
@@ -3202,6 +3209,16 @@ function App() {
             )}
           </div>
         </div>
+      )}
+
+      {bootstrapScreenOpen && (
+        <BootstrapScreen
+          projectId={connectedRepoFullName || projectName || 'default-project'}
+          supabaseUrl={supabaseProjectUrl || ''}
+          supabaseAnonKey={supabaseAnonKey || ''}
+          apiBaseUrl={import.meta.env.VITE_HAL_API_BASE_URL || (typeof window !== 'undefined' ? window.location.origin : '')}
+          onClose={() => setBootstrapScreenOpen(false)}
+        />
       )}
 
       {showConfigMissingError && !connectError && (
