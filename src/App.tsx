@@ -685,8 +685,6 @@ function App() {
       handleKanbanMoveTicket,
       kanbanTickets,
       kanbanAgentRunsByTicketPk,
-      processReviewStatus,
-      processReviewTicketPk,
       connectedGithubRepo,
       getDefaultConversationIdForAgent,
       triggerAgentRunWrapper,
