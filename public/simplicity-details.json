@@ -49,12 +49,20 @@
       "maintainability": 9
     },
     {
+      "file": "api/conversations/working-memory/update.ts",
+      "maintainability": 10.84
+    },
+    {
       "file": "api/context-bundles/_builder.ts",
       "maintainability": 11.28
     },
     {
       "file": "src/hooks/useProcessReview.ts",
       "maintainability": 14.04
+    },
+    {
+      "file": "api/conversations/working-memory/update.test.ts",
+      "maintainability": 14.08
     },
     {
       "file": "api/instructions/get-topic.ts",
@@ -71,29 +79,9 @@
     {
       "file": "api/auth/github/callback.ts",
       "maintainability": 16.29
-    },
-    {
-      "file": "api/conversations/working-memory/update.ts",
-      "maintainability": 18.36
-    },
-    {
-      "file": "projects/kanban/src/components/ArtifactReportViewer.tsx",
-      "maintainability": 18.61
     }
   ],
   "mostRecentImprovements": [
-    {
-      "file": "api/process-review/create-tickets.ts",
-      "before": 17.61,
-      "after": 58.19,
-      "delta": 40.58
-    },
-    {
-      "file": "api/qa-agent/run.ts",
-      "before": 16.69,
-      "after": 28.76,
-      "delta": 12.07
-    },
     {
       "file": "api/instructions/migrate-process-docs.ts",
       "before": 15.59,
@@ -107,9 +95,21 @@
       "delta": 0
     },
     {
+      "file": "api/conversations/working-memory/update.ts",
+      "before": 10.84,
+      "after": 10.84,
+      "delta": 0
+    },
+    {
       "file": "agents/src/agents/projectManager.ts",
       "before": 9,
       "after": 9,
+      "delta": 0
+    },
+    {
+      "file": "api/conversations/working-memory/update.test.ts",
+      "before": 14.08,
+      "after": 14.08,
       "delta": 0
     },
     {
@@ -125,8 +125,8 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-22T01:48:43.508Z",
-  "filesAnalyzed": 346,
-  "unroundedMaintainability": 33.3,
-  "unroundedSimplicity": 33.3
+  "generatedAt": "2026-02-22T02:29:53.247Z",
+  "filesAnalyzed": 347,
+  "unroundedMaintainability": 33.2,
+  "unroundedSimplicity": 33.2
 }
