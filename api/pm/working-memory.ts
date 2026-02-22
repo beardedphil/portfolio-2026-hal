@@ -18,39 +18,58 @@ export interface WorkingMemory {
   through_sequence: number
 }
 
-/**
- * Generate working memory from conversation messages using LLM
- */
-export async function generateWorkingMemory(
-  messages: Array<{ role: string; content: string }>,
-  openaiApiKey: string,
-  openaiModel: string,
-  existingMemory: WorkingMemory | null
-): Promise<WorkingMemory> {
-  const { generateText } = await import('ai')
-  const { createOpenAI } = await import('@ai-sdk/openai')
-  
-  const openai = createOpenAI({ apiKey: openaiApiKey })
-  
-  // Build prompt for working memory extraction
-  const conversationText = messages
-    .map((m) => `**${m.role}**: ${m.content}`)
-    .join('\n\n')
-  
-  const existingMemoryText = existingMemory
-    ? `\n\nExisting working memory (update/merge with new information):\n` +
-      `Summary: ${existingMemory.summary}\n` +
-      `Goals: ${existingMemory.goals}\n` +
-      `Requirements: ${existingMemory.requirements}\n` +
-      `Constraints: ${existingMemory.constraints}\n` +
-      `Decisions: ${existingMemory.decisions}\n` +
-      `Assumptions: ${existingMemory.assumptions}\n` +
-      `Open Questions: ${existingMemory.open_questions}\n` +
-      `Glossary: ${existingMemory.glossary_terms}\n` +
-      `Stakeholders: ${existingMemory.stakeholders}\n`
-    : ''
-  
-  const prompt = `You are analyzing a Project Manager conversation to extract and maintain working memory—key facts that should persist across long conversations.
+function createEmptyWorkingMemory(throughSequence: number = 0): WorkingMemory {
+  return {
+    summary: '',
+    goals: '',
+    requirements: '',
+    constraints: '',
+    decisions: '',
+    assumptions: '',
+    open_questions: '',
+    glossary_terms: '',
+    stakeholders: '',
+    through_sequence: throughSequence,
+  }
+}
+
+function normalizeWorkingMemoryFromDb(data: any): WorkingMemory {
+  return {
+    summary: data.summary || '',
+    goals: data.goals || '',
+    requirements: data.requirements || '',
+    constraints: data.constraints || '',
+    decisions: data.decisions || '',
+    assumptions: data.assumptions || '',
+    open_questions: data.open_questions || '',
+    glossary_terms: data.glossary_terms || '',
+    stakeholders: data.stakeholders || '',
+    through_sequence: data.through_sequence || 0,
+  }
+}
+
+function formatExistingMemoryText(memory: WorkingMemory): string {
+  return `\n\nExisting working memory (update/merge with new information):\n` +
+    `Summary: ${memory.summary}\n` +
+    `Goals: ${memory.goals}\n` +
+    `Requirements: ${memory.requirements}\n` +
+    `Constraints: ${memory.constraints}\n` +
+    `Decisions: ${memory.decisions}\n` +
+    `Assumptions: ${memory.assumptions}\n` +
+    `Open Questions: ${memory.open_questions}\n` +
+    `Glossary: ${memory.glossary_terms}\n` +
+    `Stakeholders: ${memory.stakeholders}\n`
+}
+
+function formatConversationText(messages: Array<{ role: string; content: string }>): string {
+  return messages.map((m) => `**${m.role}**: ${m.content}`).join('\n\n')
+}
+
+function buildWorkingMemoryPrompt(
+  conversationText: string,
+  existingMemoryText: string
+): string {
+  return `You are analyzing a Project Manager conversation to extract and maintain working memory—key facts that should persist across long conversations.
 
 Extract and organize the following information from the conversation:
 
@@ -83,52 +102,83 @@ Provide the working memory in the following JSON format:
 }
 
 Only include information that is explicitly mentioned or clearly implied. If a field has no relevant information, use an empty string.`
+}
+
+function extractJsonFromText(text: string): string {
+  const jsonMatch = text.match(/\{[\s\S]*\}/)
+  return jsonMatch ? jsonMatch[0] : text
+}
+
+function parseWorkingMemoryResponse(
+  text: string,
+  messagesLength: number
+): WorkingMemory {
+  const jsonText = extractJsonFromText(text)
+  const parsed = JSON.parse(jsonText) as Partial<WorkingMemory>
+  
+  return {
+    summary: parsed.summary || '',
+    goals: parsed.goals || '',
+    requirements: parsed.requirements || '',
+    constraints: parsed.constraints || '',
+    decisions: parsed.decisions || '',
+    assumptions: parsed.assumptions || '',
+    open_questions: parsed.open_questions || '',
+    glossary_terms: parsed.glossary_terms || '',
+    stakeholders: parsed.stakeholders || '',
+    through_sequence: messagesLength - 1,
+  }
+}
+
+function formatGlossaryTerms(glossaryTerms: string): string {
+  if (!glossaryTerms || glossaryTerms.trim() === '') {
+    return ''
+  }
+
+  try {
+    const terms = JSON.parse(glossaryTerms) as Array<{ term: string; definition: string }>
+    if (Array.isArray(terms) && terms.length > 0) {
+      return terms
+        .map(({ term, definition }) => `- **${term}**: ${definition}`)
+        .join('\n') + '\n'
+    }
+  } catch {
+    // Not JSON, treat as plain text
+  }
+
+  return glossaryTerms
+}
+
+/**
+ * Generate working memory from conversation messages using LLM
+ */
+export async function generateWorkingMemory(
+  messages: Array<{ role: string; content: string }>,
+  openaiApiKey: string,
+  openaiModel: string,
+  existingMemory: WorkingMemory | null
+): Promise<WorkingMemory> {
+  const { generateText } = await import('ai')
+  const { createOpenAI } = await import('@ai-sdk/openai')
+  
+  const openai = createOpenAI({ apiKey: openaiApiKey })
+  const conversationText = formatConversationText(messages)
+  const existingMemoryText = existingMemory ? formatExistingMemoryText(existingMemory) : ''
+  const prompt = buildWorkingMemoryPrompt(conversationText, existingMemoryText)
 
   try {
     const result = await generateText({
       model: openai(openaiModel),
       prompt,
-      temperature: 0.3, // Lower temperature for more consistent extraction
+      temperature: 0.3,
     })
     
-    const text = result.text.trim()
-    
-    // Try to extract JSON from the response
-    let jsonMatch = text.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) {
-      // If no JSON found, try to parse the whole response
-      jsonMatch = [text]
-    }
-    
-    const parsed = JSON.parse(jsonMatch[0]) as Partial<WorkingMemory>
-    
-    return {
-      summary: parsed.summary || '',
-      goals: parsed.goals || '',
-      requirements: parsed.requirements || '',
-      constraints: parsed.constraints || '',
-      decisions: parsed.decisions || '',
-      assumptions: parsed.assumptions || '',
-      open_questions: parsed.open_questions || '',
-      glossary_terms: parsed.glossary_terms || '',
-      stakeholders: parsed.stakeholders || '',
-      through_sequence: messages.length - 1, // Last message index
-    }
+    return parseWorkingMemoryResponse(result.text.trim(), messages.length)
   } catch (error) {
     console.error('[PM Working Memory] Failed to generate working memory:', error)
-    // Return safe defaults on error
-    return {
-      summary: existingMemory?.summary || '',
-      goals: existingMemory?.goals || '',
-      requirements: existingMemory?.requirements || '',
-      constraints: existingMemory?.constraints || '',
-      decisions: existingMemory?.decisions || '',
-      assumptions: existingMemory?.assumptions || '',
-      open_questions: existingMemory?.open_questions || '',
-      glossary_terms: existingMemory?.glossary_terms || '',
-      stakeholders: existingMemory?.stakeholders || '',
-      through_sequence: existingMemory?.through_sequence ?? messages.length - 1,
-    }
+    return existingMemory 
+      ? { ...existingMemory, through_sequence: existingMemory.through_sequence ?? messages.length - 1 }
+      : createEmptyWorkingMemory(messages.length - 1)
   }
 }
 
@@ -150,18 +200,7 @@ export async function getWorkingMemory(
 
   if (error || !data) return null
   
-  return {
-    summary: data.summary || '',
-    goals: data.goals || '',
-    requirements: data.requirements || '',
-    constraints: data.constraints || '',
-    decisions: data.decisions || '',
-    assumptions: data.assumptions || '',
-    open_questions: data.open_questions || '',
-    glossary_terms: data.glossary_terms || '',
-    stakeholders: data.stakeholders || '',
-    through_sequence: data.through_sequence || 0,
-  }
+  return normalizeWorkingMemoryFromDb(data)
 }
 
 /**
@@ -180,20 +219,22 @@ export async function saveWorkingMemory(
       {
         project_id: projectId,
         agent: agent,
-        summary: memory.summary,
-        goals: memory.goals,
-        requirements: memory.requirements,
-        constraints: memory.constraints,
-        decisions: memory.decisions,
-        assumptions: memory.assumptions,
-        open_questions: memory.open_questions,
-        glossary_terms: memory.glossary_terms,
-        stakeholders: memory.stakeholders,
-        through_sequence: memory.through_sequence,
+        ...memory,
         last_updated: new Date().toISOString(),
       },
       { onConflict: 'project_id,agent' }
     )
+}
+
+function shouldUpdateMemory(
+  existingMemory: WorkingMemory | null,
+  lastSequence: number,
+  messagesLength: number,
+  forceUpdate: boolean
+): boolean {
+  if (forceUpdate || !existingMemory) return true
+  if (existingMemory.through_sequence < lastSequence) return true
+  return messagesLength > (existingMemory.through_sequence + 1) * 1.5
 }
 
 /**
@@ -214,18 +255,10 @@ export async function updateWorkingMemoryIfNeeded(
   const existingMemory = await getWorkingMemory(supabase, projectId, agent)
   const lastSequence = Math.max(...messages.map(m => m.sequence))
   
-  // Check if update is needed
-  const needsUpdate =
-    forceUpdate ||
-    !existingMemory ||
-    existingMemory.through_sequence < lastSequence ||
-    messages.length > (existingMemory.through_sequence + 1) * 1.5 // Update if conversation grew significantly
-  
-  if (!needsUpdate && existingMemory) {
+  if (!shouldUpdateMemory(existingMemory, lastSequence, messages.length, forceUpdate)) {
     return existingMemory
   }
   
-  // Generate new working memory
   const newMemory = await generateWorkingMemory(
     messages.map(m => ({ role: m.role, content: m.content })),
     openaiApiKey,
@@ -233,13 +266,23 @@ export async function updateWorkingMemoryIfNeeded(
     existingMemory
   )
   
-  // Update through_sequence to last message
   newMemory.through_sequence = lastSequence
-  
-  // Save to database
   await saveWorkingMemory(supabase, projectId, agent, newMemory)
   
   return newMemory
+}
+
+function formatField(fieldName: string, value: string): string {
+  return value ? `**${fieldName}:**\n${value}\n\n` : ''
+}
+
+function formatGlossarySection(glossaryTerms: string): string {
+  if (!glossaryTerms || glossaryTerms.trim() === '') {
+    return ''
+  }
+
+  const formattedTerms = formatGlossaryTerms(glossaryTerms)
+  return formattedTerms ? `**Glossary/Terms:**\n${formattedTerms}\n\n` : ''
 }
 
 /**
@@ -249,55 +292,15 @@ export function formatWorkingMemoryForPrompt(memory: WorkingMemory | null): stri
   if (!memory) return ''
   
   let formatted = '## PM Working Memory\n\n'
-  
-  if (memory.summary) {
-    formatted += `**Summary:** ${memory.summary}\n\n`
-  }
-  
-  if (memory.goals) {
-    formatted += `**Goals:**\n${memory.goals}\n\n`
-  }
-  
-  if (memory.requirements) {
-    formatted += `**Requirements:**\n${memory.requirements}\n\n`
-  }
-  
-  if (memory.constraints) {
-    formatted += `**Constraints:**\n${memory.constraints}\n\n`
-  }
-  
-  if (memory.decisions) {
-    formatted += `**Decisions:**\n${memory.decisions}\n\n`
-  }
-  
-  if (memory.assumptions) {
-    formatted += `**Assumptions:**\n${memory.assumptions}\n\n`
-  }
-  
-  if (memory.open_questions) {
-    formatted += `**Open Questions:**\n${memory.open_questions}\n\n`
-  }
-  
-  if (memory.stakeholders) {
-    formatted += `**Stakeholders:**\n${memory.stakeholders}\n\n`
-  }
-  
-  if (memory.glossary_terms && memory.glossary_terms.trim() !== '') {
-    // Try to parse as JSON array, otherwise treat as plain text
-    try {
-      const terms = JSON.parse(memory.glossary_terms) as Array<{ term: string; definition: string }>
-      if (Array.isArray(terms) && terms.length > 0) {
-        formatted += `**Glossary/Terms:**\n`
-        for (const { term, definition } of terms) {
-          formatted += `- **${term}**: ${definition}\n`
-        }
-        formatted += '\n'
-      }
-    } catch {
-      // Not JSON, treat as plain text
-      formatted += `**Glossary/Terms:**\n${memory.glossary_terms}\n\n`
-    }
-  }
+  formatted += memory.summary ? `**Summary:** ${memory.summary}\n\n` : ''
+  formatted += formatField('Goals', memory.goals)
+  formatted += formatField('Requirements', memory.requirements)
+  formatted += formatField('Constraints', memory.constraints)
+  formatted += formatField('Decisions', memory.decisions)
+  formatted += formatField('Assumptions', memory.assumptions)
+  formatted += formatField('Open Questions', memory.open_questions)
+  formatted += formatField('Stakeholders', memory.stakeholders)
+  formatted += formatGlossarySection(memory.glossary_terms)
   
   return formatted
 }
