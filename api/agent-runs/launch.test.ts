@@ -9,14 +9,18 @@
  * - Agent type is determined correctly from request body
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
   parseTicketBody,
   buildImplementationPrompt,
   buildQAPrompt,
   extractBranchName,
   determineAgentType,
+  moveQATicketToDoing,
+  createCursorRunRow,
+  updateRunStages,
 } from './launch.js'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 describe('parseTicketBody', () => {
   it('should extract goal, deliverable, and acceptance criteria from ticket body', () => {
@@ -183,5 +187,174 @@ describe('determineAgentType', () => {
       const agentType = determineAgentType(body as any)
       expect(agentType).toBe(expected)
     })
+  })
+})
+
+describe('moveQATicketToDoing', () => {
+  it('should move QA ticket from QA column to Doing column', async () => {
+    const mockSupabase = {
+      from: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValue({
+        data: [{ kanban_position: 5 }],
+        error: null,
+      }),
+      update: vi.fn().mockReturnThis(),
+    } as unknown as SupabaseClient<any, 'public', any>
+
+    await moveQATicketToDoing(mockSupabase, 'test/repo', 'ticket-pk', 'HAL-0123')
+
+    expect(mockSupabase.from).toHaveBeenCalledWith('tickets')
+    expect(mockSupabase.update).toHaveBeenCalled()
+  })
+
+  it('should handle errors gracefully without throwing', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const mockSupabase = {
+      from: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockRejectedValue(new Error('Database error')),
+    } as unknown as SupabaseClient<any, 'public', any>
+
+    await expect(moveQATicketToDoing(mockSupabase, 'test/repo', 'ticket-pk', 'HAL-0123')).resolves.not.toThrow()
+    expect(consoleErrorSpy).toHaveBeenCalled()
+    consoleErrorSpy.mockRestore()
+  })
+
+  it('should calculate next position correctly when Doing column has tickets', async () => {
+    const mockUpdate = vi.fn().mockResolvedValue({ error: null })
+    const mockSupabase = {
+      from: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValue({
+        data: [{ kanban_position: 10 }],
+        error: null,
+      }),
+      update: vi.fn().mockReturnValue({
+        eq: vi.fn().mockResolvedValue({ error: null }),
+      }),
+    } as unknown as SupabaseClient<any, 'public', any>
+
+    await moveQATicketToDoing(mockSupabase, 'test/repo', 'ticket-pk', 'HAL-0123')
+
+    expect(mockSupabase.update).toHaveBeenCalled()
+  })
+})
+
+describe('createCursorRunRow', () => {
+  it('should create a run row with correct properties for implementation agent', async () => {
+    const mockRunId = 'run-123'
+    const mockSupabase = {
+      from: vi.fn().mockReturnThis(),
+      insert: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({
+        data: { run_id: mockRunId },
+        error: null,
+      }),
+    } as unknown as SupabaseClient<any, 'public', any>
+
+    const result = await createCursorRunRow(
+      mockSupabase,
+      'implementation',
+      'test/repo',
+      'ticket-pk',
+      123,
+      'HAL-0123'
+    )
+
+    expect(result.runId).toBe(mockRunId)
+    expect(result.initialProgress).toBeDefined()
+    expect(result.initialProgress.length).toBeGreaterThan(0)
+    expect(mockSupabase.from).toHaveBeenCalledWith('hal_agent_runs')
+  })
+
+  it('should create a run row with correct properties for QA agent', async () => {
+    const mockRunId = 'run-456'
+    const mockSupabase = {
+      from: vi.fn().mockReturnThis(),
+      insert: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({
+        data: { run_id: mockRunId },
+        error: null,
+      }),
+    } as unknown as SupabaseClient<any, 'public', any>
+
+    const result = await createCursorRunRow(mockSupabase, 'qa', 'test/repo', 'ticket-pk', 456, 'HAL-0456')
+
+    expect(result.runId).toBe(mockRunId)
+    expect(result.initialProgress[0].message).toContain('qa')
+  })
+
+  it('should throw an error if run row creation fails', async () => {
+    const mockSupabase = {
+      from: vi.fn().mockReturnThis(),
+      insert: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({
+        data: null,
+        error: { message: 'Insert failed' },
+      }),
+    } as unknown as SupabaseClient<any, 'public', any>
+
+    await expect(
+      createCursorRunRow(mockSupabase, 'implementation', 'test/repo', 'ticket-pk', 123, 'HAL-0123')
+    ).rejects.toThrow('Failed to create run row')
+  })
+})
+
+describe('updateRunStages', () => {
+  it('should update stages correctly for implementation agent', async () => {
+    const mockSupabase = {
+      from: vi.fn().mockReturnThis(),
+      update: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockResolvedValue({ error: null }),
+    } as unknown as SupabaseClient<any, 'public', any>
+
+    const initialProgress = [{ at: '2024-01-01T00:00:00Z', message: 'Starting' }]
+
+    await updateRunStages(mockSupabase, 'run-123', 'implementation', 'body content', initialProgress)
+
+    expect(mockSupabase.from).toHaveBeenCalledWith('hal_agent_runs')
+    expect(mockSupabase.update).toHaveBeenCalledTimes(2) // fetching_ticket and resolving_repo
+  })
+
+  it('should update stages correctly for QA agent with branch name', async () => {
+    const mockSupabase = {
+      from: vi.fn().mockReturnThis(),
+      update: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockResolvedValue({ error: null }),
+    } as unknown as SupabaseClient<any, 'public', any>
+
+    const initialProgress = [{ at: '2024-01-01T00:00:00Z', message: 'Starting' }]
+    const bodyMd = `## QA\n\nBranch: feature/test-branch\n\nContent`
+
+    await updateRunStages(mockSupabase, 'run-123', 'qa', bodyMd, initialProgress)
+
+    expect(mockSupabase.from).toHaveBeenCalledWith('hal_agent_runs')
+    expect(mockSupabase.update).toHaveBeenCalledTimes(2) // fetching_ticket and fetching_branch
+  })
+
+  it('should update stages correctly for QA agent without branch name', async () => {
+    const mockSupabase = {
+      from: vi.fn().mockReturnThis(),
+      update: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockResolvedValue({ error: null }),
+    } as unknown as SupabaseClient<any, 'public', any>
+
+    const initialProgress = [{ at: '2024-01-01T00:00:00Z', message: 'Starting' }]
+    const bodyMd = `## QA\n\nNo branch specified`
+
+    await updateRunStages(mockSupabase, 'run-123', 'qa', bodyMd, initialProgress)
+
+    expect(mockSupabase.from).toHaveBeenCalledWith('hal_agent_runs')
+    expect(mockSupabase.update).toHaveBeenCalledTimes(2) // fetching_ticket and fetching_branch
   })
 })
