@@ -23,7 +23,15 @@ export interface BundleBuilderOptions {
   role: string
   supabaseUrl: string
   supabaseAnonKey: string
-  selectedArtifactIds?: string[]
+  selectedArtifactIds?: string[] // Deprecated: use hybridRetrieval instead
+  hybridRetrieval?: {
+    query?: string // Text query for vector similarity
+    includePinned?: boolean
+    recencyDays?: number
+    limit?: number
+    deterministic?: boolean
+    openaiApiKey?: string
+  }
   gitRef?: {
     pr_url?: string
     pr_number?: number
@@ -93,6 +101,13 @@ export interface BuilderResult {
     version: number
     schema_version: string
   } | null
+  retrievalMetadata?: {
+    repoFilter?: string
+    pinnedIncluded: boolean
+    recencyWindow?: string
+    totalConsidered: number
+    totalSelected: number
+  }
   error?: string
 }
 
@@ -105,7 +120,7 @@ export interface BuilderResult {
 export async function buildContextBundleV0(
   options: BundleBuilderOptions
 ): Promise<BuilderResult> {
-  const { ticketPk, ticketId, repoFullName, role, supabaseUrl, supabaseAnonKey, selectedArtifactIds = [], gitRef = null } = options
+  const { ticketPk, ticketId, repoFullName, role, supabaseUrl, supabaseAnonKey, selectedArtifactIds = [], hybridRetrieval, gitRef = null } = options
 
   const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
@@ -195,12 +210,18 @@ export async function buildContextBundleV0(
       last_known_good_commit: gitRef?.base_sha || null,
     }
 
-    // 6. Get relevant artifacts (distilled)
-    const relevantArtifacts = await getRelevantArtifacts(
+    // 6. Get relevant artifacts (distilled) - using hybrid retrieval if provided
+    const artifactResult = await getRelevantArtifacts(
       supabase,
       ticketPk,
-      selectedArtifactIds
+      selectedArtifactIds,
+      hybridRetrieval,
+      repoFullName,
+      supabaseUrl,
+      supabaseAnonKey
     )
+    const relevantArtifacts = artifactResult.artifacts
+    const retrievalMetadata = artifactResult.retrievalMetadata
 
     // 7. Get instructions (role-specific)
     const instructions = await getRoleSpecificInstructions(supabase, repoFullName, role)
@@ -232,6 +253,7 @@ export async function buildContextBundleV0(
       bundle,
       redReference,
       integrationManifestReference,
+      retrievalMetadata,
     }
   } catch (err) {
     return {
@@ -419,20 +441,94 @@ async function getRepoContext(
 
 /**
  * Gets relevant artifacts (distilled).
+ * Uses hybrid retrieval if provided, otherwise falls back to selectedArtifactIds.
  */
 async function getRelevantArtifacts(
   supabase: ReturnType<typeof createClient>,
   ticketPk: string,
-  selectedArtifactIds: string[]
-): Promise<Array<{
-  artifact_id: string
-  artifact_title: string
-  summary: string
-  hard_facts: string[]
-  keywords: string[]
-}>> {
+  selectedArtifactIds: string[],
+  hybridRetrieval?: {
+    query?: string
+    includePinned?: boolean
+    recencyDays?: number
+    limit?: number
+    deterministic?: boolean
+    openaiApiKey?: string
+  },
+  repoFullName?: string,
+  supabaseUrl?: string,
+  supabaseAnonKey?: string
+): Promise<{
+  artifacts: Array<{
+    artifact_id: string
+    artifact_title: string
+    summary: string
+    hard_facts: string[]
+    keywords: string[]
+  }>
+  retrievalMetadata?: {
+    repoFilter?: string
+    pinnedIncluded: boolean
+    recencyWindow?: string
+    totalConsidered: number
+    totalSelected: number
+  }
+}> {
+  // Use hybrid retrieval if provided
+  let retrievalMetadata: {
+    repoFilter?: string
+    pinnedIncluded: boolean
+    recencyWindow?: string
+    totalConsidered: number
+    totalSelected: number
+  } | undefined
+
+  if (hybridRetrieval && supabaseUrl && supabaseAnonKey) {
+    try {
+      // Import and call hybrid search function directly
+      const { performHybridSearch } = await import('../artifacts/hybrid-search-internal.js')
+      const result = await performHybridSearch({
+        query: hybridRetrieval.query,
+        repoFullName,
+        includePinned: hybridRetrieval.includePinned,
+        recencyDays: hybridRetrieval.recencyDays,
+        limit: hybridRetrieval.limit || 20,
+        ticketPk,
+        deterministic: hybridRetrieval.deterministic !== false,
+        supabaseUrl,
+        supabaseAnonKey,
+        openaiApiKey: hybridRetrieval.openaiApiKey,
+      })
+
+      if (result.success && result.artifacts) {
+        selectedArtifactIds = result.artifacts.map((a) => a.artifact_id)
+        retrievalMetadata = result.retrievalMetadata
+      } else {
+        // Fall back to empty if hybrid retrieval fails
+        return {
+          artifacts: [],
+          retrievalMetadata: result.retrievalMetadata,
+        }
+      }
+    } catch (err) {
+      console.warn('[context-bundle] Hybrid retrieval failed, falling back to selectedArtifactIds:', err)
+      // Fall through to selectedArtifactIds logic
+    }
+  }
+
   if (selectedArtifactIds.length === 0) {
-    return []
+    return {
+      artifacts: [],
+      retrievalMetadata: hybridRetrieval
+        ? {
+            repoFilter: repoFullName,
+            pinnedIncluded: hybridRetrieval.includePinned || false,
+            recencyWindow: hybridRetrieval.recencyDays ? `last ${hybridRetrieval.recencyDays} days` : undefined,
+            totalConsidered: 0,
+            totalSelected: 0,
+          }
+        : undefined,
+    }
   }
 
   // Fetch artifacts
@@ -443,7 +539,18 @@ async function getRelevantArtifacts(
     .eq('ticket_pk', ticketPk)
 
   if (artifactsError || !artifacts || artifacts.length === 0) {
-    return []
+    return {
+      artifacts: [],
+      retrievalMetadata: hybridRetrieval
+        ? {
+            repoFilter: repoFullName,
+            pinnedIncluded: hybridRetrieval.includePinned || false,
+            recencyWindow: hybridRetrieval.recencyDays ? `last ${hybridRetrieval.recencyDays} days` : undefined,
+            totalConsidered: 0,
+            totalSelected: 0,
+          }
+        : undefined,
+    }
   }
 
   // Distill each artifact
@@ -469,7 +576,18 @@ async function getRelevantArtifacts(
     }
   }
 
-  return distilledArtifacts
+  return {
+    artifacts: distilledArtifacts,
+    retrievalMetadata: retrievalMetadata || (hybridRetrieval
+      ? {
+          repoFilter: repoFullName,
+          pinnedIncluded: hybridRetrieval.includePinned || false,
+          recencyWindow: hybridRetrieval.recencyDays ? `last ${hybridRetrieval.recencyDays} days` : undefined,
+          totalConsidered: artifacts.length,
+          totalSelected: distilledArtifacts.length,
+        }
+      : undefined),
+  }
 }
 
 /**

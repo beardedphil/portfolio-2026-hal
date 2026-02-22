@@ -171,11 +171,13 @@ Done: - New repo deploys without manual changes.
 
 ------------------------------------------------------------------------
 
-## T17 --- Hybrid Retrieval in Context + RED Generation
+## T17 --- Hybrid Retrieval in Context + RED Generation ✅
 
--   Combine vector similarity + metadata filtering.
+-   Combine vector similarity + metadata filtering. ✅
 -   Definition of Done:
-    -   RED expansion uses historical scar tissue.
+    -   RED expansion uses historical scar tissue. ⏳ (Backend ready, UI integration pending)
+    -   Context Bundle generation uses hybrid retrieval. ✅
+    -   UI shows "Retrieval sources" summary for Context Bundles. ✅
 
 ------------------------------------------------------------------------
 

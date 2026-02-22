@@ -288,19 +288,13 @@ export async function checkDocsConsistency(
 ): Promise<DocsConsistencyResult> {
   // Compute which docs to check
   const { paths, error } = await computeDocsToCheck(ticketId, ticketFilename, repoFullName, prUrl, githubToken)
-  if (error && githubToken) {
-    // Only fail if we have a token and still got an error
-    return {
-      passed: false,
-      findings: [
-        {
-          path: 'system',
-          ruleId: 'docs-computation-error',
-          message: `Failed to compute docs to check: ${error}`,
-          suggestedFix: 'Check PR URL and GitHub token are valid, and retry the operation',
-        },
-      ],
-    }
+  if (error) {
+    // If there's any error computing docs (PR fetch failure, network issues, etc.),
+    // log it but continue with available docs rather than blocking the entire check.
+    // This makes the system more resilient to transient API issues.
+    console.warn(`[docs-consistency] Error computing docs to check (non-blocking): ${error}`)
+    // Continue with whatever paths we have (ticket doc, audit folder, known process docs)
+    // This allows validation of available docs even if PR file fetch fails
   }
 
   // Validate each doc

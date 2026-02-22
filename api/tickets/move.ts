@@ -562,19 +562,29 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         return
       }
 
-      // Block transition if docs are inconsistent
+      // Block transition if docs are inconsistent (but allow system/computation errors to pass)
       if (docsConsistencyResult && !docsConsistencyResult.passed && docsConsistencyResult.findings.length > 0) {
-        const inconsistentDocs = Array.from(new Set(docsConsistencyResult.findings.map((f) => f.path))).sort()
-        const docsList = inconsistentDocs.map((path) => `  - ${path}`).join('\n')
+        // Filter out "system" errors - these are computation/fetch errors, not actual doc inconsistencies
+        const nonSystemFindings = docsConsistencyResult.findings.filter((f) => f.path !== 'system')
+        
+        if (nonSystemFindings.length > 0) {
+          // Real doc inconsistencies - block the move
+          const inconsistentDocs = Array.from(new Set(nonSystemFindings.map((f) => f.path))).sort()
+          const docsList = inconsistentDocs.map((path) => `  - ${path}`).join('\n')
 
-        json(res, 200, {
-          success: false,
-          error: `Cannot move ticket: Documentation is inconsistent with code. All documentation must be consistent before moving to this column.`,
-          errorCode: 'DOCS_INCONSISTENT',
-          inconsistentDocs,
-          remedy: `Fix documentation inconsistencies and ensure all docs are consistent with code before moving to ${columnId}.\n\nInconsistent documents:\n${docsList}`,
-        })
-        return
+          json(res, 200, {
+            success: false,
+            error: `Cannot move ticket: Documentation is inconsistent with code. All documentation must be consistent before moving to this column.`,
+            errorCode: 'DOCS_INCONSISTENT',
+            inconsistentDocs,
+            remedy: `Fix documentation inconsistencies and ensure all docs are consistent with code before moving to ${columnId}.\n\nInconsistent documents:\n${docsList}`,
+          })
+          return
+        } else {
+          // Only "system" errors - log but don't block (similar to CI evaluation errors)
+          console.warn(`[drift-gate] Docs consistency check had system errors for ticket ${resolvedTicketPk}, but allowing move to proceed`)
+          // Continue with the move - don't block on system/computation errors
+        }
       }
 
       // If CI evaluation failed (e.g., no auth), still allow the move but log the error

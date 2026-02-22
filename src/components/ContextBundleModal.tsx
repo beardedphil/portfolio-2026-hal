@@ -64,6 +64,13 @@ interface PreviewResult {
   }
   sectionMetrics?: Record<string, number>
   bundle?: unknown // Bundle content for preview
+  retrievalMetadata?: {
+    repoFilter?: string
+    pinnedIncluded: boolean
+    recencyWindow?: string
+    totalConsidered: number
+    totalSelected: number
+  }
   error?: string
 }
 
@@ -324,6 +331,7 @@ export function ContextBundleModal({
 
     try {
       const apiBaseUrl = apiBaseUrlRef.current || window.location.origin
+      // Use hybrid retrieval with defaults: repo filter, recency window (30 days), deterministic
       const response = await fetch(`${apiBaseUrl}/api/context-bundles/preview`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -333,6 +341,13 @@ export function ContextBundleModal({
           role: selectedRole,
           supabaseUrl,
           supabaseAnonKey,
+          hybridRetrieval: {
+            repoFullName,
+            includePinned: false, // TODO: Add UI control for this
+            recencyDays: 30, // TODO: Add UI control for this
+            limit: 20,
+            deterministic: true, // Ensure same inputs → same results
+          },
         }),
       })
 
@@ -535,6 +550,39 @@ export function ContextBundleModal({
                       ))}
                     </div>
                   </div>
+
+                  {/* Retrieval Sources Summary */}
+                  {preview?.retrievalMetadata && (
+                    <div style={{ border: '1px solid var(--hal-border)', borderRadius: '8px', padding: '16px' }}>
+                      <h3 style={{ margin: '0 0 12px 0', fontSize: '16px' }}>Retrieval sources</h3>
+                      <div style={{ fontSize: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {preview.retrievalMetadata.repoFilter && (
+                          <div>
+                            <strong>Repo filter:</strong> {preview.retrievalMetadata.repoFilter}
+                          </div>
+                        )}
+                        <div>
+                          <strong>Pinned included:</strong> {preview.retrievalMetadata.pinnedIncluded ? 'Yes' : 'No'}
+                        </div>
+                        {preview.retrievalMetadata.recencyWindow && (
+                          <div>
+                            <strong>Recency window:</strong> {preview.retrievalMetadata.recencyWindow}
+                          </div>
+                        )}
+                        <div>
+                          <strong>Items considered:</strong> {formatNumber(preview.retrievalMetadata.totalConsidered)}
+                        </div>
+                        <div>
+                          <strong>Items selected:</strong> {formatNumber(preview.retrievalMetadata.totalSelected)}
+                        </div>
+                        {preview.retrievalMetadata.totalConsidered === 0 && (
+                          <div style={{ padding: '12px', background: 'var(--hal-surface-alt)', borderRadius: '4px', marginTop: '8px' }}>
+                            <strong>No matching sources found</strong>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Budget Status */}
                   {preview?.budget && (

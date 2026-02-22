@@ -57,7 +57,15 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       repoFullName?: string
       role?: string
       bundleJson?: unknown // Deprecated: builder now assembles bundle from authoritative sources
-      selectedArtifactIds?: string[]
+      selectedArtifactIds?: string[] // Deprecated: use hybridRetrieval instead
+      hybridRetrieval?: {
+        query?: string
+        includePinned?: boolean
+        recencyDays?: number
+        limit?: number
+        deterministic?: boolean
+        openaiApiKey?: string
+      }
       supabaseUrl?: string
       supabaseAnonKey?: string
       redReference?: { red_id: string; version: number } | null // Deprecated: builder fetches RED automatically
@@ -76,6 +84,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const selectedArtifactIds = Array.isArray(body.selectedArtifactIds)
       ? body.selectedArtifactIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
       : []
+    const hybridRetrieval = body.hybridRetrieval
 
     const { supabaseUrl, supabaseAnonKey } = parseSupabaseCredentials(body)
 
@@ -187,6 +196,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       supabaseUrl,
       supabaseAnonKey,
       selectedArtifactIds,
+      hybridRetrieval,
       gitRef: body.gitRef || null,
     })
 
@@ -343,6 +353,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         role: budget.role,
         displayName: budget.displayName,
       },
+      retrievalMetadata: builderResult.retrievalMetadata,
     })
   } catch (err) {
     console.error('Error in generate context bundle handler:', err)

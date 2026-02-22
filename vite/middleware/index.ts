@@ -18,6 +18,7 @@ export function getAllMiddlewarePlugins(): Plugin[] {
     createSimpleMiddlewarePlugin('instructions-migrate-docs-endpoint', '/api/instructions/migrate-docs'),
     createSimpleMiddlewarePlugin('artifacts-get-endpoint', '/api/artifacts/get'),
     createSimpleMiddlewarePlugin('artifacts-cleanup-duplicates-endpoint', '/api/artifacts/cleanup-duplicates'),
+    createSimpleMiddlewarePlugin('artifacts-hybrid-search-endpoint', '/api/artifacts/hybrid-search', { method: 'POST', allowOptions: false }),
     createSimpleMiddlewarePlugin('agent-runs-launch-endpoint', '/api/agent-runs/launch', { method: 'POST', allowOptions: false }),
     createSimpleMiddlewarePlugin('agent-runs-status-endpoint', '/api/agent-runs/status', { method: 'GET', allowOptions: false }),
     createSimpleMiddlewarePlugin('agent-runs-sync-artifacts-endpoint', '/api/agent-runs/sync-artifacts', { method: 'POST', allowOptions: false }),
