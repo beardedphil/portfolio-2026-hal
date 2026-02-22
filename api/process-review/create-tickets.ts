@@ -2,7 +2,8 @@ import type { IncomingMessage, ServerResponse } from 'http'
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'node:crypto'
 
-async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+// Utility functions - exported for testing
+export async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Uint8Array[] = []
   for await (const chunk of req) {
     chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk)
@@ -12,14 +13,14 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   return JSON.parse(raw) as unknown
 }
 
-function json(res: ServerResponse, statusCode: number, body: unknown) {
+export function json(res: ServerResponse, statusCode: number, body: unknown) {
   res.statusCode = statusCode
   res.setHeader('Content-Type', 'application/json')
   res.end(JSON.stringify(body))
 }
 
 /** Slug for ticket filename: lowercase, spaces to hyphens, strip non-alphanumeric except hyphen. */
-function slugFromTitle(title: string): string {
+export function slugFromTitle(title: string): string {
   return title
     .trim()
     .toLowerCase()
@@ -29,7 +30,7 @@ function slugFromTitle(title: string): string {
     .replace(/^-|-$/g, '') || 'ticket'
 }
 
-function repoHintPrefix(repoFullName: string): string {
+export function repoHintPrefix(repoFullName: string): string {
   const repo = repoFullName.split('/').pop() ?? repoFullName
   const tokens = repo
     .toLowerCase()
@@ -46,7 +47,7 @@ function repoHintPrefix(repoFullName: string): string {
   return (letters.slice(0, 4) || 'PRJ').toUpperCase()
 }
 
-function isUniqueViolation(err: { code?: string; message?: string } | null): boolean {
+export function isUniqueViolation(err: { code?: string; message?: string } | null): boolean {
   if (!err) return false
   if (err.code === '23505') return true
   const msg = (err.message ?? '').toLowerCase()
@@ -54,183 +55,79 @@ function isUniqueViolation(err: { code?: string; message?: string } | null): boo
 }
 
 /** Generate a deterministic hash for a suggestion to enable idempotency checks. */
-function hashSuggestion(reviewId: string, suggestionText: string): string {
+export function hashSuggestion(reviewId: string, suggestionText: string): string {
   const combined = `${reviewId}:${suggestionText}`
   const hash = crypto.createHash('sha256').update(combined).digest('hex')
   // Use first 16 chars for readability (still very unlikely to collide)
   return hash.substring(0, 16)
 }
 
-export default async function handler(req: IncomingMessage, res: ServerResponse) {
-  // CORS: Allow cross-origin requests
-  res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+// Extracted helper functions to reduce complexity
 
-  if (req.method === 'OPTIONS') {
-    res.statusCode = 204
-    res.end()
-    return
+interface SupabaseCredentials {
+  supabaseUrl?: string
+  supabaseAnonKey?: string
+}
+
+function parseSupabaseCredentials(body: {
+  supabaseUrl?: unknown
+  supabaseAnonKey?: unknown
+}): SupabaseCredentials {
+  const supabaseUrl =
+    (typeof body.supabaseUrl === 'string' ? body.supabaseUrl.trim() : undefined) ||
+    process.env.SUPABASE_URL?.trim() ||
+    process.env.VITE_SUPABASE_URL?.trim() ||
+    undefined
+  const supabaseAnonKey =
+    (typeof body.supabaseAnonKey === 'string' ? body.supabaseAnonKey.trim() : undefined) ||
+    process.env.SUPABASE_ANON_KEY?.trim() ||
+    process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
+    undefined
+  return { supabaseUrl, supabaseAnonKey }
+}
+
+function extractExistingHashes(tickets: Array<{ body_md?: string | null }>): Set<string> {
+  const existingHashes = new Set<string>()
+  for (const ticket of tickets) {
+    const bodyMd = ticket.body_md || ''
+    const hashMatch = bodyMd.match(/<!-- review-hash: ([a-z0-9]+) -->/)
+    if (hashMatch) {
+      existingHashes.add(hashMatch[1])
+    }
   }
+  return existingHashes
+}
 
-  if (req.method !== 'POST') {
-    res.statusCode = 405
-    res.end('Method Not Allowed')
-    return
-  }
-
+async function getNextTicketNumber(
+  supabase: ReturnType<typeof createClient>,
+  repoFullName: string
+): Promise<number> {
   try {
-    // Deprecated (2026-02): This endpoint created tickets automatically from Process Review suggestions.
-    // The intended flow is now:
-    // 1) run Process Review to generate suggestions
-    // 2) show suggestions in a UI modal
-    // 3) only create tickets after the user explicitly clicks "Implement"
-    //
-    // Ticket creation should happen via `/api/tickets/create` (single-suggestion mode) from the Implement action.
-    json(res, 410, {
-      success: false,
-      error:
-        'Deprecated: /api/process-review/create-tickets has been removed. Create Process Review tickets only via explicit UI "Implement" using /api/tickets/create.',
-    })
-    return
-
-    const body = (await readJsonBody(req)) as {
-      reviewId?: string
-      sourceTicketId?: string
-      sourceTicketPk?: string
-      suggestions?: Array<{ text: string; justification: string }>
-      supabaseUrl?: string
-      supabaseAnonKey?: string
-    }
-
-    const reviewId = typeof body.reviewId === 'string' ? body.reviewId.trim() : undefined
-    const sourceTicketPk = typeof body.sourceTicketPk === 'string' ? body.sourceTicketPk.trim() : undefined
-    const sourceTicketId = typeof body.sourceTicketId === 'string' ? body.sourceTicketId.trim() : undefined
-    const suggestions = Array.isArray(body.suggestions)
-      ? body.suggestions.filter((s) => s && typeof s.text === 'string' && s.text.trim())
-      : []
-
-    // Use credentials from request body if provided, otherwise fall back to server environment variables
-    const supabaseUrl =
-      (typeof body.supabaseUrl === 'string' ? body.supabaseUrl.trim() : undefined) ||
-      process.env.SUPABASE_URL?.trim() ||
-      process.env.VITE_SUPABASE_URL?.trim() ||
-      undefined
-    const supabaseAnonKey =
-      (typeof body.supabaseAnonKey === 'string' ? body.supabaseAnonKey.trim() : undefined) ||
-      process.env.SUPABASE_ANON_KEY?.trim() ||
-      process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
-      undefined
-
-    if ((!sourceTicketPk && !sourceTicketId) || !supabaseUrl || !supabaseAnonKey) {
-      json(res, 400, {
-        success: false,
-        error: 'sourceTicketPk (preferred) or sourceTicketId, reviewId, and Supabase credentials are required.',
-      })
-      return
-    }
-
-    if (!reviewId) {
-      json(res, 400, {
-        success: false,
-        error: 'reviewId is required for idempotency checks.',
-      })
-      return
-    }
-
-    if (suggestions.length === 0) {
-      json(res, 200, {
-        success: true,
-        created: [],
-        skipped: [],
-        errors: [],
-        message: 'No suggestions to create tickets for.',
-      })
-      return
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseAnonKey)
-
-    // Fetch source ticket to get repo info
-    const sourceTicketQuery = sourceTicketPk
-      ? await supabase.from('tickets').select('pk, id, display_id, title, repo_full_name').eq('pk', sourceTicketPk).maybeSingle()
-      : await supabase.from('tickets').select('pk, id, display_id, title, repo_full_name').eq('id', sourceTicketId!).maybeSingle()
-
-    if (sourceTicketQuery.error || !sourceTicketQuery.data) {
-      json(res, 200, {
-        success: false,
-        error: `Source ticket not found: ${sourceTicketQuery.error?.message || 'Unknown error'}`,
-      })
-      return
-    }
-
-    const sourceTicket = sourceTicketQuery.data
-    const repoFullName = sourceTicket.repo_full_name || 'legacy/unknown'
-    const prefix = repoHintPrefix(repoFullName)
-    const sourceRef = sourceTicket.display_id || sourceTicket.id
-
-    // Check for existing tickets created from this review (idempotency check)
-    // We'll check by looking for tickets with a specific pattern in the title or body
-    // that includes the reviewId hash
-    const existingTicketsQuery = await supabase
+    const { data: existingRows, error: fetchError } = await supabase
       .from('tickets')
-      .select('pk, id, title, body_md')
+      .select('ticket_number')
       .eq('repo_full_name', repoFullName)
-      .like('title', `%${sourceRef} Process Review%`)
       .order('ticket_number', { ascending: false })
+      .limit(1)
 
-    const existingTickets = existingTicketsQuery.data || []
-    const existingHashes = new Set<string>()
-    
-    // Extract reviewId hashes from existing tickets' body_md
-    for (const ticket of existingTickets) {
-      const bodyMd = ticket.body_md || ''
-      const hashMatch = bodyMd.match(/<!-- review-hash: ([a-z0-9]+) -->/)
-      if (hashMatch) {
-        existingHashes.add(hashMatch[1])
-      }
+    if (!fetchError && existingRows && existingRows.length > 0) {
+      const maxNum = (existingRows[0] as { ticket_number?: number }).ticket_number ?? 0
+      return maxNum + 1
     }
+  } catch {
+    // Fallback to 1 if query fails
+  }
+  return 1
+}
 
-    // Determine next ticket number (repo-scoped)
-    let startNum = 1
-    try {
-      const { data: existingRows, error: fetchError } = await supabase
-        .from('tickets')
-        .select('ticket_number')
-        .eq('repo_full_name', repoFullName)
-        .order('ticket_number', { ascending: false })
-        .limit(1)
-
-      if (!fetchError && existingRows && existingRows.length > 0) {
-        const maxNum = (existingRows[0] as { ticket_number?: number }).ticket_number ?? 0
-        startNum = maxNum + 1
-      }
-    } catch {
-      // Fallback to 1 if query fails
-    }
-
-    const created: Array<{ ticketId: string; id: string; pk: string }> = []
-    const skipped: Array<{ suggestion: string; reason: string }> = []
-    const errors: Array<{ suggestion: string; error: string }> = []
-    let currentTicketNum = startNum
-
-    // Create one ticket per suggestion
-    for (const suggestion of suggestions) {
-      const suggestionText = suggestion.text.trim()
-      const suggestionHash = hashSuggestion(reviewId, suggestionText)
-
-      // Check if this suggestion was already processed (idempotency)
-      if (existingHashes.has(suggestionHash)) {
-        skipped.push({
-          suggestion: suggestionText,
-          reason: 'Ticket already exists for this suggestion (idempotency check)',
-        })
-        continue
-      }
-
-      // Generate ticket content from single suggestion
-      const title = `Improve agent instructions: ${suggestionText.slice(0, 60)}${suggestionText.length > 60 ? '...' : ''}`
-      const bodyMd = `# Ticket
+function generateTicketBody(
+  sourceRef: string,
+  reviewId: string,
+  suggestionHash: string,
+  suggestionText: string,
+  justification?: string
+): string {
+  return `# Ticket
 
 - **ID**: (auto-assigned)
 - **Title**: (auto-assigned)
@@ -270,71 +167,294 @@ Updated agent rules, templates, or process documentation that addresses the sugg
 
 ## Justification
 
-${suggestion.justification || 'No justification provided.'}
+${justification || 'No justification provided.'}
 
 ## Implementation notes (optional)
 
 This ticket was automatically created from Process Review suggestion for ticket ${sourceRef}. Review the suggestion above and implement the appropriate improvements to agent instructions, rules, or process documentation.
 `
+}
 
-      // Try to create ticket with retries for ID collisions
-      const MAX_RETRIES = 10
-      let lastInsertError: { code?: string; message?: string } | null = null
-      let ticketCreated = false
+interface TicketCreationResult {
+  ticketId: string
+  id: string
+  pk: string
+}
 
-      for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-        const candidateNum = currentTicketNum + attempt
-        const displayId = `${prefix}-${String(candidateNum).padStart(4, '0')}`
-        const id = String(candidateNum)
-        const filename = `${String(candidateNum).padStart(4, '0')}-${slugFromTitle(title)}.md`
-        const now = new Date().toISOString()
-        const ticketPk = crypto.randomUUID()
+async function createTicketWithRetry(
+  supabase: ReturnType<typeof createClient>,
+  repoFullName: string,
+  prefix: string,
+  title: string,
+  bodyMd: string,
+  startNum: number,
+  MAX_RETRIES: number
+): Promise<{ success: true; result: TicketCreationResult; nextNum: number } | { success: false; error: string }> {
+  let lastInsertError: { code?: string; message?: string } | null = null
 
-        try {
-          const insert = await supabase.from('tickets').insert({
-            pk: ticketPk,
-            repo_full_name: repoFullName,
-            ticket_number: candidateNum,
-            display_id: displayId,
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const candidateNum = startNum + attempt
+    const displayId = `${prefix}-${String(candidateNum).padStart(4, '0')}`
+    const id = String(candidateNum)
+    const filename = `${String(candidateNum).padStart(4, '0')}-${slugFromTitle(title)}.md`
+    const now = new Date().toISOString()
+    const ticketPk = crypto.randomUUID()
+
+    try {
+      const insert = await supabase.from('tickets').insert({
+        pk: ticketPk,
+        repo_full_name: repoFullName,
+        ticket_number: candidateNum,
+        display_id: displayId,
+        id,
+        filename,
+        title: `${displayId} — ${title}`,
+        body_md: bodyMd,
+        kanban_column_id: 'col-unassigned',
+        kanban_position: 0,
+        kanban_moved_at: now,
+      })
+
+      if (!insert.error) {
+        return {
+          success: true,
+          result: {
+            ticketId: displayId,
             id,
-            filename,
-            title: `${displayId} — ${title}`,
-            body_md: bodyMd,
-            kanban_column_id: 'col-unassigned',
-            kanban_position: 0,
-            kanban_moved_at: now,
-          })
-
-          if (!insert.error) {
-            created.push({
-              ticketId: displayId,
-              id,
-              pk: ticketPk,
-            })
-            ticketCreated = true
-            currentTicketNum = candidateNum + 1
-            break
-          }
-
-          // Check if it's a unique violation (we can retry)
-          if (!isUniqueViolation(insert.error)) {
-            lastInsertError = insert.error
-            break
-          }
-
-          lastInsertError = insert.error
-        } catch (err) {
-          lastInsertError = err as { code?: string; message?: string }
+            pk: ticketPk,
+          },
+          nextNum: candidateNum + 1,
         }
       }
 
-      if (!ticketCreated) {
-        errors.push({
-          suggestion: suggestionText,
-          error: `Could not create ticket after ${MAX_RETRIES} attempts. ${lastInsertError?.message || 'Unknown error'}`,
-        })
+      // Check if it's a unique violation (we can retry)
+      if (!isUniqueViolation(insert.error)) {
+        lastInsertError = insert.error
+        break
       }
+
+      lastInsertError = insert.error
+    } catch (err) {
+      lastInsertError = err as { code?: string; message?: string }
     }
+  }
+
+  return {
+    success: false,
+    error: `Could not create ticket after ${MAX_RETRIES} attempts. ${lastInsertError?.message || 'Unknown error'}`,
+  }
+}
+
+interface RequestBody {
+  reviewId?: string
+  sourceTicketId?: string
+  sourceTicketPk?: string
+  suggestions?: Array<{ text: string; justification: string }>
+  supabaseUrl?: string
+  supabaseAnonKey?: string
+}
+
+interface ParsedRequest {
+  reviewId: string
+  sourceTicketPk?: string
+  sourceTicketId?: string
+  suggestions: Array<{ text: string; justification: string }>
+  supabaseUrl: string
+  supabaseAnonKey: string
+}
+
+function parseRequestBody(body: unknown): ParsedRequest | { error: string } {
+  const b = body as RequestBody
+  const reviewId = typeof b.reviewId === 'string' ? b.reviewId.trim() : undefined
+  const sourceTicketPk = typeof b.sourceTicketPk === 'string' ? b.sourceTicketPk.trim() : undefined
+  const sourceTicketId = typeof b.sourceTicketId === 'string' ? b.sourceTicketId.trim() : undefined
+  const suggestions = Array.isArray(b.suggestions)
+    ? b.suggestions.filter((s) => s && typeof s.text === 'string' && s.text.trim())
+    : []
+
+  const { supabaseUrl, supabaseAnonKey } = parseSupabaseCredentials(b)
+
+  if ((!sourceTicketPk && !sourceTicketId) || !supabaseUrl || !supabaseAnonKey) {
+    return { error: 'sourceTicketPk (preferred) or sourceTicketId, reviewId, and Supabase credentials are required.' }
+  }
+
+  if (!reviewId) {
+    return { error: 'reviewId is required for idempotency checks.' }
+  }
+
+  return { reviewId, sourceTicketPk, sourceTicketId, suggestions, supabaseUrl, supabaseAnonKey }
+}
+
+interface SourceTicketInfo {
+  repoFullName: string
+  prefix: string
+  sourceRef: string
+}
+
+async function fetchSourceTicketInfo(
+  supabase: ReturnType<typeof createClient>,
+  sourceTicketPk?: string,
+  sourceTicketId?: string
+): Promise<SourceTicketInfo | { error: string }> {
+  const sourceTicketQuery = sourceTicketPk
+    ? await supabase.from('tickets').select('pk, id, display_id, title, repo_full_name').eq('pk', sourceTicketPk).maybeSingle()
+    : await supabase.from('tickets').select('pk, id, display_id, title, repo_full_name').eq('id', sourceTicketId!).maybeSingle()
+
+  if (sourceTicketQuery.error || !sourceTicketQuery.data) {
+    return { error: `Source ticket not found: ${sourceTicketQuery.error?.message || 'Unknown error'}` }
+  }
+
+  const sourceTicket = sourceTicketQuery.data
+  const repoFullName = sourceTicket.repo_full_name || 'legacy/unknown'
+  const prefix = repoHintPrefix(repoFullName)
+  const sourceRef = sourceTicket.display_id || sourceTicket.id
+
+  return { repoFullName, prefix, sourceRef }
+}
+
+interface ProcessSuggestionResult {
+  created: Array<{ ticketId: string; id: string; pk: string }>
+  skipped: Array<{ suggestion: string; reason: string }>
+  errors: Array<{ suggestion: string; error: string }>
+}
+
+async function processSuggestions(
+  supabase: ReturnType<typeof createClient>,
+  reviewId: string,
+  suggestions: Array<{ text: string; justification: string }>,
+  repoFullName: string,
+  prefix: string,
+  sourceRef: string,
+  existingHashes: Set<string>,
+  startNum: number
+): Promise<ProcessSuggestionResult> {
+  const created: Array<{ ticketId: string; id: string; pk: string }> = []
+  const skipped: Array<{ suggestion: string; reason: string }> = []
+  const errors: Array<{ suggestion: string; error: string }> = []
+  let currentTicketNum = startNum
+  const MAX_RETRIES = 10
+
+  for (const suggestion of suggestions) {
+    const suggestionText = suggestion.text.trim()
+    const suggestionHash = hashSuggestion(reviewId, suggestionText)
+
+    // Check if this suggestion was already processed (idempotency)
+    if (existingHashes.has(suggestionHash)) {
+      skipped.push({
+        suggestion: suggestionText,
+        reason: 'Ticket already exists for this suggestion (idempotency check)',
+      })
+      continue
+    }
+
+    // Generate ticket content from single suggestion
+    const title = `Improve agent instructions: ${suggestionText.slice(0, 60)}${suggestionText.length > 60 ? '...' : ''}`
+    const bodyMd = generateTicketBody(sourceRef, reviewId, suggestionHash, suggestionText, suggestion.justification)
+
+    // Try to create ticket with retries for ID collisions
+    const result = await createTicketWithRetry(supabase, repoFullName, prefix, title, bodyMd, currentTicketNum, MAX_RETRIES)
+
+    if (result.success) {
+      created.push(result.result)
+      currentTicketNum = result.nextNum
+    } else {
+      errors.push({
+        suggestion: suggestionText,
+        error: result.error,
+      })
+    }
+  }
+
+  return { created, skipped, errors }
+}
+
+function setCorsHeaders(res: ServerResponse) {
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+}
+
+export default async function handler(req: IncomingMessage, res: ServerResponse) {
+  setCorsHeaders(res)
+
+  if (req.method === 'OPTIONS') {
+    res.statusCode = 204
+    res.end()
+    return
+  }
+
+  if (req.method !== 'POST') {
+    res.statusCode = 405
+    res.end('Method Not Allowed')
+    return
+  }
+
+  try {
+    // Deprecated (2026-02): This endpoint created tickets automatically from Process Review suggestions.
+    // The intended flow is now:
+    // 1) run Process Review to generate suggestions
+    // 2) show suggestions in a UI modal
+    // 3) only create tickets after the user explicitly clicks "Implement"
+    //
+    // Ticket creation should happen via `/api/tickets/create` (single-suggestion mode) from the Implement action.
+    json(res, 410, {
+      success: false,
+      error:
+        'Deprecated: /api/process-review/create-tickets has been removed. Create Process Review tickets only via explicit UI "Implement" using /api/tickets/create.',
+    })
+    return
+
+    const body = await readJsonBody(req)
+    const parsed = parseRequestBody(body)
+
+    if ('error' in parsed) {
+      json(res, 400, { success: false, error: parsed.error })
+      return
+    }
+
+    if (parsed.suggestions.length === 0) {
+      json(res, 200, {
+        success: true,
+        created: [],
+        skipped: [],
+        errors: [],
+        message: 'No suggestions to create tickets for.',
+      })
+      return
+    }
+
+    const supabase = createClient(parsed.supabaseUrl, parsed.supabaseAnonKey)
+
+    const sourceInfo = await fetchSourceTicketInfo(supabase, parsed.sourceTicketPk, parsed.sourceTicketId)
+    if ('error' in sourceInfo) {
+      json(res, 200, { success: false, error: sourceInfo.error })
+      return
+    }
+
+    // Check for existing tickets created from this review (idempotency check)
+    const existingTicketsQuery = await supabase
+      .from('tickets')
+      .select('pk, id, title, body_md')
+      .eq('repo_full_name', sourceInfo.repoFullName)
+      .like('title', `%${sourceInfo.sourceRef} Process Review%`)
+      .order('ticket_number', { ascending: false })
+
+    const existingTickets = existingTicketsQuery.data || []
+    const existingHashes = extractExistingHashes(existingTickets)
+
+    // Determine next ticket number (repo-scoped)
+    const startNum = await getNextTicketNumber(supabase, sourceInfo.repoFullName)
+
+    const { created, skipped, errors } = await processSuggestions(
+      supabase,
+      parsed.reviewId,
+      parsed.suggestions,
+      sourceInfo.repoFullName,
+      sourceInfo.prefix,
+      sourceInfo.sourceRef,
+      existingHashes,
+      startNum
+    )
 
     // If any errors occurred, return partial success with error details
     if (errors.length > 0) {
