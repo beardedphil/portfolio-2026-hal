@@ -29,9 +29,12 @@ export function BootstrapScreen({
   const [error, setError] = useState<string | null>(null)
   const [expandedErrorStep, setExpandedErrorStep] = useState<string | null>(null)
   const [polling, setPolling] = useState(false)
-  const [supabaseManagementToken, setSupabaseManagementToken] = useState('')
-  const [supabaseOrganizationId, setSupabaseOrganizationId] = useState('')
-  const [supabaseProjectInfo, setSupabaseProjectInfo] = useState<SupabaseProjectInfo | null>(null)
+<<<<<<< HEAD
+  const [supabaseProject, setSupabaseProject] = useState<SupabaseProjectInfo | null>(null)
+  const [supabaseManagementApiToken, setSupabaseManagementApiToken] = useState('')
+  const [organizationId, setOrganizationId] = useState('')
+  const [projectName, setProjectName] = useState('')
+  const [region, setRegion] = useState('us-east-1')
   const [previewUrl, setPreviewUrl] = useState('')
 
   const loadBootstrapRun = useCallback(async () => {
@@ -174,6 +177,13 @@ export function BootstrapScreen({
           }
         }
 
+        // Add preview URL for verify_preview step
+        if (run?.current_step === 'verify_preview') {
+          if (previewUrl) {
+            stepParams.previewUrl = previewUrl
+          }
+        }
+
         const response = await fetch(`${apiBaseUrl}/api/bootstrap/step`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -196,19 +206,25 @@ export function BootstrapScreen({
         }
 
         // If step succeeded and there are more steps, continue
+<<<<<<< HEAD
+        // Skip auto-execution for steps that require manual input
         if (result.stepResult.success && result.run.status === 'running') {
-          // Wait a bit before executing next step
-          setTimeout(() => {
-            executeNextStep(runId)
-          }, 500)
+          const nextStep = result.run.current_step
+          // Don't auto-execute steps that require user input
+          if (nextStep !== 'create_supabase_project' && nextStep !== 'verify_preview') {
+            // Wait a bit before executing next step
+            setTimeout(() => {
+              executeNextStep(runId)
+            }, 500)
+          }
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to execute step')
         await loadBootstrapRun()
+        await loadSupabaseProject()
       }
     },
-<<<<<<< HEAD
-    [supabaseUrl, supabaseAnonKey, apiBaseUrl, loadBootstrapRun, run?.current_step, supabaseManagementToken, supabaseOrganizationId, loadSupabaseProjectInfo, previewUrl]
+    [supabaseUrl, supabaseAnonKey, apiBaseUrl, loadBootstrapRun, loadSupabaseProject, run, supabaseManagementApiToken, organizationId, projectName, region, previewUrl]
   )
 
   const retryStep = useCallback(
@@ -411,8 +427,6 @@ export function BootstrapScreen({
                         </div>
                         <p style={{ margin: '0.5rem 0 0 0', color: '#666', fontSize: '0.9rem' }}>{stepDef.description}</p>
 
-<<<<<<< HEAD
-=======
                         {/* Show input fields for create_supabase_project step when pending */}
                         {stepDef.id === 'create_supabase_project' && status === 'pending' && (
                           <div style={{ marginTop: '1rem', padding: '1rem', background: '#f9f9f9', borderRadius: '4px' }}>
@@ -523,6 +537,80 @@ export function BootstrapScreen({
                             >
                               {loading ? 'Creating...' : 'Create Supabase Project'}
                             </button>
+                          </div>
+                        )}
+
+                        {/* Show input field for verify_preview step when pending */}
+                        {stepDef.id === 'verify_preview' && status === 'pending' && (
+                          <div style={{ marginTop: '1rem', padding: '1rem', background: '#f9f9f9', borderRadius: '4px' }}>
+                            <h4 style={{ marginBottom: '0.75rem', fontSize: '0.9rem' }}>Preview URL Configuration</h4>
+                            <p style={{ marginBottom: '0.75rem', fontSize: '0.85rem', color: '#666' }}>
+                              Enter the Vercel preview deployment URL to verify. The verification will poll /version.json until the preview is live.
+                            </p>
+                            <div style={{ marginBottom: '0.75rem' }}>
+                              <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.85rem', fontWeight: 'bold' }}>
+                                Preview URL *
+                              </label>
+                              <input
+                                type="url"
+                                value={previewUrl}
+                                onChange={(e) => setPreviewUrl(e.target.value)}
+                                placeholder="https://your-project-abc123.vercel.app"
+                                style={{
+                                  width: '100%',
+                                  padding: '0.5rem',
+                                  border: '1px solid #ddd',
+                                  borderRadius: '4px',
+                                  fontSize: '0.9rem',
+                                }}
+                              />
+                              <p style={{ marginTop: '0.25rem', fontSize: '0.75rem', color: '#666' }}>
+                                This should be the Vercel preview deployment URL (e.g., from the Vercel dashboard or GitHub PR checks).
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              className="primary btn-standard"
+                              onClick={() => {
+                                if (!previewUrl) {
+                                  setError('Please provide a preview URL')
+                                  return
+                                }
+                                if (run) {
+                                  executeNextStep(run.id)
+                                }
+                              }}
+                              disabled={loading || !previewUrl}
+                              style={{ marginTop: '0.75rem', width: '100%' }}
+                            >
+                              {loading ? 'Verifying...' : 'Start Verification'}
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Show in-progress state for verify_preview step */}
+                        {stepDef.id === 'verify_preview' && status === 'running' && (
+                          <div style={{ marginTop: '1rem', padding: '1rem', background: '#fff3cd', borderRadius: '4px', border: '1px solid #ff9800' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                              <span style={{ fontSize: '1.2rem' }}>⏳</span>
+                              <strong style={{ fontSize: '0.9rem' }}>Verifying preview…</strong>
+                            </div>
+                            <p style={{ margin: 0, fontSize: '0.85rem', color: '#666' }}>
+                              Polling /version.json on {previewUrl || 'the preview URL'}... This may take a minute while the preview deployment finishes.
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Show success state for verify_preview step */}
+                        {stepDef.id === 'verify_preview' && status === 'succeeded' && (
+                          <div style={{ marginTop: '1rem', padding: '1rem', background: '#e8f5e9', borderRadius: '4px', border: '1px solid #4caf50' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                              <span style={{ fontSize: '1.2rem' }}>✓</span>
+                              <strong style={{ fontSize: '0.9rem', color: '#2e7d32' }}>Preview verified</strong>
+                            </div>
+                            <p style={{ margin: 0, fontSize: '0.85rem', color: '#2e7d32' }}>
+                              Successfully fetched /version.json from {previewUrl || 'the preview URL'}. The preview deployment is live and ready.
+                            </p>
                           </div>
                         )}
 

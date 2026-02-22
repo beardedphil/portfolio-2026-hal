@@ -20,12 +20,12 @@ async function executeStep(
   stepId: BootstrapStepId,
   projectId: string,
   runId: string,
-  supabase: ReturnType<typeof createClient>,
-  context?: {
-    supabaseManagementToken?: string
-    supabaseOrganizationId?: string
-    supabaseProjectName?: string
-    supabaseRegion?: string
+  supabase: any,
+  stepParams?: {
+    supabaseManagementApiToken?: string
+    organizationId?: string
+    projectName?: string
+    region?: string
     previewUrl?: string
   }
 ): Promise<{ success: boolean; error?: string; errorDetails?: string }> {
@@ -149,26 +149,27 @@ async function executeStep(
       return { success: true }
 
     case 'verify_preview': {
+<<<<<<< HEAD
       // Get preview URL from context or environment
       // For now, we'll try to get it from context or construct it from project info
-      // In a full implementation, this would come from Vercel API after create_vercel_project
-      const previewUrl = context?.previewUrl || process.env.VERCEL_PREVIEW_URL
-      
+      // Get preview URL from step parameters or bootstrap run metadata
+      const previewUrl = stepParams?.previewUrl as string | undefined
+
       if (!previewUrl) {
         return {
           success: false,
           error: 'Preview URL is required',
-          errorDetails: 'Preview URL must be provided to verify the deployment. This should be set after the Vercel project is created.',
+          errorDetails: 'Please provide a preview URL to verify. The preview URL should be available after the Vercel project is created.',
         }
       }
 
-      // Normalize URL (ensure it has protocol)
-      const normalizedUrl = previewUrl.startsWith('http') ? previewUrl : `https://${previewUrl}`
+      // Normalize URL (ensure it has protocol, remove trailing slash)
+      const normalizedUrl = previewUrl.trim().startsWith('http') ? previewUrl.trim() : `https://${previewUrl.trim()}`
       const versionJsonUrl = `${normalizedUrl.replace(/\/$/, '')}/version.json`
 
       // Poll /version.json with retries
-      const maxAttempts = 30 // Try for up to 5 minutes (30 * 10s)
-      const pollInterval = 10000 // 10 seconds between attempts
+      const maxAttempts = 30 // 30 attempts
+      const pollIntervalMs = 2000 // 2 seconds between attempts
       let lastError: string | null = null
       let lastStatusCode: number | null = null
 
@@ -187,11 +188,12 @@ async function executeStep(
             // Verify it's valid JSON
             const data = await response.json()
             
-            // Basic validation - check if it looks like version.json
-            if (data && typeof data === 'object') {
+            // Basic validation: check if it looks like a version.json payload
+            if (typeof data === 'object' && data !== null) {
+              // Success! Preview is live and /version.json is accessible
               return { success: true }
             } else {
-              lastError = 'Invalid response format'
+              lastError = 'Invalid JSON response from /version.json'
               lastStatusCode = response.status
             }
           } else {
@@ -200,34 +202,34 @@ async function executeStep(
           }
         } catch (err) {
           if (err instanceof Error) {
-            // Check if it's a timeout
-            if (err.name === 'AbortError' || err.message.includes('timeout')) {
+            // Handle timeout or network errors
+            if (err.name === 'TimeoutError' || err.name === 'AbortError' || err.message.includes('timeout')) {
               lastError = 'Request timeout'
-            } else if (err.message.includes('ECONNREFUSED') || err.message.includes('ENOTFOUND')) {
-              lastError = 'Network error: Could not connect to preview'
+            } else if (err.message.includes('fetch failed') || err.message.includes('ECONNREFUSED') || err.message.includes('ENOTFOUND')) {
+              lastError = 'Network error: Preview not reachable'
             } else {
               lastError = `Network error: ${err.message}`
             }
           } else {
-            lastError = 'Unknown network error'
+            lastError = 'Unknown error occurred'
           }
         }
 
         // If not the last attempt, wait before retrying
         if (attempt < maxAttempts) {
-          await new Promise((resolve) => setTimeout(resolve, pollInterval))
+          await new Promise((resolve) => setTimeout(resolve, pollIntervalMs))
         }
       }
 
       // All attempts failed
-      const errorMessage = lastStatusCode 
-        ? `Preview not ready: ${lastError} (Status: ${lastStatusCode})`
-        : `Preview not ready: ${lastError || 'Unknown error'}`
-      
+      const errorMessage = lastStatusCode
+        ? `Preview verification failed after ${maxAttempts} attempts. Last error: ${lastError} (Status: ${lastStatusCode})`
+        : `Preview verification failed after ${maxAttempts} attempts. Last error: ${lastError || 'Unknown error'}`
+
       return {
         success: false,
         error: errorMessage,
-        errorDetails: `Failed to reach ${versionJsonUrl} after ${maxAttempts} attempts. The preview deployment may still be building. You can retry this step once the preview is available.`,
+        errorDetails: `Unable to reach ${versionJsonUrl} after ${maxAttempts} attempts (${maxAttempts * pollIntervalMs / 1000} seconds). The preview deployment may still be building, or the URL may be incorrect.`,
       }
     }
 
@@ -264,10 +266,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       stepId?: string
       supabaseUrl?: string
       supabaseAnonKey?: string
-      supabaseManagementToken?: string
-      supabaseOrganizationId?: string
-      supabaseProjectName?: string
-      supabaseRegion?: string
+      supabaseManagementApiToken?: string
+      organizationId?: string
+      projectName?: string
+      region?: string
       previewUrl?: string
     }
 
@@ -359,16 +361,15 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       })
       .eq('id', runId)
 
-<<<<<<< HEAD
-    // Execute the step with context
-    const stepContext = {
-      supabaseManagementToken: typeof body.supabaseManagementToken === 'string' ? body.supabaseManagementToken.trim() : undefined,
-      supabaseOrganizationId: typeof body.supabaseOrganizationId === 'string' ? body.supabaseOrganizationId.trim() : undefined,
-      supabaseProjectName: typeof body.supabaseProjectName === 'string' ? body.supabaseProjectName.trim() : undefined,
-      supabaseRegion: typeof body.supabaseRegion === 'string' ? body.supabaseRegion.trim() : undefined,
+    // Execute the step with step-specific parameters
+    const stepParams = {
+      supabaseManagementApiToken: typeof body.supabaseManagementApiToken === 'string' ? body.supabaseManagementApiToken.trim() : undefined,
+      organizationId: typeof body.organizationId === 'string' ? body.organizationId.trim() : undefined,
+      projectName: typeof body.projectName === 'string' ? body.projectName.trim() : undefined,
+      region: typeof body.region === 'string' ? body.region.trim() : undefined,
       previewUrl: typeof body.previewUrl === 'string' ? body.previewUrl.trim() : undefined,
     }
-    const stepResult = await executeStep(stepId, run.project_id, runId, supabase, stepContext)
+    const stepResult = await executeStep(stepId, run.project_id, runId, supabase, stepParams)
 
     // Update step with result
     const completedStepHistory = updateStepRecord(runningStepHistory, stepId, {
