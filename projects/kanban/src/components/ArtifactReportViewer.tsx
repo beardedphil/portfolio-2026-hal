@@ -155,22 +155,20 @@ export function ArtifactReportViewer({
         return
       }
       if (e.key !== 'Tab' || !modalRef.current) return
-      const focusable = modalRef.current.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      const focusable = Array.from(
+        modalRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
       )
-      const list = Array.from(focusable)
-      const first = list[0]
-      const last = list[list.length - 1]
-      if (e.shiftKey) {
-        if (document.activeElement === first) {
-          e.preventDefault()
-          last?.focus()
-        }
-      } else {
-        if (document.activeElement === last) {
-          e.preventDefault()
-          first?.focus()
-        }
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const activeEl = document.activeElement
+      if (e.shiftKey && activeEl === first) {
+        e.preventDefault()
+        last?.focus()
+      } else if (!e.shiftKey && activeEl === last) {
+        e.preventDefault()
+        first?.focus()
       }
     },
     [onClose, imageViewerOpen]
@@ -190,9 +188,6 @@ export function ArtifactReportViewer({
     return { img: ImageComponent }
   }, [artifact?.title, artifact?.body_md, handleImageClick])
 
-  // Check if this is a git-diff artifact
-  const isGitDiff = useMemo(() => isGitDiffArtifact(artifact), [artifact])
-
   // Calculate navigation state (0148) - sort artifacts chronologically (oldest first)
   const sortedArtifacts = useMemo(
     () => sortArtifactsChronologically(artifacts, artifact),
@@ -200,16 +195,15 @@ export function ArtifactReportViewer({
   )
   
   // Find the actual index of the current artifact in the sorted list
-  const actualIndex = useMemo(() => {
-    if (!artifact || !artifact.artifact_id) return -1
-    return sortedArtifacts.findIndex(a => a.artifact_id === artifact.artifact_id)
-  }, [sortedArtifacts, artifact])
-  
-  // Use actual index if found, otherwise fall back to currentIndex prop, or 0 if artifact is in the list
-  const effectiveIndex = actualIndex >= 0 ? actualIndex : (artifact && sortedArtifacts.length > 0 ? 0 : currentIndex)
+  const effectiveIndex = useMemo(() => {
+    if (!artifact?.artifact_id) return currentIndex
+    const foundIndex = sortedArtifacts.findIndex(a => a.artifact_id === artifact.artifact_id)
+    return foundIndex >= 0 ? foundIndex : (sortedArtifacts.length > 0 ? 0 : currentIndex)
+  }, [sortedArtifacts, artifact, currentIndex])
   
   const canGoPrevious = effectiveIndex > 0
   const canGoNext = effectiveIndex < sortedArtifacts.length - 1
+  const isGitDiff = artifact ? isGitDiffArtifact(artifact) : false
   
   const handlePrevious = useCallback(() => {
     if (canGoPrevious) {
@@ -227,13 +221,11 @@ export function ArtifactReportViewer({
   if (!open) return null
 
   // Handle invalid artifacts in render logic (not early returns after hooks)
-  // This ensures hooks are always called in the same order
-  const isValidArtifact = artifact && artifact.artifact_id
+  const isValidArtifact = artifact?.artifact_id
   const artifactTitle = isValidArtifact ? (artifact.title || 'Untitled Artifact') : 'Artifact Viewer'
   const artifactBodyMd = isValidArtifact ? (artifact.body_md || '') : ''
   const artifactCreatedAt = isValidArtifact ? (artifact.created_at || new Date().toISOString()) : new Date().toISOString()
   const artifactAgentType = isValidArtifact ? (artifact.agent_type || 'unknown') : 'unknown'
-
   const createdAt = new Date(artifactCreatedAt)
   const displayName = isValidArtifact ? getAgentTypeDisplayName(artifactAgentType) : 'Unknown'
 
