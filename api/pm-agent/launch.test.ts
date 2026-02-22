@@ -604,10 +604,9 @@ describe('PM agent launch thread lookup', () => {
       }
 
       mockSupabase.from
-        .mockReturnValueOnce(threadChain)
-        .mockReturnValueOnce(runInsertChain)
-        .mockReturnValueOnce(runUpdateChain)
-        .mockReturnValueOnce(runUpdateChain) // For error update
+        .mockReturnValueOnce(threadChain) // thread lookup
+        .mockReturnValueOnce(runInsertChain) // createRunRow
+        .mockReturnValueOnce(runUpdateChain) // updateRunOnError
 
       // Mock: Cursor API returns error
       vi.mocked(global.fetch).mockResolvedValueOnce({
@@ -658,10 +657,9 @@ describe('PM agent launch thread lookup', () => {
       }
 
       mockSupabase.from
-        .mockReturnValueOnce(threadChain)
-        .mockReturnValueOnce(runInsertChain)
-        .mockReturnValueOnce(runUpdateChain)
-        .mockReturnValueOnce(runUpdateChain) // For error update
+        .mockReturnValueOnce(threadChain) // thread lookup
+        .mockReturnValueOnce(runInsertChain) // createRunRow
+        .mockReturnValueOnce(runUpdateChain) // updateRunOnError
 
       // Mock: Cursor API returns invalid JSON
       vi.mocked(global.fetch).mockResolvedValueOnce({
@@ -711,10 +709,9 @@ describe('PM agent launch thread lookup', () => {
       }
 
       mockSupabase.from
-        .mockReturnValueOnce(threadChain)
-        .mockReturnValueOnce(runInsertChain)
-        .mockReturnValueOnce(runUpdateChain)
-        .mockReturnValueOnce(runUpdateChain) // For error update
+        .mockReturnValueOnce(threadChain) // thread lookup
+        .mockReturnValueOnce(runInsertChain) // createRunRow
+        .mockReturnValueOnce(runUpdateChain) // updateRunOnError
 
       // Mock: Cursor API returns response without ID
       vi.mocked(global.fetch).mockResolvedValueOnce({
