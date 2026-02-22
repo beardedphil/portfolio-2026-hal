@@ -22,29 +22,6 @@ export function BootstrapScreen({
   const [expandedErrorStep, setExpandedErrorStep] = useState<string | null>(null)
   const [polling, setPolling] = useState(false)
 
-  // Load bootstrap run on mount and when projectId changes
-  useEffect(() => {
-    loadBootstrapRun()
-  }, [projectId, loadBootstrapRun])
-
-  // Poll for status updates when run is active
-  useEffect(() => {
-    if (!run || (run.status !== 'pending' && run.status !== 'running')) {
-      setPolling(false)
-      return
-    }
-
-    setPolling(true)
-    const interval = setInterval(() => {
-      loadBootstrapRun()
-    }, 2000) // Poll every 2 seconds
-
-    return () => {
-      clearInterval(interval)
-      setPolling(false)
-    }
-  }, [run?.id, run?.status, loadBootstrapRun])
-
   const loadBootstrapRun = useCallback(async () => {
     try {
       setError(null)
@@ -75,6 +52,29 @@ export function BootstrapScreen({
       setError(err instanceof Error ? err.message : 'Failed to load bootstrap status')
     }
   }, [projectId, supabaseUrl, supabaseAnonKey, apiBaseUrl])
+
+  // Load bootstrap run on mount and when projectId changes
+  useEffect(() => {
+    loadBootstrapRun()
+  }, [projectId, loadBootstrapRun])
+
+  // Poll for status updates when run is active
+  useEffect(() => {
+    if (!run || (run.status !== 'pending' && run.status !== 'running')) {
+      setPolling(false)
+      return
+    }
+
+    setPolling(true)
+    const interval = setInterval(() => {
+      loadBootstrapRun()
+    }, 2000) // Poll every 2 seconds
+
+    return () => {
+      clearInterval(interval)
+      setPolling(false)
+    }
+  }, [run?.id, run?.status, loadBootstrapRun])
 
   const startBootstrap = useCallback(async () => {
     setLoading(true)
