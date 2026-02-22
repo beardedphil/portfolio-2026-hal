@@ -1,0 +1,9 @@
+{
+  "agents/src/agents/projectManager.ts": {
+    "maintainability": 90,
+    "complexity": 102,
+    "functionCount": 236,
+    "helperFunctionCount": 190,
+    "generatedAt": "2026-02-22T00:47:42.562Z"
+  }
+}

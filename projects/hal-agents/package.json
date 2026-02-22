@@ -19,10 +19,16 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "sync-tickets": "node scripts/sync-tickets.js"
+    "sync-tickets": "node scripts/sync-tickets.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
-    "typescript": "~5.6.0"
+    "@vitest/coverage-v8": "^4.0.18",
+    "@vitest/ui": "^4.0.18",
+    "typescript": "~5.6.0",
+    "vitest": "^4.0.18"
   },
   "dependencies": {
     "@ai-sdk/openai": "^1.2.0",

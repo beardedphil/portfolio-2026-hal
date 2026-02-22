@@ -142,6 +142,32 @@ export interface ReadyCheckResult {
  * No unresolved placeholders like `<AC 1>`, `<task-id>`, `<short-title>`, etc.
  * Future ticket edits must preserve these headings and structure to avoid breaking readiness.
  */
+/** Check if a section has placeholders. */
+function hasPlaceholders(content: string): boolean {
+  return (content.match(PLACEHOLDER_RE) ?? []).length > 0
+}
+
+/** Check if goal section is valid (non-empty, no placeholders, not just a placeholder tag). */
+function isValidGoal(goal: string): boolean {
+  const trimmed = goal.trim()
+  return goal.length > 0 && !hasPlaceholders(goal) && !/^<[^>]*>$/.test(trimmed)
+}
+
+/** Check if deliverable section is valid (non-empty, no placeholders). */
+function isValidDeliverable(deliverable: string): boolean {
+  return deliverable.length > 0 && !hasPlaceholders(deliverable)
+}
+
+/** Check if acceptance criteria section has checkboxes. */
+function hasAcceptanceCriteriaCheckboxes(ac: string): boolean {
+  return /-\s*\[\s*\]/.test(ac)
+}
+
+/** Check if a section is non-empty. */
+function isNonEmpty(section: string): boolean {
+  return section.length > 0
+}
+
 export function evaluateTicketReady(bodyMd: string): ReadyCheckResult {
   const body = bodyMd.trim()
   const goal = sectionContent(body, 'Goal (one sentence)')
@@ -150,13 +176,11 @@ export function evaluateTicketReady(bodyMd: string): ReadyCheckResult {
   const constraints = sectionContent(body, 'Constraints')
   const nonGoals = sectionContent(body, 'Non-goals')
 
-  const goalPlaceholders = goal.match(PLACEHOLDER_RE) ?? []
-  const deliverablePlaceholders = deliverable.match(PLACEHOLDER_RE) ?? []
-  const goalOk = goal.length > 0 && goalPlaceholders.length === 0 && !/^<[^>]*>$/.test(goal.trim())
-  const deliverableOk = deliverable.length > 0 && deliverablePlaceholders.length === 0
-  const acOk = /-\s*\[\s*\]/.test(ac)
-  const constraintsOk = constraints.length > 0
-  const nonGoalsOk = nonGoals.length > 0
+  const goalOk = isValidGoal(goal)
+  const deliverableOk = isValidDeliverable(deliverable)
+  const acOk = hasAcceptanceCriteriaCheckboxes(ac)
+  const constraintsOk = isNonEmpty(constraints)
+  const nonGoalsOk = isNonEmpty(nonGoals)
   const placeholders = body.match(PLACEHOLDER_RE) ?? []
   const noPlaceholdersOk = placeholders.length === 0
 
@@ -168,8 +192,10 @@ export function evaluateTicketReady(bodyMd: string): ReadyCheckResult {
   if (!nonGoalsOk) missingItems.push('Non-goals section missing or empty')
   if (!noPlaceholdersOk) missingItems.push(`Unresolved placeholders: ${placeholders.join(', ')}`)
 
+  const allReady = goalOk && deliverableOk && acOk && constraintsOk && nonGoalsOk && noPlaceholdersOk
+
   return {
-    ready: goalOk && deliverableOk && acOk && constraintsOk && nonGoalsOk && noPlaceholdersOk,
+    ready: allReady,
     missingItems,
     checklistResults: {
       goal: goalOk,
@@ -313,8 +339,6 @@ export async function checkUnassignedTickets(
   }
 }
 
-const SIGNATURE = '[PM@hal-agents]'
-
 // --- Legacy respond (kept for backward compatibility) ---
 
 export type RespondContext = {
@@ -337,28 +361,40 @@ export type RespondOutput = {
 }
 
 const STANDUP_TRIGGERS = ['standup', 'status']
+const SIGNATURE = '[PM@hal-agents]'
 
+/** Check if message is a standup/status request. */
 function isStandupOrStatus(message: string): boolean {
   const normalized = message.trim().toLowerCase()
-  return STANDUP_TRIGGERS.some((t) => normalized.includes(t))
+  return STANDUP_TRIGGERS.some((trigger) => normalized.includes(trigger))
+}
+
+/** Generate standup response text. */
+function getStandupResponse(): string {
+  return `${SIGNATURE} Standup summary:
+• Reviewed ticket backlog
+• No blockers identified
+• Ready to assist with prioritization`
+}
+
+/** Generate default response text. */
+function getDefaultResponse(): string {
+  return `${SIGNATURE} Message received. Here's a quick checklist to move forward:
+• [ ] Clarify scope if needed
+• [ ] Confirm priority with stakeholder
+• [ ] Break down into tasks when ready`
 }
 
 export function respond(input: RespondInput): RespondOutput {
   const { message } = input
   if (isStandupOrStatus(message)) {
     return {
-      replyText: `${SIGNATURE} Standup summary:
-• Reviewed ticket backlog
-• No blockers identified
-• Ready to assist with prioritization`,
+      replyText: getStandupResponse(),
       meta: { source: 'hal-agents', case: 'standup' },
     }
   }
   return {
-    replyText: `${SIGNATURE} Message received. Here's a quick checklist to move forward:
-• [ ] Clarify scope if needed
-• [ ] Confirm priority with stakeholder
-• [ ] Break down into tasks when ready`,
+    replyText: getDefaultResponse(),
     meta: { source: 'hal-agents', case: 'default' },
   }
 }
