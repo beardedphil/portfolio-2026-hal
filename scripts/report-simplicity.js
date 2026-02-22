@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 
 /**
- * Reports a single repo-wide Simplicity metric for QA reports.
+ * Reports a single repo-wide Code Quality metric for QA reports.
  * Uses TypeScript compiler API to compute a maintainability index per file:
  *   - AST-based cyclomatic complexity (McCabe)
  *   - Real Halstead volume (operator/operand counting)
  *   - Microsoft formula: MI = 171 - 5.2*ln(HV) - 0.23*CC - 16.2*ln(LOC)
  * Averages across the repo (same scope as coverage: src, api, agents, projects).
- * Outputs "Simplicity: XX%" for QA reports and the dashboard.
+ * Outputs "Code Quality: XX%" for QA reports and the dashboard.
  */
 
 import fs from 'fs'
@@ -278,7 +278,7 @@ function writeJson(filePath, data) {
 function main() {
   const filePaths = collectAllPaths()
   if (filePaths.length === 0) {
-    console.log('Simplicity: N/A')
+    console.log('Code Quality: N/A')
     process.exit(0)
   }
 
@@ -298,59 +298,79 @@ function main() {
   }
 
   if (count === 0) {
-    console.log('Simplicity: N/A')
+    console.log('Code Quality: N/A')
     process.exit(0)
   }
 
   const overallAvg = sum / count
   // Maintainability index is typically 0–171; scale to 0–100 and clamp
-  const unroundedMaintainability = Math.min(100, Math.max(0, (overallAvg / 171) * 100))
-  const maintainabilityPct = Math.round(unroundedMaintainability)
-  console.log(`Simplicity: ${maintainabilityPct}%`)
+  const unroundedCodeQuality = Math.min(100, Math.max(0, (overallAvg / 171) * 100))
+  const codeQualityPct = Math.round(unroundedCodeQuality)
+  console.log(`Code Quality: ${codeQualityPct}%`)
 
   // Update repo metrics file for dashboard (no QA report parsing)
   const metricsPath = path.join(ROOT_DIR, 'public', 'metrics.json')
-  let metrics = { coverage: null, maintainability: null, updatedAt: null }
+  let metrics = { coverage: null, codeQuality: null, updatedAt: null }
   try {
     const raw = fs.readFileSync(metricsPath, 'utf8')
     metrics = { ...metrics, ...JSON.parse(raw) }
   } catch (_) {}
-  // Write new field names
-  metrics.maintainability = maintainabilityPct
-  metrics.unroundedMaintainability = Math.round(unroundedMaintainability * 10) / 10 // Round to 1 decimal place
+  // Write new field names (Code Quality)
+  metrics.codeQuality = codeQualityPct
+  metrics.unroundedCodeQuality = Math.round(unroundedCodeQuality * 10) / 10 // Round to 1 decimal place
   // Keep legacy fields for backward compatibility during migration
-  metrics.simplicity = maintainabilityPct
-  metrics.unroundedSimplicity = Math.round(unroundedMaintainability * 10) / 10
+  metrics.maintainability = codeQualityPct
+  metrics.unroundedMaintainability = Math.round(unroundedCodeQuality * 10) / 10
+  metrics.simplicity = codeQualityPct
+  metrics.unroundedSimplicity = Math.round(unroundedCodeQuality * 10) / 10
   metrics.updatedAt = new Date().toISOString()
   fs.mkdirSync(path.dirname(metricsPath), { recursive: true })
   fs.writeFileSync(metricsPath, JSON.stringify(metrics, null, 2) + '\n', 'utf8')
 
-  // Generate maintainability-details.json with top offenders and improvements
-  // Also write to simplicity-details.json for backward compatibility during migration
+  // Generate code-quality-details.json with top offenders and improvements
+  // Also write to maintainability-details.json and simplicity-details.json for backward compatibility during migration
+  const codeQualityDetailsPath = path.join(ROOT_DIR, 'public', 'code-quality-details.json')
   const maintainabilityDetailsPath = path.join(ROOT_DIR, 'public', 'maintainability-details.json')
   const simplicityDetailsPath = path.join(ROOT_DIR, 'public', 'simplicity-details.json')
   
   // Sort by maintainability (ascending) to get worst offenders first
   fileMaintainability.sort((a, b) => a.maintainability - b.maintainability)
   
-  // Top 20 offenders (lowest maintainability)
-  const topOffenders = fileMaintainability.slice(0, 20).map((item) => ({
-    file: item.file,
-    maintainability: Math.round(item.maintainability * 100) / 100, // Keep precision for maintainability index
-  }))
+  // Top 20 offenders (lowest code quality)
+  // Convert maintainability index (0-171) to code quality percentage (0-100)
+  const topOffenders = fileMaintainability.slice(0, 20).map((item) => {
+    const maintainabilityIndex = item.maintainability
+    const codeQualityPercent = Math.min(100, Math.max(0, (maintainabilityIndex / 171) * 100))
+    return {
+      file: item.file,
+      codeQuality: Math.round(codeQualityPercent * 100) / 100, // Keep precision for code quality percentage
+      // Legacy field for backward compatibility
+      maintainability: Math.round(maintainabilityIndex * 100) / 100,
+    }
+  })
 
-  // Compare with previous maintainability-details.json or simplicity-details.json to find improvements
+  // Compare with previous code-quality-details.json, maintainability-details.json, or simplicity-details.json to find improvements
+  const previousCodeQualityDetails = readJson(codeQualityDetailsPath, null)
   const previousMaintainabilityDetails = readJson(maintainabilityDetailsPath, null)
   const previousSimplicityDetails = readJson(simplicityDetailsPath, null)
-  const previousDetails = previousMaintainabilityDetails ?? previousSimplicityDetails
-  const previousMaintainability = previousDetails?.topOffenders
-    ? new Map(previousDetails.topOffenders.map((item) => [item.file, item.maintainability]))
+  const previousDetails = previousCodeQualityDetails ?? previousMaintainabilityDetails ?? previousSimplicityDetails
+  
+  // Support both new (codeQuality) and legacy (maintainability) field names
+  const previousCodeQuality = previousDetails?.topOffenders
+    ? new Map(previousDetails.topOffenders.map((item) => {
+        const file = item.file
+        // Try codeQuality first, fall back to maintainability (convert index to percentage)
+        const value = item.codeQuality ?? (item.maintainability != null ? (item.maintainability / 171) * 100 : null)
+        return [file, value]
+      }))
     : null
 
   const improvements = fileMaintainability
     .map((item) => {
-      const before = previousMaintainability?.get(item.file) ?? null
-      const after = item.maintainability
+      const maintainabilityIndex = item.maintainability
+      const codeQualityPercent = Math.min(100, Math.max(0, (maintainabilityIndex / 171) * 100))
+      const before = previousCodeQuality?.get(item.file) ?? null
+      const after = codeQualityPercent
       const delta = before !== null ? after - before : 0
       return { file: item.file, before, after, delta }
     })
@@ -364,19 +384,22 @@ function main() {
       delta: Math.round(item.delta * 100) / 100,
     }))
 
-  const maintainabilityDetails = {
+  const codeQualityDetails = {
     topOffenders,
     mostRecentImprovements: improvements,
     generatedAt: new Date().toISOString(),
     filesAnalyzed: count,
-    unroundedMaintainability: Math.round(unroundedMaintainability * 10) / 10, // Round to 1 decimal place
-    // Legacy field for backward compatibility
-    unroundedSimplicity: Math.round(unroundedMaintainability * 10) / 10,
+    unroundedCodeQuality: Math.round(unroundedCodeQuality * 10) / 10, // Round to 1 decimal place
+    // Legacy fields for backward compatibility
+    unroundedMaintainability: Math.round(unroundedCodeQuality * 10) / 10,
+    unroundedSimplicity: Math.round(unroundedCodeQuality * 10) / 10,
   }
 
-  // Write to both files during migration
-  writeJson(maintainabilityDetailsPath, maintainabilityDetails)
-  writeJson(simplicityDetailsPath, maintainabilityDetails) // Backward compatibility
+  // Write to new file (code-quality-details.json)
+  writeJson(codeQualityDetailsPath, codeQualityDetails)
+  // Also write to legacy files for backward compatibility during migration
+  writeJson(maintainabilityDetailsPath, codeQualityDetails)
+  writeJson(simplicityDetailsPath, codeQualityDetails)
 }
 
 main()

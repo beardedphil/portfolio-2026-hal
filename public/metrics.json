@@ -1,8 +1,10 @@
 {
   "coverage": 13.1,
+  "codeQuality": 33,
+  "updatedAt": "2026-02-22T06:08:15.364Z",
   "maintainability": 33,
-  "updatedAt": "2026-02-22T06:01:31.940Z",
   "simplicity": 33,
   "unroundedSimplicity": 32.7,
-  "unroundedMaintainability": 32.7
+  "unroundedMaintainability": 32.7,
+  "unroundedCodeQuality": 32.7
 }
