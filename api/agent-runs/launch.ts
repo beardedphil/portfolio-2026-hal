@@ -130,6 +130,49 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const halApiBaseUrl = getOrigin(req)
 
+    // HAL-0748: Check for context bundle before launching (implementation and QA agents only)
+    // Project-manager and process-review agents don't require context bundles
+    let contextBundleId: string | undefined
+    let contextBundleChecksum: string | undefined
+    
+    if (agentType === 'implementation' || agentType === 'qa') {
+      const role = agentType === 'implementation' ? 'implementation' : 'qa'
+      const { data: bundleData, error: bundleErr } = await supabase.rpc('get_latest_context_bundle', {
+        p_repo_full_name: repoFullName,
+        p_ticket_pk: ticketPk,
+        p_role: role,
+      })
+
+      if (bundleErr) {
+        json(res, 500, {
+          error: `Failed to check for context bundle: ${bundleErr.message}. Agent runs require a built Context Bundle and cannot consume chat history.`,
+        })
+        return
+      }
+
+      if (!bundleData || (Array.isArray(bundleData) && bundleData.length === 0)) {
+        json(res, 400, {
+          error: `No Context Bundle found for ticket ${displayId} (${role} role). Agent runs require a built Context Bundle and cannot consume chat history. Please build a Context Bundle first before starting the agent run.`,
+          missingContextBundle: true,
+          ticketId: displayId,
+          role,
+        })
+        return
+      }
+
+      // Store bundle info for later use when creating the run
+      const bundle = Array.isArray(bundleData) ? bundleData[0] : bundleData
+      contextBundleId = bundle?.bundle_id as string | undefined
+      contextBundleChecksum = bundle?.content_checksum as string | undefined
+
+      if (!contextBundleId || !contextBundleChecksum) {
+        json(res, 500, {
+          error: `Context Bundle found but missing required fields (bundle_id or content_checksum). This is an internal error.`,
+        })
+        return
+      }
+    }
+
     // Update stage to 'fetching_ticket' (0690) - ticket already fetched, but update stage for consistency
     // Note: Run row not created yet, so we'll update after creation
 
@@ -310,19 +353,28 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     // Create run row - start with 'preparing' stage (0690)
     const initialProgress = appendProgress([], `Launching ${agentType} run for ${displayId}`)
+    
+    // HAL-0748: Include context bundle info if available
+    const runInsertData: any = {
+      agent_type: agentType,
+      repo_full_name: repoFullName,
+      ticket_pk: ticketPk,
+      ticket_number: ticketNumber,
+      display_id: displayId,
+      provider: 'cursor',
+      status: 'launching',
+      current_stage: 'preparing',
+      progress: initialProgress,
+    }
+    
+    if (contextBundleId && contextBundleChecksum) {
+      runInsertData.context_bundle_id = contextBundleId
+      runInsertData.context_bundle_checksum = contextBundleChecksum
+    }
+    
     const { data: runRow, error: runInsErr } = await supabase
       .from('hal_agent_runs')
-      .insert({
-        agent_type: agentType,
-        repo_full_name: repoFullName,
-        ticket_pk: ticketPk,
-        ticket_number: ticketNumber,
-        display_id: displayId,
-        provider: 'cursor',
-        status: 'launching',
-        current_stage: 'preparing',
-        progress: initialProgress,
-      })
+      .insert(runInsertData)
       .select('run_id')
       .maybeSingle()
 

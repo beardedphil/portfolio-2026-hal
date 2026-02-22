@@ -43,6 +43,9 @@ export interface KanbanAgentRunRow {
   current_stage: string | null
   created_at: string
   updated_at: string
+  // HAL-0748: Context bundle tracking
+  context_bundle_id: string | null
+  context_bundle_checksum: string | null
 }
 
 /** Agent artifact row (matches Supabase agent_artifacts table, 0082). Used when HAL fetches artifacts and passes to Kanban. */

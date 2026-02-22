@@ -421,7 +421,7 @@ export function useAgentRuns(params: UseAgentRunsParams) {
               }),
             })
             const implLaunchText = await launchRes.text()
-            let launchData: { runId?: string; status?: string; error?: string }
+            let launchData: { runId?: string; status?: string; error?: string; missingContextBundle?: boolean; ticketId?: string; role?: string }
             try {
               launchData = JSON.parse(implLaunchText) as typeof launchData
             } catch {
@@ -435,6 +435,15 @@ export function useAgentRuns(params: UseAgentRunsParams) {
               return
             }
             if (!launchRes.ok || !launchData.runId) {
+              // HAL-0748: Special handling for missing context bundle
+              if (launchData.missingContextBundle) {
+                const msg = `**Context Bundle Required**\n\n${launchData.error || 'No Context Bundle found for this ticket.'}\n\n**What this means:**\nAgent runs require a built Context Bundle and cannot consume chat history. The Context Bundle contains all the deterministic context needed for the agent to execute.\n\n**To fix this:**\n1. Build a Context Bundle for ticket ${launchData.ticketId || ticketId} (${launchData.role || 'implementation'} role)\n2. Then try starting the agent run again`
+                setImplAgentRunStatus('failed')
+                setImplAgentError(msg)
+                addMessage(convId, 'implementation-agent', `[Implementation Agent] ${msg}`)
+                setTimeout(() => setAgentTypingTarget(null), 500)
+                return
+              }
               const msg = launchData.error ?? `Launch failed (HTTP ${launchRes.status})`
               setImplAgentRunStatus('failed')
               setImplAgentError(msg)
@@ -623,7 +632,7 @@ export function useAgentRuns(params: UseAgentRunsParams) {
               }),
             })
             const launchText = await launchRes.text()
-            let launchData: { runId?: string; status?: string; error?: string }
+            let launchData: { runId?: string; status?: string; error?: string; missingContextBundle?: boolean; ticketId?: string; role?: string }
             try {
               launchData = JSON.parse(launchText) as typeof launchData
             } catch {
@@ -637,6 +646,15 @@ export function useAgentRuns(params: UseAgentRunsParams) {
               return
             }
             if (!launchRes.ok || !launchData.runId) {
+              // HAL-0748: Special handling for missing context bundle
+              if (launchData.missingContextBundle) {
+                const msg = `**Context Bundle Required**\n\n${launchData.error || 'No Context Bundle found for this ticket.'}\n\n**What this means:**\nAgent runs require a built Context Bundle and cannot consume chat history. The Context Bundle contains all the deterministic context needed for the agent to execute.\n\n**To fix this:**\n1. Build a Context Bundle for ticket ${launchData.ticketId || ticketId} (${launchData.role || 'qa'} role)\n2. Then try starting the agent run again`
+                setQaAgentRunStatus('failed')
+                setQaAgentError(msg)
+                addMessage(convId, 'qa-agent', `[QA Agent] ${msg}`)
+                setTimeout(() => setAgentTypingTarget(null), 500)
+                return
+              }
               const msg = launchData.error ?? `Launch failed (HTTP ${launchRes.status})`
               setQaAgentRunStatus('failed')
               setQaAgentError(msg)

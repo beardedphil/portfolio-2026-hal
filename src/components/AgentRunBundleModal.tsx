@@ -23,6 +23,8 @@ interface AgentRun {
   finished_at: string | null
   summary: string | null
   error: string | null
+  context_bundle_id: string | null
+  context_bundle_checksum: string | null
 }
 
 interface Ticket {
@@ -185,6 +187,29 @@ export function AgentRunBundleModal({
                   <div>
                     <strong>Created:</strong> {new Date(agentRun.created_at).toLocaleString()}
                   </div>
+                  {/* HAL-0748: Display context bundle information */}
+                  {agentRun.context_bundle_checksum ? (
+                    <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid var(--hal-border)' }}>
+                      <div style={{ fontSize: '12px', fontWeight: '600', marginBottom: '4px' }}>Context Bundle</div>
+                      <div style={{ fontSize: '11px', fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                        <strong>Checksum:</strong> {agentRun.context_bundle_checksum}
+                      </div>
+                      {agentRun.context_bundle_id && (
+                        <div style={{ fontSize: '11px', marginTop: '4px' }}>
+                          <strong>Bundle ID:</strong> {agentRun.context_bundle_id.substring(0, 8)}...
+                        </div>
+                      )}
+                      <div style={{ fontSize: '11px', marginTop: '4px', color: 'var(--hal-text-muted)', fontStyle: 'italic' }}>
+                        Note: Chat history is not part of the agent input and is not used for execution.
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid var(--hal-border)' }}>
+                      <div style={{ fontSize: '11px', color: 'var(--hal-status-warning, #ff9800)' }}>
+                        ⚠️ No Context Bundle attached to this run. This run was executed without a Context Bundle (legacy run or internal error).
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 

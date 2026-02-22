@@ -65,6 +65,9 @@ export type SupabaseAgentRunRow = {
   current_stage: string | null
   created_at: string
   updated_at: string
+  // HAL-0748: Context bundle tracking
+  context_bundle_id: string | null
+  context_bundle_checksum: string | null
 }
 
 /** Supabase ticket_attachments table row (0092) - exported from components/types.ts */
