@@ -312,25 +312,17 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     if (!credentials) {
       const projectId = parseStringValue(body.projectId)
       const agent = parseStringValue(body.agent)
+      const hasSupabaseUrl = parseStringValue(body.supabaseUrl) || parseStringValue(process.env.SUPABASE_URL) || parseStringValue(process.env.VITE_SUPABASE_URL)
       
       if (!projectId || !agent) {
-        json(res, 400, {
-          success: false,
-          error: 'projectId and agent are required.',
-        })
+        json(res, 400, { success: false, error: 'projectId and agent are required.' })
         return
       }
-      if (!parseStringValue(body.supabaseUrl) && !parseStringValue(process.env.SUPABASE_URL) && !parseStringValue(process.env.VITE_SUPABASE_URL)) {
-        json(res, 400, {
-          success: false,
-          error: 'Supabase credentials required (provide in request body or set SUPABASE_URL and SUPABASE_ANON_KEY in server environment).',
-        })
+      if (!hasSupabaseUrl) {
+        json(res, 400, { success: false, error: 'Supabase credentials required (provide in request body or set SUPABASE_URL and SUPABASE_ANON_KEY in server environment).' })
         return
       }
-      json(res, 400, {
-        success: false,
-        error: 'OpenAI credentials required (provide openaiApiKey and openaiModel in request body).',
-      })
+      json(res, 400, { success: false, error: 'OpenAI credentials required (provide openaiApiKey and openaiModel in request body).' })
       return
     }
 
@@ -399,25 +391,21 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         return
       }
 
-      const apiResponse: WorkingMemoryAPI = {
-        summary: workingMemory.summary || '',
-        goals: workingMemory.goals || [],
-        requirements: workingMemory.requirements || [],
-        constraints: workingMemory.constraints || [],
-        decisions: workingMemory.decisions || [],
-        assumptions: workingMemory.assumptions || [],
-        openQuestions: workingMemory.openQuestions || [],
-        glossary: workingMemory.glossary || {},
-        stakeholders: workingMemory.stakeholders || [],
-        lastUpdatedAt: new Date().toISOString(),
-        throughSequence: currentSequence,
-      }
-
-      json(res, 200, {
-        success: true,
-        workingMemory: apiResponse,
-        updated: true,
+      const apiResponse = transformWorkingMemoryFromDB({
+        summary: workingMemory.summary,
+        goals: workingMemory.goals,
+        requirements: workingMemory.requirements,
+        constraints: workingMemory.constraints,
+        decisions: workingMemory.decisions,
+        assumptions: workingMemory.assumptions,
+        open_questions: workingMemory.openQuestions,
+        glossary: workingMemory.glossary,
+        stakeholders: workingMemory.stakeholders,
+        last_updated_at: new Date().toISOString(),
+        through_sequence: currentSequence,
       })
+
+      json(res, 200, { success: true, workingMemory: apiResponse, updated: true })
     } catch (parseErr) {
       json(res, 200, {
         success: false,
