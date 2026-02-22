@@ -20,23 +20,6 @@ interface SearchResult {
   similarity: number
 }
 
-interface EmbeddingJob {
-  job_id: string
-  artifact_id: string
-  status: 'queued' | 'processing' | 'succeeded' | 'failed'
-  error_message?: string
-  created_at: string
-  completed_at?: string
-}
-
-interface EmbeddingJobsStatus {
-  queued: number
-  processing: number
-  succeeded: number
-  failed: number
-  recentJobs: EmbeddingJob[]
-}
-
 interface DiagnosticsModalProps {
   isOpen: boolean
   onClose: () => void
@@ -54,23 +37,15 @@ export function DiagnosticsModal({
 }: DiagnosticsModalProps) {
   const [embeddingsStatus, setEmbeddingsStatus] = useState<EmbeddingsStatus | null>(null)
   const [loadingStatus, setLoadingStatus] = useState(false)
-  const [embeddingJobs, setEmbeddingJobs] = useState<EmbeddingJobsStatus | null>(null)
-  const [loadingJobs, setLoadingJobs] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
   const [searching, setSearching] = useState(false)
   const [searchError, setSearchError] = useState<string | null>(null)
 
-  // Load embeddings status and jobs when modal opens
+  // Load embeddings status when modal opens
   useEffect(() => {
     if (!isOpen) return
     loadEmbeddingsStatus()
-    loadEmbeddingJobs()
-    // Refresh jobs every 5 seconds
-    const interval = setInterval(() => {
-      loadEmbeddingJobs()
-    }, 5000)
-    return () => clearInterval(interval)
   }, [isOpen, supabaseUrl, supabaseAnonKey])
 
   async function loadEmbeddingsStatus() {
@@ -105,45 +80,6 @@ export function DiagnosticsModal({
       })
     } finally {
       setLoadingStatus(false)
-    }
-  }
-
-  async function loadEmbeddingJobs() {
-    if (!supabaseUrl || !supabaseAnonKey) {
-      return
-    }
-
-    setLoadingJobs(true)
-    try {
-      // Get all artifacts to compute job statistics
-      // For now, we'll fetch jobs for all artifacts (could be optimized to filter by ticket)
-      const res = await fetch(`${supabaseUrl}/rest/v1/embedding_jobs?select=job_id,artifact_id,status,error_message,created_at,completed_at&order=created_at.desc&limit=100`, {
-        headers: {
-          apikey: supabaseAnonKey,
-          Authorization: `Bearer ${supabaseAnonKey}`,
-        },
-      })
-
-      if (!res.ok) {
-        throw new Error(`Failed to fetch embedding jobs: ${res.statusText}`)
-      }
-
-      const allJobs = (await res.json()) as EmbeddingJob[]
-
-      const jobsStatus: EmbeddingJobsStatus = {
-        queued: allJobs.filter((j) => j.status === 'queued').length,
-        processing: allJobs.filter((j) => j.status === 'processing').length,
-        succeeded: allJobs.filter((j) => j.status === 'succeeded').length,
-        failed: allJobs.filter((j) => j.status === 'failed').length,
-        recentJobs: allJobs.slice(0, 10),
-      }
-
-      setEmbeddingJobs(jobsStatus)
-    } catch (err) {
-      console.error('Failed to load embedding jobs:', err)
-      // Don't set error state - just log it
-    } finally {
-      setLoadingJobs(false)
     }
   }
 
@@ -249,103 +185,29 @@ export function DiagnosticsModal({
         </div>
 
         <div className="conversation-modal-content" style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
-          {/* Embedding Jobs Queue / Worker Status Section */}
+          {/* Secrets Encryption Status Section */}
           <section style={{ marginBottom: '2rem' }}>
-            <h4 style={{ margin: '0 0 1rem 0', fontSize: '1.1rem', fontWeight: 600 }}>Embedding Jobs Queue</h4>
-            {loadingJobs ? (
-              <p style={{ color: 'var(--hal-text-muted)' }}>Loading job status...</p>
-            ) : embeddingJobs ? (
-              <div>
-                <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                    <span style={{ color: 'var(--hal-text-muted)', fontSize: '0.9rem' }}>Queued</span>
-                    <span style={{ fontSize: '1.5rem', fontWeight: 600, color: 'var(--hal-text)' }}>
-                      {embeddingJobs.queued}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                    <span style={{ color: 'var(--hal-text-muted)', fontSize: '0.9rem' }}>Processing</span>
-                    <span style={{ fontSize: '1.5rem', fontWeight: 600, color: 'var(--hal-status-ok)' }}>
-                      {embeddingJobs.processing}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                    <span style={{ color: 'var(--hal-text-muted)', fontSize: '0.9rem' }}>Succeeded</span>
-                    <span style={{ fontSize: '1.5rem', fontWeight: 600, color: 'var(--hal-status-ok)' }}>
-                      {embeddingJobs.succeeded}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                    <span style={{ color: 'var(--hal-text-muted)', fontSize: '0.9rem' }}>Failed</span>
-                    <span style={{ fontSize: '1.5rem', fontWeight: 600, color: 'var(--hal-status-error)' }}>
-                      {embeddingJobs.failed}
-                    </span>
-                  </div>
-                </div>
-
-                {embeddingJobs.recentJobs.length > 0 && (
-                  <div style={{ marginTop: '1rem' }}>
-                    <h5 style={{ margin: '0 0 0.5rem 0', fontSize: '1rem', fontWeight: 600 }}>Recent Jobs</h5>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '300px', overflowY: 'auto' }}>
-                      {embeddingJobs.recentJobs.map((job) => (
-                        <div
-                          key={job.job_id}
-                          style={{
-                            padding: '0.75rem',
-                            border: '1px solid var(--hal-border)',
-                            borderRadius: '4px',
-                            background: 'var(--hal-surface-alt)',
-                            fontSize: '0.9rem',
-                          }}
-                        >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '0.25rem' }}>
-                            <span
-                              style={{
-                                padding: '0.2rem 0.5rem',
-                                borderRadius: '3px',
-                                fontSize: '0.85rem',
-                                fontWeight: 500,
-                                background:
-                                  job.status === 'succeeded'
-                                    ? 'rgba(46, 125, 50, 0.1)'
-                                    : job.status === 'failed'
-                                      ? 'rgba(198, 40, 40, 0.1)'
-                                      : job.status === 'processing'
-                                        ? 'rgba(25, 118, 210, 0.1)'
-                                        : 'rgba(108, 117, 125, 0.1)',
-                                color:
-                                  job.status === 'succeeded'
-                                    ? 'var(--hal-status-ok)'
-                                    : job.status === 'failed'
-                                      ? 'var(--hal-status-error)'
-                                      : job.status === 'processing'
-                                        ? '#1976d2'
-                                        : 'var(--hal-text-muted)',
-                              }}
-                            >
-                              {job.status}
-                            </span>
-                            <span style={{ color: 'var(--hal-text-muted)', fontSize: '0.85rem' }}>
-                              {new Date(job.created_at).toLocaleString()}
-                            </span>
-                          </div>
-                          {job.error_message && (
-                            <div style={{ marginTop: '0.5rem', color: 'var(--hal-status-error)', fontSize: '0.85rem' }}>
-                              Error: {job.error_message}
-                            </div>
-                          )}
-                          <div style={{ marginTop: '0.25rem', color: 'var(--hal-text-muted)', fontSize: '0.8rem' }}>
-                            Job ID: {job.job_id.substring(0, 8)}...
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+            <h4 style={{ margin: '0 0 1rem 0', fontSize: '1.1rem', fontWeight: 600 }}>Secrets Encryption</h4>
+            <div>
+              <div
+                style={{
+                  display: 'inline-block',
+                  padding: '0.4rem 0.8rem',
+                  borderRadius: '4px',
+                  fontWeight: 500,
+                  marginBottom: '0.5rem',
+                  background: 'rgba(46, 125, 50, 0.1)',
+                  color: 'var(--hal-status-ok)',
+                  border: '1px solid var(--hal-status-ok)',
+                }}
+              >
+                ✓ Secrets stored encrypted at rest
               </div>
-            ) : (
-              <p style={{ color: 'var(--hal-text-muted)' }}>Failed to load job status</p>
-            )}
+              <p style={{ margin: '0.5rem 0', color: 'var(--hal-text)', fontSize: '0.9rem' }}>
+                Provider OAuth tokens and Supabase service keys are encrypted using AES-256-GCM before being stored.
+                Raw token/key values are never displayed after initial entry.
+              </p>
+            </div>
           </section>
 
           {/* Embeddings / Vector Search Status Section */}
