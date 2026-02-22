@@ -13,6 +13,7 @@ interface HalHeaderProps {
   disconnectButtonRef: React.RefObject<HTMLButtonElement>
   onCoverageReportClick: () => void
   onMaintainabilityReportClick: () => void
+  onDiagnosticsClick: () => void
 }
 
 export function HalHeader({
@@ -25,12 +26,22 @@ export function HalHeader({
   disconnectButtonRef,
   onCoverageReportClick,
   onMaintainabilityReportClick,
+  onDiagnosticsClick,
 }: HalHeaderProps) {
   return (
     <header className="hal-header">
       <div className="hal-header-left">
         <h1>HAL</h1>
         <span className="hal-subtitle">Agent Workspace</span>
+        <button
+          type="button"
+          className="btn-standard diagnostics-btn"
+          onClick={onDiagnosticsClick}
+          title="Open Diagnostics"
+          style={{ marginLeft: '1rem', fontSize: '0.9rem', padding: '0.4rem 0.8rem' }}
+        >
+          Diagnostics
+        </button>
       </div>
       <div className="hal-header-center">
         {!connectedProject ? (
