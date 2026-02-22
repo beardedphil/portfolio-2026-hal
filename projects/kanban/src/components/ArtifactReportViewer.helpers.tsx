@@ -1,3 +1,4 @@
+import React from 'react'
 import type { Components } from 'react-markdown'
 import type { SupabaseAgentArtifactRow } from '../App.types'
 import { MarkdownImage } from './MarkdownImage'

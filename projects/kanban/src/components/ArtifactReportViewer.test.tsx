@@ -1,9 +1,9 @@
+import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import { ArtifactReportViewer } from './ArtifactReportViewer'
 import type { SupabaseAgentArtifactRow } from '../App.types'
 
-// Mock dependencies
+// Mock dependencies BEFORE importing the component
 vi.mock('react-markdown', () => ({
   default: ({ children }: { children: string }) => <div data-testid="react-markdown">{children}</div>,
 }))
@@ -34,6 +34,9 @@ vi.mock('./MarkdownImage', () => ({
     />
   ),
 }))
+
+// Import component AFTER mocks are set up
+import { ArtifactReportViewer } from './ArtifactReportViewer'
 
 describe('ArtifactReportViewer', () => {
   const mockArtifact: SupabaseAgentArtifactRow = {

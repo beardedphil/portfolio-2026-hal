@@ -38,6 +38,9 @@ export default defineConfig({
       'react-dom': resolve(__dirname, '../../node_modules/react-dom'),
     },
   },
+  optimizeDeps: {
+    include: ['react', 'react-dom'],
+  },
   test: {
     environment: 'jsdom',
     globals: true,
