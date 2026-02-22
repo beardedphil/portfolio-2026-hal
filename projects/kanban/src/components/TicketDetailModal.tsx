@@ -11,6 +11,84 @@ import { HumanValidationSection } from './HumanValidationSection'
 import { AutoDismissMessage } from './AutoDismissMessage'
 import { PullRequestSection } from './PullRequestSection'
 
+const TICKET_UPDATE_DELAY_MS = 500
+const SUCCESS_MESSAGE_DELAY_MS = 3000
+const COL_HUMAN_IN_THE_LOOP = 'col-human-in-the-loop'
+const COL_PROCESS_REVIEW = 'col-process-review'
+
+// Helper: Get focusable elements within a container
+function getFocusableElements(container: HTMLElement): HTMLElement[] {
+  return Array.from(
+    container.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )
+  )
+}
+
+// Helper: Handle focus trap logic
+function handleFocusTrap(e: React.KeyboardEvent, container: HTMLElement | null) {
+  if (e.key !== 'Tab' || !container) return false
+  
+  const focusable = getFocusableElements(container)
+  if (focusable.length === 0) return false
+  
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  
+  if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault()
+    last?.focus()
+    return true
+  }
+  
+  if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault()
+    first?.focus()
+    return true
+  }
+  
+  return false
+}
+
+// Helper: Clear validation messages
+function clearValidationMessages(
+  setError: (value: string | null) => void,
+  setSuccess: (value: string | null) => void
+) {
+  setError(null)
+  setSuccess(null)
+}
+
+// Helper: Get success message for fail action
+function getFailSuccessMessage(columnId: string | null): string {
+  return columnId === COL_HUMAN_IN_THE_LOOP
+    ? 'Ticket failed. QA artifact created with FAIL verdict. Moving to To Do...'
+    : 'Ticket failed successfully. Moving to To Do...'
+}
+
+// Helper: Schedule ticket update with delay
+function scheduleTicketUpdate(onTicketUpdate: (() => void) | undefined) {
+  if (!onTicketUpdate) return
+  setTimeout(() => {
+    onTicketUpdate()
+  }, TICKET_UPDATE_DELAY_MS)
+}
+
+// Helper: Reset validation state
+function resetValidationState(
+  setSteps: (value: string) => void,
+  setNotes: (value: string) => void,
+  setProcessing: (value: boolean) => void,
+  setError: (value: string | null) => void,
+  setSuccess: (value: string | null) => void
+) {
+  setSteps('')
+  setNotes('')
+  setProcessing(false)
+  setError(null)
+  setSuccess(null)
+}
+
 /** Ticket detail modal (0033): title, metadata, markdown body, close/escape/backdrop, scroll lock, focus trap */
 export function TicketDetailModal({
   open,
@@ -92,24 +170,7 @@ export function TicketDetailModal({
         onClose()
         return
       }
-      if (e.key !== 'Tab' || !modalRef.current) return
-      const focusable = modalRef.current.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-      )
-      const list = Array.from(focusable)
-      const first = list[0]
-      const last = list[list.length - 1]
-      if (e.shiftKey) {
-        if (document.activeElement === first) {
-          e.preventDefault()
-          last?.focus()
-        }
-      } else {
-        if (document.activeElement === last) {
-          e.preventDefault()
-          first?.focus()
-        }
-      }
+      handleFocusTrap(e, modalRef.current)
     },
     [onClose]
   )
@@ -117,25 +178,15 @@ export function TicketDetailModal({
   const handlePass = useCallback(async () => {
     if (!ticketId || isProcessing) return
     
-    // Clear previous messages
-    setValidationError(null)
-    setValidationSuccess(null)
-    
+    clearValidationMessages(setValidationError, setValidationSuccess)
     setIsProcessing(true)
+    
     try {
       await onValidationPass(ticketId)
-      // Success message
       setValidationSuccess('Ticket passed successfully. Moving to Process Review...')
       setValidationSteps('')
       setValidationNotes('')
-      
-      // Refresh ticket body to show the updated state
-      if (_onTicketUpdate) {
-        // Small delay to allow Supabase update to complete
-        setTimeout(() => {
-          _onTicketUpdate()
-        }, 500)
-      }
+      scheduleTicketUpdate(_onTicketUpdate)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err)
       setValidationError(`Failed to pass ticket: ${errorMessage}`)
@@ -148,11 +199,8 @@ export function TicketDetailModal({
   const handleFail = useCallback(async () => {
     if (!ticketId || isProcessing) return
     
-    // Clear previous messages
-    setValidationError(null)
-    setValidationSuccess(null)
+    clearValidationMessages(setValidationError, setValidationSuccess)
     
-    // Validate that explanation is provided
     if (!validationSteps.trim() && !validationNotes.trim()) {
       setValidationError('Please provide an explanation (steps to validate or notes) before failing the ticket.')
       return
@@ -161,20 +209,10 @@ export function TicketDetailModal({
     setIsProcessing(true)
     try {
       await onValidationFail(ticketId, validationSteps, validationNotes)
-      // Success message will be set based on whether QA artifact was created
-      setValidationSuccess(columnId === 'col-human-in-the-loop' 
-        ? 'Ticket failed. QA artifact created with FAIL verdict. Moving to To Do...'
-        : 'Ticket failed successfully. Moving to To Do...')
+      setValidationSuccess(getFailSuccessMessage(columnId))
       setValidationSteps('')
       setValidationNotes('')
-      
-      // Refresh ticket body to show the updated feedback
-      if (_onTicketUpdate) {
-        // Small delay to allow Supabase update to complete
-        setTimeout(() => {
-          _onTicketUpdate()
-        }, 500)
-      }
+      scheduleTicketUpdate(_onTicketUpdate)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err)
       setValidationError(`Failed to fail ticket: ${errorMessage}`)
@@ -187,11 +225,13 @@ export function TicketDetailModal({
   // Reset validation fields when modal closes
   useEffect(() => {
     if (!open) {
-      setValidationSteps('')
-      setValidationNotes('')
-      setIsProcessing(false)
-      setValidationError(null)
-      setValidationSuccess(null)
+      resetValidationState(
+        setValidationSteps,
+        setValidationNotes,
+        setIsProcessing,
+        setValidationError,
+        setValidationSuccess
+      )
     }
   }, [open])
 
@@ -200,8 +240,8 @@ export function TicketDetailModal({
   const { frontmatter, body: bodyOnly } = body ? parseFrontmatter(body) : { frontmatter: {}, body: '' }
   const priority = body ? extractPriority(frontmatter, body) : null
   const markdownBody = body ? stripQAInformationBlockFromBody(bodyOnly) : ''
-  const showValidationSection = columnId === 'col-human-in-the-loop'
-  const showProcessReviewSection = columnId === 'col-process-review'
+  const showValidationSection = columnId === COL_HUMAN_IN_THE_LOOP
+  const showProcessReviewSection = columnId === COL_PROCESS_REVIEW
 
   return (
     <div
@@ -308,7 +348,7 @@ export function TicketDetailModal({
                       </div>
                       <AutoDismissMessage
                         onDismiss={() => setValidationSuccess(null)}
-                        delay={3000}
+                        delay={SUCCESS_MESSAGE_DELAY_MS}
                       />
                     </>
                   )}
@@ -319,12 +359,10 @@ export function TicketDetailModal({
                     notes={validationNotes}
                     onStepsChange={(value) => {
                       setValidationSteps(value)
-                      // Clear error when user starts typing
                       if (validationError) setValidationError(null)
                     }}
                     onNotesChange={(value) => {
                       setValidationNotes(value)
-                      // Clear error when user starts typing
                       if (validationError) setValidationError(null)
                     }}
                     onPass={handlePass}
