@@ -23,7 +23,7 @@ import {
 const execAsync = promisify(exec)
 
 /** Slug for ticket filename: lowercase, spaces to hyphens, strip non-alphanumeric except hyphen. */
-function slugFromTitle(title: string): string {
+export function slugFromTitle(title: string): string {
   return title
     .trim()
     .toLowerCase()
@@ -56,7 +56,7 @@ function repoHintPrefix(repoFullName: string): string {
   return (letters.slice(0, 4) || 'PRJ').toUpperCase()
 }
 
-function parseTicketNumber(ref: string): number | null {
+export function parseTicketNumber(ref: string): number | null {
   const s = String(ref ?? '').trim()
   if (!s) return null
   const m = s.match(/(\d{1,4})(?!.*\d)/) // last 1-4 digit run
@@ -66,8 +66,7 @@ function parseTicketNumber(ref: string): number | null {
 }
 
 /** Normalize body so Ready-to-start evaluator finds sections: ## and exact titles (LLMs often output # or shortened titles). */
-function normalizeBodyForReady(bodyMd: string): string {
-  let out = bodyMd.trim()
+export function normalizeBodyForReady(bodyMd: string): string {
   const replacements: [RegExp, string][] = [
     [/^# Goal\s*$/gm, '## Goal (one sentence)'],
     [/^# Human-verifiable deliverable\s*$/gm, '## Human-verifiable deliverable (UI-only)'],
@@ -75,10 +74,10 @@ function normalizeBodyForReady(bodyMd: string): string {
     [/^# Constraints\s*$/gm, '## Constraints'],
     [/^# Non-goals\s*$/gm, '## Non-goals'],
   ]
-  for (const [re, replacement] of replacements) {
-    out = out.replace(re, replacement)
-  }
-  return out
+  return replacements.reduce(
+    (acc, [pattern, replacement]) => acc.replace(pattern, replacement),
+    bodyMd.trim()
+  )
 }
 
 /** Extract section body after a ## Section Title line (first line after blank line or next ##). */
@@ -142,6 +141,18 @@ export interface ReadyCheckResult {
  * No unresolved placeholders like `<AC 1>`, `<task-id>`, `<short-title>`, etc.
  * Future ticket edits must preserve these headings and structure to avoid breaking readiness.
  */
+function hasPlaceholders(text: string): boolean {
+  return (text.match(PLACEHOLDER_RE) ?? []).length > 0
+}
+
+function isSectionValid(section: string, allowPlaceholders = false): boolean {
+  const trimmed = section.trim()
+  if (trimmed.length === 0) return false
+  if (!allowPlaceholders && hasPlaceholders(trimmed)) return false
+  if (!allowPlaceholders && /^<[^>]*>$/.test(trimmed)) return false
+  return true
+}
+
 export function evaluateTicketReady(bodyMd: string): ReadyCheckResult {
   const body = bodyMd.trim()
   const goal = sectionContent(body, 'Goal (one sentence)')
@@ -150,13 +161,11 @@ export function evaluateTicketReady(bodyMd: string): ReadyCheckResult {
   const constraints = sectionContent(body, 'Constraints')
   const nonGoals = sectionContent(body, 'Non-goals')
 
-  const goalPlaceholders = goal.match(PLACEHOLDER_RE) ?? []
-  const deliverablePlaceholders = deliverable.match(PLACEHOLDER_RE) ?? []
-  const goalOk = goal.length > 0 && goalPlaceholders.length === 0 && !/^<[^>]*>$/.test(goal.trim())
-  const deliverableOk = deliverable.length > 0 && deliverablePlaceholders.length === 0
+  const goalOk = isSectionValid(goal, false)
+  const deliverableOk = isSectionValid(deliverable, false)
   const acOk = /-\s*\[\s*\]/.test(ac)
-  const constraintsOk = constraints.length > 0
-  const nonGoalsOk = nonGoals.length > 0
+  const constraintsOk = isSectionValid(constraints, true)
+  const nonGoalsOk = isSectionValid(nonGoals, true)
   const placeholders = body.match(PLACEHOLDER_RE) ?? []
   const noPlaceholdersOk = placeholders.length === 0
 

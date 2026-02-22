@@ -5,3 +5,4 @@ dist
 *.tsbuildinfo
 nul
 .env
+coverage/
