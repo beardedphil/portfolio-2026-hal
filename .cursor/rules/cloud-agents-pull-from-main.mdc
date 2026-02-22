@@ -60,6 +60,47 @@ If you discover that work has landed on the wrong branch (detached HEAD, `main`,
 
 **CRITICAL:** Do not continue working until the branch situation is corrected. All commits must be on the correct feature branch for the ticket.
 
+### If You Discover Uncommitted Work
+
+If you discover that you have uncommitted changes (work that exists but hasn't been committed yet), you **MUST** preserve this work by creating or switching to the correct feature branch:
+
+#### Case 1: Uncommitted changes on any branch (including detached HEAD)
+
+If you have uncommitted changes but no commits yet, create or switch to the correct feature branch to preserve your working tree:
+
+1. **Create or switch to the correct feature branch:**
+   ```bash
+   git switch -c <ticket-branch>  # Creates new branch and switches to it, preserving uncommitted changes
+   # OR (if using older git versions)
+   git checkout -b <ticket-branch>  # Creates new branch and switches to it, preserving uncommitted changes
+   ```
+
+2. **Continue with your work** — your uncommitted changes are now on the correct branch and can be committed normally.
+
+#### Case 2: Detached HEAD with uncommitted changes
+
+If you are on a detached HEAD state with uncommitted changes, create a new branch to preserve the working tree, then commit and push:
+
+1. **Create a new branch from the current detached HEAD state:**
+   ```bash
+   git switch -c <ticket-branch>  # Creates new branch from current HEAD, preserving uncommitted changes
+   # OR (if using older git versions)
+   git checkout -b <ticket-branch>  # Creates new branch from current HEAD, preserving uncommitted changes
+   ```
+
+2. **Commit your uncommitted changes:**
+   ```bash
+   git add .
+   git commit -m "Initial work for ticket <ticket-id>"
+   ```
+
+3. **Push the branch:**
+   ```bash
+   git push -u origin <ticket-branch>
+   ```
+
+**CRITICAL:** The `git switch -c` (or `git checkout -b`) command preserves uncommitted changes when creating a new branch. This ensures your work is not lost when moving to the correct branch.
+
 ## Why
 
 Cloud agents run in an environment that may have cloned the repo earlier or from a different ref. The board and tickets reflect the current state of `main`; working from a stale clone can cause merge conflicts, duplicate work, or missed changes. Always start from an up-to-date `main`.
