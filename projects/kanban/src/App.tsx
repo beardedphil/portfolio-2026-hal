@@ -1449,14 +1449,14 @@ function App() {
             }
             
             const findingsText = Array.from(findingsByPath.entries())
-              .sort(([a], [b]) => a.localeCompare(b))
-              .map(([path, pathFindings]) => {
+              .sort(([a]: [string, typeof findings], [b]: [string, typeof findings]) => a.localeCompare(b))
+              .map(([path, pathFindings]: [string, typeof findings]) => {
                 const pathFindingsText = pathFindings
-                  .sort((a, b) => {
+                  .sort((a: { path: string; ruleId: string; message: string; suggestedFix: string }, b: { path: string; ruleId: string; message: string; suggestedFix: string }) => {
                     if (a.ruleId !== b.ruleId) return a.ruleId.localeCompare(b.ruleId)
                     return a.message.localeCompare(b.message)
                   })
-                  .map((f) => `    • ${f.message}\n      Fix: ${f.suggestedFix}`)
+                  .map((f: { path: string; ruleId: string; message: string; suggestedFix: string }) => `    • ${f.message}\n      Fix: ${f.suggestedFix}`)
                   .join('\n')
                 return `  ${path}:\n${pathFindingsText}`
               })
