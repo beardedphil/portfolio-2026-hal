@@ -17,149 +17,135 @@ function json(res: ServerResponse, statusCode: number, body: unknown) {
   res.end(JSON.stringify(body))
 }
 
-export default async function handler(req: IncomingMessage, res: ServerResponse) {
-  // CORS: Allow cross-origin requests
-  res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+interface RequestBody {
+  projectId?: string
+  agent?: string
+  supabaseUrl?: string
+  supabaseAnonKey?: string
+  openaiApiKey?: string
+  openaiModel?: string
+  forceRefresh?: boolean
+}
 
-  if (req.method === 'OPTIONS') {
-    res.statusCode = 204
-    res.end()
-    return
+interface ParsedRequest {
+  projectId: string
+  agent: string
+  supabaseUrl: string
+  supabaseAnonKey: string
+  openaiApiKey: string
+  openaiModel: string
+  forceRefresh: boolean
+}
+
+function parseRequestBody(body: unknown): RequestBody {
+  return (body || {}) as RequestBody
+}
+
+function extractStringValue(value: unknown): string | undefined {
+  return typeof value === 'string' ? value.trim() || undefined : undefined
+}
+
+function extractSupabaseUrl(body: RequestBody): string | undefined {
+  return (
+    extractStringValue(body.supabaseUrl) ||
+    process.env.SUPABASE_URL?.trim() ||
+    process.env.VITE_SUPABASE_URL?.trim() ||
+    undefined
+  )
+}
+
+function extractSupabaseAnonKey(body: RequestBody): string | undefined {
+  return (
+    extractStringValue(body.supabaseAnonKey) ||
+    process.env.SUPABASE_ANON_KEY?.trim() ||
+    process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
+    undefined
+  )
+}
+
+function validateAndParseRequest(body: RequestBody): { valid: true; parsed: ParsedRequest } | { valid: false; error: string } {
+  const projectId = extractStringValue(body.projectId)
+  const agent = extractStringValue(body.agent)
+  const supabaseUrl = extractSupabaseUrl(body)
+  const supabaseAnonKey = extractSupabaseAnonKey(body)
+  const openaiApiKey = extractStringValue(body.openaiApiKey)
+  const openaiModel = extractStringValue(body.openaiModel)
+  const forceRefresh = typeof body.forceRefresh === 'boolean' ? body.forceRefresh : false
+
+  if (!projectId || !agent) {
+    return { valid: false, error: 'projectId and agent are required.' }
   }
 
-  if (req.method !== 'POST') {
-    res.statusCode = 405
-    res.end('Method Not Allowed')
-    return
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return {
+      valid: false,
+      error: 'Supabase credentials required (provide in request body or set SUPABASE_URL and SUPABASE_ANON_KEY in server environment).',
+    }
   }
 
-  try {
-    const body = (await readJsonBody(req)) as {
-      projectId?: string
-      agent?: string
-      supabaseUrl?: string
-      supabaseAnonKey?: string
-      openaiApiKey?: string
-      openaiModel?: string
-      forceRefresh?: boolean
+  if (!openaiApiKey || !openaiModel) {
+    return {
+      valid: false,
+      error: 'OpenAI credentials required (provide openaiApiKey and openaiModel in request body).',
     }
+  }
 
-    const projectId = typeof body.projectId === 'string' ? body.projectId.trim() || undefined : undefined
-    const agent = typeof body.agent === 'string' ? body.agent.trim() || undefined : undefined
-    const supabaseUrl =
-      (typeof body.supabaseUrl === 'string' ? body.supabaseUrl.trim() : undefined) ||
-      process.env.SUPABASE_URL?.trim() ||
-      process.env.VITE_SUPABASE_URL?.trim() ||
-      undefined
-    const supabaseAnonKey =
-      (typeof body.supabaseAnonKey === 'string' ? body.supabaseAnonKey.trim() : undefined) ||
-      process.env.SUPABASE_ANON_KEY?.trim() ||
-      process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
-      undefined
-    const openaiApiKey = typeof body.openaiApiKey === 'string' ? body.openaiApiKey.trim() : undefined
-    const openaiModel = typeof body.openaiModel === 'string' ? body.openaiModel.trim() : undefined
-    const forceRefresh = typeof body.forceRefresh === 'boolean' ? body.forceRefresh : false
+  return {
+    valid: true,
+    parsed: {
+      projectId,
+      agent,
+      supabaseUrl,
+      supabaseAnonKey,
+      openaiApiKey,
+      openaiModel,
+      forceRefresh,
+    },
+  }
+}
 
-    if (!projectId || !agent) {
-      json(res, 400, {
-        success: false,
-        error: 'projectId and agent are required.',
-      })
-      return
-    }
+interface WorkingMemory {
+  summary: string
+  goals: string[]
+  requirements: string[]
+  constraints: string[]
+  decisions: string[]
+  assumptions: string[]
+  openQuestions: string[]
+  glossary: Record<string, string>
+  stakeholders: string[]
+}
 
-    if (!supabaseUrl || !supabaseAnonKey) {
-      json(res, 400, {
-        success: false,
-        error: 'Supabase credentials required (provide in request body or set SUPABASE_URL and SUPABASE_ANON_KEY in server environment).',
-      })
-      return
-    }
+function normalizeWorkingMemory(data: {
+  summary?: string
+  goals?: string[]
+  requirements?: string[]
+  constraints?: string[]
+  decisions?: string[]
+  assumptions?: string[]
+  openQuestions?: string[]
+  glossary?: Record<string, string>
+  stakeholders?: string[]
+}): WorkingMemory {
+  return {
+    summary: data.summary || '',
+    goals: data.goals || [],
+    requirements: data.requirements || [],
+    constraints: data.constraints || [],
+    decisions: data.decisions || [],
+    assumptions: data.assumptions || [],
+    openQuestions: data.openQuestions || [],
+    glossary: data.glossary || {},
+    stakeholders: data.stakeholders || [],
+  }
+}
 
-    if (!openaiApiKey || !openaiModel) {
-      json(res, 400, {
-        success: false,
-        error: 'OpenAI credentials required (provide openaiApiKey and openaiModel in request body).',
-      })
-      return
-    }
+function formatConversationText(messages: Array<{ role: string; content: string }>): string {
+  return messages.map((m) => `**${m.role}**: ${m.content}`).join('\n\n')
+}
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey)
-
-    // Fetch conversation messages
-    const { data: messages, error: messagesError } = await supabase
-      .from('hal_conversation_messages')
-      .select('role, content, sequence')
-      .eq('project_id', projectId)
-      .eq('agent', agent)
-      .order('sequence', { ascending: true })
-
-    if (messagesError) {
-      json(res, 200, {
-        success: false,
-        error: `Failed to fetch conversation messages: ${messagesError.message}`,
-      })
-      return
-    }
-
-    if (!messages || messages.length === 0) {
-      json(res, 200, {
-        success: false,
-        error: 'No conversation messages found.',
-      })
-      return
-    }
-
-    // Check if we need to update (if forceRefresh is true, or if there are new messages)
-    const { data: existingMemory } = await supabase
-      .from('hal_conversation_working_memory')
-      .select('through_sequence')
-      .eq('project_id', projectId)
-      .eq('agent', agent)
-      .maybeSingle()
-
-    const currentSequence = messages[messages.length - 1]?.sequence ?? 0
-    const lastProcessedSequence = existingMemory?.through_sequence ?? 0
-
-    if (!forceRefresh && currentSequence <= lastProcessedSequence) {
-      // No new messages, return existing memory
-      const { data: existing } = await supabase
-        .from('hal_conversation_working_memory')
-        .select('*')
-        .eq('project_id', projectId)
-        .eq('agent', agent)
-        .maybeSingle()
-
-      if (existing) {
-        json(res, 200, {
-          success: true,
-          workingMemory: {
-            summary: existing.summary || '',
-            goals: existing.goals || [],
-            requirements: existing.requirements || [],
-            constraints: existing.constraints || [],
-            decisions: existing.decisions || [],
-            assumptions: existing.assumptions || [],
-            openQuestions: existing.open_questions || [],
-            glossary: existing.glossary || {},
-            stakeholders: existing.stakeholders || [],
-            lastUpdatedAt: existing.last_updated_at || null,
-            throughSequence: existing.through_sequence || 0,
-          },
-          updated: false,
-        })
-        return
-      }
-    }
-
-    // Generate working memory using OpenAI
-    const conversationText = messages
-      .map((m) => `**${m.role}**: ${m.content}`)
-      .join('\n\n')
-
-    const prompt = `You are analyzing a conversation between a user and a Project Manager agent. Extract and structure key information into a working memory format.
+function createWorkingMemoryPrompt(conversationText: string): string {
+  return `You are analyzing a conversation between a user and a Project Manager agent. Extract and structure key information into a working memory format.
 
 Conversation:
 ${conversationText}
@@ -189,52 +175,198 @@ Return ONLY a valid JSON object with this exact structure:
 }
 
 Return ONLY the JSON object, no other text.`
+}
+
+function parseJsonFromOpenAIResponse(content: string): string {
+  let jsonStr = content.trim()
+  // Match JSON in markdown code blocks (using [\s\S] instead of . with s flag for compatibility)
+  const jsonMatch = content.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/)
+  if (jsonMatch) {
+    jsonStr = jsonMatch[1]
+  }
+  return jsonStr
+}
+
+async function callOpenAI(apiKey: string, model: string, prompt: string): Promise<{ success: true; content: string } | { success: false; error: string }> {
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.3,
+        max_tokens: 2000,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      return {
+        success: false,
+        error: `OpenAI API error: ${response.status} ${errorText}`,
+      }
+    }
+
+    const data = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>
+    }
+    const content = data.choices?.[0]?.message?.content?.trim()
+
+    if (!content) {
+      return {
+        success: false,
+        error: 'OpenAI returned empty response',
+      }
+    }
+
+    return { success: true, content }
+  } catch (err) {
+    return {
+      success: false,
+      error: `Failed to call OpenAI API: ${err instanceof Error ? err.message : String(err)}`,
+    }
+  }
+}
+
+function formatWorkingMemoryResponse(workingMemory: WorkingMemory, throughSequence: number, lastUpdatedAt: string | null) {
+  return {
+    summary: workingMemory.summary,
+    goals: workingMemory.goals,
+    requirements: workingMemory.requirements,
+    constraints: workingMemory.constraints,
+    decisions: workingMemory.decisions,
+    assumptions: workingMemory.assumptions,
+    openQuestions: workingMemory.openQuestions,
+    glossary: workingMemory.glossary,
+    stakeholders: workingMemory.stakeholders,
+    lastUpdatedAt,
+    throughSequence,
+  }
+}
+
+export default async function handler(req: IncomingMessage, res: ServerResponse) {
+  // CORS: Allow cross-origin requests
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+
+  if (req.method === 'OPTIONS') {
+    res.statusCode = 204
+    res.end()
+    return
+  }
+
+  if (req.method !== 'POST') {
+    res.statusCode = 405
+    res.end('Method Not Allowed')
+    return
+  }
+
+  try {
+    const body = parseRequestBody(await readJsonBody(req))
+    const validation = validateAndParseRequest(body)
+
+    if (!validation.valid) {
+      const errorResult = validation as { valid: false; error: string }
+      json(res, 400, {
+        success: false,
+        error: errorResult.error,
+      })
+      return
+    }
+
+    const { parsed } = validation as { valid: true; parsed: ParsedRequest }
+    const supabase = createClient(parsed.supabaseUrl, parsed.supabaseAnonKey)
+
+    // Fetch conversation messages
+    const { data: messages, error: messagesError } = await supabase
+      .from('hal_conversation_messages')
+      .select('role, content, sequence')
+      .eq('project_id', parsed.projectId)
+      .eq('agent', parsed.agent)
+      .order('sequence', { ascending: true })
+
+    if (messagesError) {
+      json(res, 200, {
+        success: false,
+        error: `Failed to fetch conversation messages: ${messagesError.message}`,
+      })
+      return
+    }
+
+    if (!messages || messages.length === 0) {
+      json(res, 200, {
+        success: false,
+        error: 'No conversation messages found.',
+      })
+      return
+    }
+
+    // Check if we need to update (if forceRefresh is true, or if there are new messages)
+    const { data: existingMemory } = await supabase
+      .from('hal_conversation_working_memory')
+      .select('through_sequence')
+      .eq('project_id', parsed.projectId)
+      .eq('agent', parsed.agent)
+      .maybeSingle()
+
+    const currentSequence = messages[messages.length - 1]?.sequence ?? 0
+    const lastProcessedSequence = existingMemory?.through_sequence ?? 0
+
+    if (!parsed.forceRefresh && currentSequence <= lastProcessedSequence) {
+      // No new messages, return existing memory
+      const { data: existing } = await supabase
+        .from('hal_conversation_working_memory')
+        .select('*')
+        .eq('project_id', parsed.projectId)
+        .eq('agent', parsed.agent)
+        .maybeSingle()
+
+      if (existing) {
+        const workingMemory = normalizeWorkingMemory({
+          summary: existing.summary,
+          goals: existing.goals,
+          requirements: existing.requirements,
+          constraints: existing.constraints,
+          decisions: existing.decisions,
+          assumptions: existing.assumptions,
+          openQuestions: existing.open_questions,
+          glossary: existing.glossary,
+          stakeholders: existing.stakeholders,
+        })
+
+        json(res, 200, {
+          success: true,
+          workingMemory: formatWorkingMemoryResponse(workingMemory, existing.through_sequence || 0, existing.last_updated_at || null),
+          updated: false,
+        })
+        return
+      }
+    }
+
+    // Generate working memory using OpenAI
+    const conversationText = formatConversationText(messages)
+    const prompt = createWorkingMemoryPrompt(conversationText)
+
+    const openaiResult = await callOpenAI(parsed.openaiApiKey, parsed.openaiModel, prompt)
+
+    if (!openaiResult.success) {
+      const errorResult = openaiResult as { success: false; error: string }
+      json(res, 200, {
+        success: false,
+        error: errorResult.error,
+      })
+      return
+    }
 
     try {
-      const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${openaiApiKey}`,
-        },
-        body: JSON.stringify({
-          model: openaiModel,
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.3,
-          max_tokens: 2000,
-        }),
-      })
-
-      if (!openaiResponse.ok) {
-        const errorText = await openaiResponse.text()
-        json(res, 200, {
-          success: false,
-          error: `OpenAI API error: ${openaiResponse.status} ${errorText}`,
-        })
-        return
-      }
-
-      const openaiData = (await openaiResponse.json()) as {
-        choices?: Array<{ message?: { content?: string } }>
-      }
-      const content = openaiData.choices?.[0]?.message?.content?.trim()
-
-      if (!content) {
-        json(res, 200, {
-          success: false,
-          error: 'OpenAI returned empty response',
-        })
-        return
-      }
-
-      // Parse JSON from response (may have markdown code blocks)
-      let jsonStr = content
-      const jsonMatch = content.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/s)
-      if (jsonMatch) {
-        jsonStr = jsonMatch[1]
-      }
-
-      const workingMemory = JSON.parse(jsonStr) as {
+      const { content } = openaiResult as { success: true; content: string }
+      const jsonStr = parseJsonFromOpenAIResponse(content)
+      const parsedMemory = JSON.parse(jsonStr) as {
         summary?: string
         goals?: string[]
         requirements?: string[]
@@ -246,22 +378,24 @@ Return ONLY the JSON object, no other text.`
         stakeholders?: string[]
       }
 
+      const workingMemory = normalizeWorkingMemory(parsedMemory)
+
       // Upsert working memory
       const { error: upsertError } = await supabase
         .from('hal_conversation_working_memory')
         .upsert(
           {
-            project_id: projectId,
-            agent,
-            summary: workingMemory.summary || '',
-            goals: workingMemory.goals || [],
-            requirements: workingMemory.requirements || [],
-            constraints: workingMemory.constraints || [],
-            decisions: workingMemory.decisions || [],
-            assumptions: workingMemory.assumptions || [],
-            open_questions: workingMemory.openQuestions || [],
-            glossary: workingMemory.glossary || {},
-            stakeholders: workingMemory.stakeholders || [],
+            project_id: parsed.projectId,
+            agent: parsed.agent,
+            summary: workingMemory.summary,
+            goals: workingMemory.goals,
+            requirements: workingMemory.requirements,
+            constraints: workingMemory.constraints,
+            decisions: workingMemory.decisions,
+            assumptions: workingMemory.assumptions,
+            open_questions: workingMemory.openQuestions,
+            glossary: workingMemory.glossary,
+            stakeholders: workingMemory.stakeholders,
             through_sequence: currentSequence,
             last_updated_at: new Date().toISOString(),
           },
@@ -276,21 +410,10 @@ Return ONLY the JSON object, no other text.`
         return
       }
 
+      const lastUpdatedAt = new Date().toISOString()
       json(res, 200, {
         success: true,
-        workingMemory: {
-          summary: workingMemory.summary || '',
-          goals: workingMemory.goals || [],
-          requirements: workingMemory.requirements || [],
-          constraints: workingMemory.constraints || [],
-          decisions: workingMemory.decisions || [],
-          assumptions: workingMemory.assumptions || [],
-          openQuestions: workingMemory.openQuestions || [],
-          glossary: workingMemory.glossary || {},
-          stakeholders: workingMemory.stakeholders || [],
-          lastUpdatedAt: new Date().toISOString(),
-          throughSequence: currentSequence,
-        },
+        workingMemory: formatWorkingMemoryResponse(workingMemory, currentSequence, lastUpdatedAt),
         updated: true,
       })
     } catch (parseErr) {
