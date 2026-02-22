@@ -66,7 +66,7 @@ export const STEP_DEFINITIONS: Record<BootstrapStepId, BootstrapStepDefinition> 
   },
   verify_preview: {
     id: 'verify_preview',
-    name: 'Verify Preview',
+    name: 'Verifying preview…',
     description: 'Poll /version.json until available and mark bootstrap complete',
   },
 }

@@ -32,6 +32,7 @@ export function BootstrapScreen({
   const [supabaseManagementToken, setSupabaseManagementToken] = useState('')
   const [supabaseOrganizationId, setSupabaseOrganizationId] = useState('')
   const [supabaseProjectInfo, setSupabaseProjectInfo] = useState<SupabaseProjectInfo | null>(null)
+  const [previewUrl, setPreviewUrl] = useState('')
 
   const loadBootstrapRun = useCallback(async () => {
     try {
@@ -166,6 +167,13 @@ export function BootstrapScreen({
           }
         }
 
+        // Add preview URL for verify_preview step
+        if (currentStep === 'verify_preview') {
+          if (previewUrl) {
+            stepBody.previewUrl = previewUrl
+          }
+        }
+
         const response = await fetch(`${apiBaseUrl}/api/bootstrap/step`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -199,7 +207,8 @@ export function BootstrapScreen({
         await loadBootstrapRun()
       }
     },
-    [supabaseUrl, supabaseAnonKey, apiBaseUrl, loadBootstrapRun, run?.current_step, supabaseManagementToken, supabaseOrganizationId, loadSupabaseProjectInfo]
+<<<<<<< HEAD
+    [supabaseUrl, supabaseAnonKey, apiBaseUrl, loadBootstrapRun, run?.current_step, supabaseManagementToken, supabaseOrganizationId, loadSupabaseProjectInfo, previewUrl]
   )
 
   const retryStep = useCallback(
@@ -402,6 +411,248 @@ export function BootstrapScreen({
                         </div>
                         <p style={{ margin: '0.5rem 0 0 0', color: '#666', fontSize: '0.9rem' }}>{stepDef.description}</p>
 
+<<<<<<< HEAD
+=======
+                        {/* Show input fields for create_supabase_project step when pending */}
+                        {stepDef.id === 'create_supabase_project' && status === 'pending' && (
+                          <div style={{ marginTop: '1rem', padding: '1rem', background: '#f9f9f9', borderRadius: '4px' }}>
+                            <h4 style={{ marginBottom: '0.75rem', fontSize: '0.9rem' }}>Supabase Project Configuration</h4>
+                            <p style={{ marginBottom: '0.75rem', fontSize: '0.85rem', color: '#666' }}>
+                              Fill in the required fields below and click "Create Supabase Project" to proceed.
+                            </p>
+                            <div style={{ marginBottom: '0.75rem' }}>
+                              <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.85rem', fontWeight: 'bold' }}>
+                                Supabase Management API Token *
+                              </label>
+                              <input
+                                type="password"
+                                value={supabaseManagementToken}
+                                onChange={(e) => setSupabaseManagementToken(e.target.value)}
+                                placeholder="Enter your Supabase Management API token"
+                                style={{
+                                  width: '100%',
+                                  padding: '0.5rem',
+                                  border: '1px solid #ddd',
+                                  borderRadius: '4px',
+                                  fontSize: '0.9rem',
+                                }}
+                              />
+                              <p style={{ marginTop: '0.25rem', fontSize: '0.75rem', color: '#666' }}>
+                                Get your token from{' '}
+                                <a href="https://supabase.com/dashboard/account/tokens" target="_blank" rel="noopener noreferrer">
+                                  Supabase Account Settings
+                                </a>
+                              </p>
+                            </div>
+                            <div style={{ marginBottom: '0.75rem' }}>
+                              <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.85rem', fontWeight: 'bold' }}>
+                                Organization ID *
+                              </label>
+                              <input
+                                type="text"
+                                value={supabaseOrganizationId}
+                                onChange={(e) => setSupabaseOrganizationId(e.target.value)}
+                                placeholder="Enter your Supabase organization ID"
+                                style={{
+                                  width: '100%',
+                                  padding: '0.5rem',
+                                  border: '1px solid #ddd',
+                                  borderRadius: '4px',
+                                  fontSize: '0.9rem',
+                                }}
+                              />
+                            </div>
+                            <div style={{ marginBottom: '0.75rem' }}>
+                              <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.85rem', fontWeight: 'bold' }}>
+                                Project Name (optional)
+                              </label>
+                              <input
+                                type="text"
+                                value=""
+                                onChange={() => {}}
+                                placeholder={`Default: hal-${projectId.replace(/[^a-z0-9-]/gi, '-').toLowerCase()}`}
+                                style={{
+                                  width: '100%',
+                                  padding: '0.5rem',
+                                  border: '1px solid #ddd',
+                                  borderRadius: '4px',
+                                  fontSize: '0.9rem',
+                                }}
+                              />
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.85rem', fontWeight: 'bold' }}>
+                                Region (optional)
+                              </label>
+                              <select
+                                value="us-east-1"
+                                onChange={() => {}}
+                                style={{
+                                  width: '100%',
+                                  padding: '0.5rem',
+                                  border: '1px solid #ddd',
+                                  borderRadius: '4px',
+                                  fontSize: '0.9rem',
+                                }}
+                              >
+                                <option value="us-east-1">US East (N. Virginia)</option>
+                                <option value="us-east-2">US East (Ohio)</option>
+                                <option value="us-west-1">US West (N. California)</option>
+                                <option value="us-west-2">US West (Oregon)</option>
+                                <option value="eu-west-1">EU West (Ireland)</option>
+                                <option value="eu-west-2">EU West (London)</option>
+                                <option value="eu-central-1">EU Central (Frankfurt)</option>
+                                <option value="ap-southeast-1">Asia Pacific (Singapore)</option>
+                                <option value="ap-northeast-1">Asia Pacific (Tokyo)</option>
+                              </select>
+                            </div>
+                            <button
+                              type="button"
+                              className="primary btn-standard"
+                              onClick={() => {
+                                if (!supabaseManagementToken || !supabaseOrganizationId) {
+                                  setError('Please provide both Supabase Management API token and Organization ID')
+                                  return
+                                }
+                                if (run) {
+                                  executeNextStep(run.id)
+                                }
+                              }}
+                              disabled={loading || !supabaseManagementToken || !supabaseOrganizationId}
+                              style={{ marginTop: '0.75rem', width: '100%' }}
+                            >
+                              {loading ? 'Creating...' : 'Create Supabase Project'}
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Show success state for create_supabase_project step */}
+                        {stepDef.id === 'create_supabase_project' && status === 'succeeded' && supabaseProjectInfo && (
+                          <div style={{ marginTop: '1rem', padding: '1rem', background: '#e8f5e9', borderRadius: '4px', border: '1px solid #4caf50' }}>
+                            <h4 style={{ marginBottom: '0.75rem', fontSize: '0.9rem', color: '#2e7d32' }}>
+                              ✓ Supabase Project Created Successfully
+                            </h4>
+                            <div style={{ fontSize: '0.85rem' }}>
+                              <div style={{ marginBottom: '0.5rem' }}>
+                                <strong>Project Ref:</strong> {supabaseProjectInfo.supabase_project_ref}
+                              </div>
+                              <div style={{ marginBottom: '0.5rem' }}>
+                                <strong>API URL:</strong>{' '}
+                                <a href={supabaseProjectInfo.supabase_api_url} target="_blank" rel="noopener noreferrer">
+                                  {supabaseProjectInfo.supabase_api_url}
+                                </a>
+                              </div>
+                              <div style={{ marginBottom: '0.5rem' }}>
+                                <strong>Status:</strong> {supabaseProjectInfo.status}
+                                {supabaseProjectInfo.created_at && (
+                                  <span style={{ marginLeft: '0.5rem', color: '#666' }}>
+                                    (Created: {new Date(supabaseProjectInfo.created_at).toLocaleString()})
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ marginTop: '0.75rem', padding: '0.75rem', background: '#fff', borderRadius: '4px' }}>
+                                <div style={{ marginBottom: '0.5rem' }}>
+                                  <strong>Anon Key:</strong> <span style={{ fontFamily: 'monospace' }}>{supabaseProjectInfo.anon_key_masked}</span>
+                                </div>
+                                <div style={{ marginBottom: '0.5rem' }}>
+                                  <strong>Service Role Key:</strong>{' '}
+                                  <span style={{ fontFamily: 'monospace' }}>{supabaseProjectInfo.service_role_key_masked}</span>
+                                </div>
+                                {supabaseProjectInfo.database_password_masked && (
+                                  <div>
+                                    <strong>Database Password:</strong>{' '}
+                                    <span style={{ fontFamily: 'monospace' }}>{supabaseProjectInfo.database_password_masked}</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Show input field for verify_preview step when pending */}
+                        {stepDef.id === 'verify_preview' && status === 'pending' && (
+                          <div style={{ marginTop: '1rem', padding: '1rem', background: '#f9f9f9', borderRadius: '4px' }}>
+                            <h4 style={{ marginBottom: '0.75rem', fontSize: '0.9rem' }}>Preview URL Configuration</h4>
+                            <p style={{ marginBottom: '0.75rem', fontSize: '0.85rem', color: '#666' }}>
+                              Enter the preview deployment URL to verify. The URL should be the full preview URL (e.g., https://your-app-abc123.vercel.app).
+                            </p>
+                            <div style={{ marginBottom: '0.75rem' }}>
+                              <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.85rem', fontWeight: 'bold' }}>
+                                Preview URL *
+                              </label>
+                              <input
+                                type="text"
+                                value={previewUrl}
+                                onChange={(e) => setPreviewUrl(e.target.value)}
+                                placeholder="https://your-app-abc123.vercel.app"
+                                style={{
+                                  width: '100%',
+                                  padding: '0.5rem',
+                                  border: '1px solid #ddd',
+                                  borderRadius: '4px',
+                                  fontSize: '0.9rem',
+                                }}
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              className="primary btn-standard"
+                              onClick={() => {
+                                if (!previewUrl) {
+                                  setError('Please provide a preview URL')
+                                  return
+                                }
+                                if (run) {
+                                  executeNextStep(run.id)
+                                }
+                              }}
+                              disabled={loading || !previewUrl}
+                              style={{ marginTop: '0.75rem', width: '100%' }}
+                            >
+                              {loading ? 'Verifying...' : 'Start Verification'}
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Show running state for verify_preview step */}
+                        {stepDef.id === 'verify_preview' && status === 'running' && (
+                          <div style={{ marginTop: '1rem', padding: '1rem', background: '#fff3cd', borderRadius: '4px', border: '1px solid #ff9800' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                              <div
+                                className="bootstrap-spinner"
+                                style={{
+                                  width: '20px',
+                                  height: '20px',
+                                  border: '3px solid #ff9800',
+                                  borderTopColor: 'transparent',
+                                  borderRadius: '50%',
+                                  animation: 'spin 1s linear infinite',
+                                }}
+                              />
+                              <div>
+                                <strong style={{ color: '#f57c00' }}>Verifying preview…</strong>
+                                <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.85rem', color: '#666' }}>
+                                  Polling /version.json to confirm the preview deployment is live...
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Show success state for verify_preview step */}
+                        {stepDef.id === 'verify_preview' && status === 'succeeded' && (
+                          <div style={{ marginTop: '1rem', padding: '1rem', background: '#e8f5e9', borderRadius: '4px', border: '1px solid #4caf50' }}>
+                            <h4 style={{ marginBottom: '0.5rem', fontSize: '0.9rem', color: '#2e7d32', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              <span>✓</span>
+                              <span>Preview verified</span>
+                            </h4>
+                            <p style={{ margin: 0, fontSize: '0.85rem', color: '#2e7d32' }}>
+                              Successfully fetched /version.json from the preview deployment.
+                            </p>
+                          </div>
+                        )}
+
+>>>>>>> a6955ce2 (Implement verify_preview step for bootstrap flow)
                         {hasError && stepRecord && (
                           <div style={{ marginTop: '0.75rem' }}>
                             <div style={{ padding: '0.75rem', background: '#fff3cd', borderRadius: '4px', marginBottom: '0.5rem' }}>
@@ -436,7 +687,7 @@ export function BootstrapScreen({
                               disabled={loading}
                               style={{ marginTop: '0.5rem' }}
                             >
-                              Retry failed step
+                              {stepDef.id === 'verify_preview' ? 'Retry' : 'Retry failed step'}
                             </button>
                           </div>
                         )}

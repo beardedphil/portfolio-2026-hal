@@ -26,6 +26,7 @@ async function executeStep(
     supabaseOrganizationId?: string
     supabaseProjectName?: string
     supabaseRegion?: string
+    previewUrl?: string
   }
 ): Promise<{ success: boolean; error?: string; errorDetails?: string }> {
   switch (stepId) {
@@ -147,10 +148,88 @@ async function executeStep(
       await new Promise((resolve) => setTimeout(resolve, 2000))
       return { success: true }
 
-    case 'verify_preview':
-      // TODO (T6): Implement verify_preview by polling /version.json
-      await new Promise((resolve) => setTimeout(resolve, 1500))
-      return { success: true }
+    case 'verify_preview': {
+      // Get preview URL from context or environment
+      // For now, we'll try to get it from context or construct it from project info
+      // In a full implementation, this would come from Vercel API after create_vercel_project
+      const previewUrl = context?.previewUrl || process.env.VERCEL_PREVIEW_URL
+      
+      if (!previewUrl) {
+        return {
+          success: false,
+          error: 'Preview URL is required',
+          errorDetails: 'Preview URL must be provided to verify the deployment. This should be set after the Vercel project is created.',
+        }
+      }
+
+      // Normalize URL (ensure it has protocol)
+      const normalizedUrl = previewUrl.startsWith('http') ? previewUrl : `https://${previewUrl}`
+      const versionJsonUrl = `${normalizedUrl.replace(/\/$/, '')}/version.json`
+
+      // Poll /version.json with retries
+      const maxAttempts = 30 // Try for up to 5 minutes (30 * 10s)
+      const pollInterval = 10000 // 10 seconds between attempts
+      let lastError: string | null = null
+      let lastStatusCode: number | null = null
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          const response = await fetch(versionJsonUrl, {
+            method: 'GET',
+            headers: {
+              'Accept': 'application/json',
+            },
+            // Add timeout to prevent hanging
+            signal: AbortSignal.timeout(8000), // 8 second timeout per request
+          })
+
+          if (response.ok) {
+            // Verify it's valid JSON
+            const data = await response.json()
+            
+            // Basic validation - check if it looks like version.json
+            if (data && typeof data === 'object') {
+              return { success: true }
+            } else {
+              lastError = 'Invalid response format'
+              lastStatusCode = response.status
+            }
+          } else {
+            lastError = `HTTP ${response.status}: ${response.statusText}`
+            lastStatusCode = response.status
+          }
+        } catch (err) {
+          if (err instanceof Error) {
+            // Check if it's a timeout
+            if (err.name === 'AbortError' || err.message.includes('timeout')) {
+              lastError = 'Request timeout'
+            } else if (err.message.includes('ECONNREFUSED') || err.message.includes('ENOTFOUND')) {
+              lastError = 'Network error: Could not connect to preview'
+            } else {
+              lastError = `Network error: ${err.message}`
+            }
+          } else {
+            lastError = 'Unknown network error'
+          }
+        }
+
+        // If not the last attempt, wait before retrying
+        if (attempt < maxAttempts) {
+          await new Promise((resolve) => setTimeout(resolve, pollInterval))
+        }
+      }
+
+      // All attempts failed
+      const errorMessage = lastStatusCode 
+        ? `Preview not ready: ${lastError} (Status: ${lastStatusCode})`
+        : `Preview not ready: ${lastError || 'Unknown error'}`
+      
+      return {
+        success: false,
+        error: errorMessage,
+        errorDetails: `Failed to reach ${versionJsonUrl} after ${maxAttempts} attempts. The preview deployment may still be building. You can retry this step once the preview is available.`,
+      }
+    }
 
     default:
       return {
@@ -189,6 +268,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       supabaseOrganizationId?: string
       supabaseProjectName?: string
       supabaseRegion?: string
+      previewUrl?: string
     }
 
     const runId = typeof body.runId === 'string' ? body.runId.trim() : undefined
@@ -279,12 +359,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       })
       .eq('id', runId)
 
+<<<<<<< HEAD
     // Execute the step with context
     const stepContext = {
       supabaseManagementToken: typeof body.supabaseManagementToken === 'string' ? body.supabaseManagementToken.trim() : undefined,
       supabaseOrganizationId: typeof body.supabaseOrganizationId === 'string' ? body.supabaseOrganizationId.trim() : undefined,
       supabaseProjectName: typeof body.supabaseProjectName === 'string' ? body.supabaseProjectName.trim() : undefined,
       supabaseRegion: typeof body.supabaseRegion === 'string' ? body.supabaseRegion.trim() : undefined,
+      previewUrl: typeof body.previewUrl === 'string' ? body.previewUrl.trim() : undefined,
     }
     const stepResult = await executeStep(stepId, run.project_id, runId, supabase, stepContext)
 
