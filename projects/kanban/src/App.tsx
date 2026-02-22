@@ -232,7 +232,7 @@ function App() {
   const [activeWorkAgentTypes, setActiveWorkAgentTypes] = useState<Record<string, 'Implementation' | 'QA' | 'Process Review'>>({})
   // Sync with Docs removed (Supabase-only) (0065)
   // Ticket persistence tracking (0047)
-  const [lastMovePersisted, setLastMovePersisted] = useState<{ success: boolean; timestamp: Date; ticketId: string; error?: string; isValidationBlock?: boolean } | null>(null)
+  const [lastMovePersisted, setLastMovePersisted] = useState<{ success: boolean; timestamp: Date; ticketId: string; error?: string; isValidationBlock?: boolean; errorCode?: string; ciStatus?: { overall: string; evaluatedSha?: string; failingCheckNames?: string[]; checksPageUrl?: string } } | null>(null)
   const [pendingMoves, setPendingMoves] = useState<Set<string>>(new Set())
   // Track when each move was initiated to prevent premature rollback on slow API responses (0790)
   const [pendingMoveTimestamps, setPendingMoveTimestamps] = useState<Map<string, number>>(new Map())
@@ -1417,7 +1417,7 @@ function App() {
       ticketPk: string,
       columnId: string,
       position?: number
-    ): Promise<{ ok: true } | { ok: false; error: string; actionableSteps?: string; missingArtifacts?: string[] }> => {
+    ): Promise<{ ok: true } | { ok: false; error: string; actionableSteps?: string; missingArtifacts?: string[]; errorCode?: string; ciStatus?: any }> => {
       try {
         // Get API base URL from environment or use current origin
         const apiBaseUrl = import.meta.env.VITE_HAL_API_BASE_URL || window.location.origin
@@ -1452,7 +1452,9 @@ function App() {
             ok: false, 
             error: errorMessage,
             actionableSteps,
-            missingArtifacts: result.missingArtifacts
+            missingArtifacts: result.missingArtifacts,
+            errorCode: result.errorCode,
+            ciStatus: result.ciStatus,
           }
         }
 
@@ -2384,7 +2386,14 @@ function App() {
             : result.error
           
           // Show error message immediately (0790)
-          setLastMovePersisted({ success: false, timestamp: new Date(), ticketId: ticketPk, error: errorMessage })
+          setLastMovePersisted({ 
+            success: false, 
+            timestamp: new Date(), 
+            ticketId: ticketPk, 
+            error: errorMessage,
+            errorCode: 'errorCode' in result ? result.errorCode : undefined,
+            ciStatus: 'ciStatus' in result ? result.ciStatus : undefined,
+          })
           addLog(`Move failed: ${errorMessage}`)
           
           // Wait for rollback delay before reverting optimistic update (0790)
@@ -2814,7 +2823,14 @@ function App() {
               : result.error
             
             // Show error message immediately (0790)
-            setLastMovePersisted({ success: false, timestamp: new Date(), ticketId: ticketPk, error: errorMessage })
+            setLastMovePersisted({ 
+              success: false, 
+              timestamp: new Date(), 
+              ticketId: ticketPk, 
+              error: errorMessage,
+              errorCode: 'errorCode' in result ? result.errorCode : undefined,
+              ciStatus: 'ciStatus' in result ? result.ciStatus : undefined,
+            })
             addLog(`Move failed: ${errorMessage}`)
             
             // Wait for rollback delay before reverting optimistic update (0790)
@@ -2974,6 +2990,43 @@ function App() {
             <>
               <div style={{ whiteSpace: 'pre-line' }}>
                 ✗ {lastMovePersisted.isValidationBlock ? 'Move blocked' : 'Move failed'}: {lastMovePersisted.error ?? 'Unknown error'}
+                {lastMovePersisted.errorCode === 'NO_PR_REQUIRED' && (
+                  <div style={{ marginTop: '8px', padding: '8px', backgroundColor: 'rgba(255, 193, 7, 0.1)', borderRadius: '4px' }}>
+                    <strong>No PR linked:</strong> A GitHub Pull Request must be linked to this ticket before it can be moved to this column. The drift gate requires CI checks to pass before allowing transitions.
+                  </div>
+                )}
+                {lastMovePersisted.errorCode === 'CI_CHECKS_FAILING' && lastMovePersisted.ciStatus && (
+                  <div style={{ marginTop: '8px', padding: '8px', backgroundColor: 'rgba(220, 53, 69, 0.1)', borderRadius: '4px' }}>
+                    <strong>CI Status: {lastMovePersisted.ciStatus.overall === 'failing' ? 'Failing' : lastMovePersisted.ciStatus.overall === 'running' ? 'Running' : lastMovePersisted.ciStatus.overall === 'pending' ? 'Pending' : 'Unknown'}</strong>
+                    {lastMovePersisted.ciStatus.evaluatedSha && (
+                      <div style={{ fontSize: '0.9em', marginTop: '4px' }}>
+                        Evaluated SHA: <code style={{ fontSize: '0.85em' }}>{lastMovePersisted.ciStatus.evaluatedSha.substring(0, 7)}</code>
+                      </div>
+                    )}
+                    {lastMovePersisted.ciStatus.failingCheckNames && lastMovePersisted.ciStatus.failingCheckNames.length > 0 && (
+                      <div style={{ marginTop: '4px' }}>
+                        <strong>Failing checks:</strong>
+                        <ul style={{ margin: '4px 0 0 20px', padding: 0 }}>
+                          {lastMovePersisted.ciStatus.failingCheckNames.map((name, idx) => (
+                            <li key={idx}>{name}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {lastMovePersisted.ciStatus.checksPageUrl && (
+                      <div style={{ marginTop: '8px' }}>
+                        <a 
+                          href={lastMovePersisted.ciStatus.checksPageUrl} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          style={{ color: '#0066cc', textDecoration: 'underline' }}
+                        >
+                          View checks on GitHub →
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               <button
                 type="button"

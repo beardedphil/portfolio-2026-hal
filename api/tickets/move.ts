@@ -8,6 +8,8 @@ import {
 import { readJsonBody, json, parseSupabaseCredentialsWithServiceRole, fetchTicketByPkOrId } from './_shared.js'
 import { resolveColumnId, calculateTargetPosition } from './_move-helpers.js'
 import { parseAcceptanceCriteria } from './_acceptance-criteria-parser.js'
+import { evaluateCiStatus, type CiStatusSummary } from '../_lib/github/checks.js'
+import { getSession } from '../_lib/github/session.js'
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   // CORS: Allow cross-origin requests (for scripts calling from different origins)
@@ -279,6 +281,124 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
         // If ticket has AC items but no status records exist yet, allow the move
         // (AC status may not have been initialized yet, which is fine for v0)
+      }
+
+      // Gate: Drift gate CI awareness - check CI status for linked PR (HAL-0767)
+      // Check if ticket has a linked PR
+      const { data: agentRuns, error: runsErr } = await supabase
+        .from('hal_agent_runs')
+        .select('pr_url')
+        .eq('ticket_pk', resolvedTicketPk)
+        .not('pr_url', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+
+      if (runsErr) {
+        json(res, 200, {
+          success: false,
+          error: `Cannot move ticket: failed to check for linked PR (${runsErr.message}).`,
+        })
+        return
+      }
+
+      const prUrl = agentRuns && agentRuns.length > 0 && agentRuns[0]?.pr_url
+        ? String(agentRuns[0].pr_url).trim()
+        : null
+
+      // If no PR linked, block the transition
+      if (!prUrl || prUrl.length === 0) {
+        // Store drift attempt record
+        await supabase.from('drift_attempts').insert({
+          ticket_pk: resolvedTicketPk,
+          pr_url: null,
+          evaluated_head_sha: null,
+          overall_status: null,
+          required_checks: null,
+          failing_check_names: null,
+          checks_page_url: null,
+          evaluation_error: 'No PR linked',
+          blocked: true,
+        })
+
+        json(res, 200, {
+          success: false,
+          error: 'A GitHub Pull Request must be linked to this ticket before it can be moved to this column.',
+          errorCode: 'NO_PR_REQUIRED',
+          remedy: 'Link a PR to this ticket before attempting this transition. The drift gate requires CI checks to pass before allowing transitions.',
+        })
+        return
+      }
+
+      // Evaluate CI status for the PR
+      let ciStatus: CiStatusSummary | { error: string } | null = null
+      let evaluationError: string | null = null
+
+      try {
+        // Get GitHub token from session or environment
+        const session = await getSession(req, res).catch(() => null)
+        const ghToken = session?.github?.accessToken || process.env.GITHUB_TOKEN?.trim() || process.env.GH_TOKEN?.trim()
+
+        if (!ghToken) {
+          evaluationError = 'GitHub authentication required to check CI status'
+          ciStatus = { error: evaluationError }
+        } else {
+          ciStatus = await evaluateCiStatus(ghToken, prUrl)
+          if ('error' in ciStatus) {
+            evaluationError = ciStatus.error
+          }
+        }
+      } catch (err) {
+        evaluationError = err instanceof Error ? err.message : String(err)
+        ciStatus = { error: evaluationError }
+      }
+
+      // Store drift attempt record
+      const driftAttemptData: any = {
+        ticket_pk: resolvedTicketPk,
+        pr_url: prUrl,
+        blocked: false,
+      }
+
+      if ('error' in ciStatus) {
+        driftAttemptData.evaluation_error = evaluationError
+        driftAttemptData.blocked = true
+      } else {
+        driftAttemptData.evaluated_head_sha = ciStatus.evaluatedSha
+        driftAttemptData.overall_status = ciStatus.overall
+        driftAttemptData.required_checks = ciStatus.requiredChecks
+        driftAttemptData.failing_check_names = ciStatus.failingCheckNames
+        driftAttemptData.checks_page_url = ciStatus.checksPageUrl
+        driftAttemptData.blocked = ciStatus.overall === 'failing'
+      }
+
+      await supabase.from('drift_attempts').insert(driftAttemptData)
+
+      // Block transition if CI is failing
+      if (!('error' in ciStatus) && ciStatus.overall === 'failing') {
+        const failingChecksList = ciStatus.failingCheckNames.length > 0
+          ? ciStatus.failingCheckNames.map((name) => `  - ${name}`).join('\n')
+          : '  - Required checks (unit and/or e2e) are failing'
+
+        json(res, 200, {
+          success: false,
+          error: `Cannot move ticket: CI checks are failing. All required checks must pass before moving to this column.`,
+          errorCode: 'CI_CHECKS_FAILING',
+          ciStatus: {
+            overall: ciStatus.overall,
+            evaluatedSha: ciStatus.evaluatedSha,
+            failingCheckNames: ciStatus.failingCheckNames,
+            checksPageUrl: ciStatus.checksPageUrl,
+          },
+          remedy: `Fix the failing CI checks and ensure all required checks (unit and e2e) pass before moving to ${columnId}.\n\nFailing checks:\n${failingChecksList}\n\nView checks: ${ciStatus.checksPageUrl}`,
+        })
+        return
+      }
+
+      // If CI evaluation failed (e.g., no auth), still allow the move but log the error
+      // This prevents blocking users when GitHub API is unavailable
+      if ('error' in ciStatus) {
+        console.warn(`[drift-gate] CI evaluation failed for ticket ${resolvedTicketPk}: ${evaluationError}`)
+        // Continue with the move - don't block on CI evaluation errors
       }
     }
 

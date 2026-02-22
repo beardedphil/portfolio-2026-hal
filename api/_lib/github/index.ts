@@ -34,6 +34,17 @@ export {
   type CreatePrResponse,
 } from './pullRequests.js'
 
+// Checks
+export {
+  fetchCheckRunsForCommit,
+  fetchPrHeadSha,
+  evaluateCiStatus,
+  type CheckRun,
+  type CheckRunStatus,
+  type CheckRunConclusion,
+  type CiStatusSummary,
+} from './checks.js'
+
 // Artifacts
 export {
   generateImplementationArtifacts,
