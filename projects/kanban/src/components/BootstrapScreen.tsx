@@ -6,6 +6,7 @@ interface BootstrapScreenProps {
   supabaseUrl: string
   supabaseAnonKey: string
   apiBaseUrl: string
+  connectedGithubRepo?: { fullName: string; defaultBranch: string } | null
   onClose?: () => void
 }
 
@@ -22,6 +23,7 @@ export function BootstrapScreen({
   supabaseUrl,
   supabaseAnonKey,
   apiBaseUrl,
+  connectedGithubRepo,
   onClose,
 }: BootstrapScreenProps) {
   const [run, setRun] = useState<BootstrapRun | null>(null)
@@ -35,6 +37,8 @@ export function BootstrapScreen({
   const [projectName, setProjectName] = useState('')
   const [region, setRegion] = useState('us-east-1')
   const [previewUrl, setPreviewUrl] = useState('')
+  const [vercelToken, setVercelToken] = useState('')
+  const [vercelPreviewUrl, setVercelPreviewUrl] = useState<string | null>(null)
 
   const loadBootstrapRun = useCallback(async () => {
     try {
@@ -178,6 +182,18 @@ export function BootstrapScreen({
         if (run?.current_step === 'verify_preview') {
           if (previewUrl) {
             stepBody.previewUrl = previewUrl
+          } else if (vercelPreviewUrl) {
+            stepBody.previewUrl = vercelPreviewUrl
+          }
+        }
+
+        // Add Vercel and GitHub parameters for create_vercel_project step
+        if (run?.current_step === 'create_vercel_project') {
+          if (vercelToken) {
+            stepBody.vercelToken = vercelToken
+          }
+          if (connectedGithubRepo?.fullName) {
+            stepBody.githubRepo = connectedGithubRepo.fullName
           }
         }
 
@@ -202,6 +218,23 @@ export function BootstrapScreen({
           await loadSupabaseProject()
         }
 
+        // Store preview URL if create_vercel_project step succeeded
+        if (result.stepResult?.stepId === 'create_vercel_project' && result.stepResult.success && result.stepResult.previewUrl) {
+          setVercelPreviewUrl(result.stepResult.previewUrl)
+          // Auto-populate preview URL for verify_preview step
+          setPreviewUrl(result.stepResult.previewUrl)
+        }
+
+        // Also check step history for preview URL
+        const vercelStep = result.run.step_history?.find((s: any) => s.step === 'create_vercel_project')
+        if (vercelStep?.preview_url) {
+          setVercelPreviewUrl(vercelStep.preview_url)
+          // Auto-populate preview URL for verify_preview step
+          if (!previewUrl) {
+            setPreviewUrl(vercelStep.preview_url)
+          }
+        }
+
         // If step succeeded and there are more steps, continue
         // Skip auto-execution for steps that require manual input
         if (result.stepResult.success && result.run.status === 'running') {
@@ -220,7 +253,7 @@ export function BootstrapScreen({
         await loadSupabaseProject()
       }
     },
-    [supabaseUrl, supabaseAnonKey, apiBaseUrl, loadBootstrapRun, loadSupabaseProject, run, supabaseManagementApiToken, organizationId, projectName, region, previewUrl]
+    [supabaseUrl, supabaseAnonKey, apiBaseUrl, loadBootstrapRun, loadSupabaseProject, run, supabaseManagementApiToken, organizationId, projectName, region, previewUrl, vercelToken, connectedGithubRepo, vercelPreviewUrl]
   )
 
   const retryStep = useCallback(
@@ -300,6 +333,82 @@ export function BootstrapScreen({
         {error && (
           <div className="wizard-error" role="alert" style={{ marginBottom: '1rem' }}>
             {error}
+          </div>
+        )}
+
+        {/* Show Vercel project creation button when GitHub repo is connected */}
+        {!run && connectedGithubRepo?.fullName && (
+          <div style={{ marginBottom: '2rem', padding: '1.5rem', background: '#f5f5f5', borderRadius: '8px', border: '1px solid #ddd' }}>
+            <h3 style={{ marginTop: 0, marginBottom: '1rem' }}>Vercel Deployment</h3>
+            <p style={{ marginBottom: '1rem', color: '#666' }}>
+              Create a Vercel project for <strong>{connectedGithubRepo.fullName}</strong> and trigger the first deploy.
+            </p>
+            
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+                Vercel API Token *
+              </label>
+              <input
+                type="password"
+                value={vercelToken}
+                onChange={(e) => setVercelToken(e.target.value)}
+                placeholder="Enter your Vercel API token"
+                style={{
+                  width: '100%',
+                  padding: '0.5rem',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  fontSize: '0.9rem',
+                }}
+              />
+              <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#666' }}>
+                Get your token from{' '}
+                <a href="https://vercel.com/account/tokens" target="_blank" rel="noopener noreferrer">
+                  Vercel Account Settings
+                </a>
+              </p>
+            </div>
+
+            <button
+              type="button"
+              className="primary btn-standard"
+              onClick={async () => {
+                if (!vercelToken) {
+                  setError('Please provide a Vercel API token')
+                  return
+                }
+                setLoading(true)
+                setError(null)
+                try {
+                  const response = await fetch(`${apiBaseUrl}/api/bootstrap/start`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      projectId: connectedGithubRepo.fullName,
+                      supabaseUrl,
+                      supabaseAnonKey,
+                    }),
+                  })
+                  const result = await response.json()
+                  if (!result.success) {
+                    setError(result.error || 'Failed to start bootstrap')
+                    setLoading(false)
+                    return
+                  }
+                  setRun(result.run)
+                  setLoading(false)
+                  // Start executing steps automatically, including Vercel project creation
+                  executeNextStep(result.run.id)
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : 'Failed to start bootstrap')
+                  setLoading(false)
+                }
+              }}
+              disabled={loading || !vercelToken}
+              style={{ width: '100%', fontSize: '1rem', padding: '0.75rem' }}
+            >
+              {loading ? 'Starting...' : 'Create Vercel project & deploy'}
+            </button>
           </div>
         )}
 
@@ -541,7 +650,9 @@ export function BootstrapScreen({
                           <div style={{ marginTop: '1rem', padding: '1rem', background: '#f9f9f9', borderRadius: '4px' }}>
                             <h4 style={{ marginBottom: '0.75rem', fontSize: '0.9rem' }}>Preview URL Configuration</h4>
                             <p style={{ marginBottom: '0.75rem', fontSize: '0.85rem', color: '#666' }}>
-                              Enter the Vercel preview deployment URL to verify. The verification will poll /version.json until the preview is live.
+                              {vercelPreviewUrl || previewUrl
+                                ? 'Preview URL detected from Vercel project creation. Click "Start Verification" to verify the deployment.'
+                                : 'Enter the Vercel preview deployment URL to verify. The verification will poll /version.json until the preview is live.'}
                             </p>
                             <div style={{ marginBottom: '0.75rem' }}>
                               <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.85rem', fontWeight: 'bold' }}>
@@ -549,7 +660,7 @@ export function BootstrapScreen({
                               </label>
                               <input
                                 type="url"
-                                value={previewUrl}
+                                value={previewUrl || vercelPreviewUrl || ''}
                                 onChange={(e) => setPreviewUrl(e.target.value)}
                                 placeholder="https://your-project-abc123.vercel.app"
                                 style={{
@@ -561,14 +672,17 @@ export function BootstrapScreen({
                                 }}
                               />
                               <p style={{ marginTop: '0.25rem', fontSize: '0.75rem', color: '#666' }}>
-                                This should be the Vercel preview deployment URL (e.g., from the Vercel dashboard or GitHub PR checks).
+                                {vercelPreviewUrl
+                                  ? 'Preview URL from Vercel project creation (you can modify if needed).'
+                                  : 'This should be the Vercel preview deployment URL (e.g., from the Vercel dashboard or GitHub PR checks).'}
                               </p>
                             </div>
                             <button
                               type="button"
                               className="primary btn-standard"
                               onClick={() => {
-                                if (!previewUrl) {
+                                const urlToVerify = previewUrl || vercelPreviewUrl
+                                if (!urlToVerify) {
                                   setError('Please provide a preview URL')
                                   return
                                 }
@@ -576,7 +690,7 @@ export function BootstrapScreen({
                                   executeNextStep(run.id)
                                 }
                               }}
-                              disabled={loading || !previewUrl}
+                              disabled={loading || (!previewUrl && !vercelPreviewUrl)}
                               style={{ marginTop: '0.75rem', width: '100%' }}
                             >
                               {loading ? 'Verifying...' : 'Start Verification'}
@@ -638,48 +752,78 @@ export function BootstrapScreen({
                           </div>
                         )}
 
-                        {/* Show input field for verify_preview step when pending */}
-                        {stepDef.id === 'verify_preview' && status === 'pending' && (
-                          <div style={{ marginTop: '1rem', padding: '1rem', background: '#f9f9f9', borderRadius: '4px' }}>
-                            <h4 style={{ marginBottom: '0.75rem', fontSize: '0.9rem' }}>Preview URL Configuration</h4>
-                            <p style={{ marginBottom: '0.75rem', fontSize: '0.85rem', color: '#666' }}>
-                              Enter the preview deployment URL to verify. The URL should be the full preview URL (e.g., https://your-app-abc123.vercel.app).
-                            </p>
-                            <div style={{ marginBottom: '0.75rem' }}>
-                              <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.85rem', fontWeight: 'bold' }}>
-                                Preview URL *
-                              </label>
-                              <input
-                                type="text"
-                                value={previewUrl}
-                                onChange={(e) => setPreviewUrl(e.target.value)}
-                                placeholder="https://your-app-abc123.vercel.app"
+                        {/* Show in-progress state for create_vercel_project step */}
+                        {stepDef.id === 'create_vercel_project' && status === 'running' && (
+                          <div style={{ marginTop: '1rem', padding: '1rem', background: '#fff3cd', borderRadius: '4px', border: '1px solid #ff9800' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                              <div
+                                className="bootstrap-spinner"
                                 style={{
-                                  width: '100%',
-                                  padding: '0.5rem',
-                                  border: '1px solid #ddd',
-                                  borderRadius: '4px',
-                                  fontSize: '0.9rem',
+                                  width: '20px',
+                                  height: '20px',
+                                  border: '3px solid #ff9800',
+                                  borderTopColor: 'transparent',
+                                  borderRadius: '50%',
+                                  animation: 'spin 1s linear infinite',
                                 }}
                               />
+                              <strong style={{ fontSize: '0.9rem', color: '#f57c00' }}>Creating Vercel project…</strong>
                             </div>
-                            <button
-                              type="button"
-                              className="primary btn-standard"
-                              onClick={() => {
-                                if (!previewUrl) {
-                                  setError('Please provide a preview URL')
-                                  return
-                                }
-                                if (run) {
-                                  executeNextStep(run.id)
-                                }
-                              }}
-                              disabled={loading || !previewUrl}
-                              style={{ marginTop: '0.75rem', width: '100%' }}
-                            >
-                              {loading ? 'Verifying...' : 'Start Verification'}
-                            </button>
+                            <div style={{ fontSize: '0.85rem', color: '#666', marginLeft: '28px' }}>
+                              <div style={{ marginBottom: '0.25rem' }}>• Creating project</div>
+                              <div style={{ marginBottom: '0.25rem' }}>• Linking GitHub repo</div>
+                              <div style={{ marginBottom: '0.25rem' }}>• Setting environment variables</div>
+                              <div>• Triggering deploy</div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Show success state for create_vercel_project step */}
+                        {stepDef.id === 'create_vercel_project' && status === 'succeeded' && (
+                          <div style={{ marginTop: '1rem', padding: '1rem', background: '#e8f5e9', borderRadius: '4px', border: '1px solid #4caf50' }}>
+                            <h4 style={{ marginBottom: '0.75rem', fontSize: '0.9rem', color: '#2e7d32', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              <span>✓</span>
+                              <span>Vercel Project Created Successfully</span>
+                            </h4>
+                            {(vercelPreviewUrl || (stepRecord as any)?.preview_url) && (
+                              <div style={{ fontSize: '0.85rem' }}>
+                                <div style={{ marginBottom: '0.75rem' }}>
+                                  <strong style={{ display: 'block', marginBottom: '0.5rem' }}>Preview URL:</strong>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                    <a
+                                      href={vercelPreviewUrl || (stepRecord as any)?.preview_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      style={{
+                                        color: '#1976d2',
+                                        textDecoration: 'underline',
+                                        fontSize: '1rem',
+                                        fontWeight: 'bold',
+                                      }}
+                                    >
+                                      {vercelPreviewUrl || (stepRecord as any)?.preview_url}
+                                    </a>
+                                    <button
+                                      type="button"
+                                      className="btn-standard"
+                                      onClick={() => {
+                                        const url = vercelPreviewUrl || (stepRecord as any)?.preview_url
+                                        if (url) {
+                                          navigator.clipboard.writeText(url)
+                                          alert('Preview URL copied to clipboard!')
+                                        }
+                                      }}
+                                      style={{ fontSize: '0.85rem', padding: '0.25rem 0.5rem' }}
+                                    >
+                                      Copy
+                                    </button>
+                                  </div>
+                                </div>
+                                <p style={{ margin: 0, fontSize: '0.85rem', color: '#666' }}>
+                                  Your Vercel project has been created and the first deployment has been triggered. Click the Preview URL above to view your deployed app.
+                                </p>
+                              </div>
+                            )}
                           </div>
                         )}
 
