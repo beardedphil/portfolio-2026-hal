@@ -392,7 +392,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
       try {
         // Get GitHub token from session or environment
-        const session = await getSession(req, res).catch(() => null)
+        let session = null
+        try {
+          session = await getSession(req, res)
+        } catch (err) {
+          // Session initialization may fail if AUTH_SESSION_SECRET is missing
+          // This is non-fatal - we can fall back to environment variables
+          console.warn('[api/tickets/move] Session initialization failed:', err instanceof Error ? err.message : String(err))
+        }
         const ghToken = session?.github?.accessToken || process.env.GITHUB_TOKEN?.trim() || process.env.GH_TOKEN?.trim()
 
         if (!ghToken) {
@@ -448,7 +455,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       let docsConsistencyResult: { passed: boolean; findings: any[] } | null = null
       if (prUrl) {
         try {
-          const session = await getSession(req, res).catch(() => null)
+          let session = null
+          try {
+            session = await getSession(req, res)
+          } catch (err) {
+            // Session initialization may fail if AUTH_SESSION_SECRET is missing
+            // This is non-fatal - we can fall back to environment variables
+            console.warn('[api/tickets/move] Session initialization failed:', err instanceof Error ? err.message : String(err))
+          }
           const ghToken = session?.github?.accessToken || process.env.GITHUB_TOKEN?.trim() || process.env.GH_TOKEN?.trim()
           
           if (ghToken) {
