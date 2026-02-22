@@ -3,6 +3,7 @@ import { getMetricColor } from '../lib/metricColor'
 
 interface CodeQualityBadgeProps {
   onClick?: () => void
+  projectBaseUrl?: string | null // Base URL of connected project. When provided, fetches from project instead of HAL.
 }
 
 /**
@@ -11,8 +12,8 @@ interface CodeQualityBadgeProps {
  * Clickable if onClick handler is provided.
  */
 export function CodeQualityBadge(props: CodeQualityBadgeProps = {}) {
-  const { onClick } = props
-  const qaMetrics = useQAMetrics()
+  const { onClick, projectBaseUrl } = props
+  const qaMetrics = useQAMetrics(projectBaseUrl)
   const codeQuality = qaMetrics?.codeQuality ?? null
   const unroundedCodeQuality = qaMetrics?.unroundedCodeQuality ?? null
   const displayValue = unroundedCodeQuality ?? codeQuality

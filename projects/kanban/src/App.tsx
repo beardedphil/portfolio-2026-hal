@@ -170,6 +170,9 @@ function App() {
   const [providersViewOpen, setProvidersViewOpen] = useState(false)
   // Audit log view (HAL-0787)
   const [auditLogViewOpen, setAuditLogViewOpen] = useState(false)
+  // Auth state
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [githubLogin, setGithubLogin] = useState<string | null>(null)
   // Supabase (read-only v0)
   const [supabaseProjectUrl, setSupabaseProjectUrl] = useState('')
   const [supabaseAnonKey, setSupabaseAnonKey] = useState('')
@@ -191,6 +194,56 @@ function App() {
       }
     } catch {
       // ignore
+    }
+  }, [])
+
+  // Check auth status on mount and periodically
+  const checkAuthStatus = useCallback(async () => {
+    try {
+      const apiBaseUrl = import.meta.env.VITE_HAL_API_BASE_URL || (typeof window !== 'undefined' ? window.location.origin : '')
+      const response = await fetch(`${apiBaseUrl}/api/auth/me`, {
+        credentials: 'include',
+      })
+      if (response.ok) {
+        const auth = await response.json()
+        setIsAuthenticated(auth.authenticated === true)
+        setGithubLogin(auth.login || null)
+      } else {
+        setIsAuthenticated(false)
+        setGithubLogin(null)
+      }
+    } catch (err) {
+      console.error('[App] Failed to check auth status:', err)
+      setIsAuthenticated(false)
+      setGithubLogin(null)
+    }
+  }, [])
+
+  useEffect(() => {
+    checkAuthStatus()
+    // Check auth status every 5 minutes
+    const interval = setInterval(checkAuthStatus, 5 * 60 * 1000)
+    return () => clearInterval(interval)
+  }, [checkAuthStatus])
+
+  // Logout handler
+  const handleLogout = useCallback(async () => {
+    try {
+      const apiBaseUrl = import.meta.env.VITE_HAL_API_BASE_URL || (typeof window !== 'undefined' ? window.location.origin : '')
+      const response = await fetch(`${apiBaseUrl}/api/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+      })
+      if (response.ok) {
+        setIsAuthenticated(false)
+        setGithubLogin(null)
+        // Reload page to clear any cached state
+        window.location.reload()
+      } else {
+        console.error('[App] Logout failed:', await response.text())
+      }
+    } catch (err) {
+      console.error('[App] Logout error:', err)
     }
   }, [])
 
@@ -2988,6 +3041,9 @@ function App() {
         onOpenAuditLog={() => {
           setAuditLogViewOpen(true)
         }}
+        onLogout={handleLogout}
+        isAuthenticated={isAuthenticated}
+        githubLogin={githubLogin}
       />
 
       {connectError && (

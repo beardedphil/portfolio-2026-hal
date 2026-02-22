@@ -34,9 +34,13 @@ function parseMetrics(data: unknown): QAMetrics | null {
   }
 }
 
-function fetchMetrics(cacheBust = false): Promise<QAMetrics | null> {
-  const url = cacheBust ? `/metrics.json?t=${Date.now()}` : '/metrics.json'
-  return fetch(url)
+function fetchMetrics(baseUrl: string | null, cacheBust = false): Promise<QAMetrics | null> {
+  // If baseUrl is provided (user project), fetch from project's metrics.json
+  // Otherwise, fetch from HAL's metrics.json (current origin)
+  const metricsUrl = baseUrl 
+    ? `${baseUrl}/metrics.json${cacheBust ? `?t=${Date.now()}` : ''}`
+    : cacheBust ? `/metrics.json?t=${Date.now()}` : '/metrics.json'
+  return fetch(metricsUrl)
     .then((res) => (res.ok ? res.json() : null))
     .then(parseMetrics)
     .catch(() => null)
@@ -44,10 +48,14 @@ function fetchMetrics(cacheBust = false): Promise<QAMetrics | null> {
 
 /**
  * Hook that fetches QA metrics (Coverage and Code Quality) from /metrics.json.
+ * When a projectBaseUrl is provided, fetches from the project's metrics.json instead of HAL's.
  * Handles missing metrics gracefully by returning null values.
  * Polls periodically so updates (e.g. from report:code-quality or CI) appear automatically.
+ * 
+ * @param projectBaseUrl - Optional base URL of the connected project (e.g., 'https://user-project.vercel.app')
+ *                         When provided, metrics are fetched from the project instead of HAL.
  */
-export function useQAMetrics() {
+export function useQAMetrics(projectBaseUrl?: string | null) {
   const [qaMetrics, setQaMetrics] = useState<QAMetrics | null>(null)
 
     // Load metrics on mount and poll so UI updates when metrics.json changes (CI or local report:code-quality)
@@ -57,16 +65,16 @@ export function useQAMetrics() {
       if (!cancelled) setQaMetrics(m)
     }
 
-    fetchMetrics(false).then(apply)
+    fetchMetrics(projectBaseUrl || null, false).then(apply)
 
     const isTest = import.meta.env.MODE === 'test'
     const intervalMs = isTest ? 0 : import.meta.env.DEV ? 5_000 : 60_000 // dev: 5s so local report:code-quality shows quickly
-    const id = intervalMs > 0 ? setInterval(() => fetchMetrics(true).then(apply), intervalMs) : 0
+    const id = intervalMs > 0 ? setInterval(() => fetchMetrics(projectBaseUrl || null, true).then(apply), intervalMs) : 0
     return () => {
       cancelled = true
       if (id) clearInterval(id)
     }
-  }, [])
+  }, [projectBaseUrl])
 
   return qaMetrics
 }

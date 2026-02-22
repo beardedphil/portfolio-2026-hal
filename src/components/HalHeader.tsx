@@ -14,6 +14,7 @@ interface HalHeaderProps {
   onCoverageReportClick: () => void
   onCodeQualityReportClick: () => void
   onDiagnosticsClick: () => void
+  projectBaseUrl?: string | null // Base URL of connected project deployment (e.g., 'https://user-project.vercel.app')
 }
 
 export function HalHeader({
@@ -27,6 +28,7 @@ export function HalHeader({
   onCoverageReportClick,
   onCodeQualityReportClick,
   onDiagnosticsClick,
+  projectBaseUrl,
 }: HalHeaderProps) {
   return (
     <header className="hal-header">
@@ -66,7 +68,7 @@ export function HalHeader({
             {connectedGithubRepo && (
               <>
                 {/* Coverage badge on the left (0699) */}
-                <CoverageBadge onClick={onCoverageReportClick} />
+                <CoverageBadge onClick={onCoverageReportClick} projectBaseUrl={projectBaseUrl} />
                 {/* Repo/Disconnect box in the middle (0708: GitHub row on top, both rows use same layout) */}
                 <div className="project-info">
                   {/* GitHub connection row (0708: on top, same layout as repo row) */}
@@ -99,7 +101,7 @@ export function HalHeader({
                   </div>
                 </div>
                 {/* Code Quality badge on the right (0699) */}
-                <CodeQualityBadge onClick={onCodeQualityReportClick} />
+                <CodeQualityBadge onClick={onCodeQualityReportClick} projectBaseUrl={projectBaseUrl} />
               </>
             )}
           </>

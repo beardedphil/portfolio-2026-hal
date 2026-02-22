@@ -790,6 +790,26 @@ function App() {
     lastPmMsg.agent === 'project-manager' &&
     lastPmMsg.content.includes('Reply with **Continue** to move the next batch')
 
+  // Derive project base URL from connected repo (for metrics fetching)
+  // When a project is connected, metrics should be fetched from the project's deployment
+  // instead of HAL's metrics. We derive the URL from the repo name using common Vercel patterns.
+  const deriveProjectBaseUrl = useCallback((repo: { fullName: string; htmlUrl: string }): string | null => {
+    if (!repo.fullName) return null
+    
+    // Extract repo name from full name (e.g., "user/repo-name" -> "repo-name")
+    const repoName = repo.fullName.split('/').pop() || repo.fullName
+    
+    // Common Vercel deployment URL patterns:
+    // 1. https://<repo-name>.vercel.app (most common)
+    // 2. https://<repo-name>-<user>.vercel.app (if user prefix is added)
+    // We'll try the simplest pattern first
+    const deploymentUrl = `https://${repoName}.vercel.app`
+    
+    return deploymentUrl
+  }, [])
+
+  const projectBaseUrl = connectedGithubRepo ? deriveProjectBaseUrl(connectedGithubRepo) : null
+
   return (
     <div className="hal-app">
       <HalHeader
@@ -803,6 +823,7 @@ function App() {
         onCoverageReportClick={() => setCoverageReportOpen(true)}
         onCodeQualityReportClick={() => setCodeQualityReportOpen(true)}
         onDiagnosticsClick={() => setDiagnosticsOpen(true)}
+        projectBaseUrl={projectBaseUrl}
       />
 
       {githubConnectError && (
@@ -1083,10 +1104,18 @@ function App() {
       )}
 
       {/* Coverage Report Modal (0693) */}
-      <CoverageReportModal isOpen={coverageReportOpen} onClose={() => setCoverageReportOpen(false)} />
+      <CoverageReportModal 
+        isOpen={coverageReportOpen} 
+        onClose={() => setCoverageReportOpen(false)}
+        projectBaseUrl={connectedGithubRepo ? deriveProjectBaseUrl(connectedGithubRepo) : null}
+      />
 
       {/* Code Quality Report Modal (0693) */}
-      <CodeQualityReportModal isOpen={codeQualityReportOpen} onClose={() => setCodeQualityReportOpen(false)} />
+      <CodeQualityReportModal 
+        isOpen={codeQualityReportOpen} 
+        onClose={() => setCodeQualityReportOpen(false)}
+        projectBaseUrl={connectedGithubRepo ? deriveProjectBaseUrl(connectedGithubRepo) : null}
+      />
 
       {/* Integration Manifest Modal (0773) */}
       <IntegrationManifestModal

@@ -15,6 +15,9 @@ interface AppHeaderProps {
   onOpenBootstrap?: () => void
   onOpenProviders?: () => void
   onOpenAuditLog?: () => void
+  onLogout?: () => void
+  isAuthenticated?: boolean
+  githubLogin?: string | null
 }
 
 export function AppHeader({
@@ -30,6 +33,9 @@ export function AppHeader({
   onOpenBootstrap,
   onOpenProviders,
   onOpenAuditLog,
+  onLogout,
+  isAuthenticated,
+  githubLogin,
 }: AppHeaderProps) {
   const halCtx = useContext(HalKanbanContext)
   
@@ -110,6 +116,23 @@ export function AppHeader({
           >
             Audit Log
           </button>
+        )}
+        {isAuthenticated && onLogout && (
+          <div className="auth-info" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: 'auto' }}>
+            {githubLogin && (
+              <span className="github-login" style={{ fontSize: '0.9em', color: '#666' }}>
+                {githubLogin}
+              </span>
+            )}
+            <button
+              type="button"
+              className="logout-btn btn-standard"
+              onClick={onLogout}
+              title="Sign out of GitHub"
+            >
+              Sign Out
+            </button>
+          </div>
         )}
         <p className="connection-status" data-status={supabaseConnectionStatus} aria-live="polite">
           {supabaseConnectionStatus === 'connecting'

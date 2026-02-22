@@ -21,12 +21,13 @@ function hasRealData(data: CoverageDetails): boolean {
 interface CoverageReportModalProps {
   isOpen: boolean
   onClose: () => void
+  projectBaseUrl?: string | null // Base URL of connected project (e.g., 'https://user-project.vercel.app'). When provided, fetches from project instead of HAL.
 }
 
 const POLL_INTERVAL_MS = 2500
 const POLL_TIMEOUT_MS = 3 * 60 * 1000
 
-export function CoverageReportModal({ isOpen, onClose }: CoverageReportModalProps) {
+export function CoverageReportModal({ isOpen, onClose, projectBaseUrl }: CoverageReportModalProps) {
   const [details, setDetails] = useState<CoverageDetails | null>(null)
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
@@ -42,9 +43,12 @@ export function CoverageReportModal({ isOpen, onClose }: CoverageReportModalProp
     setGenerating(false)
     setDetails(null)
 
+    const coverageDetailsUrl = projectBaseUrl ? `${projectBaseUrl}/coverage-details.json` : '/coverage-details.json'
+    const runCoverageUrl = projectBaseUrl ? `${projectBaseUrl}/api/run-coverage` : '/api/run-coverage'
+
     async function load() {
       try {
-        const res = await fetch('/coverage-details.json')
+        const res = await fetch(coverageDetailsUrl)
         if (!res.ok) throw new Error(res.statusText)
         const ct = res.headers.get('content-type') ?? ''
         if (!ct.includes('application/json')) throw new Error('Non-JSON response')
@@ -57,7 +61,7 @@ export function CoverageReportModal({ isOpen, onClose }: CoverageReportModalProp
         // No data: start coverage run and poll until data exists
         setGenerating(true)
         setLoading(false)
-        await fetch('/api/run-coverage', { method: 'POST' })
+        await fetch(runCoverageUrl, { method: 'POST' })
         if (cancelledRef.current) return
         pollUntilRef.current = Date.now() + POLL_TIMEOUT_MS
         poll()
@@ -65,7 +69,7 @@ export function CoverageReportModal({ isOpen, onClose }: CoverageReportModalProp
         if (cancelledRef.current) return
         setGenerating(true)
         setLoading(false)
-        await fetch('/api/run-coverage', { method: 'POST' }).catch(() => {})
+        await fetch(runCoverageUrl, { method: 'POST' }).catch(() => {})
         if (cancelledRef.current) return
         pollUntilRef.current = Date.now() + POLL_TIMEOUT_MS
         poll()
@@ -79,7 +83,7 @@ export function CoverageReportModal({ isOpen, onClose }: CoverageReportModalProp
         setError('Generation timed out. Try running npm run test:coverage in the terminal.')
         return
       }
-      fetch('/coverage-details.json')
+      fetch(coverageDetailsUrl)
         .then((r) => (r.ok ? r.json() : null))
         .then((data: CoverageDetails | null) => {
           if (cancelledRef.current) return
@@ -100,7 +104,7 @@ export function CoverageReportModal({ isOpen, onClose }: CoverageReportModalProp
     return () => {
       cancelledRef.current = true
     }
-  }, [isOpen])
+  }, [isOpen, projectBaseUrl])
 
   if (!isOpen) return null
 

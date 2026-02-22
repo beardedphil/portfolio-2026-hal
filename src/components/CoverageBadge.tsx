@@ -3,6 +3,7 @@ import { getMetricColor } from '../lib/metricColor'
 
 interface CoverageBadgeProps {
   onClick?: () => void
+  projectBaseUrl?: string | null // Base URL of connected project. When provided, fetches from project instead of HAL.
 }
 
 /**
@@ -11,8 +12,8 @@ interface CoverageBadgeProps {
  * Clickable if onClick handler is provided.
  */
 export function CoverageBadge(props: CoverageBadgeProps = {}) {
-  const { onClick } = props
-  const qaMetrics = useQAMetrics()
+  const { onClick, projectBaseUrl } = props
+  const qaMetrics = useQAMetrics(projectBaseUrl)
   const coverage = qaMetrics?.coverage ?? null
 
   return (

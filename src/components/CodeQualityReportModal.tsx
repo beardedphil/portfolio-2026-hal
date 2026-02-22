@@ -23,9 +23,10 @@ interface CodeQualityDetails {
 interface CodeQualityReportModalProps {
   isOpen: boolean
   onClose: () => void
+  projectBaseUrl?: string | null // Base URL of connected project (e.g., 'https://user-project.vercel.app'). When provided, fetches from project instead of HAL.
 }
 
-export function CodeQualityReportModal({ isOpen, onClose }: CodeQualityReportModalProps) {
+export function CodeQualityReportModal({ isOpen, onClose, projectBaseUrl }: CodeQualityReportModalProps) {
   const [details, setDetails] = useState<CodeQualityDetails | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -36,10 +37,11 @@ export function CodeQualityReportModal({ isOpen, onClose }: CodeQualityReportMod
     setLoading(true)
     setError(null)
     // Try code-quality-details.json first, fall back to maintainability-details.json and simplicity-details.json for backward compatibility
+    const baseUrl = projectBaseUrl || ''
     Promise.race([
-      fetch('/code-quality-details.json').then(res => res.ok ? res.json() : Promise.reject(new Error('Not found'))),
-      fetch('/maintainability-details.json').then(res => res.ok ? res.json() : Promise.reject(new Error('Not found'))),
-      fetch('/simplicity-details.json').then(res => res.ok ? res.json() : Promise.reject(new Error('Not found')))
+      fetch(`${baseUrl}/code-quality-details.json`).then(res => res.ok ? res.json() : Promise.reject(new Error('Not found'))),
+      fetch(`${baseUrl}/maintainability-details.json`).then(res => res.ok ? res.json() : Promise.reject(new Error('Not found'))),
+      fetch(`${baseUrl}/simplicity-details.json`).then(res => res.ok ? res.json() : Promise.reject(new Error('Not found')))
     ])
       .then((data: any) => {
         // Map legacy fields to new structure
@@ -64,7 +66,7 @@ export function CodeQualityReportModal({ isOpen, onClose }: CodeQualityReportMod
         setError(err.message || 'Failed to load code quality details')
         setLoading(false)
       })
-  }, [isOpen])
+  }, [isOpen, projectBaseUrl])
 
   if (!isOpen) return null
 
