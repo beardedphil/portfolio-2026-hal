@@ -103,67 +103,67 @@
   ],
   "mostRecentImprovements": [
     {
-      "file": "api/agent-tools/execute.ts",
-      "before": 24.86,
-      "after": 24.86,
-      "delta": 0
+      "file": "agents/src/agents/projectManager/contextBuilding.ts",
+      "before": 0,
+      "after": 47.45,
+      "delta": 47.45
     },
     {
-      "file": "api/agent-runs/launch.ts",
-      "before": 8.54,
-      "after": 8.54,
-      "delta": 0
+      "file": "src/App.tsx",
+      "before": 0,
+      "after": 46.2,
+      "delta": 46.2
     },
     {
-      "file": "api/agent-runs/providers/openai.ts",
-      "before": 39.31,
-      "after": 39.31,
-      "delta": 0
+      "file": "api/context-bundles/_builder.ts",
+      "before": 1.42,
+      "after": 47.12,
+      "delta": 45.7
     },
     {
-      "file": "api/context-bundles/build-from-run.ts",
-      "before": 39.77,
-      "after": 39.77,
-      "delta": 0
+      "file": "src/hooks/useKanban.ts",
+      "before": 0,
+      "after": 45.18,
+      "delta": 45.18
     },
     {
-      "file": "api/red/backfill-artifacts-todo.ts",
-      "before": 37.88,
-      "after": 37.88,
-      "delta": 0
+      "file": "projects/kanban/src/App.tsx",
+      "before": 0,
+      "after": 44.26,
+      "delta": 44.26
     },
     {
-      "file": "api/tickets/get.ts",
-      "before": 37.95,
-      "after": 37.95,
-      "delta": 0
+      "file": "src/components/DiagnosticsModal.tsx",
+      "before": 2.02,
+      "after": 45.8,
+      "delta": 43.78
+    },
+    {
+      "file": "src/components/ContextBundleModal.tsx",
+      "before": 0,
+      "after": 42.88,
+      "delta": 42.88
+    },
+    {
+      "file": "api/instructions/get-index.ts",
+      "before": 0,
+      "after": 41.68,
+      "delta": 41.68
+    },
+    {
+      "file": "api/tickets/move.ts",
+      "before": 0,
+      "after": 40.02,
+      "delta": 40.02
     },
     {
       "file": "src/hooks/useAgentRuns.ts",
-      "before": 39.6,
+      "before": 0,
       "after": 39.6,
-      "delta": 0
-    },
-    {
-      "file": "api/implementation-agent/run.ts",
-      "before": 37.11,
-      "after": 37.11,
-      "delta": 0
-    },
-    {
-      "file": "api/agent-runs/sync-artifacts.ts",
-      "before": 39.24,
-      "after": 39.24,
-      "delta": 0
-    },
-    {
-      "file": "api/instructions/get-topic.ts",
-      "before": 36.74,
-      "after": 36.74,
-      "delta": 0
+      "delta": 39.6
     }
   ],
-  "generatedAt": "2026-02-22T06:13:36.217Z",
+  "generatedAt": "2026-02-22T06:13:51.772Z",
   "filesAnalyzed": 375,
   "unroundedCodeQuality": 54.6,
   "unroundedMaintainability": 54.6,
