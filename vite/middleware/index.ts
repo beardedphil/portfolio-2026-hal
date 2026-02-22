@@ -27,6 +27,7 @@ export function getAllMiddlewarePlugins(): Plugin[] {
     createSimpleMiddlewarePlugin('context-bundles-get-receipt-endpoint', '/api/context-bundles/get-receipt', { method: 'POST', allowOptions: false }),
     createSimpleMiddlewarePlugin('context-bundles-generate-endpoint', '/api/context-bundles/generate', { method: 'POST', allowOptions: false }),
     createSimpleMiddlewarePlugin('context-bundles-preview-endpoint', '/api/context-bundles/preview', { method: 'POST', allowOptions: false }),
+    createSimpleMiddlewarePlugin('context-bundles-check-continuity-endpoint', '/api/context-bundles/check-continuity', { method: 'POST', allowOptions: false }),
     createSimpleMiddlewarePlugin('conversations-working-memory-get-endpoint', '/api/conversations/working-memory/get'),
     createSimpleMiddlewarePlugin('conversations-working-memory-update-endpoint', '/api/conversations/working-memory/update'),
     // TODO: Extract remaining complex middleware plugins:
