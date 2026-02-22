@@ -20,7 +20,13 @@ import * as config from '../_lib/github/config.js'
 import * as session from '../_lib/github/session.js'
 
 // Mock dependencies
-vi.mock('./_shared.js')
+vi.mock('./_shared.js', async () => {
+  const actual = await vi.importActual('./_shared.js')
+  return {
+    ...actual,
+    upsertArtifact: vi.fn().mockResolvedValue({ ok: true }),
+  }
+})
 vi.mock('../_lib/github/githubApi.js')
 vi.mock('../_lib/github/config.js')
 vi.mock('../_lib/github/session.js')
@@ -68,18 +74,18 @@ describe('Agent type determination', () => {
     // Setup response mock
     responseBody = null
     responseStatus = 0
-    const statusCodeObj = { value: 0 }
+    let statusCodeValue = 0
     mockRes = {
       get statusCode() {
-        return statusCodeObj.value
+        return statusCodeValue
       },
       set statusCode(value: number) {
-        statusCodeObj.value = value
+        statusCodeValue = value
         responseStatus = value
       },
       setHeader: vi.fn(),
       end: vi.fn((body: string) => {
-        responseStatus = statusCodeObj.value
+        responseStatus = statusCodeValue
         try {
           responseBody = JSON.parse(body)
         } catch {
@@ -303,18 +309,18 @@ describe('Ticket validation and fetching', () => {
 
     responseBody = null
     responseStatus = 0
-    const statusCodeObj = { value: 0 }
+    let statusCodeValue = 0
     mockRes = {
       get statusCode() {
-        return statusCodeObj.value
+        return statusCodeValue
       },
       set statusCode(value: number) {
-        statusCodeObj.value = value
+        statusCodeValue = value
         responseStatus = value
       },
       setHeader: vi.fn(),
       end: vi.fn((body: string) => {
-        responseStatus = statusCodeObj.value
+        responseStatus = statusCodeValue
         try {
           responseBody = JSON.parse(body)
         } catch {
@@ -432,18 +438,18 @@ describe('Prompt building', () => {
 
     responseBody = null
     responseStatus = 0
-    const statusCodeObj = { value: 0 }
+    let statusCodeValue = 0
     mockRes = {
       get statusCode() {
-        return statusCodeObj.value
+        return statusCodeValue
       },
       set statusCode(value: number) {
-        statusCodeObj.value = value
+        statusCodeValue = value
         responseStatus = value
       },
       setHeader: vi.fn(),
       end: vi.fn((body: string) => {
-        responseStatus = statusCodeObj.value
+        responseStatus = statusCodeValue
         try {
           responseBody = JSON.parse(body)
         } catch {
@@ -526,14 +532,27 @@ describe('Prompt building', () => {
       }),
     }
 
+    // Mock all Supabase calls in order for implementation:
+    // 1. Ticket fetch
+    // 2. Run insert
+    // 3. Update stage: fetching_ticket
+    // 4. Update stage: resolving_repo
+    // 5. Update stage: launching
+    // 6. PR select (for existing PR check)
+    // 7. Update stage: running
+    // 8. Artifact upsert (for worklog) - this uses upsertArtifact which makes multiple calls
     mockSupabase.from
-      .mockReturnValueOnce(ticketChain)
-      .mockReturnValueOnce(runInsertChain)
-      .mockReturnValueOnce(runUpdateChain)
-      .mockReturnValueOnce(runUpdateChain)
-      .mockReturnValueOnce(runUpdateChain)
-      .mockReturnValueOnce(prSelectChain)
+      .mockReturnValueOnce(ticketChain) // Ticket fetch
+      .mockReturnValueOnce(runInsertChain) // Run insert
+      .mockReturnValueOnce(runUpdateChain) // Update: fetching_ticket
+      .mockReturnValueOnce(runUpdateChain) // Update: resolving_repo
+      .mockReturnValueOnce(runUpdateChain) // Update: launching
+      .mockReturnValueOnce(prSelectChain) // PR select
+      .mockReturnValueOnce(runUpdateChain) // Update: running
 
+    vi.mocked(session.getSession).mockResolvedValue({
+      github: { accessToken: 'test-token' },
+    } as any)
     vi.mocked(githubApi.listBranches).mockResolvedValue({ branches: ['main'] })
     vi.mocked(global.fetch).mockResolvedValueOnce({
       ok: true,
@@ -617,14 +636,29 @@ describe('Prompt building', () => {
       eq: vi.fn(() => runUpdateChain),
     }
 
+    // Mock all Supabase calls in order for QA:
+    // 1. Ticket fetch
+    // 2. Doing column check (for moving QA ticket)
+    // 3. Ticket update (move to Doing)
+    // 4. Run insert
+    // 5. Update stage: fetching_ticket
+    // 6. Update stage: fetching_branch
+    // 7. Update stage: launching
+    // 8. Update stage: reviewing
     mockSupabase.from
-      .mockReturnValueOnce(ticketChain)
-      .mockReturnValueOnce(doingColumnChain)
-      .mockReturnValueOnce(ticketUpdateChain)
-      .mockReturnValueOnce(runInsertChain)
-      .mockReturnValueOnce(runUpdateChain)
-      .mockReturnValueOnce(runUpdateChain)
+      .mockReturnValueOnce(ticketChain) // Ticket fetch
+      .mockReturnValueOnce(doingColumnChain) // Doing column check
+      .mockReturnValueOnce(ticketUpdateChain) // Ticket update
+      .mockReturnValueOnce(runInsertChain) // Run insert
+      .mockReturnValueOnce(runUpdateChain) // Update: fetching_ticket
+      .mockReturnValueOnce(runUpdateChain) // Update: fetching_branch
+      .mockReturnValueOnce(runUpdateChain) // Update: launching
+      .mockReturnValueOnce(runUpdateChain) // Update: reviewing
 
+    vi.mocked(session.getSession).mockResolvedValue({
+      github: { accessToken: 'test-token' },
+    } as any)
+    vi.mocked(githubApi.listBranches).mockResolvedValue({ branches: ['main'] })
     vi.mocked(global.fetch).mockResolvedValueOnce({
       ok: true,
       text: async () => JSON.stringify({ id: 'test-agent-id', status: 'CREATING' }),
