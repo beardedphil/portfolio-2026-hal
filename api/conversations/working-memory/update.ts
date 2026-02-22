@@ -176,37 +176,18 @@ function buildConversationText(messages: Array<{ role: string; content: string }
   return messages.map((m) => `**${m.role}**: ${m.content}`).join('\n\n')
 }
 
-function buildOpenAIPrompt(conversationText: string): string {
-  return `You are analyzing a conversation between a user and a Project Manager agent. Extract and structure key information into a working memory format.
+const OPENAI_PROMPT_TEMPLATE = `Analyze this PM agent conversation and extract structured working memory.
 
 Conversation:
-${conversationText}
+{conversation}
 
-Extract the following structured information:
-1. **Summary**: A concise 2-3 sentence summary of the conversation context
-2. **Goals**: Array of project goals discussed (one per line, be specific)
-3. **Requirements**: Array of requirements identified (one per line, be specific)
-4. **Constraints**: Array of constraints or limitations mentioned (one per line, be specific)
-5. **Decisions**: Array of decisions made during the conversation (one per line, be specific)
-6. **Assumptions**: Array of assumptions stated or implied (one per line, be specific)
-7. **Open Questions**: Array of open questions that need answers (one per line, be specific)
-8. **Glossary**: JSON object mapping terms to definitions (format: {"term": "definition", ...})
-9. **Stakeholders**: Array of stakeholders mentioned (one per line, be specific)
+Extract: Summary (2-3 sentences), Goals, Requirements, Constraints, Decisions, Assumptions, Open Questions, Glossary (JSON object), Stakeholders.
 
-Return ONLY a valid JSON object with this exact structure:
-{
-  "summary": "concise summary here",
-  "goals": ["goal1", "goal2"],
-  "requirements": ["req1", "req2"],
-  "constraints": ["constraint1", "constraint2"],
-  "decisions": ["decision1", "decision2"],
-  "assumptions": ["assumption1", "assumption2"],
-  "openQuestions": ["question1", "question2"],
-  "glossary": {"term1": "definition1", "term2": "definition2"},
-  "stakeholders": ["stakeholder1", "stakeholder2"]
-}
+Return ONLY valid JSON:
+{"summary":"...","goals":["..."],"requirements":["..."],"constraints":["..."],"decisions":["..."],"assumptions":["..."],"openQuestions":["..."],"glossary":{"term":"def"},"stakeholders":["..."]}`
 
-Return ONLY the JSON object, no other text.`
+function buildOpenAIPrompt(conversationText: string): string {
+  return OPENAI_PROMPT_TEMPLATE.replace('{conversation}', conversationText)
 }
 
 async function callOpenAI(apiKey: string, model: string, prompt: string): Promise<string> {
