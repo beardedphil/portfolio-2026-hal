@@ -202,3 +202,133 @@ export async function checkForExistingPrUrl(
   }
   return null
 }
+
+/**
+ * Parses and normalizes agent type from request body.
+ * Defaults to 'implementation' if not specified or invalid.
+ */
+export function parseAgentType(bodyAgentType: unknown): AgentType {
+  if (bodyAgentType === 'qa') return 'qa'
+  if (bodyAgentType === 'project-manager') return 'project-manager'
+  if (bodyAgentType === 'process-review') return 'process-review'
+  return 'implementation'
+}
+
+/**
+ * Validates launch inputs and returns validation error message if invalid.
+ * Returns null if validation passes.
+ */
+export function validateLaunchInputs(
+  repoFullName: string,
+  agentType: AgentType,
+  ticketNumber: number | null,
+  message: string
+): string | null {
+  if (!repoFullName) {
+    return 'repoFullName is required.'
+  }
+
+  const needsTicket = agentType === 'implementation' || agentType === 'qa' || agentType === 'process-review'
+  if (needsTicket && (!ticketNumber || !Number.isFinite(ticketNumber))) {
+    return 'ticketNumber is required.'
+  }
+
+  if (agentType === 'project-manager' && !message) {
+    return 'message is required for project-manager runs.'
+  }
+
+  return null
+}
+
+/**
+ * Checks for an existing active run for the given ticket and agent type.
+ * Returns the existing run data if found, null otherwise.
+ */
+export interface ExistingRunResult {
+  runId: string
+  status: string
+  cursorAgentId: string | null
+}
+
+export async function checkForExistingActiveRun(
+  supabase: SupabaseClient<any, 'public', any>,
+  repoFullName: string,
+  ticketNumber: number,
+  agentType: AgentType
+): Promise<ExistingRunResult | null> {
+  const activeStatuses = ['created', 'launching', 'polling', 'running', 'reviewing']
+  const { data: existingRun, error: existingRunErr } = await supabase
+    .from('hal_agent_runs')
+    .select('run_id, status, cursor_agent_id')
+    .eq('repo_full_name', repoFullName)
+    .eq('ticket_number', ticketNumber)
+    .eq('agent_type', agentType)
+    .in('status', activeStatuses)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (existingRunErr) {
+    // Log error but continue - this is a best-effort check
+    console.warn(`[agent-runs/launch] Error checking for existing run: ${existingRunErr.message}`)
+    return null
+  }
+
+  if (!existingRun?.run_id) {
+    return null
+  }
+
+  return {
+    runId: existingRun.run_id as string,
+    status: (existingRun as any).status as string,
+    cursorAgentId: (existingRun as any).cursor_agent_id as string | null,
+  }
+}
+
+/**
+ * Moves a QA ticket from QA column to Doing column when QA agent starts.
+ * Returns true if move was successful or not needed, false if move failed.
+ */
+export async function moveQATicketToDoing(
+  supabase: SupabaseClient<any, 'public', any>,
+  ticketPk: string,
+  repoFullName: string,
+  displayId: string,
+  currentColumnId: string | null
+): Promise<boolean> {
+  if (currentColumnId !== 'col-qa') {
+    return true // Not in QA column, no move needed
+  }
+
+  try {
+    const { data: inColumn } = await supabase
+      .from('tickets')
+      .select('kanban_position')
+      .eq('repo_full_name', repoFullName)
+      .eq('kanban_column_id', 'col-doing')
+      .order('kanban_position', { ascending: false })
+      .limit(1)
+
+    const nextPosition = inColumn && inColumn.length ? ((inColumn[0] as any)?.kanban_position ?? -1) + 1 : 0
+    const movedAt = new Date().toISOString()
+    const { error: updateErr } = await supabase
+      .from('tickets')
+      .update({ kanban_column_id: 'col-doing', kanban_position: nextPosition, kanban_moved_at: movedAt })
+      .eq('pk', ticketPk)
+
+    if (updateErr) {
+      // Log error but don't fail the launch - ticket will stay in QA
+      console.error(`[QA Agent] Failed to move ticket ${displayId} from QA to Doing:`, updateErr.message)
+      return false
+    }
+
+    return true
+  } catch (moveErr) {
+    // Log error but don't fail the launch
+    console.error(
+      `[QA Agent] Error moving ticket ${displayId} from QA to Doing:`,
+      moveErr instanceof Error ? moveErr.message : String(moveErr)
+    )
+    return false
+  }
+}

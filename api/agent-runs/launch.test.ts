@@ -5,6 +5,10 @@ import {
   buildQAPrompt,
   determineBranchName,
   checkForExistingPrUrl,
+  parseAgentType,
+  validateLaunchInputs,
+  checkForExistingActiveRun,
+  moveQATicketToDoing,
 } from './launch-helpers.js'
 
 describe('parseTicketBodySections', () => {
@@ -287,5 +291,277 @@ describe('checkForExistingPrUrl', () => {
 
     const result = await checkForExistingPrUrl(mockSupabase, 'ticket-pk-123')
     expect(result).toBeNull()
+  })
+})
+
+describe('parseAgentType', () => {
+  it('returns qa for qa agent type', () => {
+    expect(parseAgentType('qa')).toBe('qa')
+  })
+
+  it('returns project-manager for project-manager agent type', () => {
+    expect(parseAgentType('project-manager')).toBe('project-manager')
+  })
+
+  it('returns process-review for process-review agent type', () => {
+    expect(parseAgentType('process-review')).toBe('process-review')
+  })
+
+  it('returns implementation as default for unknown types', () => {
+    expect(parseAgentType('implementation')).toBe('implementation')
+    expect(parseAgentType('unknown')).toBe('implementation')
+    expect(parseAgentType(null)).toBe('implementation')
+    expect(parseAgentType(undefined)).toBe('implementation')
+  })
+})
+
+describe('validateLaunchInputs', () => {
+  it('returns error when repoFullName is missing', () => {
+    const result = validateLaunchInputs('', 'implementation', 123, '')
+    expect(result).toBe('repoFullName is required.')
+  })
+
+  it('returns error when ticketNumber is missing for implementation agent', () => {
+    const result = validateLaunchInputs('test/repo', 'implementation', null, '')
+    expect(result).toBe('ticketNumber is required.')
+  })
+
+  it('returns error when ticketNumber is missing for qa agent', () => {
+    const result = validateLaunchInputs('test/repo', 'qa', null, '')
+    expect(result).toBe('ticketNumber is required.')
+  })
+
+  it('returns error when ticketNumber is missing for process-review agent', () => {
+    const result = validateLaunchInputs('test/repo', 'process-review', null, '')
+    expect(result).toBe('ticketNumber is required.')
+  })
+
+  it('returns error when message is missing for project-manager agent', () => {
+    const result = validateLaunchInputs('test/repo', 'project-manager', null, '')
+    expect(result).toBe('message is required for project-manager runs.')
+  })
+
+  it('returns null when all required inputs are valid for implementation', () => {
+    const result = validateLaunchInputs('test/repo', 'implementation', 123, '')
+    expect(result).toBeNull()
+  })
+
+  it('returns null when all required inputs are valid for qa', () => {
+    const result = validateLaunchInputs('test/repo', 'qa', 123, '')
+    expect(result).toBeNull()
+  })
+
+  it('returns null when all required inputs are valid for project-manager', () => {
+    const result = validateLaunchInputs('test/repo', 'project-manager', null, 'test message')
+    expect(result).toBeNull()
+  })
+
+  it('rejects invalid ticket numbers', () => {
+    const result1 = validateLaunchInputs('test/repo', 'implementation', NaN, '')
+    expect(result1).toBe('ticketNumber is required.')
+    
+    const result2 = validateLaunchInputs('test/repo', 'implementation', Infinity, '')
+    expect(result2).toBe('ticketNumber is required.')
+  })
+})
+
+describe('checkForExistingActiveRun', () => {
+  it('returns null when no existing run found', async () => {
+    const mockSupabase = {
+      from: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      in: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+    } as any
+
+    const result = await checkForExistingActiveRun(mockSupabase, 'test/repo', 123, 'implementation')
+    expect(result).toBeNull()
+  })
+
+  it('returns existing run data when found', async () => {
+    const mockSupabase = {
+      from: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      in: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({
+        data: {
+          run_id: 'run-123',
+          status: 'running',
+          cursor_agent_id: 'agent-456',
+        },
+        error: null,
+      }),
+    } as any
+
+    const result = await checkForExistingActiveRun(mockSupabase, 'test/repo', 123, 'implementation')
+    expect(result).toEqual({
+      runId: 'run-123',
+      status: 'running',
+      cursorAgentId: 'agent-456',
+    })
+  })
+
+  it('handles null cursorAgentId', async () => {
+    const mockSupabase = {
+      from: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      in: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({
+        data: {
+          run_id: 'run-123',
+          status: 'launching',
+          cursor_agent_id: null,
+        },
+        error: null,
+      }),
+    } as any
+
+    const result = await checkForExistingActiveRun(mockSupabase, 'test/repo', 123, 'implementation')
+    expect(result).toEqual({
+      runId: 'run-123',
+      status: 'launching',
+      cursorAgentId: null,
+    })
+  })
+
+  it('returns null and logs warning on error', async () => {
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const mockSupabase = {
+      from: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      in: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({
+        data: null,
+        error: { message: 'Database error' },
+      }),
+    } as any
+
+    const result = await checkForExistingActiveRun(mockSupabase, 'test/repo', 123, 'implementation')
+    expect(result).toBeNull()
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Error checking for existing run: Database error')
+    )
+
+    consoleWarnSpy.mockRestore()
+  })
+})
+
+describe('moveQATicketToDoing', () => {
+  it('returns true when ticket is not in QA column', async () => {
+    const mockSupabase = {
+      from: vi.fn(),
+    } as any
+
+    const result = await moveQATicketToDoing(mockSupabase, 'ticket-pk', 'test/repo', 'HAL-0123', 'col-doing')
+    expect(result).toBe(true)
+    expect(mockSupabase.from).not.toHaveBeenCalled()
+  })
+
+  it('moves ticket from QA to Doing when in QA column', async () => {
+    const mockUpdateFinal = vi.fn().mockResolvedValue({ error: null })
+    const mockEqFinal = vi.fn().mockReturnValue({ error: null })
+    const mockUpdate = vi.fn().mockReturnValue({ eq: mockEqFinal })
+    
+    const mockLimit = vi.fn().mockResolvedValue({ data: [{ kanban_position: 5 }], error: null })
+    const mockOrder = vi.fn().mockReturnValue({ limit: mockLimit })
+    const mockEq2 = vi.fn().mockReturnValue({ order: mockOrder })
+    const mockEq1 = vi.fn().mockReturnValue({ eq: mockEq2 })
+    const mockSelect = vi.fn().mockReturnValue({ eq: mockEq1 })
+    
+    const mockFrom = vi.fn()
+      .mockReturnValueOnce({ select: mockSelect }) // First call for select
+      .mockReturnValueOnce({ update: mockUpdate }) // Second call for update
+
+    const mockSupabase = {
+      from: mockFrom,
+    } as any
+
+    const result = await moveQATicketToDoing(mockSupabase, 'ticket-pk', 'test/repo', 'HAL-0123', 'col-qa')
+    expect(result).toBe(true)
+    expect(mockFrom).toHaveBeenCalledWith('tickets')
+    expect(mockUpdate).toHaveBeenCalled()
+  })
+
+  it('handles empty Doing column when moving ticket', async () => {
+    const mockUpdateFinal = vi.fn().mockResolvedValue({ error: null })
+    const mockEqFinal = vi.fn().mockReturnValue({ error: null })
+    const mockUpdate = vi.fn().mockReturnValue({ eq: mockEqFinal })
+    
+    const mockLimit = vi.fn().mockResolvedValue({ data: [], error: null })
+    const mockOrder = vi.fn().mockReturnValue({ limit: mockLimit })
+    const mockEq2 = vi.fn().mockReturnValue({ order: mockOrder })
+    const mockEq1 = vi.fn().mockReturnValue({ eq: mockEq2 })
+    const mockSelect = vi.fn().mockReturnValue({ eq: mockEq1 })
+    
+    const mockFrom = vi.fn()
+      .mockReturnValueOnce({ select: mockSelect }) // First call for select
+      .mockReturnValueOnce({ update: mockUpdate }) // Second call for update
+
+    const mockSupabase = {
+      from: mockFrom,
+    } as any
+
+    const result = await moveQATicketToDoing(mockSupabase, 'ticket-pk', 'test/repo', 'HAL-0123', 'col-qa')
+    expect(result).toBe(true)
+    expect(mockUpdate).toHaveBeenCalled()
+  })
+
+  it('returns false and logs error when update fails', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const mockEqFinal = vi.fn().mockResolvedValue({ error: { message: 'Update failed' } })
+    const mockUpdate = vi.fn().mockReturnValue({ eq: mockEqFinal })
+    
+    const mockLimit = vi.fn().mockResolvedValue({ data: [], error: null })
+    const mockOrder = vi.fn().mockReturnValue({ limit: mockLimit })
+    const mockEq2 = vi.fn().mockReturnValue({ order: mockOrder })
+    const mockEq1 = vi.fn().mockReturnValue({ eq: mockEq2 })
+    const mockSelect = vi.fn().mockReturnValue({ eq: mockEq1 })
+    
+    const mockFrom = vi.fn()
+      .mockReturnValueOnce({ select: mockSelect }) // First call for select
+      .mockReturnValueOnce({ update: mockUpdate }) // Second call for update
+
+    const mockSupabase = {
+      from: mockFrom,
+    } as any
+
+    const result = await moveQATicketToDoing(mockSupabase, 'ticket-pk', 'test/repo', 'HAL-0123', 'col-qa')
+    expect(result).toBe(false)
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to move ticket'),
+      'Update failed'
+    )
+
+    consoleErrorSpy.mockRestore()
+  })
+
+  it('handles exceptions gracefully', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const mockSupabase = {
+      from: vi.fn().mockImplementation(() => {
+        throw new Error('Database connection failed')
+      }),
+    } as any
+
+    const result = await moveQATicketToDoing(mockSupabase, 'ticket-pk', 'test/repo', 'HAL-0123', 'col-qa')
+    expect(result).toBe(false)
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Error moving ticket'),
+      'Database connection failed'
+    )
+
+    consoleErrorSpy.mockRestore()
   })
 })

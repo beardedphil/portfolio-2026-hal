@@ -19,6 +19,10 @@ import {
   buildQAPrompt,
   determineBranchName,
   checkForExistingPrUrl,
+  parseAgentType,
+  validateLaunchInputs,
+  checkForExistingActiveRun,
+  moveQATicketToDoing,
 } from './launch-helpers.js'
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
@@ -43,14 +47,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       model?: string
     }
 
-    const agentType: AgentType =
-      body.agentType === 'qa'
-        ? 'qa'
-        : body.agentType === 'project-manager'
-          ? 'project-manager'
-          : body.agentType === 'process-review'
-            ? 'process-review'
-            : 'implementation'
+    const agentType = parseAgentType(body.agentType)
     // Implementation and QA: do not send model — let Cursor auto-select.
     const model = (typeof body.model === 'string' ? body.model.trim() : '') || ''
     const repoFullName = typeof body.repoFullName === 'string' ? body.repoFullName.trim() : ''
@@ -62,18 +59,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const projectId = typeof body.projectId === 'string' ? body.projectId.trim() : ''
     const images = Array.isArray(body.images) ? body.images : undefined
 
-    if (!repoFullName) {
-      json(res, 400, { error: 'repoFullName is required.' })
-      return
-    }
-
-    const needsTicket = agentType === 'implementation' || agentType === 'qa' || agentType === 'process-review'
-    if (needsTicket && (!ticketNumber || !Number.isFinite(ticketNumber))) {
-      json(res, 400, { error: 'ticketNumber is required.' })
-      return
-    }
-    if (agentType === 'project-manager' && !message) {
-      json(res, 400, { error: 'message is required for project-manager runs.' })
+    const validationError = validateLaunchInputs(repoFullName, agentType, ticketNumber, message)
+    if (validationError) {
+      json(res, 400, { error: validationError })
       return
     }
 
@@ -137,34 +125,15 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const halApiBaseUrl = getOrigin(req)
 
     // Check for existing active run to prevent duplicate launches
-    // Active statuses: 'created', 'launching', 'polling', 'running', 'reviewing'
-    const activeStatuses = ['created', 'launching', 'polling', 'running', 'reviewing']
-    const { data: existingRun, error: existingRunErr } = await supabase
-      .from('hal_agent_runs')
-      .select('run_id, status, cursor_agent_id')
-      .eq('repo_full_name', repoFullName)
-      .eq('ticket_number', ticketNumber)
-      .eq('agent_type', agentType)
-      .in('status', activeStatuses)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-
-    if (existingRunErr) {
-      // Log error but continue - this is a best-effort check
-      console.warn(`[agent-runs/launch] Error checking for existing run: ${existingRunErr.message}`)
-    } else if (existingRun?.run_id) {
-      // Return existing active run instead of creating a new one
-      const existingRunId = existingRun.run_id as string
-      const existingStatus = (existingRun as any).status as string
-      const cursorAgentId = (existingRun as any).cursor_agent_id as string | null
+    const existingRun = await checkForExistingActiveRun(supabase, repoFullName, ticketNumber!, agentType)
+    if (existingRun) {
       console.log(
-        `[agent-runs/launch] Found existing active run ${existingRunId} for ticket ${displayId} (${agentType}), returning existing run instead of creating duplicate`
+        `[agent-runs/launch] Found existing active run ${existingRun.runId} for ticket ${displayId} (${agentType}), returning existing run instead of creating duplicate`
       )
       json(res, 200, {
-        runId: existingRunId,
-        status: existingStatus,
-        ...(cursorAgentId ? { cursorAgentId } : {}),
+        runId: existingRun.runId,
+        status: existingRun.status,
+        ...(existingRun.cursorAgentId ? { cursorAgentId: existingRun.cursorAgentId } : {}),
         message: 'Using existing active run',
       })
       return
@@ -174,31 +143,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     // Note: Run row not created yet, so we'll update after creation
 
     // Move QA ticket from QA column to Doing when QA agent starts (0088)
-    if (agentType === 'qa' && currentColumnId === 'col-qa') {
-      try {
-        const { data: inColumn } = await supabase
-          .from('tickets')
-          .select('kanban_position')
-          .eq('repo_full_name', repoFullName)
-          .eq('kanban_column_id', 'col-doing')
-          .order('kanban_position', { ascending: false })
-          .limit(1)
-        if (inColumn) {
-          const nextPosition = inColumn.length ? ((inColumn[0] as any)?.kanban_position ?? -1) + 1 : 0
-          const movedAt = new Date().toISOString()
-          const { error: updateErr } = await supabase
-            .from('tickets')
-            .update({ kanban_column_id: 'col-doing', kanban_position: nextPosition, kanban_moved_at: movedAt })
-            .eq('pk', ticketPk)
-          if (updateErr) {
-            // Log error but don't fail the launch - ticket will stay in QA
-            console.error(`[QA Agent] Failed to move ticket ${displayId} from QA to Doing:`, updateErr.message)
-          }
-        }
-      } catch (moveErr) {
-        // Log error but don't fail the launch
-        console.error(`[QA Agent] Error moving ticket ${displayId} from QA to Doing:`, moveErr instanceof Error ? moveErr.message : String(moveErr))
-      }
+    if (agentType === 'qa') {
+      await moveQATicketToDoing(supabase, ticketPk, repoFullName, displayId, currentColumnId)
     }
 
     // Parse ticket body sections
