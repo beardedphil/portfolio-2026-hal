@@ -45,6 +45,7 @@ import { DroppableActiveWorkRow } from './components/DroppableActiveWorkRow'
 import { AppHeader } from './components/AppHeader'
 import { AddColumnForm } from './components/AddColumnForm'
 import { DebugPanel } from './components/DebugPanel'
+import { BootstrapScreen } from './components/BootstrapScreen'
 import type { Card, Column } from './lib/columnTypes'
 import type { LogEntry, SupabaseTicketRow, SupabaseAgentArtifactRow, SupabaseAgentRunRow, TicketAttachment } from './App.types'
 import { SUPABASE_CONFIG_KEY, CONNECTED_REPO_KEY, SUPABASE_POLL_INTERVAL_MS, SUPABASE_SAFETY_POLL_INTERVAL_MS, REFETCH_AFTER_MOVE_MS, ROLLBACK_AFTER_FAILURE_MS, KANBAN_BROADCAST_CHANNEL, EMPTY_KANBAN_COLUMNS, DEFAULT_KANBAN_COLUMNS_SEED, _SUPABASE_KANBAN_COLUMNS_SETUP_SQL, DEFAULT_COLUMNS, INITIAL_CARDS, _SUPABASE_SETUP_SQL, _SUPABASE_TICKET_ATTACHMENTS_SETUP_SQL } from './App.constants'
@@ -147,6 +148,8 @@ function App() {
 
   // New HAL project wizard (v0 checklist-only)
   const [newHalWizardOpen, setNewHalWizardOpen] = useState(false)
+  // Bootstrap screen (0775)
+  const [bootstrapScreenOpen, setBootstrapScreenOpen] = useState(false)
   const [newHalProjectName, setNewHalProjectName] = useState('')
   const [newHalRepoUrl, setNewHalRepoUrl] = useState('')
   const [newHalChecklist, setNewHalChecklist] = useState({
@@ -2969,6 +2972,9 @@ function App() {
           setNewHalWizardOpen(true)
           setNewHalReport(null)
         }}
+        onOpenBootstrapScreen={() => {
+          setBootstrapScreenOpen(true)
+        }}
       />
 
       {connectError && (
@@ -3208,6 +3214,16 @@ function App() {
         <div className="config-missing-error" role="alert">
           Not connected: missing Supabase config
         </div>
+      )}
+
+      {bootstrapScreenOpen && supabaseProjectUrl && supabaseAnonKey && connectedRepoFullName && (
+        <BootstrapScreen
+          projectId={connectedRepoFullName}
+          supabaseUrl={supabaseProjectUrl}
+          supabaseAnonKey={supabaseAnonKey}
+          apiBaseUrl={import.meta.env.VITE_HAL_API_BASE_URL || window.location.origin}
+          onClose={() => setBootstrapScreenOpen(false)}
+        />
       )}
 
       {detailModal && (
