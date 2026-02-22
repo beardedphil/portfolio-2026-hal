@@ -1,5 +1,46 @@
 import { useState, useEffect, useCallback } from 'react'
 
+/**
+ * Redacts sensitive values from objects for UI display.
+ * Removes API keys, JWT tokens, Supabase URLs, and values for known secret key names.
+ */
+function redactForDisplay(obj: unknown): unknown {
+  const OPENAI_KEY_PATTERN = /sk-[a-zA-Z0-9_-]{20,}/g
+  const JWT_PATTERN = /eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+/g
+  const SUPABASE_URL_PATTERN = /https:\/\/([a-zA-Z0-9-]+\.)?supabase\.co(\/[a-zA-Z0-9_-]*)*/gi
+  const SENSITIVE_KEYS = /^(api[_-]?key|apikey|authorization|secret|password|token|supabase[_-]?(anon|service)[_-]?key|access[_-]?token|refresh[_-]?token|revocation[_-]?error)$/i
+  const REDACTED = '[REDACTED]'
+
+  function redactString(value: string): string {
+    return value
+      .replace(OPENAI_KEY_PATTERN, REDACTED)
+      .replace(JWT_PATTERN, REDACTED)
+      .replace(SUPABASE_URL_PATTERN, REDACTED)
+  }
+
+  function redactValue(value: unknown, key?: string): unknown {
+    if (key && typeof value === 'string' && SENSITIVE_KEYS.test(key)) {
+      return REDACTED
+    }
+    if (typeof value === 'string') {
+      return redactString(value)
+    }
+    if (Array.isArray(value)) {
+      return value.map((v) => redactValue(v))
+    }
+    if (value !== null && typeof value === 'object') {
+      const out: Record<string, unknown> = {}
+      for (const [k, v] of Object.entries(value)) {
+        out[k] = redactValue(v, k)
+      }
+      return out
+    }
+    return value
+  }
+
+  return redactValue(obj, undefined)
+}
+
 interface AuditLogViewProps {
   isOpen: boolean
   onClose: () => void
@@ -190,7 +231,7 @@ export function AuditLogView({
                     <details style={{ marginTop: '0.5rem' }}>
                       <summary style={{ cursor: 'pointer', fontSize: '0.9em', color: '#666' }}>Metadata</summary>
                       <pre style={{ marginTop: '0.5rem', padding: '0.5rem', backgroundColor: '#fff', borderRadius: '4px', fontSize: '0.85em', overflow: 'auto' }}>
-                        {JSON.stringify(log.metadata, null, 2)}
+                        {JSON.stringify(redactForDisplay(log.metadata), null, 2)}
                       </pre>
                     </details>
                   )}
