@@ -8,12 +8,14 @@ export function DroppableActiveWorkRow({
   doingTickets,
   activeWorkAgentTypes,
   agentRunsByTicketPk,
+  failuresByTicketPk,
   onOpenDetail,
   pendingMoves,
 }: {
   doingTickets: SupabaseTicketRow[]
   activeWorkAgentTypes: Record<string, 'Implementation' | 'QA' | 'Process Review'>
   agentRunsByTicketPk: Record<string, SupabaseAgentRunRow>
+  failuresByTicketPk?: Record<string, { root_cause?: string | null; failure_type?: string; metadata?: Record<string, any> }>
   onOpenDetail: (ticketPk: string) => void
   pendingMoves: Set<string>
 }) {
@@ -49,6 +51,7 @@ export function DroppableActiveWorkRow({
                 ticket={ticket}
                 agentName={agentName}
                 agentRun={agentRun}
+                failureInfo={failuresByTicketPk?.[ticket.pk]}
                 timestamp={timestamp}
                 ticketIdentifier={ticketIdentifier}
                 onOpenDetail={onOpenDetail}

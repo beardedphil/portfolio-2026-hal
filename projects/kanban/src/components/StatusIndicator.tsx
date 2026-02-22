@@ -10,9 +10,11 @@ import type { SupabaseAgentRunRow } from '../App.types'
 export function StatusIndicator({
   agentRun,
   agentName,
+  failureInfo,
 }: {
   agentRun?: SupabaseAgentRunRow
   agentName: string | null
+  failureInfo?: { root_cause?: string | null; failure_type?: string; metadata?: Record<string, any> }
 }) {
   const [isHovered, setIsHovered] = useState(false)
   const [isFocused, setIsFocused] = useState(false)
@@ -262,6 +264,37 @@ export function StatusIndicator({
               )
             })}
           </div>
+          {currentStepId === 'failed' && failureInfo && (
+            <div className="active-work-status-error-details" style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid rgba(255, 255, 255, 0.2)' }}>
+              {failureInfo.failure_type && (
+                <div style={{ marginBottom: '0.5rem' }}>
+                  <strong style={{ fontSize: '0.85em', color: 'rgba(255, 255, 255, 0.9)' }}>Error Type:</strong>
+                  <div style={{ fontSize: '0.85em', color: 'rgba(255, 255, 255, 0.8)', marginTop: '0.25rem' }}>
+                    {failureInfo.failure_type}
+                  </div>
+                </div>
+              )}
+              {failureInfo.root_cause && (
+                <div>
+                  <strong style={{ fontSize: '0.85em', color: 'rgba(255, 255, 255, 0.9)' }}>Error Details:</strong>
+                  <div 
+                    style={{ 
+                      fontSize: '0.85em', 
+                      color: 'rgba(255, 255, 255, 0.8)', 
+                      marginTop: '0.25rem',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      maxWidth: '400px',
+                      maxHeight: '200px',
+                      overflow: 'auto'
+                    }}
+                  >
+                    {failureInfo.root_cause}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

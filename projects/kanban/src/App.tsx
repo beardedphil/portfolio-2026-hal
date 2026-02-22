@@ -291,6 +291,8 @@ function App() {
   const [_selectedSupabaseTicketContent, setSelectedSupabaseTicketContent] = useState<string | null>(null)
   // Agent runs for Doing column tickets (0114) - kept for compatibility but not used for badges (0135)
   const [agentRunsByTicketPk, setAgentRunsByTicketPk] = useState<Record<string, SupabaseAgentRunRow>>({})
+  // Failure information for tickets (to show error details)
+  const [failuresByTicketPk, setFailuresByTicketPk] = useState<Record<string, { root_cause?: string | null; failure_type?: string; metadata?: Record<string, any> }>>({})
   // Agent type labels for Active work section (0135) - simple string storage based on source column, no DB
   const [activeWorkAgentTypes, setActiveWorkAgentTypes] = useState<Record<string, 'Implementation' | 'QA' | 'Process Review'>>({})
   // Sync with Docs removed (Supabase-only) (0065)
@@ -764,16 +766,18 @@ function App() {
         return
       }
       const ticketPks = doingTickets.map((t) => t.pk)
-      // Fetch active agent runs (status not 'finished' or 'failed') for these tickets (0690: include current_stage)
+      // Fetch active and failed agent runs for these tickets (0690: include current_stage)
+      // Include failed runs so we can show error information
       const { data, error } = await client
         .from('hal_agent_runs')
-        .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, status, current_stage, created_at, updated_at')
+        .select('run_id, agent_type, repo_full_name, ticket_pk, ticket_number, display_id, status, current_stage, created_at, updated_at, error')
         .eq('repo_full_name', connectedRepoFullName)
         .in('ticket_pk', ticketPks)
-        // Filter for active runs: any status that's not 'completed' or 'failed' (0690)
-        // Includes: 'preparing', 'fetching_ticket', 'resolving_repo', 'fetching_branch', 'launching', 'running', 'reviewing', 'polling', 'generating_report', 'merging', 'moving_ticket'
-        // Also includes old status values for backward compatibility: 'created', 'finished' (though 'finished' should be 'completed' now)
-        .in('status', ['preparing', 'fetching_ticket', 'resolving_repo', 'fetching_branch', 'launching', 'running', 'reviewing', 'polling', 'generating_report', 'merging', 'moving_ticket', 'created', 'finished'])
+        // Include both active runs and failed runs (to show error details)
+        // Active statuses: 'preparing', 'fetching_ticket', 'resolving_repo', 'fetching_branch', 'launching', 'running', 'reviewing', 'polling', 'generating_report', 'merging', 'moving_ticket'
+        // Also includes old status values for backward compatibility: 'created', 'finished'
+        // Failed status: 'failed' (to show error information)
+        .in('status', ['preparing', 'fetching_ticket', 'resolving_repo', 'fetching_branch', 'launching', 'running', 'reviewing', 'polling', 'generating_report', 'merging', 'moving_ticket', 'created', 'finished', 'failed'])
         .order('created_at', { ascending: false })
       if (error) {
         console.warn('Failed to fetch agent runs:', error)
@@ -799,6 +803,67 @@ function App() {
         }
       }
       setAgentRunsByTicketPk(finalRuns)
+      
+      // Fetch failure information for failed runs
+      const failedRunIds = Object.values(finalRuns)
+        .filter((run) => run.status === 'failed')
+        .map((run) => run.run_id)
+      
+      if (failedRunIds.length > 0) {
+        try {
+          // Fetch failures for these agent runs
+          const apiBaseUrl = import.meta.env.VITE_HAL_API_BASE_URL || (typeof window !== 'undefined' ? window.location.origin : '')
+          const failuresResponse = await fetch(`${apiBaseUrl}/api/failures/list`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              supabaseUrl: url,
+              supabaseAnonKey: key,
+              limit: 100,
+            }),
+          })
+          
+          if (failuresResponse.ok) {
+            const failuresData = await failuresResponse.json()
+            if (failuresData.success && failuresData.failures) {
+              // Map failures by ticket_pk
+              const failuresMap: Record<string, { root_cause?: string | null; failure_type?: string; metadata?: Record<string, any> }> = {}
+              for (const failure of failuresData.failures) {
+                if (failure.ticket_pk && failure.source_type === 'agent_outcome' && failedRunIds.includes(failure.source_id)) {
+                  // Use the most recent failure for each ticket
+                  if (!failuresMap[failure.ticket_pk] || 
+                      (failure.last_seen_at && failuresMap[failure.ticket_pk].metadata?.last_seen_at && 
+                       new Date(failure.last_seen_at) > new Date(failuresMap[failure.ticket_pk].metadata?.last_seen_at))) {
+                    failuresMap[failure.ticket_pk] = {
+                      root_cause: failure.root_cause,
+                      failure_type: failure.failure_type,
+                      metadata: { ...failure.metadata, last_seen_at: failure.last_seen_at },
+                    }
+                  }
+                }
+              }
+              
+              // Also check agent runs for error field as fallback (if failure record doesn't exist yet)
+              for (const run of Object.values(finalRuns)) {
+                if (run.status === 'failed' && run.ticket_pk && run.error && !failuresMap[run.ticket_pk]) {
+                  failuresMap[run.ticket_pk] = {
+                    root_cause: run.error,
+                    failure_type: 'AGENT_RUN_ERROR',
+                    metadata: {},
+                  }
+                }
+              }
+              
+              setFailuresByTicketPk(failuresMap)
+            }
+          }
+        } catch (e) {
+          console.warn('Failed to fetch failure details:', e)
+        }
+      } else {
+        // Clear failures if no failed runs
+        setFailuresByTicketPk({})
+      }
     } catch (e) {
       console.warn('Failed to fetch agent runs:', e)
     }
@@ -3510,6 +3575,7 @@ ${notes || '(none provided)'}
           doingTickets={doingTickets}
           activeWorkAgentTypes={activeWorkAgentTypes}
           agentRunsByTicketPk={halCtx?.agentRunsByTicketPk || agentRunsByTicketPk}
+          failuresByTicketPk={failuresByTicketPk}
           onOpenDetail={handleOpenTicketDetail}
           pendingMoves={pendingMoves}
         />}

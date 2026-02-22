@@ -8,6 +8,7 @@ export function DraggableActiveWorkItem({
   ticket,
   agentName,
   agentRun,
+  failureInfo,
   timestamp,
   ticketIdentifier,
   onOpenDetail,
@@ -16,6 +17,7 @@ export function DraggableActiveWorkItem({
   ticket: SupabaseTicketRow
   agentName: string | null
   agentRun: SupabaseAgentRunRow | undefined
+  failureInfo?: { root_cause?: string | null; failure_type?: string; metadata?: Record<string, any> }
   timestamp: string | null
   ticketIdentifier: string
   onOpenDetail: (ticketPk: string) => void
@@ -68,7 +70,7 @@ export function DraggableActiveWorkItem({
         <div className="active-work-item-meta">
           <span className="active-work-item-agent">{agentName || 'Unassigned'}</span>
           <div className="active-work-item-status-row">
-            <StatusIndicator agentRun={agentRun} agentName={agentName} />
+            <StatusIndicator agentRun={agentRun} agentName={agentName} failureInfo={failureInfo} />
             {timestamp && (
               <span className="active-work-item-timestamp" title={`Updated ${timestamp}`}>
                 {timestamp}

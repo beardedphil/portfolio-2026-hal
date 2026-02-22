@@ -63,6 +63,7 @@ export type SupabaseAgentRunRow = {
     | 'created'
     | 'finished'
   current_stage: string | null
+  error?: string | null
   created_at: string
   updated_at: string
 }
