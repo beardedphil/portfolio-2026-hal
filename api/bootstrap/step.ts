@@ -352,15 +352,34 @@ async function executeStep(
         }
       }
 
-      // All attempts failed
-      const errorMessage = lastStatusCode
-        ? `Preview verification failed after ${maxAttempts} attempts. Last error: ${lastError} (Status: ${lastStatusCode})`
-        : `Preview verification failed after ${maxAttempts} attempts. Last error: ${lastError || 'Unknown error'}`
+      // All attempts failed - format user-friendly error message
+      let userFriendlyError: string
+      if (lastStatusCode) {
+        // HTTP status code error - show status code clearly
+        if (lastStatusCode === 404) {
+          userFriendlyError = 'Preview not ready (HTTP 404)'
+        } else if (lastStatusCode === 502 || lastStatusCode === 503) {
+          userFriendlyError = `Preview deployment in progress (HTTP ${lastStatusCode})`
+        } else {
+          userFriendlyError = `Preview not reachable (HTTP ${lastStatusCode})`
+        }
+      } else if (lastError) {
+        // Network or other error - use the error message
+        if (lastError.includes('Network error')) {
+          userFriendlyError = 'Network error'
+        } else if (lastError.includes('timeout')) {
+          userFriendlyError = 'Request timeout'
+        } else {
+          userFriendlyError = lastError
+        }
+      } else {
+        userFriendlyError = 'Unknown error'
+      }
 
       return {
         success: false,
-        error: errorMessage,
-        errorDetails: `Unable to reach ${versionJsonUrl} after ${maxAttempts} attempts (${maxAttempts * pollIntervalMs / 1000} seconds). The preview deployment may still be building, or the URL may be incorrect.`,
+        error: userFriendlyError,
+        errorDetails: `Unable to reach ${versionJsonUrl} after ${maxAttempts} attempts (${maxAttempts * pollIntervalMs / 1000} seconds). Last error: ${lastError || 'Unknown error'}${lastStatusCode ? ` (Status: ${lastStatusCode})` : ''}. The preview deployment may still be building, or the URL may be incorrect.`,
       }
     }
 
