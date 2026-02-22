@@ -210,6 +210,36 @@ export function DriftAttemptsSection({ ticketId, ticketPk, supabaseUrl, supabase
                 )}
               </div>
             )}
+
+            {/* Docs consistency findings */}
+            {latestAttempt.references && latestAttempt.references.docs_findings && Array.isArray(latestAttempt.references.docs_findings) && latestAttempt.references.docs_findings.length > 0 && (
+              <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid rgba(0,0,0,0.1)' }}>
+                <div style={{ fontSize: '0.9rem', marginBottom: '0.5rem' }}>
+                  <strong>Documentation Issues:</strong>
+                </div>
+                {(() => {
+                  // Group findings by path
+                  const findingsByPath = new Map<string, any[]>()
+                  for (const finding of latestAttempt.references.docs_findings) {
+                    const existing = findingsByPath.get(finding.path) || []
+                    existing.push(finding)
+                    findingsByPath.set(finding.path, existing)
+                  }
+                  return Array.from(findingsByPath.entries()).map(([path, findings]) => (
+                    <div key={path} style={{ marginBottom: '0.75rem', fontSize: '0.9rem' }}>
+                      <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>{path}</div>
+                      <ul style={{ margin: '0.25rem 0 0 1.25rem', padding: 0, fontSize: '0.85rem' }}>
+                        {findings.map((finding, idx) => (
+                          <li key={idx} style={{ marginBottom: '0.25rem' }}>
+                            <strong>{finding.ruleId}:</strong> {finding.message}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))
+                })()}
+              </div>
+            )}
           </div>
         </div>
       )}
