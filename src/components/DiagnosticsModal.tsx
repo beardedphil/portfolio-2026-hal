@@ -11,6 +11,34 @@ interface EmbeddingsStatus {
   error?: string
 }
 
+interface EmbeddingJob {
+  job_id: string
+  artifact_id: string
+  artifact_title: string
+  chunk_text: string
+  chunk_text_preview: string
+  chunk_hash: string
+  chunk_index: number
+  status: 'queued' | 'processing' | 'succeeded' | 'failed'
+  error_message?: string
+  created_at: string
+  started_at?: string
+  completed_at?: string
+}
+
+interface EmbeddingJobsStatus {
+  success: boolean
+  jobs: EmbeddingJob[]
+  counts: {
+    queued: number
+    processing: number
+    succeeded: number
+    failed: number
+  }
+  total: number
+  error?: string
+}
+
 interface SearchResult {
   chunk_id: string
   artifact_id: string
@@ -41,12 +69,25 @@ export function DiagnosticsModal({
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
   const [searching, setSearching] = useState(false)
   const [searchError, setSearchError] = useState<string | null>(null)
+  const [jobsStatus, setJobsStatus] = useState<EmbeddingJobsStatus | null>(null)
+  const [loadingJobs, setLoadingJobs] = useState(false)
+  const [autoRefresh, setAutoRefresh] = useState(true)
 
   // Load embeddings status when modal opens
   useEffect(() => {
     if (!isOpen) return
     loadEmbeddingsStatus()
+    loadJobsStatus()
   }, [isOpen, supabaseUrl, supabaseAnonKey])
+
+  // Auto-refresh jobs status every 3 seconds when auto-refresh is enabled
+  useEffect(() => {
+    if (!isOpen || !autoRefresh) return
+    const interval = setInterval(() => {
+      loadJobsStatus()
+    }, 3000)
+    return () => clearInterval(interval)
+  }, [isOpen, autoRefresh, supabaseUrl, supabaseAnonKey])
 
   async function loadEmbeddingsStatus() {
     if (!supabaseUrl || !supabaseAnonKey) {
@@ -80,6 +121,39 @@ export function DiagnosticsModal({
       })
     } finally {
       setLoadingStatus(false)
+    }
+  }
+
+  async function loadJobsStatus() {
+    if (!supabaseUrl || !supabaseAnonKey) {
+      setJobsStatus(null)
+      return
+    }
+
+    setLoadingJobs(true)
+    try {
+      const res = await fetch('/api/artifacts/get-embedding-jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          supabaseUrl,
+          supabaseAnonKey,
+          limit: 50,
+        }),
+      })
+
+      const data = (await res.json()) as EmbeddingJobsStatus
+      setJobsStatus(data)
+    } catch (err) {
+      setJobsStatus({
+        success: false,
+        jobs: [],
+        counts: { queued: 0, processing: 0, succeeded: 0, failed: 0 },
+        total: 0,
+        error: err instanceof Error ? err.message : 'Failed to load jobs status',
+      })
+    } finally {
+      setLoadingJobs(false)
     }
   }
 
@@ -233,6 +307,122 @@ export function DiagnosticsModal({
               </div>
             ) : (
               <p style={{ color: 'var(--hal-text-muted)' }}>Failed to load status</p>
+            )}
+          </section>
+
+          {/* Embedding Jobs Queue Section */}
+          <section style={{ marginTop: '2rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h4 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600 }}>Embedding Jobs Queue</h4>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem', color: 'var(--hal-text-muted)' }}>
+                <input
+                  type="checkbox"
+                  checked={autoRefresh}
+                  onChange={(e) => setAutoRefresh(e.target.checked)}
+                  style={{ cursor: 'pointer' }}
+                />
+                Auto-refresh
+              </label>
+            </div>
+            {loadingJobs ? (
+              <p style={{ color: 'var(--hal-text-muted)' }}>Loading jobs...</p>
+            ) : jobsStatus ? (
+              <div>
+                {/* Counters */}
+                <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    <span style={{ fontSize: '0.85rem', color: 'var(--hal-text-muted)' }}>Queued</span>
+                    <span style={{ fontSize: '1.2rem', fontWeight: 600, color: 'var(--hal-text)' }}>{jobsStatus.counts.queued}</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    <span style={{ fontSize: '0.85rem', color: 'var(--hal-text-muted)' }}>Processing</span>
+                    <span style={{ fontSize: '1.2rem', fontWeight: 600, color: 'var(--hal-status-warning)' }}>{jobsStatus.counts.processing}</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    <span style={{ fontSize: '0.85rem', color: 'var(--hal-text-muted)' }}>Succeeded</span>
+                    <span style={{ fontSize: '1.2rem', fontWeight: 600, color: 'var(--hal-status-ok)' }}>{jobsStatus.counts.succeeded}</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    <span style={{ fontSize: '0.85rem', color: 'var(--hal-text-muted)' }}>Failed</span>
+                    <span style={{ fontSize: '1.2rem', fontWeight: 600, color: 'var(--hal-status-error)' }}>{jobsStatus.counts.failed}</span>
+                  </div>
+                </div>
+
+                {/* Recent Jobs */}
+                {jobsStatus.jobs.length > 0 ? (
+                  <div>
+                    <h5 style={{ margin: '1rem 0 0.5rem 0', fontSize: '1rem', fontWeight: 600 }}>
+                      Recent Jobs ({jobsStatus.jobs.length})
+                    </h5>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '400px', overflowY: 'auto' }}>
+                      {jobsStatus.jobs.map((job) => (
+                        <div
+                          key={job.job_id}
+                          style={{
+                            padding: '0.75rem',
+                            border: '1px solid var(--hal-border)',
+                            borderRadius: '4px',
+                            background: 'var(--hal-surface-alt)',
+                            fontSize: '0.9rem',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '0.5rem' }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontWeight: 600, color: 'var(--hal-text)', marginBottom: '0.25rem' }}>
+                                {job.artifact_title}
+                              </div>
+                              <div style={{ color: 'var(--hal-text-muted)', fontSize: '0.85rem' }}>
+                                Chunk {job.chunk_index} • {new Date(job.created_at).toLocaleString()}
+                              </div>
+                            </div>
+                            <div
+                              style={{
+                                padding: '0.25rem 0.5rem',
+                                borderRadius: '4px',
+                                fontSize: '0.8rem',
+                                fontWeight: 500,
+                                background:
+                                  job.status === 'succeeded'
+                                    ? 'rgba(46, 125, 50, 0.1)'
+                                    : job.status === 'failed'
+                                      ? 'rgba(198, 40, 40, 0.1)'
+                                      : job.status === 'processing'
+                                        ? 'rgba(255, 152, 0, 0.1)'
+                                        : 'rgba(108, 117, 125, 0.1)',
+                                color:
+                                  job.status === 'succeeded'
+                                    ? 'var(--hal-status-ok)'
+                                    : job.status === 'failed'
+                                      ? 'var(--hal-status-error)'
+                                      : job.status === 'processing'
+                                        ? 'var(--hal-status-warning)'
+                                        : 'var(--hal-text-muted)',
+                              }}
+                            >
+                              {job.status === 'queued' ? 'Queued' : job.status === 'processing' ? 'Processing' : job.status === 'succeeded' ? 'Succeeded' : 'Failed'}
+                            </div>
+                          </div>
+                          <div style={{ color: 'var(--hal-text)', fontSize: '0.85rem', marginTop: '0.5rem' }}>
+                            {job.chunk_text_preview}
+                          </div>
+                          {job.error_message && (
+                            <div style={{ color: 'var(--hal-status-error)', fontSize: '0.85rem', marginTop: '0.5rem' }}>
+                              Error: {job.error_message}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <p style={{ color: 'var(--hal-text-muted)', fontSize: '0.9rem' }}>No jobs found.</p>
+                )}
+                {jobsStatus.error && (
+                  <p style={{ color: 'var(--hal-status-error)', fontSize: '0.9rem', marginTop: '0.5rem' }}>Error: {jobsStatus.error}</p>
+                )}
+              </div>
+            ) : (
+              <p style={{ color: 'var(--hal-text-muted)' }}>Failed to load jobs status</p>
             )}
           </section>
 

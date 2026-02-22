@@ -44,6 +44,45 @@ async function checkFailureEscalationIfNeeded(
   }
 }
 
+/**
+ * Enqueues embedding jobs for an artifact asynchronously (fire and forget).
+ * This triggers distillation → knowledge atom extraction → embedding queue.
+ */
+function enqueueEmbeddingsAsync(artifactId: string, supabaseUrl: string, supabaseAnonKey: string): void {
+  // Fire and forget - don't block the response
+  setTimeout(async () => {
+    try {
+      // Construct base URL for server-side to server-side call
+      // In Vercel, use VERCEL_URL; in dev, use localhost
+      const baseUrl =
+        typeof process !== 'undefined' && process.env.VERCEL_URL
+          ? `https://${process.env.VERCEL_URL}`
+          : typeof process !== 'undefined' && process.env.PORT
+            ? `http://localhost:${process.env.PORT}`
+            : 'http://localhost:5173'
+
+      const response = await fetch(`${baseUrl}/api/artifacts/enqueue-embeddings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          artifactId,
+          supabaseUrl,
+          supabaseAnonKey,
+          openaiApiKey: process.env.OPENAI_API_KEY,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.warn(`[${ENDPOINT_NAME}] Failed to enqueue embeddings for artifact ${artifactId}: ${response.status} ${errorText}`)
+      }
+    } catch (err) {
+      // Log but don't fail - embedding enqueue is best effort
+      console.warn(`[${ENDPOINT_NAME}] Error enqueueing embeddings for artifact ${artifactId}: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }, 100)
+}
+
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   setCorsHeaders(res)
 
@@ -206,6 +245,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     // Check if this is a FAIL outcome and trigger escalation check (0195)
     await checkFailureEscalationIfNeeded(supabase, ticket.pk, body.body_md)
+
+    // Enqueue embedding jobs asynchronously (fire and forget)
+    // This triggers distillation → knowledge atom extraction → embedding queue
+    enqueueEmbeddingsAsync(storageResult.artifact_id, credentials.url, credentials.anonKey)
 
     json(res, 200, {
       success: true,
