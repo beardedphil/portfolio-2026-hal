@@ -3230,6 +3230,7 @@ function App() {
           supabaseAnonKey={supabaseAnonKey || ''}
           apiBaseUrl={import.meta.env.VITE_HAL_API_BASE_URL || (typeof window !== 'undefined' ? window.location.origin : '')}
           onClose={() => setBootstrapScreenOpen(false)}
+          githubRepoConnected={!!connectedRepoFullName}
         />
       )}
 

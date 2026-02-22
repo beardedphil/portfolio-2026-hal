@@ -12,6 +12,12 @@ import {
 } from './_shared.js'
 import { createSupabaseProject } from './_supabase-management.js'
 import { encryptSecret } from '../_lib/encryption.js'
+import {
+  createVercelProject,
+  setVercelEnvironmentVariables,
+  createVercelDeployment,
+  getPreviewUrlFromDeployment,
+} from './_vercel-api.js'
 
 /**
  * Executes a bootstrap step.
@@ -26,8 +32,11 @@ async function executeStep(
     supabaseOrganizationId?: string
     supabaseProjectName?: string
     supabaseRegion?: string
+    vercelToken?: string
+    githubRepo?: string
+    environmentVariables?: Array<{ key: string; value: string }>
   }
-): Promise<{ success: boolean; error?: string; errorDetails?: string }> {
+): Promise<{ success: boolean; error?: string; errorDetails?: string; metadata?: Record<string, unknown> }> {
   switch (stepId) {
     case 'ensure_repo_initialized':
       // TODO (T2): Implement ensure_repo_initialized using GitHub Git Database API
@@ -143,9 +152,141 @@ async function executeStep(
       }
 
     case 'create_vercel_project':
-      // TODO (T5): Implement create_vercel_project via Vercel API
-      await new Promise((resolve) => setTimeout(resolve, 2000))
-      return { success: true }
+      try {
+        // Validate required context
+        if (!context?.vercelToken) {
+          return {
+            success: false,
+            error: 'Vercel API token is required',
+            errorDetails: 'Please provide a valid Vercel API token to create a project.',
+          }
+        }
+
+        if (!context?.githubRepo) {
+          return {
+            success: false,
+            error: 'GitHub repository is required',
+            errorDetails: 'Please provide a GitHub repository (e.g., owner/repo) to link to the Vercel project.',
+          }
+        }
+
+        // Step 1: Create Vercel project and link GitHub repo
+        const projectName = projectId.replace('/', '-').toLowerCase()
+        const createResult = await createVercelProject(
+          context.vercelToken,
+          projectName,
+          {
+            repo: context.githubRepo,
+            type: 'github',
+          }
+        )
+
+        if (!createResult.success) {
+          return {
+            success: false,
+            error: createResult.error,
+            errorDetails: createResult.errorDetails,
+          }
+        }
+
+        const vercelProject = createResult.project
+
+        // Step 2: Set environment variables (if provided)
+        if (context.environmentVariables && context.environmentVariables.length > 0) {
+          const envResult = await setVercelEnvironmentVariables(
+            context.vercelToken,
+            vercelProject.id,
+            context.environmentVariables.map(({ key, value }) => ({
+              key,
+              value,
+              type: 'plain' as const,
+              target: ['production', 'preview', 'development'] as const,
+            }))
+          )
+
+          if (!envResult.success) {
+            return {
+              success: false,
+              error: envResult.error,
+              errorDetails: envResult.errorDetails,
+            }
+          }
+        }
+
+        // Step 3: Trigger deployment
+        const deployResult = await createVercelDeployment(
+          context.vercelToken,
+          vercelProject.id,
+          {
+            repo: context.githubRepo,
+            type: 'github',
+            ref: 'main',
+          }
+        )
+
+        if (!deployResult.success) {
+          return {
+            success: false,
+            error: deployResult.error,
+            errorDetails: deployResult.errorDetails,
+          }
+        }
+
+        // Extract preview URL from deployment
+        const previewUrl = getPreviewUrlFromDeployment(deployResult.deployment)
+
+        // Success - return metadata with preview URL
+        return {
+          success: true,
+          metadata: {
+            vercelProjectId: vercelProject.id,
+            vercelProjectName: vercelProject.name,
+            deploymentId: deployResult.deployment.id,
+            previewUrl: previewUrl || null,
+          },
+        }
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : String(err)
+        
+        // Determine error type for better user messaging
+        if (errorMessage.includes('Invalid') || errorMessage.includes('token')) {
+          return {
+            success: false,
+            error: 'Invalid Vercel API token',
+            errorDetails: errorMessage,
+          }
+        }
+        
+        if (errorMessage.includes('Permission denied') || errorMessage.includes('403')) {
+          return {
+            success: false,
+            error: 'Permission denied',
+            errorDetails: errorMessage,
+          }
+        }
+        
+        if (errorMessage.includes('Rate limit') || errorMessage.includes('429')) {
+          return {
+            success: false,
+            error: 'Rate limit exceeded',
+            errorDetails: errorMessage,
+          }
+        }
+        
+        if (errorMessage.includes('network') || errorMessage.includes('fetch')) {
+          return {
+            success: false,
+            error: 'Network error',
+            errorDetails: errorMessage,
+          }
+        }
+
+        return {
+          success: false,
+          error: 'Failed to create Vercel project',
+          errorDetails: errorMessage,
+        }
+      }
 
     case 'verify_preview':
       // TODO (T6): Implement verify_preview by polling /version.json
@@ -189,6 +330,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       supabaseOrganizationId?: string
       supabaseProjectName?: string
       supabaseRegion?: string
+      vercelToken?: string
+      githubRepo?: string
+      environmentVariables?: Array<{ key: string; value: string }>
     }
 
     const runId = typeof body.runId === 'string' ? body.runId.trim() : undefined
@@ -285,15 +429,22 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       supabaseOrganizationId: typeof body.supabaseOrganizationId === 'string' ? body.supabaseOrganizationId.trim() : undefined,
       supabaseProjectName: typeof body.supabaseProjectName === 'string' ? body.supabaseProjectName.trim() : undefined,
       supabaseRegion: typeof body.supabaseRegion === 'string' ? body.supabaseRegion.trim() : undefined,
+      vercelToken: typeof body.vercelToken === 'string' ? body.vercelToken.trim() : process.env.VERCEL_TOKEN,
+      githubRepo: typeof body.githubRepo === 'string' ? body.githubRepo.trim() : run.project_id,
+      environmentVariables: Array.isArray(body.environmentVariables) ? body.environmentVariables : undefined,
     }
     const stepResult = await executeStep(stepId, run.project_id, runId, supabase, stepContext)
 
-    // Update step with result
+    // Update step with result (store metadata in error_details as JSON when successful)
+    const stepMetadata = stepResult.success && stepResult.metadata
+      ? JSON.stringify(stepResult.metadata)
+      : null
+    
     const completedStepHistory = updateStepRecord(runningStepHistory, stepId, {
       status: stepResult.success ? 'succeeded' : 'failed',
       completed_at: new Date().toISOString(),
       error_summary: stepResult.error || null,
-      error_details: stepResult.errorDetails || null,
+      error_details: stepResult.success && stepMetadata ? stepMetadata : (stepResult.errorDetails || null),
     })
 
     const completedLogs = addLogEntry(
