@@ -39,6 +39,21 @@ export function StatusIndicator({
   
   // Map current_stage to step ID (0690: use current_stage instead of status for detailed progression)
   const currentStepId = agentRun ? mapStatusToStepId(agentRun.current_stage || agentRun.status, agentType) : null
+  // Check if run is failed (either status is 'failed' or currentStepId maps to 'failed')
+  const isFailed = agentRun?.status === 'failed' || currentStepId === 'failed'
+  
+  // Debug logging in dev mode
+  if (import.meta.env.DEV && isFailed && agentRun) {
+    console.log('[StatusIndicator] Failed run detected:', {
+      run_id: agentRun.run_id,
+      status: agentRun.status,
+      current_stage: agentRun.current_stage,
+      currentStepId,
+      isFailed,
+      hasFailureInfo: !!failureInfo,
+      failureInfo,
+    })
+  }
   
   const showTooltip = isHovered || isFocused
 
@@ -264,7 +279,7 @@ export function StatusIndicator({
               )
             })}
           </div>
-          {currentStepId === 'failed' && failureInfo && (
+          {isFailed && failureInfo && (failureInfo.root_cause || failureInfo.failure_type) && (
             <div className="active-work-status-error-details" style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid rgba(255, 255, 255, 0.2)' }}>
               {failureInfo.failure_type && (
                 <div style={{ marginBottom: '0.5rem' }}>
@@ -274,7 +289,7 @@ export function StatusIndicator({
                   </div>
                 </div>
               )}
-              {failureInfo.root_cause && (
+              {failureInfo.root_cause ? (
                 <div>
                   <strong style={{ fontSize: '0.85em', color: 'rgba(255, 255, 255, 0.9)' }}>Error Details:</strong>
                   <div 
@@ -291,6 +306,10 @@ export function StatusIndicator({
                   >
                     {failureInfo.root_cause}
                   </div>
+                </div>
+              ) : (
+                <div style={{ fontSize: '0.85em', color: 'rgba(255, 255, 255, 0.7)', fontStyle: 'italic' }}>
+                  No error details available
                 </div>
               )}
             </div>

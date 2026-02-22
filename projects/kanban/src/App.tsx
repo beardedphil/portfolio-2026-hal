@@ -805,61 +805,78 @@ function App() {
       setAgentRunsByTicketPk(finalRuns)
       
       // Fetch failure information for failed runs
-      const failedRunIds = Object.values(finalRuns)
-        .filter((run) => run.status === 'failed')
-        .map((run) => run.run_id)
+      const failedRuns = Object.values(finalRuns).filter((run) => run.status === 'failed')
       
-      if (failedRunIds.length > 0) {
-        try {
-          // Fetch failures for these agent runs
-          const apiBaseUrl = import.meta.env.VITE_HAL_API_BASE_URL || (typeof window !== 'undefined' ? window.location.origin : '')
-          const failuresResponse = await fetch(`${apiBaseUrl}/api/failures/list`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              supabaseUrl: url,
-              supabaseAnonKey: key,
-              limit: 100,
-            }),
-          })
-          
-          if (failuresResponse.ok) {
-            const failuresData = await failuresResponse.json()
-            if (failuresData.success && failuresData.failures) {
-              // Map failures by ticket_pk
-              const failuresMap: Record<string, { root_cause?: string | null; failure_type?: string; metadata?: Record<string, any> }> = {}
-              for (const failure of failuresData.failures) {
-                if (failure.ticket_pk && failure.source_type === 'agent_outcome' && failedRunIds.includes(failure.source_id)) {
-                  // Use the most recent failure for each ticket
-                  if (!failuresMap[failure.ticket_pk] || 
-                      (failure.last_seen_at && failuresMap[failure.ticket_pk].metadata?.last_seen_at && 
-                       new Date(failure.last_seen_at) > new Date(failuresMap[failure.ticket_pk].metadata?.last_seen_at))) {
-                    failuresMap[failure.ticket_pk] = {
-                      root_cause: failure.root_cause,
-                      failure_type: failure.failure_type,
-                      metadata: { ...failure.metadata, last_seen_at: failure.last_seen_at },
+      if (failedRuns.length > 0) {
+        // Build failures map from agent run error fields (immediate, always available)
+        const failuresMap: Record<string, { root_cause?: string | null; failure_type?: string; metadata?: Record<string, any> }> = {}
+        for (const run of failedRuns) {
+          if (run.ticket_pk) {
+            // Always create an entry for failed runs, even if error is null
+            // This ensures the tooltip shows something
+            const errorMessage = run.error?.trim() || null
+            failuresMap[run.ticket_pk] = {
+              root_cause: errorMessage || 'Agent run failed (check agent run logs for details)',
+              failure_type: 'AGENT_RUN_ERROR',
+              metadata: { run_id: run.run_id, agent_type: run.agent_type, has_error_field: !!run.error },
+            }
+            // Debug logging
+            if (import.meta.env.DEV) {
+              console.log('[App] Failed run detected:', {
+                ticket_pk: run.ticket_pk,
+                run_id: run.run_id,
+                error: run.error,
+                status: run.status,
+                current_stage: run.current_stage,
+              })
+            }
+          }
+        }
+        
+        // Try to fetch more detailed failure records from failures table (if available)
+        const failedTicketPks = failedRuns.map((run) => run.ticket_pk).filter((pk): pk is string => pk !== null)
+        if (failedTicketPks.length > 0) {
+          try {
+            const apiBaseUrl = import.meta.env.VITE_HAL_API_BASE_URL || (typeof window !== 'undefined' ? window.location.origin : '')
+            const failuresResponse = await fetch(`${apiBaseUrl}/api/failures/list`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                supabaseUrl: url,
+                supabaseAnonKey: key,
+                limit: 200,
+              }),
+            })
+            
+            if (failuresResponse.ok) {
+              const failuresData = await failuresResponse.json()
+              if (failuresData.success && failuresData.failures) {
+                // Map failures by ticket_pk - match any failure for these tickets
+                for (const failure of failuresData.failures) {
+                  if (failure.ticket_pk && failedTicketPks.includes(failure.ticket_pk)) {
+                    // Prefer failure record over agent run error (more detailed)
+                    // Use the most recent failure for each ticket
+                    const existing = failuresMap[failure.ticket_pk]
+                    const failureTime = failure.last_seen_at ? new Date(failure.last_seen_at).getTime() : 0
+                    const existingTime = existing?.metadata?.last_seen_at ? new Date(existing.metadata.last_seen_at).getTime() : 0
+                    
+                    if (!existing || failureTime > existingTime) {
+                      failuresMap[failure.ticket_pk] = {
+                        root_cause: failure.root_cause || existing?.root_cause || 'Agent run failed',
+                        failure_type: failure.failure_type || 'AGENT_RUN_ERROR',
+                        metadata: { ...failure.metadata, last_seen_at: failure.last_seen_at },
+                      }
                     }
                   }
                 }
               }
-              
-              // Also check agent runs for error field as fallback (if failure record doesn't exist yet)
-              for (const run of Object.values(finalRuns)) {
-                if (run.status === 'failed' && run.ticket_pk && run.error && !failuresMap[run.ticket_pk]) {
-                  failuresMap[run.ticket_pk] = {
-                    root_cause: run.error,
-                    failure_type: 'AGENT_RUN_ERROR',
-                    metadata: {},
-                  }
-                }
-              }
-              
-              setFailuresByTicketPk(failuresMap)
             }
+          } catch (e) {
+            console.warn('[App] Failed to fetch failure details:', e)
           }
-        } catch (e) {
-          console.warn('Failed to fetch failure details:', e)
         }
+        
+        setFailuresByTicketPk(failuresMap)
       } else {
         // Clear failures if no failed runs
         setFailuresByTicketPk({})
