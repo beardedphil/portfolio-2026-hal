@@ -232,7 +232,19 @@ function App() {
   const [activeWorkAgentTypes, setActiveWorkAgentTypes] = useState<Record<string, 'Implementation' | 'QA' | 'Process Review'>>({})
   // Sync with Docs removed (Supabase-only) (0065)
   // Ticket persistence tracking (0047)
-  const [lastMovePersisted, setLastMovePersisted] = useState<{ success: boolean; timestamp: Date; ticketId: string; error?: string; isValidationBlock?: boolean } | null>(null)
+  const [lastMovePersisted, setLastMovePersisted] = useState<{ 
+    success: boolean
+    timestamp: Date
+    ticketId: string
+    error?: string
+    isValidationBlock?: boolean
+    ciStatus?: {
+      overallStatus: 'passing' | 'failing' | 'pending' | 'running' | 'unknown'
+      failingChecks?: string[]
+      checksUrl?: string
+      headSha?: string
+    }
+  } | null>(null)
   const [pendingMoves, setPendingMoves] = useState<Set<string>>(new Set())
   // Track when each move was initiated to prevent premature rollback on slow API responses (0790)
   const [pendingMoveTimestamps, setPendingMoveTimestamps] = useState<Map<string, number>>(new Map())
@@ -1417,7 +1429,21 @@ function App() {
       ticketPk: string,
       columnId: string,
       position?: number
-    ): Promise<{ ok: true } | { ok: false; error: string; actionableSteps?: string; missingArtifacts?: string[] }> => {
+    ): Promise<{ 
+      ok: true 
+    } | { 
+      ok: false
+      error: string
+      actionableSteps?: string
+      missingArtifacts?: string[]
+      errorCode?: string
+      ciStatus?: {
+        overallStatus: 'passing' | 'failing' | 'pending' | 'running' | 'unknown'
+        failingChecks?: string[]
+        checksUrl?: string
+        headSha?: string
+      }
+    }> => {
       try {
         // Get API base URL from environment or use current origin
         const apiBaseUrl = import.meta.env.VITE_HAL_API_BASE_URL || window.location.origin
@@ -1452,7 +1478,9 @@ function App() {
             ok: false, 
             error: errorMessage,
             actionableSteps,
-            missingArtifacts: result.missingArtifacts
+            missingArtifacts: result.missingArtifacts,
+            errorCode: result.errorCode,
+            ciStatus: result.ciStatus || undefined,
           }
         }
 
@@ -2219,7 +2247,17 @@ function App() {
             : result.error
           
           // Show error message immediately (0790)
-          setLastMovePersisted({ success: false, timestamp: new Date(), ticketId: ticketPk, error: errorMessage })
+          // Type guard: only access errorCode/ciStatus if result is from moveTicketViaHalApi (has ok: false)
+          const hasErrorCode = !result.ok && 'errorCode' in result
+          const hasCiStatus = !result.ok && 'ciStatus' in result
+          setLastMovePersisted({ 
+            success: false, 
+            timestamp: new Date(), 
+            ticketId: ticketPk, 
+            error: errorMessage,
+            isValidationBlock: hasErrorCode && (result.errorCode === 'NO_PR_ASSOCIATED' || result.errorCode === 'CI_CHECKS_FAILING' || result.errorCode === 'UNMET_AC_BLOCKER'),
+            ciStatus: hasCiStatus ? (result.ciStatus as typeof lastMovePersisted.ciStatus) : undefined,
+          })
           addLog(`Move failed: ${errorMessage}`)
           
           // Wait for rollback delay before reverting optimistic update (0790)
@@ -2384,7 +2422,14 @@ function App() {
             : result.error
           
           // Show error message immediately (0790)
-          setLastMovePersisted({ success: false, timestamp: new Date(), ticketId: ticketPk, error: errorMessage })
+          setLastMovePersisted({ 
+            success: false, 
+            timestamp: new Date(), 
+            ticketId: ticketPk, 
+            error: errorMessage,
+            isValidationBlock: ('errorCode' in result && (result.errorCode === 'NO_PR_ASSOCIATED' || result.errorCode === 'CI_CHECKS_FAILING' || result.errorCode === 'UNMET_AC_BLOCKER')) || false,
+            ciStatus: ('ciStatus' in result ? result.ciStatus : undefined),
+          })
           addLog(`Move failed: ${errorMessage}`)
           
           // Wait for rollback delay before reverting optimistic update (0790)
@@ -2814,7 +2859,14 @@ function App() {
               : result.error
             
             // Show error message immediately (0790)
-            setLastMovePersisted({ success: false, timestamp: new Date(), ticketId: ticketPk, error: errorMessage })
+            setLastMovePersisted({ 
+              success: false, 
+              timestamp: new Date(), 
+              ticketId: ticketPk, 
+              error: errorMessage,
+              isValidationBlock: result.errorCode === 'NO_PR_ASSOCIATED' || result.errorCode === 'CI_CHECKS_FAILING' || result.errorCode === 'UNMET_AC_BLOCKER',
+              ciStatus: result.ciStatus,
+            })
             addLog(`Move failed: ${errorMessage}`)
             
             // Wait for rollback delay before reverting optimistic update (0790)
@@ -2974,6 +3026,39 @@ function App() {
             <>
               <div style={{ whiteSpace: 'pre-line' }}>
                 ✗ {lastMovePersisted.isValidationBlock ? 'Move blocked' : 'Move failed'}: {lastMovePersisted.error ?? 'Unknown error'}
+                {lastMovePersisted.ciStatus && (
+                  <div style={{ marginTop: '8px', padding: '8px', backgroundColor: 'rgba(0, 0, 0, 0.05)', borderRadius: '4px' }}>
+                    <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>CI Status: {
+                      lastMovePersisted.ciStatus.overallStatus === 'passing' ? '✓ Passing' :
+                      lastMovePersisted.ciStatus.overallStatus === 'failing' ? '✗ Failing' :
+                      lastMovePersisted.ciStatus.overallStatus === 'running' ? '⟳ Running' :
+                      lastMovePersisted.ciStatus.overallStatus === 'pending' ? '⏳ Pending' :
+                      '? Unknown'
+                    }</div>
+                    {lastMovePersisted.ciStatus.failingChecks && lastMovePersisted.ciStatus.failingChecks.length > 0 && (
+                      <div style={{ marginBottom: '4px' }}>
+                        <div style={{ fontWeight: 'bold' }}>Failing checks:</div>
+                        <ul style={{ margin: '4px 0', paddingLeft: '20px' }}>
+                          {lastMovePersisted.ciStatus.failingChecks.map((check, idx) => (
+                            <li key={idx}>{check}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {lastMovePersisted.ciStatus.checksUrl && (
+                      <div>
+                        <a 
+                          href={lastMovePersisted.ciStatus.checksUrl} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          style={{ color: '#0066cc', textDecoration: 'underline' }}
+                        >
+                          View checks on GitHub →
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               <button
                 type="button"
