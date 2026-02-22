@@ -20,7 +20,7 @@ create table if not exists public.failures (
   last_seen_at timestamptz not null default now(),
   
   -- Optional references (JSONB for flexibility)
-  references jsonb null default '{}'::jsonb, -- { ticket_pk?: string, drift_attempt_id?: string, agent_run_id?: string, etc. }
+  "references" jsonb null default '{}'::jsonb, -- { ticket_pk?: string, drift_attempt_id?: string, agent_run_id?: string, etc. }
   
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -42,7 +42,7 @@ comment on column public.failures.fingerprint is 'Stable key to identify recurre
 comment on column public.failures.root_cause is 'Human-readable root cause description';
 comment on column public.failures.prevention_candidate is 'Suggested prevention strategy or improvement';
 comment on column public.failures.recurrence_count is 'Number of times this failure has occurred (incremented on recurrence)';
-comment on column public.failures.references is 'References object: { ticket_pk?: string, drift_attempt_id?: string, agent_run_id?: string, etc. }';
+comment on column public.failures."references" is 'References object: { ticket_pk?: string, drift_attempt_id?: string, agent_run_id?: string, etc. }';
 
 -- Disable RLS (server-side only access via service role)
 alter table public.failures disable row level security;
