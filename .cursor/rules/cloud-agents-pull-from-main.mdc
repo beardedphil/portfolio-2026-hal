@@ -15,8 +15,137 @@ Before making changes, running tests, or loading instructions:
 git checkout main && git pull origin main
 ```
 
-- **Implementation agents:** Then create or checkout your feature branch and proceed.
+- **Implementation agents:** Then follow the "Implementation Agent Branch Setup" section below.
 - **QA agents:** Then proceed with loading instructions and QA workflow.
+
+## Implementation Agent Branch Setup
+
+**MANDATORY:** Implementation agents **MUST** create or switch to the feature branch and push it with upstream tracking **BEFORE** reading any files or making any code edits. This ensures work is never done on an untracked local branch.
+
+### Step 1: Create or Switch to Feature Branch
+
+Create a new branch using the ticket number and a descriptive name, or switch to an existing branch:
+
+```bash
+git switch -c ticket/0817-add-a-rule-to-create-and-push-branch-early
+```
+
+**If the branch already exists locally or remotely:**
+```bash
+git switch ticket/0817-add-a-rule-to-create-and-push-branch-early
+```
+
+### Step 2: Push Branch with Upstream Tracking
+
+**MANDATORY:** Push the branch immediately with upstream tracking:
+
+```bash
+git push -u origin ticket/0817-add-a-rule-to-create-and-push-branch-early
+```
+
+**If upstream is already set but you want to ensure it's correct:**
+```bash
+git push -u origin ticket/0817-add-a-rule-to-create-and-push-branch-early
+```
+
+This command will set the upstream tracking relationship if it doesn't exist, or update it if it does.
+
+### Step 3: Verify Upstream is Set
+
+**MANDATORY:** Verify that upstream tracking is correctly configured:
+
+```bash
+git rev-parse --abbrev-ref --symbolic-full-name @{u}
+```
+
+**Expected output:**
+```
+origin/ticket/0817-add-a-rule-to-create-and-push-branch-early
+```
+
+If this command outputs the expected remote branch name, upstream tracking is correctly set. If it fails or outputs something unexpected, the upstream is not set correctly and you must run `git push -u origin <branch-name>` again.
+
+### Why Push Early
+
+Pushing the branch immediately after creation (before any code edits) provides several critical benefits:
+
+- **Remote backup:** Work is backed up to the remote repository from the start, preventing loss if the local environment is reset or lost
+- **CI/PR integration:** Enables continuous integration systems and pull request workflows to run from the first commit
+- **Collaboration:** Other team members can see the branch exists and track progress
+- **Safety:** Prevents losing work if the local branch is accidentally reset or deleted
+
+### Safe Alternative: Branch Already Exists
+
+If the branch already exists (either locally or remotely), use this safe workflow:
+
+1. **Switch to the existing branch:**
+   ```bash
+   git switch ticket/0817-add-a-rule-to-create-and-push-branch-early
+   ```
+
+2. **Verify or set upstream tracking:**
+   ```bash
+   git push -u origin ticket/0817-add-a-rule-to-create-and-push-branch-early
+   ```
+
+3. **Verify upstream is set:**
+   ```bash
+   git rev-parse --abbrev-ref --symbolic-full-name @{u}
+   ```
+
+This ensures upstream tracking is configured even if the branch existed before you started work.
+
+### Critical Ordering
+
+**DO NOT** read files, make code edits, or run any other commands until:
+1. ✅ You have pulled latest from `main`
+2. ✅ You have created/switched to the feature branch
+3. ✅ You have pushed the branch with upstream tracking (`git push -u origin <branch-name>`)
+4. ✅ You have verified upstream is set (`git rev-parse --abbrev-ref --symbolic-full-name @{u}`)
+
+Only after all four steps are complete should you proceed with reading files, making code changes, or any other implementation work.
+
+## Never Work on Detached HEAD or Wrong Branch
+
+**MANDATORY:** Agents must **never** perform work on detached HEAD or a non-ticket branch. All work must be performed on the correct feature branch for the ticket.
+
+### If You Discover Work on the Wrong Branch
+
+If you discover that work has landed on the wrong branch (detached HEAD, `main`, or a different feature branch), you **MUST** immediately fix this:
+
+1. **Identify the commit hash(es)** of the work that was done on the wrong branch:
+   ```bash
+   git log --oneline -5  # Find the commit hash(es) to move
+   ```
+
+2. **Create or checkout the correct feature branch:**
+   ```bash
+   git checkout -b <ticket-branch>  # If branch doesn't exist
+   # OR
+   git switch <ticket-branch>       # If branch already exists
+   ```
+
+3. **Cherry-pick the commit(s) to the correct branch:**
+   ```bash
+   git cherry-pick <commit-hash>
+   # If multiple commits, cherry-pick each one or use a range:
+   git cherry-pick <first-hash>^..<last-hash>
+   ```
+
+4. **Push the corrected branch:**
+   ```bash
+   git push -u origin <ticket-branch>
+   ```
+
+5. **If work was already committed on the wrong branch, you may need to reset that branch:**
+   ```bash
+   # Only if you need to remove commits from the wrong branch
+   git checkout <wrong-branch>
+   git reset --hard <commit-before-wrong-work>
+   git push --force origin <wrong-branch>  # Use with caution
+   ```
+
+**CRITICAL:** Do not continue working until the branch situation is corrected. All commits must be on the correct feature branch for the ticket.
 
 ## Why
 
