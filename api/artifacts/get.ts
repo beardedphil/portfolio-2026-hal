@@ -17,6 +17,82 @@ function json(res: ServerResponse, statusCode: number, body: unknown) {
   res.end(JSON.stringify(body))
 }
 
+/**
+ * Determines if an artifact body is considered blank.
+ * An artifact is blank if it:
+ * - Is null, undefined, or empty
+ * - Contains only headings, list items, or very short content (< 30 chars)
+ * - Matches placeholder patterns (TODO, TBD, etc.)
+ */
+export function isArtifactBlank(body_md: string | null | undefined, title: string): boolean {
+  if (!body_md || body_md.trim().length === 0) {
+    return true
+  }
+
+  const withoutHeadings = body_md
+    .replace(/^#{1,6}\s+.*$/gm, '')
+    .replace(/^[-*+]\s+.*$/gm, '')
+    .replace(/^\d+\.\s+.*$/gm, '')
+    .trim()
+
+  if (withoutHeadings.length === 0 || withoutHeadings.length < 30) {
+    return true
+  }
+
+  const placeholderPatterns = [
+    /^#\s+[^\n]+\n*$/m, // Only heading, no content
+    /^#\s+[^\n]+\n+(TODO|TBD|placeholder|coming soon|not yet|to be determined)/i, // Heading followed by placeholder
+    /^(TODO|TBD|placeholder|coming soon|not yet|to be determined)/i, // Starts with placeholder
+  ]
+
+  // Check placeholder patterns only if content is short (to avoid false positives on substantial content)
+  if (withoutHeadings.length < 100) {
+    for (const pattern of placeholderPatterns) {
+      if (pattern.test(body_md)) {
+        return true
+      }
+    }
+  }
+
+  return false
+}
+
+/**
+ * Extracts a snippet from artifact body markdown.
+ * Removes headings and returns up to 200 characters, truncating at word boundaries when possible.
+ */
+export function extractSnippet(body_md: string | null | undefined): string {
+  if (!body_md) {
+    return ''
+  }
+
+  const withoutHeadings = body_md.replace(/^#{1,6}\s+.*$/gm, '').trim()
+  if (withoutHeadings.length === 0) {
+    return ''
+  }
+
+  if (withoutHeadings.length <= 200) {
+    return withoutHeadings
+  }
+
+  const snippet = withoutHeadings.substring(0, 200)
+  const lastSpace = snippet.lastIndexOf(' ')
+  
+  // If we can truncate at a word boundary between 150-200, do so
+  // But ensure total length (with ellipsis) doesn't exceed 200
+  if (lastSpace > 150 && lastSpace < 200) {
+    const maxLength = 197 // Leave room for '...'
+    if (lastSpace <= maxLength) {
+      return snippet.substring(0, lastSpace) + '...'
+    }
+    // If truncating at space would exceed 200, just truncate at 197
+    return snippet.substring(0, maxLength) + '...'
+  }
+
+  // Otherwise, truncate at 197 chars to leave room for ellipsis
+  return snippet.substring(0, 197) + '...'
+}
+
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   // CORS: Allow cross-origin requests
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -197,56 +273,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     // If summary mode is requested, return summarized data
     const summaryMode = body.summary === true
     if (summaryMode) {
-      // Helper function to determine if artifact is blank
-      const isArtifactBlank = (body_md: string | null | undefined, title: string): boolean => {
-        if (!body_md || body_md.trim().length === 0) {
-          return true
-        }
-
-        const withoutHeadings = body_md
-          .replace(/^#{1,6}\s+.*$/gm, '')
-          .replace(/^[-*+]\s+.*$/gm, '')
-          .replace(/^\d+\.\s+.*$/gm, '')
-          .trim()
-
-        if (withoutHeadings.length === 0 || withoutHeadings.length < 30) {
-          return true
-        }
-
-        const placeholderPatterns = [
-          /^#\s+[^\n]+\n*$/m,
-          /^#\s+[^\n]+\n+(TODO|TBD|placeholder|coming soon|not yet|to be determined)/i,
-          /^(TODO|TBD|placeholder|coming soon|not yet|to be determined)/i,
-        ]
-
-        for (const pattern of placeholderPatterns) {
-          if (pattern.test(body_md)) {
-            return true
-          }
-        }
-
-        return false
-      }
-
-      // Helper function to extract snippet
-      const extractSnippet = (body_md: string | null | undefined): string => {
-        if (!body_md) {
-          return ''
-        }
-
-        const withoutHeadings = body_md.replace(/^#{1,6}\s+.*$/gm, '').trim()
-        if (withoutHeadings.length === 0) {
-          return ''
-        }
-
-        const snippet = withoutHeadings.substring(0, 200)
-        const lastSpace = snippet.lastIndexOf(' ')
-        if (lastSpace > 150 && lastSpace < 200) {
-          return snippet.substring(0, lastSpace) + '...'
-        }
-
-        return snippet.length < withoutHeadings.length ? snippet + '...' : snippet
-      }
 
       const summarized = artifactsList.map((artifact: any) => {
         const body_md = artifact.body_md || ''
