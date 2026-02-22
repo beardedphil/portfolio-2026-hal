@@ -50,6 +50,7 @@ import {
   isAbortError as isAbortErrorHelper,
   generateFallbackReply,
 } from './projectManager/replyGeneration.js'
+import { halFetchJson as halFetchJsonHelper, createRedArtifactBody, getRedArtifactTitle } from './projectManager/halApiHelpers.js'
 
 // Re-export for backward compatibility
 export type { ReadyCheckResult }
@@ -229,43 +230,11 @@ export async function runPmAgent(
     body: unknown,
     opts?: { timeoutMs?: number; progressMessage?: string }
   ) => {
-    const timeoutMs = Math.max(1_000, Math.floor(opts?.timeoutMs ?? 20_000))
-    const controller = new AbortController()
-    const t = setTimeout(() => controller.abort(new Error('HAL request timeout')), timeoutMs)
-    const onAbort = () => controller.abort(config.abortSignal?.reason ?? new Error('Aborted'))
-    try {
-      const progress = String(opts?.progressMessage ?? '').trim()
-      if (progress) await config.onProgress?.(progress)
-      if (config.abortSignal) config.abortSignal.addEventListener('abort', onAbort, { once: true })
-      const res = await fetch(`${halBaseUrl}${path}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body ?? {}),
-        signal: controller.signal,
-      })
-      const text = await res.text()
-      let json: any = {}
-      if (text) {
-        try {
-          json = JSON.parse(text)
-        } catch (e) {
-          const contentType = res.headers.get('content-type') || 'unknown'
-          const prefix = text.slice(0, 200)
-          json = {
-            success: false,
-            error: `Non-JSON response from ${path} (HTTP ${res.status}, content-type: ${contentType}): ${prefix}`,
-          }
-        }
-      }
-      return { ok: res.ok, json }
-    } finally {
-      clearTimeout(t)
-      try {
-        if (config.abortSignal) config.abortSignal.removeEventListener('abort', onAbort)
-      } catch {
-        // ignore
-      }
-    }
+    return halFetchJsonHelper(halBaseUrl, path, body, {
+      ...opts,
+      abortSignal: config.abortSignal,
+      onProgress: config.onProgress,
+    })
   }
 
   const createTicketTool = tool({
@@ -948,22 +917,12 @@ export async function runPmAgent(
             const redDoc = redGet?.success ? redGet.red_document : null
             const redJsonForArtifact = redDoc?.red_json ?? null
             if (redJsonForArtifact != null) {
-              const createdAt = typeof redDoc?.created_at === 'string' ? redDoc.created_at : new Date().toISOString()
-              const validationStatus =
-                typeof redDoc?.validation_status === 'string' ? redDoc.validation_status : 'pending'
-              const artifactTitle = `RED v${vNum || redDoc?.version || 0} — ${createdAt.split('T')[0]}`
-              const artifactBody = `# RED Document Version ${vNum || redDoc?.version || 0}
-
-RED ID: ${String(latest.red_id)}
-Created: ${createdAt}
-Validation Status: ${validationStatus}
-
-## Canonical RED JSON
-
-\`\`\`json
-${JSON.stringify(redJsonForArtifact, null, 2)}
-\`\`\`
-`
+            const createdAt = typeof redDoc?.created_at === 'string' ? redDoc.created_at : new Date().toISOString()
+            const validationStatus =
+              typeof redDoc?.validation_status === 'string' ? redDoc.validation_status : 'pending'
+            const version = vNum || redDoc?.version || 0
+            const artifactTitle = getRedArtifactTitle(version, createdAt)
+            const artifactBody = createRedArtifactBody(String(latest.red_id), version, createdAt, validationStatus, redJsonForArtifact)
               await halFetchJson(
                 '/api/artifacts/insert-implementation',
                 { ticketId: ticketPk, artifactType: 'red', title: artifactTitle, body_md: artifactBody },
@@ -1037,19 +996,8 @@ ${JSON.stringify(redJsonForArtifact, null, 2)}
             const validationStatus =
               typeof savedRED?.validation_status === 'string' ? savedRED.validation_status : 'pending'
             const redJsonForArtifact = savedRED?.red_json ?? redJsonParsed
-            const artifactTitle = `RED v${version} — ${createdAt.split('T')[0]}`
-            const artifactBody = `# RED Document Version ${version}
-
-RED ID: ${String(savedRED?.red_id ?? '')}
-Created: ${createdAt}
-Validation Status: ${validationStatus}
-
-## Canonical RED JSON
-
-\`\`\`json
-${JSON.stringify(redJsonForArtifact, null, 2)}
-\`\`\`
-`
+            const artifactTitle = getRedArtifactTitle(version, createdAt)
+            const artifactBody = createRedArtifactBody(String(savedRED?.red_id ?? ''), version, createdAt, validationStatus, redJsonForArtifact)
             await halFetchJson(
               '/api/artifacts/insert-implementation',
               { ticketId: ticketPk, artifactType: 'red', title: artifactTitle, body_md: artifactBody },
