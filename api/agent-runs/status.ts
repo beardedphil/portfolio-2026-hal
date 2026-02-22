@@ -355,7 +355,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     } else if (cursorStatus === 'FAILED' || cursorStatus === 'CANCELLED' || cursorStatus === 'ERROR') {
       nextStatus = 'failed'
       nextStage = 'failed'
-      errMsg = statusData.summary ?? `Agent ended with status ${cursorStatus}.`
+      // Always set error message when failed - use summary if available, otherwise use status
+      errMsg = statusData.summary?.trim() || `Agent ended with status ${cursorStatus}.`
       finishedAt = new Date().toISOString()
     } else {
       // While polling, preserve intermediate stages (0690)
@@ -463,6 +464,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       }
     }
 
+    // Ensure error field is always set when status is failed
+    if (nextStatus === 'failed' && !errMsg) {
+      errMsg = `Agent run failed (status: ${cursorStatus || 'unknown'})`
+    }
+    
     const { data: updated, error: updErr } = await supabase
       .from('hal_agent_runs')
       .update({

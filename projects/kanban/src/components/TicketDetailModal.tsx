@@ -62,6 +62,32 @@ export function TicketDetailModal({
   attachmentsLoading: boolean
   failureCounts?: { qa: number; hitl: number } | null
   repoFullName?: string | null
+  agentRunError,
+}: {
+  open: boolean
+  onClose: () => void
+  ticketId: string
+  title: string
+  body: string | null
+  loading: boolean
+  error: string | null
+  onRetry?: () => void
+  artifacts: SupabaseAgentArtifactRow[]
+  artifactsLoading: boolean
+  artifactsStatus?: string | null
+  onRefreshArtifacts?: () => void
+  onOpenArtifact: (artifact: SupabaseAgentArtifactRow) => void
+  columnId: string | null
+  onValidationPass: (ticketPk: string) => Promise<void>
+  onValidationFail: (ticketPk: string, steps: string, notes: string) => Promise<void>
+  supabaseUrl: string
+  supabaseKey: string
+  onTicketUpdate: () => void
+  attachments: TicketAttachment[]
+  attachmentsLoading: boolean
+  failureCounts?: { qa: number; hitl: number } | null
+  repoFullName?: string | null
+  agentRunError?: { error?: string | null; failureInfo?: { root_cause?: string | null; failure_type?: string; metadata?: Record<string, any> } } | null
 }) {
   const [validationSteps, setValidationSteps] = useState('')
   const [validationNotes, setValidationNotes] = useState('')
@@ -295,6 +321,43 @@ export function TicketDetailModal({
                 supabaseUrl={supabaseUrl}
                 supabaseKey={supabaseKey}
               />
+              {agentRunError && (agentRunError.error || agentRunError.failureInfo) && (
+                <section className="ticket-detail-section" style={{ marginTop: '1.5rem', padding: '1rem', backgroundColor: '#fff3cd', border: '1px solid #ffc107', borderRadius: '6px' }}>
+                  <h3 style={{ margin: '0 0 0.75rem 0', fontSize: '1.1rem', fontWeight: 600, color: '#856404' }}>
+                    Agent Run Error
+                  </h3>
+                  {agentRunError.failureInfo?.failure_type && (
+                    <div style={{ marginBottom: '0.75rem' }}>
+                      <strong style={{ fontSize: '0.9em', color: '#856404' }}>Error Type:</strong>
+                      <div style={{ fontSize: '0.9em', color: '#856404', marginTop: '0.25rem' }}>
+                        {agentRunError.failureInfo.failure_type}
+                      </div>
+                    </div>
+                  )}
+                  {(agentRunError.failureInfo?.root_cause || agentRunError.error) && (
+                    <div>
+                      <strong style={{ fontSize: '0.9em', color: '#856404' }}>Error Details:</strong>
+                      <div 
+                        style={{ 
+                          fontSize: '0.9em', 
+                          color: '#856404', 
+                          marginTop: '0.25rem',
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-word',
+                          fontFamily: 'monospace',
+                          backgroundColor: 'rgba(255, 255, 255, 0.5)',
+                          padding: '0.5rem',
+                          borderRadius: '4px',
+                          maxHeight: '300px',
+                          overflow: 'auto'
+                        }}
+                      >
+                        {agentRunError.failureInfo?.root_cause || agentRunError.error || 'No error details available'}
+                      </div>
+                    </div>
+                  )}
+                </section>
+              )}
               {showValidationSection && (
                 <>
                   {validationError && (

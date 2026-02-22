@@ -323,6 +323,11 @@ function App() {
   const [detailModalAttachments, setDetailModalAttachments] = useState<TicketAttachment[]>([])
   const [detailModalAttachmentsLoading, setDetailModalAttachmentsLoading] = useState(false)
   const [detailModalFailureCounts, setDetailModalFailureCounts] = useState<{ qa: number; hitl: number } | null>(null)
+  // Agent run error information for detail modal
+  const [detailModalAgentRunError, setDetailModalAgentRunError] = useState<{
+    error?: string | null
+    failureInfo?: { root_cause?: string | null; failure_type?: string; metadata?: Record<string, any> }
+  } | null>(null)
   
   // Board data: library mode (halCtx) = HAL passes data down; else = we fetch from Supabase (iframe/standalone)
   const sourceTickets = halCtx?.tickets ?? supabaseTickets
@@ -886,6 +891,95 @@ function App() {
     }
   }, [supabaseProjectUrl, supabaseAnonKey, connectedRepoFullName])
 
+  // Fetch agent run error information for a ticket
+  const fetchAgentRunError = useCallback(async (ticketPk: string) => {
+      if (!supabaseBoardActive || !supabaseProjectUrl || !supabaseAnonKey || !connectedRepoFullName) {
+        // Check failuresByTicketPk from Active Work (already fetched)
+        const failureInfo = failuresByTicketPk[ticketPk]
+        const agentRun = agentRunsByTicketPk[ticketPk]
+        if (agentRun?.status === 'failed' || failureInfo) {
+          setDetailModalAgentRunError({
+            error: agentRun?.error || null,
+            failureInfo: failureInfo || undefined,
+          })
+        } else {
+          setDetailModalAgentRunError(null)
+        }
+        return
+      }
+      
+      try {
+        const client = createClient(supabaseProjectUrl.trim(), supabaseAnonKey.trim())
+        // Fetch the most recent failed agent run for this ticket
+        const { data: failedRuns, error: runError } = await client
+          .from('hal_agent_runs')
+          .select('run_id, agent_type, status, current_stage, error, created_at, updated_at')
+          .eq('repo_full_name', connectedRepoFullName)
+          .eq('ticket_pk', ticketPk)
+          .eq('status', 'failed')
+          .order('created_at', { ascending: false })
+          .limit(1)
+        
+        if (runError) {
+          console.warn('[App] Failed to fetch agent run error:', runError)
+          setDetailModalAgentRunError(null)
+          return
+        }
+        
+        const failedRun = failedRuns && failedRuns.length > 0 ? failedRuns[0] : null
+        
+        // Also try to fetch failure record
+        let failureInfo: { root_cause?: string | null; failure_type?: string; metadata?: Record<string, any> } | undefined
+        if (failedRun) {
+          try {
+            const apiBaseUrl = import.meta.env.VITE_HAL_API_BASE_URL || (typeof window !== 'undefined' ? window.location.origin : '')
+            const failuresResponse = await fetch(`${apiBaseUrl}/api/failures/list`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                supabaseUrl: supabaseProjectUrl,
+                supabaseAnonKey: supabaseAnonKey,
+                limit: 50,
+              }),
+            })
+            
+            if (failuresResponse.ok) {
+              const failuresData = await failuresResponse.json()
+              if (failuresData.success && failuresData.failures) {
+                // Find failure for this ticket (by ticket_pk or source_id matching run_id)
+                const failure = failuresData.failures.find(
+                  (f: any) => 
+                    (f.ticket_pk === ticketPk) &&
+                    (f.source_type === 'agent_outcome' && f.source_id === failedRun.run_id)
+                )
+                if (failure) {
+                  failureInfo = {
+                    root_cause: failure.root_cause,
+                    failure_type: failure.failure_type,
+                    metadata: failure.metadata,
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('[App] Failed to fetch failure record:', e)
+          }
+        }
+        
+        if (failedRun || failureInfo) {
+          setDetailModalAgentRunError({
+            error: failedRun?.error || null,
+            failureInfo,
+          })
+        } else {
+          setDetailModalAgentRunError(null)
+        }
+      } catch (e) {
+        console.warn('[App] Failed to fetch agent run error:', e)
+        setDetailModalAgentRunError(null)
+      }
+    }, [supabaseBoardActive, supabaseProjectUrl, supabaseAnonKey, connectedRepoFullName, failuresByTicketPk, agentRunsByTicketPk])
+
   // Resolve ticket detail modal content when modal opens (0033); Supabase-only (0065)
   useEffect(() => {
     if (!detailModal) {
@@ -898,6 +992,7 @@ function App() {
       setDetailModalAttachments([])
       setDetailModalAttachmentsLoading(false)
       setDetailModalFailureCounts(null)
+      setDetailModalAgentRunError(null)
       lastFetchedTicketIdRef.current = null
       lastFetchedRetryTriggerRef.current = 0
       return
@@ -1025,6 +1120,9 @@ function App() {
               setDetailModalFailureCounts(null)
             })
         }
+        
+        // Fetch agent run error information
+        fetchAgentRunError(ticketId)
       }
       return
     }
@@ -1113,6 +1211,9 @@ function App() {
                 setDetailModalFailureCounts(null)
               })
           }
+          
+          // Fetch agent run error information
+          fetchAgentRunError(ticketId)
         }
       } else {
         setDetailModalBody('')
@@ -1135,8 +1236,13 @@ function App() {
       setDetailModalArtifactsStatus(null)
       setDetailModalAttachments([])
       setDetailModalAttachmentsLoading(false)
+      
+      // Fetch agent run error information
+      if (shouldFetchArtifacts) {
+        fetchAgentRunError(ticketId)
+      }
     }
-  }, [detailModal, halCtx, sourceTickets, supabaseBoardActive, supabaseTickets, supabaseProjectUrl, supabaseAnonKey, detailModalRetryTrigger, addLog, fetchTicketArtifacts, fetchTicketAttachments])
+  }, [detailModal, halCtx, sourceTickets, supabaseBoardActive, supabaseTickets, supabaseProjectUrl, supabaseAnonKey, detailModalRetryTrigger, addLog, fetchTicketArtifacts, fetchTicketAttachments, fetchAgentRunError])
   // Note: supabaseTickets and sourceTickets are in dependencies to read ticket data,
   // but artifacts are only fetched when ticketId changes (tracked via lastFetchedTicketIdRef)
 
@@ -3426,6 +3532,7 @@ function App() {
               ? supabaseTickets.find((t) => t.pk === detailModal.ticketId)?.repo_full_name || null
               : sourceTickets.find((t) => t.pk === detailModal.ticketId)?.repo_full_name || null
           }
+          agentRunError={detailModalAgentRunError}
           onValidationPass={async (ticketPk: string) => {
             // Always use HAL's callbacks - HAL handles all database operations
             if (!halCtx) {
