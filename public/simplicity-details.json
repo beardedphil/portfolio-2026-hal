@@ -113,14 +113,20 @@
       "delta": 0
     },
     {
+      "file": "src/components/DiagnosticsModal.tsx",
+      "before": 9.54,
+      "after": 9.54,
+      "delta": 0
+    },
+    {
       "file": "api/auth/github/callback.ts",
       "before": 16.29,
       "after": 16.29,
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-22T04:26:57.888Z",
-  "filesAnalyzed": 359,
-  "unroundedMaintainability": 32.9,
-  "unroundedSimplicity": 32.9
+  "generatedAt": "2026-02-22T04:28:38.391Z",
+  "filesAnalyzed": 366,
+  "unroundedMaintainability": 32.8,
+  "unroundedSimplicity": 32.8
 }
