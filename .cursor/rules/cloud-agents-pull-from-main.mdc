@@ -18,6 +18,48 @@ git checkout main && git pull origin main
 - **Implementation agents:** Then create or checkout your feature branch and proceed.
 - **QA agents:** Then proceed with loading instructions and QA workflow.
 
+## Never Work on Detached HEAD or Wrong Branch
+
+**MANDATORY:** Agents must **never** perform work on detached HEAD or a non-ticket branch. All work must be performed on the correct feature branch for the ticket.
+
+### If You Discover Work on the Wrong Branch
+
+If you discover that work has landed on the wrong branch (detached HEAD, `main`, or a different feature branch), you **MUST** immediately fix this:
+
+1. **Identify the commit hash(es)** of the work that was done on the wrong branch:
+   ```bash
+   git log --oneline -5  # Find the commit hash(es) to move
+   ```
+
+2. **Create or checkout the correct feature branch:**
+   ```bash
+   git checkout -b <ticket-branch>  # If branch doesn't exist
+   # OR
+   git switch <ticket-branch>       # If branch already exists
+   ```
+
+3. **Cherry-pick the commit(s) to the correct branch:**
+   ```bash
+   git cherry-pick <commit-hash>
+   # If multiple commits, cherry-pick each one or use a range:
+   git cherry-pick <first-hash>^..<last-hash>
+   ```
+
+4. **Push the corrected branch:**
+   ```bash
+   git push -u origin <ticket-branch>
+   ```
+
+5. **If work was already committed on the wrong branch, you may need to reset that branch:**
+   ```bash
+   # Only if you need to remove commits from the wrong branch
+   git checkout <wrong-branch>
+   git reset --hard <commit-before-wrong-work>
+   git push --force origin <wrong-branch>  # Use with caution
+   ```
+
+**CRITICAL:** Do not continue working until the branch situation is corrected. All commits must be on the correct feature branch for the ticket.
+
 ## Why
 
 Cloud agents run in an environment that may have cloned the repo earlier or from a different ref. The board and tickets reflect the current state of `main`; working from a stale clone can cause merge conflicts, duplicate work, or missed changes. Always start from an up-to-date `main`.
