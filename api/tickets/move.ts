@@ -8,6 +8,7 @@ import {
 import { readJsonBody, json, parseSupabaseCredentialsWithServiceRole, fetchTicketByPkOrId } from './_shared.js'
 import { resolveColumnId, calculateTargetPosition } from './_move-helpers.js'
 import { parseAcceptanceCriteria } from './_acceptance-criteria-parser.js'
+import { evaluateCiStatus } from '../_lib/github/checks.js'
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   // CORS: Allow cross-origin requests (for scripts calling from different origins)
@@ -280,6 +281,107 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         // If ticket has AC items but no status records exist yet, allow the move
         // (AC status may not have been initialized yet, which is fine for v0)
       }
+
+      // Gate: Drift gate - CI status check (HAL-0767)
+      // Check CI status for PR head SHA when moving to drift-gated columns
+      const { data: agentRunsForCi, error: runsCiErr } = await supabase
+        .from('hal_agent_runs')
+        .select('pr_url')
+        .eq('ticket_pk', resolvedTicketPk)
+        .not('pr_url', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+
+      if (runsCiErr) {
+        json(res, 200, {
+          success: false,
+          error: `Cannot move ticket: failed to check for linked PR (${runsCiErr.message}).`,
+        })
+        return
+      }
+
+      // Find the most recent PR URL
+      const prUrl =
+        agentRunsForCi && agentRunsForCi.length > 0
+          ? (agentRunsForCi[0] as any)?.pr_url
+          : null
+
+      if (!prUrl || typeof prUrl !== 'string' || prUrl.trim().length === 0) {
+        json(res, 200, {
+          success: false,
+          error: 'No PR associated',
+          errorCode: 'NO_PR_ASSOCIATED',
+          remedy: 'A GitHub Pull Request must be linked to this ticket before it can be moved to this column. Create a PR or link an existing PR to continue.',
+          ciStatus: null,
+        })
+        return
+      }
+
+      // Get GitHub token for CI status check
+      const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN
+      if (!githubToken) {
+        json(res, 200, {
+          success: false,
+          error: 'Cannot check CI status: GitHub token not configured.',
+          errorCode: 'CI_CHECK_FAILED',
+        })
+        return
+      }
+
+      // Evaluate CI status
+      const ciResult = await evaluateCiStatus(githubToken, prUrl.trim())
+      if ('error' in ciResult) {
+        json(res, 200, {
+          success: false,
+          error: `Cannot check CI status: ${ciResult.error}`,
+          errorCode: 'CI_CHECK_FAILED',
+        })
+        return
+      }
+
+      const { headSha, overallStatus, requiredChecks, failingChecks, checksUrl } = ciResult
+
+      // Store CI evaluation result in drift_attempts table
+      const { error: driftErr } = await supabase.from('drift_attempts').insert({
+        ticket_pk: resolvedTicketPk,
+        repo_full_name: repoFullName || '',
+        pr_url: prUrl.trim(),
+        evaluated_head_sha: headSha,
+        overall_status: overallStatus,
+        required_checks: requiredChecks,
+        failing_checks: failingChecks,
+        checks_url: checksUrl,
+      })
+
+      if (driftErr) {
+        // Log error but don't block - CI check is more important
+        console.error('[api/tickets/move] Failed to store drift attempt:', driftErr)
+      }
+
+      // Block if CI is failing
+      if (overallStatus === 'failing') {
+        const failingCheckNames = failingChecks.map((name) => {
+          const check = requiredChecks[name]
+          return check ? check.name : name
+        })
+
+        json(res, 200, {
+          success: false,
+          error: `Cannot move ticket: required CI checks are failing. All required checks must pass before moving to this column.`,
+          errorCode: 'CI_CHECKS_FAILING',
+          ciStatus: {
+            overallStatus,
+            failingChecks: failingCheckNames,
+            checksUrl,
+            headSha,
+          },
+          remedy: `Fix the failing CI checks and retry. Failing checks: ${failingCheckNames.join(', ')}. View details: ${checksUrl}`,
+        })
+        return
+      }
+
+      // Allow if CI is passing, pending, running, or unknown (only block on failing)
+      // Note: We could also block on 'unknown' if desired, but for now we only block on 'failing'
     }
 
     if (!columnId) {

@@ -43,3 +43,14 @@ export {
 
 // Search
 export { searchCode, type CodeSearchMatch } from './search.js'
+
+// Checks
+export {
+  fetchPullRequestInfo,
+  fetchCheckRunsForCommit,
+  evaluateCiStatus,
+  type CheckRun,
+  type CheckRunStatus,
+  type CheckRunConclusion,
+  type PullRequestInfo,
+} from './checks.js'
