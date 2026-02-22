@@ -117,13 +117,13 @@ describe('projectManager.ts tool behaviors', () => {
     })
 
     it('checks if ticket is in unassigned column', () => {
-      const currentCol = 'col-unassigned'
+      const currentCol: string | null = 'col-unassigned'
       const inUnassigned = currentCol === 'col-unassigned' || currentCol === null || currentCol === ''
       expect(inUnassigned).toBe(true)
     })
 
     it('rejects move when ticket is not in unassigned', () => {
-      const currentCol = 'col-todo'
+      const currentCol: string | null = 'col-todo'
       const inUnassigned = currentCol === 'col-unassigned' || currentCol === null || currentCol === ''
       expect(inUnassigned).toBe(false)
     })

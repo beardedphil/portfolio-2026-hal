@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'http'
 import * as IronSession from 'iron-session'
 import type { SessionOptions } from 'iron-session'
 import { requireEnv } from './config.js'
-import { encryptSecret, decryptSecret, isEncrypted } from './encryption.js'
+import { encryptSecret, decryptSecret, isEncrypted } from '../encryption.js'
 
 export type GithubSession = {
   accessToken: string
@@ -47,7 +47,7 @@ export async function getSession(
   req: IncomingMessage,
   res: ServerResponse
 ): Promise<Session> {
-  const session = await IronSession.getIronSession(req, res, sessionOptions())
+  const session = (await IronSession.getIronSession(req, res, sessionOptions())) as Session
   
   // Decrypt OAuth tokens if they're encrypted (for migration compatibility)
   if (session.github?.accessToken) {
