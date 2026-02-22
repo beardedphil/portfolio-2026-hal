@@ -8,7 +8,7 @@ import {
 import { readJsonBody, json, parseSupabaseCredentialsWithServiceRole, fetchTicketByPkOrId } from './_shared.js'
 import { resolveColumnId, calculateTargetPosition } from './_move-helpers.js'
 import { parseAcceptanceCriteria } from './_acceptance-criteria-parser.js'
-import { checkDocsConsistency } from './_docs-consistency-check.js'
+import { evaluateCiStatus, type CiStatusSummary } from '../_lib/github/checks.js'
 import { getSession } from '../_lib/github/session.js'
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
@@ -283,79 +283,122 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         // (AC status may not have been initialized yet, which is fine for v0)
       }
 
-      // Gate: Drift gate - docs consistency check (HAL-0768)
-      // Check docs consistency when moving to gated columns
-      try {
-        // Get PR URL from agent runs
-        let prUrl: string | null = null
-        const { data: agentRuns } = await supabase
-          .from('hal_agent_runs')
-          .select('pr_url')
-          .eq('ticket_pk', resolvedTicketPk)
-          .not('pr_url', 'is', null)
-          .limit(1)
-        if (agentRuns && agentRuns.length > 0 && agentRuns[0]?.pr_url) {
-          prUrl = String(agentRuns[0].pr_url).trim() || null
-        }
+      // Gate: Drift gate CI awareness - check CI status for linked PR (HAL-0767)
+      // Check if ticket has a linked PR
+      const { data: agentRuns, error: runsErr } = await supabase
+        .from('hal_agent_runs')
+        .select('pr_url')
+        .eq('ticket_pk', resolvedTicketPk)
+        .not('pr_url', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
 
-        // Get GitHub token from session (optional - check works without it for ticket body_md)
-        let githubToken: string | null = null
-        try {
-          const session = await getSession(req, res)
-          githubToken = session.github?.accessToken || null
-        } catch {
-          // No session available - that's okay, we'll check what we can
-        }
+      if (runsErr) {
+        json(res, 200, {
+          success: false,
+          error: `Cannot move ticket: failed to check for linked PR (${runsErr.message}).`,
+        })
+        return
+      }
 
-        const ticketId = (ticket as any).display_id || (ticket as any).id || String(resolvedTicketPk)
-        const ticketFilename = (ticket as any).filename || null
-        const ticketBodyMd = (ticket as any).body_md || null
+      const prUrl = agentRuns && agentRuns.length > 0 && agentRuns[0]?.pr_url
+        ? String(agentRuns[0].pr_url).trim()
+        : null
 
-        const docsCheckResult = await checkDocsConsistency(
-          ticketId,
-          ticketFilename,
-          ticketBodyMd,
-          repoFullName,
-          prUrl,
-          githubToken
-        )
-
+      // If no PR linked, block the transition
+      if (!prUrl || prUrl.length === 0) {
         // Store drift attempt record
-        try {
-          await supabase.from('drift_gate_attempts').insert({
-            ticket_pk: resolvedTicketPk,
-            repo_full_name: repoFullName,
-            column_id: columnId,
-            docs_check_passed: docsCheckResult.passed,
-            docs_check_findings: docsCheckResult.findings,
-            attempted_at: new Date().toISOString(),
-          })
-        } catch (insertErr) {
-          // Log but don't fail - drift attempt logging should not block moves
-          console.warn(
-            `[drift-gate] Failed to log drift attempt: ${insertErr instanceof Error ? insertErr.message : String(insertErr)}`
-          )
-        }
+        await supabase.from('drift_attempts').insert({
+          ticket_pk: resolvedTicketPk,
+          pr_url: null,
+          evaluated_head_sha: null,
+          overall_status: null,
+          required_checks: null,
+          failing_check_names: null,
+          checks_page_url: null,
+          evaluation_error: 'No PR linked',
+          blocked: true,
+        })
 
-        // If docs check failed, block the transition
-        if (!docsCheckResult.passed) {
-          const findingsText = docsCheckResult.findings
-            .map((f) => `  - ${f.path}: ${f.message}\n    Fix: ${f.suggestedFix}`)
-            .join('\n')
+        json(res, 200, {
+          success: false,
+          error: 'A GitHub Pull Request must be linked to this ticket before it can be moved to this column.',
+          errorCode: 'NO_PR_REQUIRED',
+          remedy: 'Link a PR to this ticket before attempting this transition. The drift gate requires CI checks to pass before allowing transitions.',
+        })
+        return
+      }
 
-          json(res, 200, {
-            success: false,
-            error: `Docs consistency check failed: ${docsCheckResult.findings.length} issue(s) found.`,
-            errorCode: 'DOCS_CONSISTENCY_FAILED',
-            docsCheckFindings: docsCheckResult.findings,
-            remedy: `Fix the following documentation inconsistencies:\n${findingsText}`,
-          })
-          return
+      // Evaluate CI status for the PR
+      let ciStatus: CiStatusSummary | { error: string } | null = null
+      let evaluationError: string | null = null
+
+      try {
+        // Get GitHub token from session or environment
+        const session = await getSession(req, res).catch(() => null)
+        const ghToken = session?.github?.accessToken || process.env.GITHUB_TOKEN?.trim() || process.env.GH_TOKEN?.trim()
+
+        if (!ghToken) {
+          evaluationError = 'GitHub authentication required to check CI status'
+          ciStatus = { error: evaluationError }
+        } else {
+          ciStatus = await evaluateCiStatus(ghToken, prUrl)
+          if ('error' in ciStatus) {
+            evaluationError = ciStatus.error
+          }
         }
-      } catch (docsCheckErr) {
-        // Log error but don't block - docs check is best-effort
-        console.error('[drift-gate] Docs consistency check error:', docsCheckErr)
-        // Continue with move - don't block on docs check errors
+      } catch (err) {
+        evaluationError = err instanceof Error ? err.message : String(err)
+        ciStatus = { error: evaluationError }
+      }
+
+      // Store drift attempt record
+      const driftAttemptData: any = {
+        ticket_pk: resolvedTicketPk,
+        pr_url: prUrl,
+        blocked: false,
+      }
+
+      if ('error' in ciStatus) {
+        driftAttemptData.evaluation_error = evaluationError
+        driftAttemptData.blocked = true
+      } else {
+        driftAttemptData.evaluated_head_sha = ciStatus.evaluatedSha
+        driftAttemptData.overall_status = ciStatus.overall
+        driftAttemptData.required_checks = ciStatus.requiredChecks
+        driftAttemptData.failing_check_names = ciStatus.failingCheckNames
+        driftAttemptData.checks_page_url = ciStatus.checksPageUrl
+        driftAttemptData.blocked = ciStatus.overall === 'failing'
+      }
+
+      await supabase.from('drift_attempts').insert(driftAttemptData)
+
+      // Block transition if CI is failing
+      if (!('error' in ciStatus) && ciStatus.overall === 'failing') {
+        const failingChecksList = ciStatus.failingCheckNames.length > 0
+          ? ciStatus.failingCheckNames.map((name) => `  - ${name}`).join('\n')
+          : '  - Required checks (unit and/or e2e) are failing'
+
+        json(res, 200, {
+          success: false,
+          error: `Cannot move ticket: CI checks are failing. All required checks must pass before moving to this column.`,
+          errorCode: 'CI_CHECKS_FAILING',
+          ciStatus: {
+            overall: ciStatus.overall,
+            evaluatedSha: ciStatus.evaluatedSha,
+            failingCheckNames: ciStatus.failingCheckNames,
+            checksPageUrl: ciStatus.checksPageUrl,
+          },
+          remedy: `Fix the failing CI checks and ensure all required checks (unit and e2e) pass before moving to ${columnId}.\n\nFailing checks:\n${failingChecksList}\n\nView checks: ${ciStatus.checksPageUrl}`,
+        })
+        return
+      }
+
+      // If CI evaluation failed (e.g., no auth), still allow the move but log the error
+      // This prevents blocking users when GitHub API is unavailable
+      if ('error' in ciStatus) {
+        console.warn(`[drift-gate] CI evaluation failed for ticket ${resolvedTicketPk}: ${evaluationError}`)
+        // Continue with the move - don't block on CI evaluation errors
       }
     }
 

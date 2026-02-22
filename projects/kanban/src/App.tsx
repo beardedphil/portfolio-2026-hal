@@ -232,7 +232,7 @@ function App() {
   const [activeWorkAgentTypes, setActiveWorkAgentTypes] = useState<Record<string, 'Implementation' | 'QA' | 'Process Review'>>({})
   // Sync with Docs removed (Supabase-only) (0065)
   // Ticket persistence tracking (0047)
-  const [lastMovePersisted, setLastMovePersisted] = useState<{ success: boolean; timestamp: Date; ticketId: string; error?: string; isValidationBlock?: boolean } | null>(null)
+  const [lastMovePersisted, setLastMovePersisted] = useState<{ success: boolean; timestamp: Date; ticketId: string; error?: string; isValidationBlock?: boolean; errorCode?: string; ciStatus?: { overall: string; evaluatedSha?: string; failingCheckNames?: string[]; checksPageUrl?: string } } | null>(null)
   const [pendingMoves, setPendingMoves] = useState<Set<string>>(new Set())
   // Track when each move was initiated to prevent premature rollback on slow API responses (0790)
   const [pendingMoveTimestamps, setPendingMoveTimestamps] = useState<Map<string, number>>(new Map())
@@ -1417,7 +1417,7 @@ function App() {
       ticketPk: string,
       columnId: string,
       position?: number
-    ): Promise<{ ok: true } | { ok: false; error: string; actionableSteps?: string; missingArtifacts?: string[]; docsCheckFindings?: Array<{ path: string; ruleId: string; message: string; suggestedFix: string }> }> => {
+    ): Promise<{ ok: true } | { ok: false; error: string; actionableSteps?: string; missingArtifacts?: string[]; errorCode?: string; ciStatus?: any }> => {
       try {
         // Get API base URL from environment or use current origin
         const apiBaseUrl = import.meta.env.VITE_HAL_API_BASE_URL || window.location.origin
@@ -1438,35 +1438,8 @@ function App() {
           let errorMessage = result.error || 'Unknown error'
           let actionableSteps: string | undefined
           
-          // If docs consistency check failed, format findings nicely
-          if (result.errorCode === 'DOCS_CONSISTENCY_FAILED' && result.docsCheckFindings && Array.isArray(result.docsCheckFindings)) {
-            const findings = result.docsCheckFindings
-            const findingsByPath = new Map<string, typeof findings>()
-            for (const finding of findings) {
-              const existing = findingsByPath.get(finding.path) || []
-              existing.push(finding)
-              findingsByPath.set(finding.path, existing)
-            }
-            
-            const findingsText = Array.from(findingsByPath.entries())
-              .sort(([a]: [string, typeof findings], [b]: [string, typeof findings]) => a.localeCompare(b))
-              .map(([path, pathFindings]: [string, typeof findings]) => {
-                const pathFindingsText = pathFindings
-                  .sort((a: { path: string; ruleId: string; message: string; suggestedFix: string }, b: { path: string; ruleId: string; message: string; suggestedFix: string }) => {
-                    if (a.ruleId !== b.ruleId) return a.ruleId.localeCompare(b.ruleId)
-                    return a.message.localeCompare(b.message)
-                  })
-                  .map((f: { path: string; ruleId: string; message: string; suggestedFix: string }) => `    • ${f.message}\n      Fix: ${f.suggestedFix}`)
-                  .join('\n')
-                return `  ${path}:\n${pathFindingsText}`
-              })
-              .join('\n\n')
-            
-            actionableSteps = result.remedy || `Fix the following documentation inconsistencies:\n\n${findingsText}`
-            errorMessage = `${errorMessage}\n\n${actionableSteps}`
-          }
-          // If drift gating failed (missing artifacts), include actionable steps
-          else if (result.missingArtifacts && Array.isArray(result.missingArtifacts) && result.missingArtifacts.length > 0) {
+          // If drift gating failed, include actionable steps
+          if (result.missingArtifacts && Array.isArray(result.missingArtifacts) && result.missingArtifacts.length > 0) {
             const missingList = result.missingArtifacts.join(', ')
             actionableSteps = result.remedy || `Missing required artifacts: ${missingList}. Please add the missing artifacts and try again.`
             errorMessage = `${errorMessage} ${actionableSteps}`
@@ -1480,7 +1453,8 @@ function App() {
             error: errorMessage,
             actionableSteps,
             missingArtifacts: result.missingArtifacts,
-            docsCheckFindings: result.docsCheckFindings
+            errorCode: result.errorCode,
+            ciStatus: result.ciStatus,
           }
         }
 
@@ -2412,7 +2386,14 @@ function App() {
             : result.error
           
           // Show error message immediately (0790)
-          setLastMovePersisted({ success: false, timestamp: new Date(), ticketId: ticketPk, error: errorMessage })
+          setLastMovePersisted({ 
+            success: false, 
+            timestamp: new Date(), 
+            ticketId: ticketPk, 
+            error: errorMessage,
+            errorCode: 'errorCode' in result && typeof result.errorCode === 'string' ? result.errorCode : undefined,
+            ciStatus: 'ciStatus' in result && typeof result.ciStatus === 'object' && result.ciStatus !== null ? result.ciStatus as { overall: string; evaluatedSha?: string; failingCheckNames?: string[]; checksPageUrl?: string } : undefined,
+          })
           addLog(`Move failed: ${errorMessage}`)
           
           // Wait for rollback delay before reverting optimistic update (0790)
@@ -2842,7 +2823,14 @@ function App() {
               : result.error
             
             // Show error message immediately (0790)
-            setLastMovePersisted({ success: false, timestamp: new Date(), ticketId: ticketPk, error: errorMessage })
+            setLastMovePersisted({ 
+              success: false, 
+              timestamp: new Date(), 
+              ticketId: ticketPk, 
+              error: errorMessage,
+              errorCode: 'errorCode' in result && typeof result.errorCode === 'string' ? result.errorCode : undefined,
+              ciStatus: 'ciStatus' in result && typeof result.ciStatus === 'object' && result.ciStatus !== null ? result.ciStatus as { overall: string; evaluatedSha?: string; failingCheckNames?: string[]; checksPageUrl?: string } : undefined,
+            })
             addLog(`Move failed: ${errorMessage}`)
             
             // Wait for rollback delay before reverting optimistic update (0790)
@@ -3002,6 +2990,43 @@ function App() {
             <>
               <div style={{ whiteSpace: 'pre-line' }}>
                 ✗ {lastMovePersisted.isValidationBlock ? 'Move blocked' : 'Move failed'}: {lastMovePersisted.error ?? 'Unknown error'}
+                {lastMovePersisted.errorCode === 'NO_PR_REQUIRED' && (
+                  <div style={{ marginTop: '8px', padding: '8px', backgroundColor: 'rgba(255, 193, 7, 0.1)', borderRadius: '4px' }}>
+                    <strong>No PR linked:</strong> A GitHub Pull Request must be linked to this ticket before it can be moved to this column. The drift gate requires CI checks to pass before allowing transitions.
+                  </div>
+                )}
+                {lastMovePersisted.errorCode === 'CI_CHECKS_FAILING' && lastMovePersisted.ciStatus && (
+                  <div style={{ marginTop: '8px', padding: '8px', backgroundColor: 'rgba(220, 53, 69, 0.1)', borderRadius: '4px' }}>
+                    <strong>CI Status: {lastMovePersisted.ciStatus.overall === 'failing' ? 'Failing' : lastMovePersisted.ciStatus.overall === 'running' ? 'Running' : lastMovePersisted.ciStatus.overall === 'pending' ? 'Pending' : 'Unknown'}</strong>
+                    {lastMovePersisted.ciStatus.evaluatedSha && (
+                      <div style={{ fontSize: '0.9em', marginTop: '4px' }}>
+                        Evaluated SHA: <code style={{ fontSize: '0.85em' }}>{lastMovePersisted.ciStatus.evaluatedSha.substring(0, 7)}</code>
+                      </div>
+                    )}
+                    {lastMovePersisted.ciStatus.failingCheckNames && lastMovePersisted.ciStatus.failingCheckNames.length > 0 && (
+                      <div style={{ marginTop: '4px' }}>
+                        <strong>Failing checks:</strong>
+                        <ul style={{ margin: '4px 0 0 20px', padding: 0 }}>
+                          {lastMovePersisted.ciStatus.failingCheckNames.map((name, idx) => (
+                            <li key={idx}>{name}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {lastMovePersisted.ciStatus.checksPageUrl && (
+                      <div style={{ marginTop: '8px' }}>
+                        <a 
+                          href={lastMovePersisted.ciStatus.checksPageUrl} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          style={{ color: '#0066cc', textDecoration: 'underline' }}
+                        >
+                          View checks on GitHub →
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               <button
                 type="button"
