@@ -64,6 +64,30 @@ export function BootstrapScreen({
     }
   }, [projectId, supabaseUrl, supabaseAnonKey, apiBaseUrl])
 
+  const loadSupabaseProjectInfo = useCallback(async () => {
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/bootstrap/supabase-project`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId,
+          supabaseUrl,
+          supabaseAnonKey,
+        }),
+      })
+
+      const result = await response.json()
+      if (result.success && result.project) {
+        setSupabaseProjectInfo(result.project)
+      } else {
+        setSupabaseProjectInfo(null)
+      }
+    } catch (err) {
+      // Silently fail - project may not exist yet
+      setSupabaseProjectInfo(null)
+    }
+  }, [projectId, supabaseUrl, supabaseAnonKey, apiBaseUrl])
+
   // Load bootstrap run on mount and when projectId changes
   useEffect(() => {
     loadBootstrapRun()
@@ -119,30 +143,6 @@ export function BootstrapScreen({
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start bootstrap')
       setLoading(false)
-    }
-  }, [projectId, supabaseUrl, supabaseAnonKey, apiBaseUrl])
-
-  const loadSupabaseProjectInfo = useCallback(async () => {
-    try {
-      const response = await fetch(`${apiBaseUrl}/api/bootstrap/supabase-project`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectId,
-          supabaseUrl,
-          supabaseAnonKey,
-        }),
-      })
-
-      const result = await response.json()
-      if (result.success && result.project) {
-        setSupabaseProjectInfo(result.project)
-      } else {
-        setSupabaseProjectInfo(null)
-      }
-    } catch (err) {
-      // Silently fail - project may not exist yet
-      setSupabaseProjectInfo(null)
     }
   }, [projectId, supabaseUrl, supabaseAnonKey, apiBaseUrl])
 
