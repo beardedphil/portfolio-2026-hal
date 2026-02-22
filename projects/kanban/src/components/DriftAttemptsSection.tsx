@@ -166,11 +166,36 @@ export function DriftAttemptsSection({ ticketId, ticketPk, supabaseUrl, supabase
                   Failure Reasons:
                 </strong>
                 <ul style={{ margin: 0, paddingLeft: '1.25rem', fontSize: '0.9rem' }}>
-                  {latestAttempt.failure_reasons.map((reason, idx) => (
-                    <li key={idx} style={{ marginBottom: '0.25rem' }}>
-                      <strong>{reason.type}:</strong> {reason.message}
-                    </li>
-                  ))}
+                  {latestAttempt.failure_reasons.map((reason, idx) => {
+                    // Group DOCS_INCONSISTENT reasons for better display
+                    if (reason.type === 'DOCS_INCONSISTENT') {
+                      // Extract doc path from message (format: "Documentation "path" has N issues...")
+                      const pathMatch = reason.message.match(/Documentation "([^"]+)"/)
+                      const docPath = pathMatch ? pathMatch[1] : null
+                      return (
+                        <li key={idx} style={{ marginBottom: '0.5rem' }}>
+                          <strong style={{ color: '#d32f2f' }}>Docs Inconsistent:</strong>{' '}
+                          {docPath ? (
+                            <span>
+                              <code style={{ fontSize: '0.9em', backgroundColor: 'rgba(0,0,0,0.05)', padding: '0.1rem 0.3rem', borderRadius: '3px' }}>
+                                {docPath}
+                              </code>
+                              {' — '}
+                              {reason.message.replace(/^Documentation "[^"]+" has \d+ inconsistency issue\(s\): /, '')}
+                            </span>
+                          ) : (
+                            <span>{reason.message}</span>
+                          )}
+                        </li>
+                      )
+                    }
+                    // Display other failure reasons normally
+                    return (
+                      <li key={idx} style={{ marginBottom: '0.25rem' }}>
+                        <strong>{reason.type}:</strong> {reason.message}
+                      </li>
+                    )
+                  })}
                 </ul>
               </div>
             )}
@@ -271,11 +296,23 @@ export function DriftAttemptsSection({ ticketId, ticketPk, supabaseUrl, supabase
                   </div>
                   {attempt.failed && attempt.failure_reasons && attempt.failure_reasons.length > 0 && (
                     <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#666' }}>
-                      {attempt.failure_reasons.slice(0, 2).map((reason, idx) => (
-                        <div key={idx}>
-                          {reason.type}: {reason.message}
-                        </div>
-                      ))}
+                      {attempt.failure_reasons.slice(0, 2).map((reason, idx) => {
+                        // Show doc path for DOCS_INCONSISTENT reasons
+                        if (reason.type === 'DOCS_INCONSISTENT') {
+                          const pathMatch = reason.message.match(/Documentation "([^"]+)"/)
+                          const docPath = pathMatch ? pathMatch[1] : null
+                          return (
+                            <div key={idx}>
+                              <strong>Docs:</strong> {docPath ? <code style={{ fontSize: '0.9em' }}>{docPath}</code> : reason.message}
+                            </div>
+                          )
+                        }
+                        return (
+                          <div key={idx}>
+                            {reason.type}: {reason.message}
+                          </div>
+                        )
+                      })}
                       {attempt.failure_reasons.length > 2 && (
                         <div>+ {attempt.failure_reasons.length - 2} more reason(s)</div>
                       )}
