@@ -45,16 +45,16 @@
       "maintainability": 0
     },
     {
+      "file": "api/context-bundles/_builder.ts",
+      "maintainability": 2.43
+    },
+    {
       "file": "src/components/DiagnosticsModal.tsx",
       "maintainability": 6.13
     },
     {
       "file": "agents/src/agents/projectManager.ts",
       "maintainability": 9
-    },
-    {
-      "file": "api/context-bundles/_builder.ts",
-      "maintainability": 11.28
     },
     {
       "file": "src/hooks/useProcessReview.ts",
@@ -113,8 +113,8 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-22T05:07:49.151Z",
-  "filesAnalyzed": 370,
-  "unroundedMaintainability": 32.8,
-  "unroundedSimplicity": 32.8
+  "generatedAt": "2026-02-22T05:21:02.549Z",
+  "filesAnalyzed": 372,
+  "unroundedMaintainability": 32.7,
+  "unroundedSimplicity": 32.7
 }
