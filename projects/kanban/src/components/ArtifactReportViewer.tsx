@@ -7,6 +7,142 @@ import { MarkdownImage } from './MarkdownImage'
 import { getAgentTypeDisplayName } from './utils'
 import type { SupabaseAgentArtifactRow } from '../App.types'
 
+/** Extract data URL from markdown snippet using regex patterns */
+function extractDataUrlFromMarkdown(markdownSnippet: string): string | null {
+  const dataUrlMatch = markdownSnippet.match(/!\[.*?\]\((data:image\/[^)]+)\)/)
+  if (dataUrlMatch?.[1]) return dataUrlMatch[1]
+  
+  const simpleMatch = markdownSnippet.match(/\((data:image\/[^)]+)\)/)
+  return simpleMatch?.[1] || null
+}
+
+/** Create image component for ReactMarkdown that handles data URL extraction */
+function createImageComponent(
+  bodyMd: string,
+  artifactTitle: string | undefined,
+  onImageClick: (src: string, alt: string) => void
+) {
+  return (props: any) => {
+    const node = props.node
+    const alt = node?.properties?.alt || node?.alt || props.alt || null
+    let src = node?.properties?.src
+
+    // Extract from raw markdown if src is empty
+    if (!src && node?.position && bodyMd) {
+      const startOffset = node.position.start?.offset || 0
+      const endOffset = node.position.end?.offset || bodyMd.length
+      const markdownSnippet = bodyMd.substring(startOffset, endOffset)
+      src = extractDataUrlFromMarkdown(markdownSnippet) || undefined
+    }
+
+    if (!src) {
+      console.warn('[ImageComponent] Unable to extract image source. Node:', node)
+      return (
+        <div style={{ border: '2px solid red', padding: '1rem', backgroundColor: '#ffebee' }}>
+          <p style={{ margin: 0, fontWeight: 'bold' }}>Unable to extract image source</p>
+          <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.9rem' }}>Alt: {alt || 'Unknown'}</p>
+        </div>
+      )
+    }
+
+    return (
+      <MarkdownImage
+        src={src}
+        alt={alt}
+        artifactTitle={artifactTitle}
+        onImageClick={onImageClick}
+      />
+    )
+  }
+}
+
+/** Check if artifact title indicates a git diff */
+function isGitDiffArtifact(artifact: SupabaseAgentArtifactRow | null): boolean {
+  if (!artifact) return false
+  const normalizedTitle = artifact.title?.toLowerCase().trim() || ''
+  return normalizedTitle.startsWith('git diff for ticket') || 
+         normalizedTitle.startsWith('git-diff for ticket')
+}
+
+/** Sort artifacts chronologically with deterministic secondary sort */
+function sortArtifactsChronologically(
+  artifacts: SupabaseAgentArtifactRow[],
+  fallbackArtifact: SupabaseAgentArtifactRow | null
+): SupabaseAgentArtifactRow[] {
+  if (artifacts.length === 0 && fallbackArtifact) {
+    return [fallbackArtifact]
+  }
+  return [...artifacts].sort((a, b) => {
+    const timeA = new Date(a.created_at || 0).getTime()
+    const timeB = new Date(b.created_at || 0).getTime()
+    if (timeA !== timeB) return timeA - timeB
+    return (a.artifact_id || '').localeCompare(b.artifact_id || '')
+  })
+}
+
+/** Handle tab key navigation trap in modal */
+function handleTabTrap(e: React.KeyboardEvent, modalRef: React.RefObject<HTMLDivElement>) {
+  if (e.key !== 'Tab' || !modalRef.current) return
+
+  const focusable = modalRef.current.querySelectorAll<HTMLElement>(
+    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  )
+  const list = Array.from(focusable)
+  const first = list[0]
+  const last = list[list.length - 1]
+
+  if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault()
+    last?.focus()
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault()
+    first?.focus()
+  }
+}
+
+/** Render artifact content based on type and validity */
+function renderArtifactContent(
+  isValidArtifact: boolean,
+  artifact: SupabaseAgentArtifactRow | null,
+  artifactBodyMd: string,
+  isGitDiff: boolean,
+  markdownComponents: Components
+) {
+  if (!isValidArtifact) {
+    console.error('ArtifactReportViewer: Invalid artifact received', artifact)
+    return (
+      <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
+        {!artifact 
+          ? 'No artifact selected. Please select an artifact from the list.'
+          : 'Invalid artifact data. Please try selecting the artifact again.'}
+      </p>
+    )
+  }
+
+  if (!artifactBodyMd || typeof artifactBodyMd !== 'string') {
+    return (
+      <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
+        No content available. This artifact may be missing body_md data.
+      </p>
+    )
+  }
+
+  const trimmedBody = artifactBodyMd.trim()
+  if (trimmedBody.length === 0) {
+    return (
+      <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
+        {isGitDiff 
+          ? 'No diff available. This artifact was created but contains no diff content.'
+          : 'No output produced. This artifact was created but contains no content.'}
+      </p>
+    )
+  }
+
+  return isGitDiff 
+    ? <GitDiffViewer diff={trimmedBody} />
+    : <ReactMarkdown components={markdownComponents}>{trimmedBody}</ReactMarkdown>
+}
+
 /** Artifact report viewer modal (0082) with Previous/Next navigation (0148) */
 export function ArtifactReportViewer({
   open,
@@ -27,7 +163,6 @@ export function ArtifactReportViewer({
   if (!open) return null
 
   // ALL HOOKS MUST BE CALLED BEFORE ANY OTHER EARLY RETURNS
-  // This fixes React error #310 (hooks called conditionally)
   const [imageViewerOpen, setImageViewerOpen] = useState(false)
   const [imageViewerSrc, setImageViewerSrc] = useState<string | null>(null)
   const [imageViewerAlt, setImageViewerAlt] = useState<string>('')
@@ -36,7 +171,6 @@ export function ArtifactReportViewer({
 
   useEffect(() => {
     if (!open) {
-      // Close image viewer when artifact viewer closes
       setImageViewerOpen(false)
       return
     }
@@ -63,24 +197,7 @@ export function ArtifactReportViewer({
         onClose()
         return
       }
-      if (e.key !== 'Tab' || !modalRef.current) return
-      const focusable = modalRef.current.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-      )
-      const list = Array.from(focusable)
-      const first = list[0]
-      const last = list[list.length - 1]
-      if (e.shiftKey) {
-        if (document.activeElement === first) {
-          e.preventDefault()
-          last?.focus()
-        }
-      } else {
-        if (document.activeElement === last) {
-          e.preventDefault()
-          first?.focus()
-        }
-      }
+      handleTabTrap(e, modalRef)
     },
     [onClose, imageViewerOpen]
   )
@@ -91,126 +208,30 @@ export function ArtifactReportViewer({
     setImageViewerOpen(true)
   }, [artifact])
 
-  // Custom image component for ReactMarkdown (0158)
-  const markdownComponents: Components = useMemo(() => {
-    // Create a wrapper that captures the current artifact and handler
-    const artifactTitle = artifact?.title
-    const imageClickHandler = handleImageClick
-    const bodyMd = artifact?.body_md || ''
-    
-    const ImageComponent = (props: any) => {
-      // ReactMarkdown v10 passes node-based props
-      // However, data URLs are being sanitized and node.properties.src is empty
-      // We need to extract the URL from the raw markdown using the node position
-      const node = props.node
-      const alt = node?.properties?.alt || node?.alt || props.alt || null
-      
-      // If src is empty, try to extract from raw markdown using position
-      let src = node?.properties?.src
-      
-      if (!src || src === '') {
-        // Extract from raw markdown using node position
-        const position = node?.position
-        if (position && bodyMd) {
-          const startOffset = position.start?.offset || 0
-          const endOffset = position.end?.offset || bodyMd.length
-          const markdownSnippet = bodyMd.substring(startOffset, endOffset)
-          
-          // Try to extract data URL from markdown: ![alt](data:image/...)
-          const dataUrlMatch = markdownSnippet.match(/!\[.*?\]\((data:image\/[^)]+)\)/)
-          if (dataUrlMatch && dataUrlMatch[1]) {
-            src = dataUrlMatch[1]
-            console.log('[ImageComponent] Extracted data URL from markdown using position')
-          } else {
-            // Try simpler pattern: (data:image/...)
-            const simpleMatch = markdownSnippet.match(/\((data:image\/[^)]+)\)/)
-            if (simpleMatch && simpleMatch[1]) {
-              src = simpleMatch[1]
-              console.log('[ImageComponent] Extracted data URL using simple pattern')
-            }
-          }
-        }
-      }
-      
-      if (!src || src === '') {
-        console.warn('[ImageComponent] Still no src after extraction. Node:', node)
-        return (
-          <div style={{ border: '2px solid red', padding: '1rem', backgroundColor: '#ffebee' }}>
-            <p style={{ margin: 0, fontWeight: 'bold' }}>Unable to extract image source</p>
-            <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.9rem' }}>
-              Alt: {alt || 'Unknown'}
-            </p>
-          </div>
-        )
-      }
-      
-      return (
-        <MarkdownImage
-          src={src}
-          alt={alt}
-          artifactTitle={artifactTitle}
-          onImageClick={imageClickHandler}
-        />
-      )
-    }
-    
-    return {
-      img: ImageComponent,
-    }
-  }, [artifact?.title, artifact?.body_md, handleImageClick, artifact])
-
-  // Check if this is a git-diff artifact
-  const isGitDiff = useMemo(() => {
-    if (!artifact) return false
-    const normalizedTitle = artifact.title?.toLowerCase().trim() || ''
-    return normalizedTitle.startsWith('git diff for ticket') || normalizedTitle.startsWith('git-diff for ticket')
-  }, [artifact])
-
-  // Calculate navigation state (0148) - must be called before any early returns
-  // Sort artifacts chronologically (oldest first)
-  // If artifacts array is empty but we have an artifact, use it as the only item
-  const sortedArtifacts = useMemo(() => {
-    if (artifacts.length === 0 && artifact) {
-      // Fallback: if artifacts array is empty but we have an artifact, use it
-      return [artifact]
-    }
-    return [...artifacts].sort((a, b) => {
-      const timeA = new Date(a.created_at || 0).getTime()
-      const timeB = new Date(b.created_at || 0).getTime()
-      if (timeA !== timeB) {
-        return timeA - timeB
-      }
-      // Secondary sort by artifact_id for deterministic ordering when timestamps are equal (0147)
-      return (a.artifact_id || '').localeCompare(b.artifact_id || '')
-    })
-  }, [artifacts, artifact])
+  // Navigation state
+  const sortedArtifacts = useMemo(
+    () => sortArtifactsChronologically(artifacts, artifact),
+    [artifacts, artifact]
+  )
   
-  // Find the actual index of the current artifact in the sorted list
-  const actualIndex = useMemo(() => {
-    if (!artifact || !artifact.artifact_id) return -1
-    return sortedArtifacts.findIndex(a => a.artifact_id === artifact.artifact_id)
-  }, [sortedArtifacts, artifact])
-  
-  // Use actual index if found, otherwise fall back to currentIndex prop, or 0 if artifact is in the list
-  const effectiveIndex = actualIndex >= 0 ? actualIndex : (artifact && sortedArtifacts.length > 0 ? 0 : currentIndex)
+  const effectiveIndex = useMemo(() => {
+    if (!artifact?.artifact_id) return currentIndex
+    const actualIndex = sortedArtifacts.findIndex(a => a.artifact_id === artifact.artifact_id)
+    return actualIndex >= 0 ? actualIndex : (sortedArtifacts.length > 0 ? 0 : currentIndex)
+  }, [sortedArtifacts, artifact, currentIndex])
   
   const canGoPrevious = effectiveIndex > 0
   const canGoNext = effectiveIndex < sortedArtifacts.length - 1
   
   const handlePrevious = useCallback(() => {
-    if (canGoPrevious) {
-      onNavigate(effectiveIndex - 1)
-    }
+    if (canGoPrevious) onNavigate(effectiveIndex - 1)
   }, [canGoPrevious, effectiveIndex, onNavigate])
   
   const handleNext = useCallback(() => {
-    if (canGoNext) {
-      onNavigate(effectiveIndex + 1)
-    }
+    if (canGoNext) onNavigate(effectiveIndex + 1)
   }, [canGoNext, effectiveIndex, onNavigate])
 
-  // Handle invalid artifacts in render logic (not early returns after hooks)
-  // This ensures hooks are always called in the same order
+  // Artifact validation and display data
   const isValidArtifact = artifact && artifact.artifact_id
   const artifactTitle = isValidArtifact ? (artifact.title || 'Untitled Artifact') : 'Artifact Viewer'
   const artifactBodyMd = isValidArtifact ? (artifact.body_md || '') : ''
@@ -219,6 +240,12 @@ export function ArtifactReportViewer({
 
   const createdAt = new Date(artifactCreatedAt)
   const displayName = isValidArtifact ? getAgentTypeDisplayName(artifactAgentType) : 'Unknown'
+  const isGitDiff = useMemo(() => isGitDiffArtifact(artifact), [artifact])
+
+  // Markdown components
+  const markdownComponents: Components = useMemo(() => ({
+    img: createImageComponent(artifactBodyMd, artifact?.title, handleImageClick),
+  }), [artifactBodyMd, artifact?.title, handleImageClick])
 
   return (
     <div
@@ -250,49 +277,15 @@ export function ArtifactReportViewer({
         </div>
         <div className="ticket-detail-body-wrap">
           <div className="ticket-detail-body">
-            {(() => {
-              // Handle invalid artifacts (no early returns after hooks)
-              if (!isValidArtifact) {
-                console.error('ArtifactReportViewer: Invalid artifact received', artifact)
-                return (
-                  <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
-                    {!artifact 
-                      ? 'No artifact selected. Please select an artifact from the list.'
-                      : 'Invalid artifact data. Please try selecting the artifact again.'}
-                  </p>
-                )
-              }
-              
-              // Ensure we have valid content to render
-              if (!artifactBodyMd || typeof artifactBodyMd !== 'string') {
-                return (
-                  <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
-                    No content available. This artifact may be missing body_md data.
-                  </p>
-                )
-              }
-              
-              const trimmedBody = artifactBodyMd.trim()
-              if (trimmedBody.length === 0) {
-                return (
-                  <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
-                    {isGitDiff 
-                      ? 'No diff available. This artifact was created but contains no diff content.'
-                      : 'No output produced. This artifact was created but contains no content.'}
-                  </p>
-                )
-              }
-              
-              // Render content
-              if (isGitDiff) {
-                return <GitDiffViewer diff={trimmedBody} />
-              } else {
-                return <ReactMarkdown components={markdownComponents}>{trimmedBody}</ReactMarkdown>
-              }
-            })()}
+            {renderArtifactContent(
+              isValidArtifact,
+              artifact,
+              artifactBodyMd,
+              isGitDiff,
+              markdownComponents
+            )}
           </div>
         </div>
-        {/* Previous/Next navigation buttons (0148) */}
         {sortedArtifacts.length > 1 && (
           <div className="artifact-navigation">
             <button
