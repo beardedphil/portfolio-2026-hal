@@ -73,12 +73,12 @@
       "maintainability": 16.29
     },
     {
-      "file": "api/qa-agent/run.ts",
-      "maintainability": 16.69
-    },
-    {
       "file": "api/conversations/working-memory/update.ts",
       "maintainability": 18.36
+    },
+    {
+      "file": "projects/kanban/src/components/ArtifactReportViewer.tsx",
+      "maintainability": 18.61
     }
   ],
   "mostRecentImprovements": [
@@ -89,15 +89,15 @@
       "delta": 40.58
     },
     {
+      "file": "api/qa-agent/run.ts",
+      "before": 16.69,
+      "after": 28.76,
+      "delta": 12.07
+    },
+    {
       "file": "api/instructions/migrate-process-docs.ts",
       "before": 15.59,
       "after": 15.59,
-      "delta": 0
-    },
-    {
-      "file": "api/qa-agent/run.ts",
-      "before": 16.69,
-      "after": 16.69,
       "delta": 0
     },
     {
@@ -119,8 +119,8 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-22T01:01:58.738Z",
-  "filesAnalyzed": 332,
+  "generatedAt": "2026-02-22T01:13:44.423Z",
+  "filesAnalyzed": 334,
   "unroundedMaintainability": 33.7,
   "unroundedSimplicity": 33.7
 }
