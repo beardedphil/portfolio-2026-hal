@@ -14,6 +14,17 @@ function parseGithubPrUrl(prUrl: string): { owner: string; repo: string; pullNum
 }
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
+  // CORS: Allow cross-origin requests (for scripts calling from different origins)
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+
+  if (req.method === 'OPTIONS') {
+    res.statusCode = 204
+    res.end()
+    return
+  }
+
   if (req.method !== 'POST') {
     res.statusCode = 405
     res.end('Method Not Allowed')
@@ -23,6 +34,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   try {
     const body = (await readJsonBody(req)) as {
       ticketPk?: string
+      ticketId?: string
       repoFullName?: string
       prUrl?: string
       supabaseUrl?: string
@@ -30,11 +42,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     const ticketPk = typeof body.ticketPk === 'string' ? body.ticketPk.trim() : ''
+    const ticketId = typeof body.ticketId === 'string' ? body.ticketId.trim() : ''
     const repoFullNameFromClient = typeof body.repoFullName === 'string' ? body.repoFullName.trim() : ''
     const prUrl = typeof body.prUrl === 'string' ? body.prUrl.trim() : ''
 
-    if (!ticketPk) {
-      json(res, 400, { success: false, error: 'ticketPk is required.' })
+    if (!ticketPk && !ticketId) {
+      json(res, 400, { success: false, error: 'ticketPk (preferred) or ticketId is required.' })
       return
     }
     if (!prUrl) {
@@ -48,10 +61,20 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return
     }
 
-    const session = await getSession(req, res)
-    const ghToken = session.github?.accessToken
+    // Get GitHub token from session or environment (for agent use)
+    let session: Awaited<ReturnType<typeof getSession>> | null = null
+    try {
+      session = await getSession(req, res)
+    } catch {
+      // Session may not be available for agent calls
+    }
+    const ghToken =
+      session?.github?.accessToken || process.env.GITHUB_TOKEN?.trim() || process.env.GH_TOKEN?.trim()
     if (!ghToken) {
-      json(res, 401, { success: false, error: 'Not authenticated with GitHub.' })
+      json(res, 401, {
+        success: false,
+        error: 'Not authenticated with GitHub. Provide GITHUB_TOKEN or GH_TOKEN in server environment, or authenticate via session.',
+      })
       return
     }
 
@@ -67,15 +90,52 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
     const supabase = createClient(supabaseUrl, supabaseKey)
 
-    const { data: ticket, error: ticketErr } = await supabase
-      .from('tickets')
-      .select('pk, repo_full_name, ticket_number, display_id')
-      .eq('pk', ticketPk)
-      .maybeSingle()
-    if (ticketErr || !ticket?.pk) {
+    // Fetch ticket by pk or id
+    let ticket: { pk: string; repo_full_name?: string; ticket_number?: number; display_id?: string } | null = null
+    if (ticketPk) {
+      const { data, error: ticketErr } = await supabase
+        .from('tickets')
+        .select('pk, repo_full_name, ticket_number, display_id')
+        .eq('pk', ticketPk)
+        .maybeSingle()
+      if (ticketErr || !data?.pk) {
+        json(res, 404, { success: false, error: 'Ticket not found.' })
+        return
+      }
+      ticket = data
+    } else if (ticketId) {
+      // Try to find ticket by ticket_number or display_id
+      const ticketNumber = parseInt(ticketId, 10)
+      if (!Number.isNaN(ticketNumber)) {
+        const { data, error: ticketErr } = await supabase
+          .from('tickets')
+          .select('pk, repo_full_name, ticket_number, display_id')
+          .eq('ticket_number', ticketNumber)
+          .maybeSingle()
+        if (!ticketErr && data?.pk) {
+          ticket = data
+        }
+      }
+      if (!ticket) {
+        const { data, error: ticketErr } = await supabase
+          .from('tickets')
+          .select('pk, repo_full_name, ticket_number, display_id')
+          .eq('display_id', ticketId)
+          .maybeSingle()
+        if (ticketErr || !data?.pk) {
+          json(res, 404, { success: false, error: 'Ticket not found.' })
+          return
+        }
+        ticket = data
+      }
+    }
+
+    if (!ticket?.pk) {
       json(res, 404, { success: false, error: 'Ticket not found.' })
       return
     }
+
+    const resolvedTicketPk = ticket.pk
 
     const ticketRepo = String((ticket as any).repo_full_name ?? '')
     const expectedRepo = repoFullNameFromClient || ticketRepo
@@ -95,11 +155,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const { error: insErr } = await supabase.from('hal_agent_runs').insert({
       agent_type: 'pr-link',
       repo_full_name: ticketRepo || expectedRepo || prRepoFullName,
-      ticket_pk: ticketPk,
+      ticket_pk: resolvedTicketPk,
       ticket_number: ticketNumber,
       display_id: displayId || null,
       pr_url: canonicalPrUrl,
-      summary: `Linked PR manually: ${canonicalPrUrl}`,
+      summary: `Linked PR: ${canonicalPrUrl}`,
       status: 'finished',
       current_stage: 'completed',
     })
