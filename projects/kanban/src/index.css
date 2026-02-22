@@ -1619,6 +1619,19 @@ h1 {
 /* RED section removed (artifacts-only workflow) */
 
 /* Artifacts section (0082) */
+.ticket-detail-section {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--kanban-border);
+}
+
+.ticket-detail-section-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0 0 1rem 0;
+  color: var(--kanban-text);
+}
+
 .artifacts-section {
   margin-top: 1.5rem;
   padding-top: 1.5rem;
@@ -2017,6 +2030,69 @@ h1 {
 }
 [data-theme="dark"] .column-remove:focus-visible {
   outline-color: #f88;
+}
+
+/* Drift attempts section (HAL-0766) */
+.drift-status-pass {
+  color: #28a745;
+  font-weight: 500;
+}
+
+.drift-status-fail {
+  color: #dc3545;
+  font-weight: 500;
+}
+
+.drift-status-pending {
+  color: #ffc107;
+  font-weight: 500;
+}
+
+.drift-status-unknown {
+  color: #6c757d;
+  font-weight: 500;
+}
+
+.drift-current-pass {
+  border-left: 4px solid #28a745;
+}
+
+.drift-current-fail {
+  border-left: 4px solid #dc3545;
+}
+
+.drift-attempts-history {
+  margin-top: 1rem;
+}
+
+.drift-attempts-history table {
+  font-size: 0.9em;
+}
+
+.drift-attempts-history th {
+  font-weight: 600;
+  color: var(--kanban-text);
+  background: var(--kanban-surface-alt);
+}
+
+.drift-attempts-history td {
+  color: var(--kanban-text);
+}
+
+[data-theme="dark"] .drift-status-pass {
+  color: #4ade80;
+}
+
+[data-theme="dark"] .drift-status-fail {
+  color: #f87171;
+}
+
+[data-theme="dark"] .drift-status-pending {
+  color: #fbbf24;
+}
+
+[data-theme="dark"] .drift-status-unknown {
+  color: #9ca3af;
 }
 
 /* Base button classes - canonical styles for all buttons (0739) */
