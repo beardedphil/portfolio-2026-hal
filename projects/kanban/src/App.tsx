@@ -1417,7 +1417,7 @@ function App() {
       ticketPk: string,
       columnId: string,
       position?: number
-    ): Promise<{ ok: true } | { ok: false; error: string; actionableSteps?: string; missingArtifacts?: string[] }> => {
+    ): Promise<{ ok: true } | { ok: false; error: string; actionableSteps?: string; missingArtifacts?: string[]; docsCheckFindings?: Array<{ path: string; ruleId: string; message: string; suggestedFix: string }> }> => {
       try {
         // Get API base URL from environment or use current origin
         const apiBaseUrl = import.meta.env.VITE_HAL_API_BASE_URL || window.location.origin
@@ -1438,8 +1438,35 @@ function App() {
           let errorMessage = result.error || 'Unknown error'
           let actionableSteps: string | undefined
           
-          // If drift gating failed, include actionable steps
-          if (result.missingArtifacts && Array.isArray(result.missingArtifacts) && result.missingArtifacts.length > 0) {
+          // If docs consistency check failed, format findings nicely
+          if (result.errorCode === 'DOCS_CONSISTENCY_FAILED' && result.docsCheckFindings && Array.isArray(result.docsCheckFindings)) {
+            const findings = result.docsCheckFindings
+            const findingsByPath = new Map<string, typeof findings>()
+            for (const finding of findings) {
+              const existing = findingsByPath.get(finding.path) || []
+              existing.push(finding)
+              findingsByPath.set(finding.path, existing)
+            }
+            
+            const findingsText = Array.from(findingsByPath.entries())
+              .sort(([a]: [string, typeof findings], [b]: [string, typeof findings]) => a.localeCompare(b))
+              .map(([path, pathFindings]: [string, typeof findings]) => {
+                const pathFindingsText = pathFindings
+                  .sort((a: { path: string; ruleId: string; message: string; suggestedFix: string }, b: { path: string; ruleId: string; message: string; suggestedFix: string }) => {
+                    if (a.ruleId !== b.ruleId) return a.ruleId.localeCompare(b.ruleId)
+                    return a.message.localeCompare(b.message)
+                  })
+                  .map((f: { path: string; ruleId: string; message: string; suggestedFix: string }) => `    • ${f.message}\n      Fix: ${f.suggestedFix}`)
+                  .join('\n')
+                return `  ${path}:\n${pathFindingsText}`
+              })
+              .join('\n\n')
+            
+            actionableSteps = result.remedy || `Fix the following documentation inconsistencies:\n\n${findingsText}`
+            errorMessage = `${errorMessage}\n\n${actionableSteps}`
+          }
+          // If drift gating failed (missing artifacts), include actionable steps
+          else if (result.missingArtifacts && Array.isArray(result.missingArtifacts) && result.missingArtifacts.length > 0) {
             const missingList = result.missingArtifacts.join(', ')
             actionableSteps = result.remedy || `Missing required artifacts: ${missingList}. Please add the missing artifacts and try again.`
             errorMessage = `${errorMessage} ${actionableSteps}`
@@ -1452,7 +1479,8 @@ function App() {
             ok: false, 
             error: errorMessage,
             actionableSteps,
-            missingArtifacts: result.missingArtifacts
+            missingArtifacts: result.missingArtifacts,
+            docsCheckFindings: result.docsCheckFindings
           }
         }
 

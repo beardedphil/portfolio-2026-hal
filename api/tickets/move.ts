@@ -8,6 +8,8 @@ import {
 import { readJsonBody, json, parseSupabaseCredentialsWithServiceRole, fetchTicketByPkOrId } from './_shared.js'
 import { resolveColumnId, calculateTargetPosition } from './_move-helpers.js'
 import { parseAcceptanceCriteria } from './_acceptance-criteria-parser.js'
+import { checkDocsConsistency } from './_docs-consistency-check.js'
+import { getSession } from '../_lib/github/session.js'
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   // CORS: Allow cross-origin requests (for scripts calling from different origins)
@@ -279,6 +281,81 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
         // If ticket has AC items but no status records exist yet, allow the move
         // (AC status may not have been initialized yet, which is fine for v0)
+      }
+
+      // Gate: Drift gate - docs consistency check (HAL-0768)
+      // Check docs consistency when moving to gated columns
+      try {
+        // Get PR URL from agent runs
+        let prUrl: string | null = null
+        const { data: agentRuns } = await supabase
+          .from('hal_agent_runs')
+          .select('pr_url')
+          .eq('ticket_pk', resolvedTicketPk)
+          .not('pr_url', 'is', null)
+          .limit(1)
+        if (agentRuns && agentRuns.length > 0 && agentRuns[0]?.pr_url) {
+          prUrl = String(agentRuns[0].pr_url).trim() || null
+        }
+
+        // Get GitHub token from session (optional - check works without it for ticket body_md)
+        let githubToken: string | null = null
+        try {
+          const session = await getSession(req, res)
+          githubToken = session.github?.accessToken || null
+        } catch {
+          // No session available - that's okay, we'll check what we can
+        }
+
+        const ticketId = (ticket as any).display_id || (ticket as any).id || String(resolvedTicketPk)
+        const ticketFilename = (ticket as any).filename || null
+        const ticketBodyMd = (ticket as any).body_md || null
+
+        const docsCheckResult = await checkDocsConsistency(
+          ticketId,
+          ticketFilename,
+          ticketBodyMd,
+          repoFullName,
+          prUrl,
+          githubToken
+        )
+
+        // Store drift attempt record
+        try {
+          await supabase.from('drift_gate_attempts').insert({
+            ticket_pk: resolvedTicketPk,
+            repo_full_name: repoFullName,
+            column_id: columnId,
+            docs_check_passed: docsCheckResult.passed,
+            docs_check_findings: docsCheckResult.findings,
+            attempted_at: new Date().toISOString(),
+          })
+        } catch (insertErr) {
+          // Log but don't fail - drift attempt logging should not block moves
+          console.warn(
+            `[drift-gate] Failed to log drift attempt: ${insertErr instanceof Error ? insertErr.message : String(insertErr)}`
+          )
+        }
+
+        // If docs check failed, block the transition
+        if (!docsCheckResult.passed) {
+          const findingsText = docsCheckResult.findings
+            .map((f) => `  - ${f.path}: ${f.message}\n    Fix: ${f.suggestedFix}`)
+            .join('\n')
+
+          json(res, 200, {
+            success: false,
+            error: `Docs consistency check failed: ${docsCheckResult.findings.length} issue(s) found.`,
+            errorCode: 'DOCS_CONSISTENCY_FAILED',
+            docsCheckFindings: docsCheckResult.findings,
+            remedy: `Fix the following documentation inconsistencies:\n${findingsText}`,
+          })
+          return
+        }
+      } catch (docsCheckErr) {
+        // Log error but don't block - docs check is best-effort
+        console.error('[drift-gate] Docs consistency check error:', docsCheckErr)
+        // Continue with move - don't block on docs check errors
       }
     }
 
