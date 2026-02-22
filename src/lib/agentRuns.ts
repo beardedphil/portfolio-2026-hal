@@ -14,6 +14,25 @@ export function isNonTerminalRunStatus(status: string | null | undefined): boole
   return !TERMINAL_RUN_STATUSES.has(s)
 }
 
+/** Runs stuck in launching/polling for longer than this are treated as stale and can be retried.
+ *  Must be longer than max time for a new run to appear in client (safety poll 15s + buffer). */
+const STALE_RUN_MS = 20 * 1000 // 20 seconds
+
+/**
+ * Returns true if a QA run is considered "actively running" and should block a new trigger.
+ * Stale runs (non-terminal for >20s) are not considered active, allowing retries for stuck tickets.
+ */
+export function isQARunBlockingNewTrigger(
+  run: { agent_type?: string; status?: string | null; updated_at?: string | null } | undefined
+): boolean {
+  if (!run || run.agent_type !== 'qa') return false
+  if (!isNonTerminalRunStatus(run.status)) return false
+  const updatedAt = run.updated_at
+  if (!updatedAt) return true // Conservatively block if we can't determine age
+  const ageMs = Date.now() - new Date(updatedAt).getTime()
+  return ageMs < STALE_RUN_MS
+}
+
 function toTimeMs(iso: string | null | undefined): number {
   if (!iso) return 0
   const t = new Date(iso).getTime()

@@ -40,7 +40,7 @@ import { useDisconnectHandlers } from './hooks/useDisconnectHandlers'
 import { useConversationSelection } from './hooks/useConversationSelection'
 import { useProcessReviewWelcome } from './hooks/useProcessReviewWelcome'
 import { useConversationLoading } from './hooks/useConversationLoading'
-import { isNonTerminalRunStatus } from './lib/agentRuns'
+import { isNonTerminalRunStatus, isQARunBlockingNewTrigger } from './lib/agentRuns'
 // formatTicketId imported via useProcessReview hook
 
 const KanbanBoard = Kanban.default
@@ -659,7 +659,7 @@ function App() {
       for (const ticket of kanbanTickets) {
         const existingRun = kanbanAgentRunsByTicketPk[ticket.pk]
         const isPMRunning = existingRun?.agent_type === 'project-manager' && isNonTerminalRunStatus(existingRun.status)
-        const isQARunning = existingRun?.agent_type === 'qa' && isNonTerminalRunStatus(existingRun.status)
+        const isQABlocking = isQARunBlockingNewTrigger(existingRun)
         const isProcessReviewRunning = existingRun?.agent_type === 'process-review' && isNonTerminalRunStatus(existingRun.status)
 
         // Auto-trigger Project Manager agent for tickets in Unassigned column
@@ -675,8 +675,8 @@ function App() {
           }
         }
 
-        // Auto-trigger QA agent for tickets in Ready for QA column
-        if (ticket.kanban_column_id === 'col-qa' && !isQARunning) {
+        // Auto-trigger QA agent for tickets in Ready for QA column (stale runs allow retry)
+        if (ticket.kanban_column_id === 'col-qa' && !isQABlocking) {
           const ticketId = ticket.display_id ?? ticket.id ?? ticket.ticket_number?.toString() ?? null
           if (ticketId) {
             const convId = getDefaultConversationIdForAgent('qa-agent')
@@ -718,10 +718,10 @@ function App() {
       const ticket = kanbanTickets.find((t) => t.pk === ticketPk)
       if (!ticket) return
 
-      // Check for idempotency: don't trigger if agent is already running for this ticket
+      // Check for idempotency: don't trigger if agent is already running for this ticket (stale runs allow retry)
       const existingRun = kanbanAgentRunsByTicketPk[ticketPk]
       const isPMRunning = existingRun?.agent_type === 'project-manager' && isNonTerminalRunStatus(existingRun.status)
-      const isQARunning = existingRun?.agent_type === 'qa' && isNonTerminalRunStatus(existingRun.status)
+      const isQABlocking = isQARunBlockingNewTrigger(existingRun)
       const isProcessReviewRunning = existingRun?.agent_type === 'process-review' && isNonTerminalRunStatus(existingRun.status)
 
       // Auto-trigger Project Manager agent when ticket moves to Unassigned (col-unassigned)
@@ -734,7 +734,7 @@ function App() {
       }
 
       // Auto-trigger QA agent when ticket moves to Ready for QA (col-qa)
-      if (columnId === 'col-qa' && !isQARunning) {
+      if (columnId === 'col-qa' && !isQABlocking) {
         const ticketId = ticket.display_id ?? ticket.id ?? ticket.ticket_number?.toString() ?? null
         if (ticketId && connectedGithubRepo?.fullName) {
           // Trigger QA agent via the same mechanism as the button click
