@@ -17,6 +17,7 @@ import { MaintainabilityReportModal } from './components/MaintainabilityReportMo
 import { DiagnosticsModal } from './components/DiagnosticsModal'
 import { IntegrationManifestModal } from './components/IntegrationManifestModal'
 import { ContextBundleModal } from './components/ContextBundleModal'
+import { RedGenerationModal } from './components/RedGenerationModal'
 import { AgentRunBundleModal } from './components/AgentRunBundleModal'
 import { NoPrModal } from './components/NoPrModal'
 import type { ChatTarget, ToolCallRecord, TicketCreationResult } from './types/app'
@@ -288,6 +289,9 @@ function App() {
   const [contextBundleModalOpen, setContextBundleModalOpen] = useState<boolean>(false)
   const [contextBundleTicketPk] = useState<string | null>(null)
   const [contextBundleTicketId] = useState<string | null>(null)
+  const [redGenerationModalOpen, setRedGenerationModalOpen] = useState<boolean>(false)
+  const [redGenerationTicketPk, setRedGenerationTicketPk] = useState<string | null>(null)
+  const [redGenerationTicketId, setRedGenerationTicketId] = useState<string | null>(null)
   /** Agent Run Bundle Builder modal (0756). */
   const [agentRunBundleModalOpen, setAgentRunBundleModalOpen] = useState<boolean>(false)
   const [agentRunBundleRunId, setAgentRunBundleRunId] = useState<string | null>(null)
@@ -991,6 +995,21 @@ function App() {
         onClose={() => setContextBundleModalOpen(false)}
         ticketPk={contextBundleTicketPk}
         ticketId={contextBundleTicketId}
+        repoFullName={connectedGithubRepo?.fullName || null}
+        supabaseUrl={supabaseUrl}
+        supabaseAnonKey={supabaseAnonKey}
+      />
+
+      {/* RED Generation Modal (0783) */}
+      <RedGenerationModal
+        isOpen={redGenerationModalOpen}
+        onClose={() => {
+          setRedGenerationModalOpen(false)
+          setRedGenerationTicketPk(null)
+          setRedGenerationTicketId(null)
+        }}
+        ticketPk={redGenerationTicketPk}
+        ticketId={redGenerationTicketId}
         repoFullName={connectedGithubRepo?.fullName || null}
         supabaseUrl={supabaseUrl}
         supabaseAnonKey={supabaseAnonKey}
