@@ -7,8 +7,6 @@ import { MarkdownImage } from './MarkdownImage'
 import { getAgentTypeDisplayName } from './utils'
 import type { SupabaseAgentArtifactRow } from '../App.types'
 
-// Helper functions extracted for better maintainability
-
 /** Extract image source from markdown node, handling data URLs */
 function extractImageSource(node: any, bodyMd: string): string | null {
   let src = node?.properties?.src
@@ -21,118 +19,11 @@ function extractImageSource(node: any, bodyMd: string): string | null {
   const endOffset = position.end?.offset || bodyMd.length
   const markdownSnippet = bodyMd.substring(startOffset, endOffset)
 
-  // Try to extract data URL from markdown: ![alt](data:image/...)
   const dataUrlMatch = markdownSnippet.match(/!\[.*?\]\((data:image\/[^)]+)\)/)
   if (dataUrlMatch?.[1]) return dataUrlMatch[1]
 
-  // Try simpler pattern: (data:image/...)
   const simpleMatch = markdownSnippet.match(/\((data:image\/[^)]+)\)/)
   return simpleMatch?.[1] || null
-}
-
-/** Check if artifact is a git diff based on title */
-function isGitDiffArtifact(artifact: SupabaseAgentArtifactRow | null): boolean {
-  if (!artifact) return false
-  const normalizedTitle = artifact.title?.toLowerCase().trim() || ''
-  return normalizedTitle.startsWith('git diff for ticket') || 
-         normalizedTitle.startsWith('git-diff for ticket')
-}
-
-/** Sort artifacts chronologically with deterministic secondary sort */
-function sortArtifactsChronologically(
-  artifacts: SupabaseAgentArtifactRow[],
-  fallbackArtifact: SupabaseAgentArtifactRow | null
-): SupabaseAgentArtifactRow[]
-{
-  if (artifacts.length === 0 && fallbackArtifact) {
-    return [fallbackArtifact]
-  }
-
-  return [...artifacts].sort((a, b) => {
-    const timeA = new Date(a.created_at || 0).getTime()
-    const timeB = new Date(b.created_at || 0).getTime()
-    if (timeA !== timeB) {
-      return timeA - timeB
-    }
-    // Secondary sort by artifact_id for deterministic ordering when timestamps are equal
-    return (a.artifact_id || '').localeCompare(b.artifact_id || '')
-  })
-}
-
-/** Calculate effective index of current artifact in sorted list */
-function calculateEffectiveIndex(
-  artifact: SupabaseAgentArtifactRow | null,
-  sortedArtifacts: SupabaseAgentArtifactRow[],
-  currentIndex: number
-): number {
-  if (!artifact?.artifact_id) {
-    return sortedArtifacts.length > 0 ? 0 : currentIndex
-  }
-
-  const actualIndex = sortedArtifacts.findIndex(a => a.artifact_id === artifact.artifact_id)
-  return actualIndex >= 0 ? actualIndex : (sortedArtifacts.length > 0 ? 0 : currentIndex)
-}
-
-/** Handle focus trap for Tab key navigation */
-function handleFocusTrap(
-  e: React.KeyboardEvent,
-  modalRef: React.RefObject<HTMLDivElement>
-): void {
-  if (e.key !== 'Tab' || !modalRef.current) return
-
-  const focusable = modalRef.current.querySelectorAll<HTMLElement>(
-    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-  )
-  const list = Array.from(focusable)
-  const first = list[0]
-  const last = list[list.length - 1]
-
-  if (e.shiftKey) {
-    if (document.activeElement === first) {
-      e.preventDefault()
-      last?.focus()
-    }
-  } else {
-    if (document.activeElement === last) {
-      e.preventDefault()
-      first?.focus()
-    }
-  }
-}
-
-/** Normalize artifact data for safe access */
-function normalizeArtifactData(artifact: SupabaseAgentArtifactRow | null) {
-  const isValid = artifact && artifact.artifact_id
-  return {
-    isValid,
-    title: isValid ? (artifact.title || 'Untitled Artifact') : 'Artifact Viewer',
-    bodyMd: isValid ? (artifact.body_md || '') : '',
-    createdAt: isValid ? (artifact.created_at || new Date().toISOString()) : new Date().toISOString(),
-    agentType: isValid ? (artifact.agent_type || 'unknown') : 'unknown',
-    displayName: isValid ? getAgentTypeDisplayName(artifact.agent_type || 'unknown') : 'Unknown',
-  }
-}
-
-/** Render error message for invalid artifact */
-function renderInvalidArtifactMessage(artifact: SupabaseAgentArtifactRow | null) {
-  return (
-    <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
-      {!artifact 
-        ? 'No artifact selected. Please select an artifact from the list.'
-        : 'Invalid artifact data. Please try selecting the artifact again.'}
-    </p>
-  )
-}
-
-/** Render empty content message */
-function renderEmptyContentMessage(isGitDiff: boolean) {
-  return (
-    <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
-      {isGitDiff 
-        ? 'No diff available. This artifact was created but contains no diff content.'
-        : 'No output produced. This artifact was created but contains no content.'}
-    </p>
-  )
 }
 
 /** Artifact report viewer modal (0082) with Previous/Next navigation (0148) */
@@ -151,11 +42,8 @@ export function ArtifactReportViewer({
   currentIndex: number
   onNavigate: (index: number) => void
 }) {
-  // Early return if modal is not open (before hooks - this is OK)
   if (!open) return null
 
-  // ALL HOOKS MUST BE CALLED BEFORE ANY OTHER EARLY RETURNS
-  // This fixes React error #310 (hooks called conditionally)
   const [imageViewerOpen, setImageViewerOpen] = useState(false)
   const [imageViewerSrc, setImageViewerSrc] = useState<string | null>(null)
   const [imageViewerAlt, setImageViewerAlt] = useState<string>('')
@@ -193,12 +81,28 @@ export function ArtifactReportViewer({
         onClose()
         return
       }
-      handleFocusTrap(e, modalRef)
+      if (e.key !== 'Tab' || !modalRef.current) return
+      const focusable = modalRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )
+      const list = Array.from(focusable)
+      const first = list[0]
+      const last = list[list.length - 1]
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault()
+          last?.focus()
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault()
+          first?.focus()
+        }
+      }
     },
     [onClose, imageViewerOpen]
   )
 
-  // Image click handler
   const handleImageClick = useCallback((src: string, alt: string) => {
     setImageViewerSrc(src)
     setImageViewerAlt(alt || artifact?.title || 'Image')
@@ -243,13 +147,35 @@ export function ArtifactReportViewer({
     }
   }, [artifact?.title, artifact?.body_md, handleImageClick])
 
-  // Navigation state calculations
-  const isGitDiff = useMemo(() => isGitDiffArtifact(artifact), [artifact])
-  const sortedArtifacts = useMemo(() => sortArtifactsChronologically(artifacts, artifact), [artifacts, artifact])
-  const effectiveIndex = useMemo(
-    () => calculateEffectiveIndex(artifact, sortedArtifacts, currentIndex),
-    [artifact, sortedArtifacts, currentIndex]
-  )
+  // Navigation and artifact state
+  const isValidArtifact = artifact && artifact.artifact_id
+  const isGitDiff = useMemo(() => {
+    if (!artifact) return false
+    const normalizedTitle = artifact.title?.toLowerCase().trim() || ''
+    return normalizedTitle.startsWith('git diff for ticket') || normalizedTitle.startsWith('git-diff for ticket')
+  }, [artifact])
+
+  const sortedArtifacts = useMemo(() => {
+    if (artifacts.length === 0 && artifact) {
+      return [artifact]
+    }
+    return [...artifacts].sort((a, b) => {
+      const timeA = new Date(a.created_at || 0).getTime()
+      const timeB = new Date(b.created_at || 0).getTime()
+      if (timeA !== timeB) {
+        return timeA - timeB
+      }
+      return (a.artifact_id || '').localeCompare(b.artifact_id || '')
+    })
+  }, [artifacts, artifact])
+  
+  const effectiveIndex = useMemo(() => {
+    if (!artifact?.artifact_id) {
+      return sortedArtifacts.length > 0 ? 0 : currentIndex
+    }
+    const actualIndex = sortedArtifacts.findIndex(a => a.artifact_id === artifact.artifact_id)
+    return actualIndex >= 0 ? actualIndex : (sortedArtifacts.length > 0 ? 0 : currentIndex)
+  }, [artifact, sortedArtifacts, currentIndex])
   
   const canGoPrevious = effectiveIndex > 0
   const canGoNext = effectiveIndex < sortedArtifacts.length - 1
@@ -267,17 +193,27 @@ export function ArtifactReportViewer({
   }, [canGoNext, effectiveIndex, onNavigate])
 
   // Normalize artifact data
-  const artifactData = useMemo(() => normalizeArtifactData(artifact), [artifact])
-  const createdAt = new Date(artifactData.createdAt)
+  const artifactTitle = isValidArtifact ? (artifact.title || 'Untitled Artifact') : 'Artifact Viewer'
+  const artifactBodyMd = isValidArtifact ? (artifact.body_md || '') : ''
+  const artifactCreatedAt = isValidArtifact ? (artifact.created_at || new Date().toISOString()) : new Date().toISOString()
+  const artifactAgentType = isValidArtifact ? (artifact.agent_type || 'unknown') : 'unknown'
+  const displayName = isValidArtifact ? getAgentTypeDisplayName(artifactAgentType) : 'Unknown'
+  const createdAt = new Date(artifactCreatedAt)
 
-  // Render content based on artifact state
+  // Render content
   const renderContent = () => {
-    if (!artifactData.isValid) {
+    if (!isValidArtifact) {
       console.error('ArtifactReportViewer: Invalid artifact received', artifact)
-      return renderInvalidArtifactMessage(artifact)
+      return (
+        <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
+          {!artifact 
+            ? 'No artifact selected. Please select an artifact from the list.'
+            : 'Invalid artifact data. Please try selecting the artifact again.'}
+        </p>
+      )
     }
     
-    if (!artifactData.bodyMd || typeof artifactData.bodyMd !== 'string') {
+    if (!artifactBodyMd || typeof artifactBodyMd !== 'string') {
       return (
         <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
           No content available. This artifact may be missing body_md data.
@@ -285,9 +221,15 @@ export function ArtifactReportViewer({
       )
     }
     
-    const trimmedBody = artifactData.bodyMd.trim()
+    const trimmedBody = artifactBodyMd.trim()
     if (trimmedBody.length === 0) {
-      return renderEmptyContentMessage(isGitDiff)
+      return (
+        <p className="ticket-detail-empty" style={{ fontStyle: 'italic', color: '#666' }}>
+          {isGitDiff 
+            ? 'No diff available. This artifact was created but contains no diff content.'
+            : 'No output produced. This artifact was created but contains no content.'}
+        </p>
+      )
     }
     
     if (isGitDiff) {
@@ -309,7 +251,7 @@ export function ArtifactReportViewer({
       <div className="ticket-detail-modal" ref={modalRef}>
         <div className="ticket-detail-header">
           <h2 id="artifact-viewer-title" className="ticket-detail-title">
-            {artifactData.title}
+            {artifactTitle}
           </h2>
           <button
             type="button"
@@ -322,7 +264,7 @@ export function ArtifactReportViewer({
           </button>
         </div>
         <div className="ticket-detail-meta">
-          <span className="ticket-detail-id">Agent type: {artifactData.displayName}</span>
+          <span className="ticket-detail-id">Agent type: {displayName}</span>
           <span className="ticket-detail-priority">Created: {createdAt.toLocaleString()}</span>
         </div>
         <div className="ticket-detail-body-wrap">
@@ -330,7 +272,6 @@ export function ArtifactReportViewer({
             {renderContent()}
           </div>
         </div>
-        {/* Previous/Next navigation buttons (0148) */}
         {sortedArtifacts.length > 1 && (
           <div className="artifact-navigation">
             <button
