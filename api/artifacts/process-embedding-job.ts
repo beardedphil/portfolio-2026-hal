@@ -49,23 +49,42 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return
   }
 
-  if (req.method !== 'POST') {
+  // Allow both POST (manual) and GET (cron) requests
+  if (req.method !== 'POST' && req.method !== 'GET') {
     res.statusCode = 405
     res.end('Method Not Allowed')
     return
   }
 
+  // For GET requests (from Vercel cron), validate CRON_SECRET if set
+  if (req.method === 'GET') {
+    const authHeader = req.headers.authorization
+    const cronSecret = process.env.CRON_SECRET
+    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+      json(res, 401, {
+        success: false,
+        error: 'Unauthorized: Invalid CRON_SECRET',
+      })
+      return
+    }
+  }
+
   try {
-    const body = (await readJsonBody(req)) as {
+    // For GET requests (cron), use default values; for POST, read from body
+    let body: {
       jobId?: string
       limit?: number
       supabaseUrl?: string
       supabaseAnonKey?: string
       openaiApiKey?: string
+    } = {}
+
+    if (req.method === 'POST') {
+      body = (await readJsonBody(req)) as typeof body
     }
 
     const jobId = typeof body.jobId === 'string' ? body.jobId.trim() : undefined
-    const limit = typeof body.limit === 'number' && body.limit > 0 ? Math.min(body.limit, 10) : 1
+    const limit = typeof body.limit === 'number' && body.limit > 0 ? Math.min(body.limit, 10) : 5 // Default to 5 jobs per cron run
 
     // Get credentials
     const credentials = getSupabaseCredentials(body)
