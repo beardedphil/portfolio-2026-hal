@@ -7,6 +7,100 @@ import { MarkdownImage } from './MarkdownImage'
 import { getAgentTypeDisplayName } from './utils'
 import type { SupabaseAgentArtifactRow } from '../App.types'
 
+/** Helper: Extract image source from markdown snippet using regex patterns */
+function extractImageSourceFromMarkdown(markdownSnippet: string): string | null {
+  // Try to extract data URL from markdown: ![alt](data:image/...)
+  const dataUrlMatch = markdownSnippet.match(/!\[.*?\]\((data:image\/[^)]+)\)/)
+  if (dataUrlMatch && dataUrlMatch[1]) {
+    return dataUrlMatch[1]
+  }
+  // Try simpler pattern: (data:image/...)
+  const simpleMatch = markdownSnippet.match(/\((data:image\/[^)]+)\)/)
+  if (simpleMatch && simpleMatch[1]) {
+    return simpleMatch[1]
+  }
+  return null
+}
+
+/** Helper: Extract image source from ReactMarkdown node using position in markdown */
+function extractImageSourceFromNode(node: any, bodyMd: string): string | null {
+  const src = node?.properties?.src
+  if (src && src !== '') {
+    return src
+  }
+  
+  // Extract from raw markdown using node position
+  const position = node?.position
+  if (position && bodyMd) {
+    const startOffset = position.start?.offset || 0
+    const endOffset = position.end?.offset || bodyMd.length
+    const markdownSnippet = bodyMd.substring(startOffset, endOffset)
+    return extractImageSourceFromMarkdown(markdownSnippet)
+  }
+  
+  return null
+}
+
+/** Helper: Check if artifact is a git-diff artifact by title */
+function isGitDiffArtifact(artifact: SupabaseAgentArtifactRow | null): boolean {
+  if (!artifact) return false
+  const normalizedTitle = artifact.title?.toLowerCase().trim() || ''
+  return normalizedTitle.startsWith('git diff for ticket') || normalizedTitle.startsWith('git-diff for ticket')
+}
+
+/** Helper: Sort artifacts chronologically with deterministic fallback */
+function sortArtifactsChronologically(
+  artifacts: SupabaseAgentArtifactRow[],
+  fallbackArtifact: SupabaseAgentArtifactRow | null
+): SupabaseAgentArtifactRow[] {
+  if (artifacts.length === 0 && fallbackArtifact) {
+    return [fallbackArtifact]
+  }
+  return [...artifacts].sort((a, b) => {
+    const timeA = new Date(a.created_at || 0).getTime()
+    const timeB = new Date(b.created_at || 0).getTime()
+    if (timeA !== timeB) {
+      return timeA - timeB
+    }
+    // Secondary sort by artifact_id for deterministic ordering when timestamps are equal
+    return (a.artifact_id || '').localeCompare(b.artifact_id || '')
+  })
+}
+
+/** Helper: Create image component for ReactMarkdown */
+function createImageComponent(
+  artifactTitle: string | undefined,
+  bodyMd: string,
+  onImageClick: (src: string, alt: string) => void
+) {
+  return (props: any) => {
+    const node = props.node
+    const alt = node?.properties?.alt || node?.alt || props.alt || null
+    const src = extractImageSourceFromNode(node, bodyMd)
+    
+    if (!src || src === '') {
+      console.warn('[ImageComponent] Unable to extract image source. Node:', node)
+      return (
+        <div style={{ border: '2px solid red', padding: '1rem', backgroundColor: '#ffebee' }}>
+          <p style={{ margin: 0, fontWeight: 'bold' }}>Unable to extract image source</p>
+          <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.9rem' }}>
+            Alt: {alt || 'Unknown'}
+          </p>
+        </div>
+      )
+    }
+    
+    return (
+      <MarkdownImage
+        src={src}
+        alt={alt}
+        artifactTitle={artifactTitle}
+        onImageClick={onImageClick}
+      />
+    )
+  }
+}
+
 /** Artifact report viewer modal (0082) with Previous/Next navigation (0148) */
 export function ArtifactReportViewer({
   open,
@@ -23,10 +117,7 @@ export function ArtifactReportViewer({
   currentIndex: number
   onNavigate: (index: number) => void
 }) {
-  // Early return if modal is not open (before hooks - this is OK)
-  if (!open) return null
-
-  // ALL HOOKS MUST BE CALLED BEFORE ANY OTHER EARLY RETURNS
+  // ALL HOOKS MUST BE CALLED BEFORE ANY EARLY RETURNS
   // This fixes React error #310 (hooks called conditionally)
   const [imageViewerOpen, setImageViewerOpen] = useState(false)
   const [imageViewerSrc, setImageViewerSrc] = useState<string | null>(null)
@@ -64,22 +155,20 @@ export function ArtifactReportViewer({
         return
       }
       if (e.key !== 'Tab' || !modalRef.current) return
-      const focusable = modalRef.current.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      const focusable = Array.from(
+        modalRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
       )
-      const list = Array.from(focusable)
-      const first = list[0]
-      const last = list[list.length - 1]
-      if (e.shiftKey) {
-        if (document.activeElement === first) {
-          e.preventDefault()
-          last?.focus()
-        }
-      } else {
-        if (document.activeElement === last) {
-          e.preventDefault()
-          first?.focus()
-        }
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const activeEl = document.activeElement
+      if (e.shiftKey && activeEl === first) {
+        e.preventDefault()
+        last?.focus()
+      } else if (!e.shiftKey && activeEl === last) {
+        e.preventDefault()
+        first?.focus()
       }
     },
     [onClose, imageViewerOpen]
@@ -93,109 +182,28 @@ export function ArtifactReportViewer({
 
   // Custom image component for ReactMarkdown (0158)
   const markdownComponents: Components = useMemo(() => {
-    // Create a wrapper that captures the current artifact and handler
     const artifactTitle = artifact?.title
-    const imageClickHandler = handleImageClick
     const bodyMd = artifact?.body_md || ''
-    
-    const ImageComponent = (props: any) => {
-      // ReactMarkdown v10 passes node-based props
-      // However, data URLs are being sanitized and node.properties.src is empty
-      // We need to extract the URL from the raw markdown using the node position
-      const node = props.node
-      const alt = node?.properties?.alt || node?.alt || props.alt || null
-      
-      // If src is empty, try to extract from raw markdown using position
-      let src = node?.properties?.src
-      
-      if (!src || src === '') {
-        // Extract from raw markdown using node position
-        const position = node?.position
-        if (position && bodyMd) {
-          const startOffset = position.start?.offset || 0
-          const endOffset = position.end?.offset || bodyMd.length
-          const markdownSnippet = bodyMd.substring(startOffset, endOffset)
-          
-          // Try to extract data URL from markdown: ![alt](data:image/...)
-          const dataUrlMatch = markdownSnippet.match(/!\[.*?\]\((data:image\/[^)]+)\)/)
-          if (dataUrlMatch && dataUrlMatch[1]) {
-            src = dataUrlMatch[1]
-            console.log('[ImageComponent] Extracted data URL from markdown using position')
-          } else {
-            // Try simpler pattern: (data:image/...)
-            const simpleMatch = markdownSnippet.match(/\((data:image\/[^)]+)\)/)
-            if (simpleMatch && simpleMatch[1]) {
-              src = simpleMatch[1]
-              console.log('[ImageComponent] Extracted data URL using simple pattern')
-            }
-          }
-        }
-      }
-      
-      if (!src || src === '') {
-        console.warn('[ImageComponent] Still no src after extraction. Node:', node)
-        return (
-          <div style={{ border: '2px solid red', padding: '1rem', backgroundColor: '#ffebee' }}>
-            <p style={{ margin: 0, fontWeight: 'bold' }}>Unable to extract image source</p>
-            <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.9rem' }}>
-              Alt: {alt || 'Unknown'}
-            </p>
-          </div>
-        )
-      }
-      
-      return (
-        <MarkdownImage
-          src={src}
-          alt={alt}
-          artifactTitle={artifactTitle}
-          onImageClick={imageClickHandler}
-        />
-      )
-    }
-    
-    return {
-      img: ImageComponent,
-    }
-  }, [artifact?.title, artifact?.body_md, handleImageClick, artifact])
+    const ImageComponent = createImageComponent(artifactTitle, bodyMd, handleImageClick)
+    return { img: ImageComponent }
+  }, [artifact?.title, artifact?.body_md, handleImageClick])
 
-  // Check if this is a git-diff artifact
-  const isGitDiff = useMemo(() => {
-    if (!artifact) return false
-    const normalizedTitle = artifact.title?.toLowerCase().trim() || ''
-    return normalizedTitle.startsWith('git diff for ticket') || normalizedTitle.startsWith('git-diff for ticket')
-  }, [artifact])
-
-  // Calculate navigation state (0148) - must be called before any early returns
-  // Sort artifacts chronologically (oldest first)
-  // If artifacts array is empty but we have an artifact, use it as the only item
-  const sortedArtifacts = useMemo(() => {
-    if (artifacts.length === 0 && artifact) {
-      // Fallback: if artifacts array is empty but we have an artifact, use it
-      return [artifact]
-    }
-    return [...artifacts].sort((a, b) => {
-      const timeA = new Date(a.created_at || 0).getTime()
-      const timeB = new Date(b.created_at || 0).getTime()
-      if (timeA !== timeB) {
-        return timeA - timeB
-      }
-      // Secondary sort by artifact_id for deterministic ordering when timestamps are equal (0147)
-      return (a.artifact_id || '').localeCompare(b.artifact_id || '')
-    })
-  }, [artifacts, artifact])
+  // Calculate navigation state (0148) - sort artifacts chronologically (oldest first)
+  const sortedArtifacts = useMemo(
+    () => sortArtifactsChronologically(artifacts, artifact),
+    [artifacts, artifact]
+  )
   
   // Find the actual index of the current artifact in the sorted list
-  const actualIndex = useMemo(() => {
-    if (!artifact || !artifact.artifact_id) return -1
-    return sortedArtifacts.findIndex(a => a.artifact_id === artifact.artifact_id)
-  }, [sortedArtifacts, artifact])
-  
-  // Use actual index if found, otherwise fall back to currentIndex prop, or 0 if artifact is in the list
-  const effectiveIndex = actualIndex >= 0 ? actualIndex : (artifact && sortedArtifacts.length > 0 ? 0 : currentIndex)
+  const effectiveIndex = useMemo(() => {
+    if (!artifact?.artifact_id) return currentIndex
+    const foundIndex = sortedArtifacts.findIndex(a => a.artifact_id === artifact.artifact_id)
+    return foundIndex >= 0 ? foundIndex : (sortedArtifacts.length > 0 ? 0 : currentIndex)
+  }, [sortedArtifacts, artifact, currentIndex])
   
   const canGoPrevious = effectiveIndex > 0
   const canGoNext = effectiveIndex < sortedArtifacts.length - 1
+  const isGitDiff = artifact ? isGitDiffArtifact(artifact) : false
   
   const handlePrevious = useCallback(() => {
     if (canGoPrevious) {
@@ -209,14 +217,15 @@ export function ArtifactReportViewer({
     }
   }, [canGoNext, effectiveIndex, onNavigate])
 
+  // Early return after all hooks (React rules compliance)
+  if (!open) return null
+
   // Handle invalid artifacts in render logic (not early returns after hooks)
-  // This ensures hooks are always called in the same order
-  const isValidArtifact = artifact && artifact.artifact_id
+  const isValidArtifact = artifact?.artifact_id
   const artifactTitle = isValidArtifact ? (artifact.title || 'Untitled Artifact') : 'Artifact Viewer'
   const artifactBodyMd = isValidArtifact ? (artifact.body_md || '') : ''
   const artifactCreatedAt = isValidArtifact ? (artifact.created_at || new Date().toISOString()) : new Date().toISOString()
   const artifactAgentType = isValidArtifact ? (artifact.agent_type || 'unknown') : 'unknown'
-
   const createdAt = new Date(artifactCreatedAt)
   const displayName = isValidArtifact ? getAgentTypeDisplayName(artifactAgentType) : 'Unknown'
 
