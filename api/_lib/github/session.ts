@@ -47,7 +47,7 @@ export async function getSession(
   req: IncomingMessage,
   res: ServerResponse
 ): Promise<Session> {
-  const session = await IronSession.getIronSession(req, res, sessionOptions())
+  const session = (await IronSession.getIronSession(req, res, sessionOptions())) as Session
   
   // Decrypt OAuth tokens if they're encrypted (for migration compatibility)
   if (session.github?.accessToken) {
