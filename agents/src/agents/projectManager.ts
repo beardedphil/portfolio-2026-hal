@@ -224,6 +224,108 @@ export async function runPmAgent(
 
   const isAbortError = (err: unknown) => isAbortErrorHelper(err, config.abortSignal)
 
+  // Helper: Validate placeholders in ticket body
+  const validatePlaceholders = (bodyMd: string): { valid: boolean; placeholders?: string[] } => {
+    const placeholders = bodyMd.match(PLACEHOLDER_RE) ?? []
+    if (placeholders.length > 0) {
+      return { valid: false, placeholders: [...new Set(placeholders)] }
+    }
+    return { valid: true }
+  }
+
+  // Helper: Execute create ticket tool logic
+  const executeCreateTicket = async (input: { title: string; body_md: string }): Promise<{
+    success: true
+    id: string
+    display_id?: string
+    ticket_number?: number
+    repo_full_name?: string
+    filename: string
+    filePath: string
+    ready: boolean
+    missingItems?: string[]
+    movedToTodo?: boolean
+    moveError?: string
+  } | { success: false; error: string; detectedPlaceholders?: string[] }> => {
+    const placeholderCheck = validatePlaceholders(input.body_md.trim())
+    if (!placeholderCheck.valid) {
+      return {
+        success: false,
+        error: `Ticket creation rejected: unresolved template placeholder tokens detected. Detected placeholders: ${placeholderCheck.placeholders!.join(', ')}.`,
+        detectedPlaceholders: placeholderCheck.placeholders,
+      }
+    }
+    let bodyMdTrimmed = input.body_md.trim()
+
+    bodyMdTrimmed = normalizeBodyForReady(bodyMdTrimmed)
+    const repoFullName =
+      typeof config.projectId === 'string' && config.projectId.trim()
+        ? config.projectId.trim()
+        : 'beardedphil/portfolio-2026-hal'
+
+    const { json: created } = await halFetchJson(
+      '/api/tickets/create-general',
+      {
+        title: input.title.trim(),
+        body_md: bodyMdTrimmed,
+        repo_full_name: repoFullName,
+        kanban_column_id: COL_UNASSIGNED,
+      },
+      { timeoutMs: 25_000, progressMessage: `Creating ticket: ${input.title.trim()}` }
+    )
+    if (!created?.success || !created?.ticketId) {
+      return { success: false, error: created?.error || 'Failed to create ticket' }
+    }
+
+    const displayId = String(created.ticketId)
+    const ticketPk = typeof created.pk === 'string' ? created.pk : undefined
+    const ticketNumber = parseTicketNumber(displayId)
+    const id = String(ticketNumber ?? 0).padStart(4, '0')
+    const filename = `${id}-${slugFromTitle(input.title)}.md`
+    const filePath = `supabase:tickets/${displayId}`
+
+    const normalizedBodyMd = normalizeTitleLineInBody(bodyMdTrimmed, displayId)
+    try {
+      await halFetchJson(
+        '/api/tickets/update',
+        {
+          ...(ticketPk ? { ticketPk } : { ticketId: displayId }),
+          body_md: normalizedBodyMd,
+        },
+        { timeoutMs: 20_000, progressMessage: `Normalizing ticket body for ${displayId}` }
+      )
+    } catch {
+      // Non-fatal: ticket is still created.
+    }
+
+    const readiness = evaluateTicketReady(normalizedBodyMd)
+    let movedToTodo = false
+    let moveError: string | undefined
+    if (readiness.ready) {
+      const { json: moved } = await halFetchJson(
+        '/api/tickets/move',
+        { ticketId: displayId, columnId: COL_TODO, position: 'bottom' },
+        { timeoutMs: 25_000, progressMessage: `Moving ${displayId} to To Do…` }
+      )
+      if (moved?.success) movedToTodo = true
+      else moveError = moved?.error || 'Failed to move to To Do'
+    }
+
+    return {
+      success: true,
+      id,
+      display_id: displayId,
+      ...(typeof ticketNumber === 'number' ? { ticket_number: ticketNumber } : {}),
+      repo_full_name: repoFullName,
+      filename,
+      filePath,
+      ready: readiness.ready,
+      ...(readiness.missingItems.length > 0 ? { missingItems: readiness.missingItems } : {}),
+      ...(movedToTodo ? { movedToTodo: true } : {}),
+      ...(moveError ? { moveError } : {}),
+    }
+  }
+
   const halFetchJson = async (
     path: string,
     body: unknown,
@@ -276,114 +378,13 @@ export async function runPmAgent(
       body_md: z.string().describe('Full markdown body for the ticket. No unresolved placeholders.'),
     }),
     execute: async (input: { title: string; body_md: string }) => {
-      type CreateResult =
-        | {
-            success: true
-            id: string
-            display_id?: string
-            ticket_number?: number
-            repo_full_name?: string
-            filename: string
-            filePath: string
-            ready: boolean
-            missingItems?: string[]
-            movedToTodo?: boolean
-            moveError?: string
-          }
-        | { success: false; error: string; detectedPlaceholders?: string[] }
-
-      let out: CreateResult
+      let out
       try {
-        let bodyMdTrimmed = input.body_md.trim()
-        const placeholders = bodyMdTrimmed.match(PLACEHOLDER_RE) ?? []
-        if (placeholders.length > 0) {
-          const uniquePlaceholders = [...new Set(placeholders)]
-          out = {
-            success: false,
-            error: `Ticket creation rejected: unresolved template placeholder tokens detected. Detected placeholders: ${uniquePlaceholders.join(', ')}.`,
-            detectedPlaceholders: uniquePlaceholders,
-          }
-          toolCalls.push({ name: 'create_ticket', input, output: out })
-          return out
-        }
-
-        bodyMdTrimmed = normalizeBodyForReady(bodyMdTrimmed)
-
-        const repoFullName =
-          typeof config.projectId === 'string' && config.projectId.trim()
-            ? config.projectId.trim()
-            : 'beardedphil/portfolio-2026-hal'
-
-        const { json: created } = await halFetchJson(
-          '/api/tickets/create-general',
-          {
-            title: input.title.trim(),
-            body_md: bodyMdTrimmed,
-            repo_full_name: repoFullName,
-            kanban_column_id: COL_UNASSIGNED,
-          },
-          { timeoutMs: 25_000, progressMessage: `Creating ticket: ${input.title.trim()}` }
-        )
-        if (!created?.success || !created?.ticketId) {
-          out = { success: false, error: created?.error || 'Failed to create ticket' }
-          toolCalls.push({ name: 'create_ticket', input, output: out })
-          return out
-        }
-
-        const displayId = String(created.ticketId)
-        const ticketPk = typeof created.pk === 'string' ? created.pk : undefined
-        const ticketNumber = parseTicketNumber(displayId)
-        const id = String(ticketNumber ?? 0).padStart(4, '0')
-        const filename = `${id}-${slugFromTitle(input.title)}.md`
-        const filePath = `supabase:tickets/${displayId}`
-
-        const normalizedBodyMd = normalizeTitleLineInBody(bodyMdTrimmed, displayId)
-        // Persist normalized Title line (and strip QA blocks server-side).
-        try {
-          await halFetchJson(
-            '/api/tickets/update',
-            {
-              ...(ticketPk ? { ticketPk } : { ticketId: displayId }),
-              body_md: normalizedBodyMd,
-            },
-            { timeoutMs: 20_000, progressMessage: `Normalizing ticket body for ${displayId}` }
-          )
-        } catch {
-          // Non-fatal: ticket is still created.
-        }
-
-        const readiness = evaluateTicketReady(normalizedBodyMd)
-
-        let movedToTodo = false
-        let moveError: string | undefined
-        if (readiness.ready) {
-          const { json: moved } = await halFetchJson(
-            '/api/tickets/move',
-            { ticketId: displayId, columnId: COL_TODO, position: 'bottom' },
-            { timeoutMs: 25_000, progressMessage: `Moving ${displayId} to To Do…` }
-          )
-          if (moved?.success) movedToTodo = true
-          else moveError = moved?.error || 'Failed to move to To Do'
-        }
-
-        out = {
-          success: true,
-          id,
-          display_id: displayId,
-          ...(typeof ticketNumber === 'number' ? { ticket_number: ticketNumber } : {}),
-          repo_full_name: repoFullName,
-          filename,
-          filePath,
-          ready: readiness.ready,
-          ...(readiness.missingItems.length > 0 ? { missingItems: readiness.missingItems } : {}),
-          ...(movedToTodo ? { movedToTodo: true } : {}),
-          ...(moveError ? { moveError } : {}),
-        }
+        out = await executeCreateTicket(input)
       } catch (err) {
         if (isAbortError(err)) throw err
         out = { success: false, error: err instanceof Error ? err.message : String(err) }
       }
-
       toolCalls.push({ name: 'create_ticket', input, output: out })
       return out
     },
@@ -503,27 +504,20 @@ export async function runPmAgent(
       body_md: z.string().describe('Full markdown body. No placeholders.'),
     }),
     execute: async (input: { ticket_id: string; body_md: string }) => {
-      type UpdateResult =
-        | { success: true; ticketId: string; ready: boolean; missingItems?: string[] }
-        | { success: false; error: string; detectedPlaceholders?: string[] }
-      let out: UpdateResult
+      let out
       try {
-        let bodyMdTrimmed = input.body_md.trim()
-        const placeholders = bodyMdTrimmed.match(PLACEHOLDER_RE) ?? []
-        if (placeholders.length > 0) {
-          const uniquePlaceholders = [...new Set(placeholders)]
+        const placeholderCheck = validatePlaceholders(input.body_md.trim())
+        if (!placeholderCheck.valid) {
           out = {
             success: false,
-            error: `Ticket update rejected: unresolved template placeholder tokens detected. Detected placeholders: ${uniquePlaceholders.join(', ')}.`,
-            detectedPlaceholders: uniquePlaceholders,
+            error: `Ticket update rejected: unresolved template placeholder tokens detected. Detected placeholders: ${placeholderCheck.placeholders!.join(', ')}.`,
+            detectedPlaceholders: placeholderCheck.placeholders,
           }
           toolCalls.push({ name: 'update_ticket_body', input, output: out })
           return out
         }
 
-        bodyMdTrimmed = normalizeBodyForReady(bodyMdTrimmed)
-
-        // Fetch ticket to get display_id / pk for robust update.
+        const bodyMdTrimmed = normalizeBodyForReady(input.body_md.trim())
         const { json: fetched } = await halFetchJson(
           '/api/tickets/get',
           { ticketId: input.ticket_id },
