@@ -19,9 +19,14 @@ import {
   slugFromTitle,
   parseTicketNumber,
   evaluateTicketReady,
-  PLACEHOLDER_RE,
   type ReadyCheckResult,
 } from '../lib/projectManagerHelpers.js'
+import {
+  validateNoPlaceholders,
+  normalizeTicketId,
+  getRepoFullName,
+  parseJsonResponse,
+} from './projectManager/toolHelpers.js'
 import {
   listDirectory,
   readFile,
@@ -244,20 +249,9 @@ export async function runPmAgent(
         signal: controller.signal,
       })
       const text = await res.text()
-      let json: any = {}
-      if (text) {
-        try {
-          json = JSON.parse(text)
-        } catch (e) {
-          const contentType = res.headers.get('content-type') || 'unknown'
-          const prefix = text.slice(0, 200)
-          json = {
-            success: false,
-            error: `Non-JSON response from ${path} (HTTP ${res.status}, content-type: ${contentType}): ${prefix}`,
-          }
-        }
-      }
-      return { ok: res.ok, json }
+      const contentType = res.headers.get('content-type')
+      const parsed = parseJsonResponse(text, path, res.status, contentType)
+      return { ok: res.ok, json: parsed.json }
     } finally {
       clearTimeout(t)
       try {
@@ -295,13 +289,12 @@ export async function runPmAgent(
       let out: CreateResult
       try {
         let bodyMdTrimmed = input.body_md.trim()
-        const placeholders = bodyMdTrimmed.match(PLACEHOLDER_RE) ?? []
+        const placeholders = validateNoPlaceholders(bodyMdTrimmed)
         if (placeholders.length > 0) {
-          const uniquePlaceholders = [...new Set(placeholders)]
           out = {
             success: false,
-            error: `Ticket creation rejected: unresolved template placeholder tokens detected. Detected placeholders: ${uniquePlaceholders.join(', ')}.`,
-            detectedPlaceholders: uniquePlaceholders,
+            error: `Ticket creation rejected: unresolved template placeholder tokens detected. Detected placeholders: ${placeholders.join(', ')}.`,
+            detectedPlaceholders: placeholders,
           }
           toolCalls.push({ name: 'create_ticket', input, output: out })
           return out
@@ -309,10 +302,7 @@ export async function runPmAgent(
 
         bodyMdTrimmed = normalizeBodyForReady(bodyMdTrimmed)
 
-        const repoFullName =
-          typeof config.projectId === 'string' && config.projectId.trim()
-            ? config.projectId.trim()
-            : 'beardedphil/portfolio-2026-hal'
+        const repoFullName = getRepoFullName(config.projectId)
 
         const { json: created } = await halFetchJson(
           '/api/tickets/create-general',
@@ -332,8 +322,7 @@ export async function runPmAgent(
 
         const displayId = String(created.ticketId)
         const ticketPk = typeof created.pk === 'string' ? created.pk : undefined
-        const ticketNumber = parseTicketNumber(displayId)
-        const id = String(ticketNumber ?? 0).padStart(4, '0')
+        const id = normalizeTicketId(displayId)
         const filename = `${id}-${slugFromTitle(input.title)}.md`
         const filePath = `supabase:tickets/${displayId}`
 
@@ -396,8 +385,7 @@ export async function runPmAgent(
       ticket_id: z.string().describe('Ticket reference (e.g. "HAL-0012", "0012", or "12").'),
     }),
     execute: async (input: { ticket_id: string }) => {
-      const ticketNumber = parseTicketNumber(input.ticket_id)
-      const normalizedId = String(ticketNumber ?? 0).padStart(4, '0')
+      const normalizedId = normalizeTicketId(input.ticket_id)
       type FetchResult =
         | {
             success: true
@@ -509,13 +497,12 @@ export async function runPmAgent(
       let out: UpdateResult
       try {
         let bodyMdTrimmed = input.body_md.trim()
-        const placeholders = bodyMdTrimmed.match(PLACEHOLDER_RE) ?? []
+        const placeholders = validateNoPlaceholders(bodyMdTrimmed)
         if (placeholders.length > 0) {
-          const uniquePlaceholders = [...new Set(placeholders)]
           out = {
             success: false,
-            error: `Ticket update rejected: unresolved template placeholder tokens detected. Detected placeholders: ${uniquePlaceholders.join(', ')}.`,
-            detectedPlaceholders: uniquePlaceholders,
+            error: `Ticket update rejected: unresolved template placeholder tokens detected. Detected placeholders: ${placeholders.join(', ')}.`,
+            detectedPlaceholders: placeholders,
           }
           toolCalls.push({ name: 'update_ticket_body', input, output: out })
           return out
