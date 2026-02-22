@@ -45,6 +45,10 @@
       "maintainability": 0
     },
     {
+      "file": "api/tickets/move.ts",
+      "maintainability": 12.69
+    },
+    {
       "file": "src/hooks/useProcessReview.ts",
       "maintainability": 14.04
     },
@@ -71,10 +75,6 @@
     {
       "file": "api/qa-agent/run.ts",
       "maintainability": 16.69
-    },
-    {
-      "file": "api/tickets/move.ts",
-      "maintainability": 17.97
     },
     {
       "file": "api/conversations/working-memory/update.ts",
@@ -119,8 +119,8 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-22T00:58:36.427Z",
-  "filesAnalyzed": 328,
-  "unroundedMaintainability": 33.8,
-  "unroundedSimplicity": 33.8
+  "generatedAt": "2026-02-22T01:01:58.738Z",
+  "filesAnalyzed": 332,
+  "unroundedMaintainability": 33.7,
+  "unroundedSimplicity": 33.7
 }
