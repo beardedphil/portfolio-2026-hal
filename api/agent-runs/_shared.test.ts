@@ -9,9 +9,15 @@ import {
   buildWorklogBodyFromProgress,
   readJsonBody,
   upsertArtifact,
+  json,
 } from './_shared.js'
 import type { IncomingMessage, ServerResponse } from 'http'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import * as artifactsShared from '../artifacts/_shared.js'
+import * as artifactsValidation from '../artifacts/_validation.js'
+
+vi.mock('../artifacts/_shared.js')
+vi.mock('../artifacts/_validation.js')
 
 const originalEnv = process.env
 
@@ -200,7 +206,7 @@ describe('buildWorklogBodyFromProgress', () => {
       { at: '2024-01-01T00:00:00Z', message: 'Step 1' },
       { at: '2024-01-01T00:01:00Z', message: 'Step 2' },
     ]
-    const body = buildWorklogBodyFromProgress('HAL-0123', progress, 'succeeded')
+    const body = buildWorklogBodyFromProgress('HAL-0123', progress, 'succeeded', null, null, null)
     expect(body).toContain('HAL-0123')
     expect(body).toContain('Step 1')
     expect(body).toContain('Step 2')
@@ -208,14 +214,95 @@ describe('buildWorklogBodyFromProgress', () => {
   })
 
   it('handles empty progress', () => {
-    const body = buildWorklogBodyFromProgress('HAL-0123', [], 'succeeded')
+    const body = buildWorklogBodyFromProgress('HAL-0123', [], 'succeeded', null, null, null)
     expect(body).toContain('HAL-0123')
   })
 
   it('handles empty progress array', () => {
-    const body = buildWorklogBodyFromProgress('HAL-0123', [], 'succeeded')
+    const body = buildWorklogBodyFromProgress('HAL-0123', [], 'succeeded', null, null, null)
     expect(body).toContain('HAL-0123')
     expect(body).toContain('## Progress')
+  })
+
+  it('includes summary when provided', () => {
+    const progress = [{ at: '2024-01-01T00:00:00Z', message: 'Step 1' }]
+    const body = buildWorklogBodyFromProgress('HAL-0123', progress, 'succeeded', 'This is a summary', null, null)
+    expect(body).toContain('## Summary')
+    expect(body).toContain('This is a summary')
+  })
+
+  it('includes error message when provided', () => {
+    const progress = [{ at: '2024-01-01T00:00:00Z', message: 'Step 1' }]
+    const body = buildWorklogBodyFromProgress('HAL-0123', progress, 'failed', null, 'Error occurred', null)
+    expect(body).toContain('## Error')
+    expect(body).toContain('Error occurred')
+  })
+
+  it('includes PR URL when provided', () => {
+    const progress = [{ at: '2024-01-01T00:00:00Z', message: 'Step 1' }]
+    const body = buildWorklogBodyFromProgress('HAL-0123', progress, 'succeeded', null, null, 'https://github.com/test/repo/pull/123')
+    expect(body).toContain('**Pull request:**')
+    expect(body).toContain('https://github.com/test/repo/pull/123')
+  })
+
+  it('includes all optional fields when provided', () => {
+    const progress = [{ at: '2024-01-01T00:00:00Z', message: 'Step 1' }]
+    const body = buildWorklogBodyFromProgress(
+      'HAL-0123',
+      progress,
+      'succeeded',
+      'Summary text',
+      'Error text',
+      'https://github.com/test/repo/pull/123'
+    )
+    expect(body).toContain('## Summary')
+    expect(body).toContain('Summary text')
+    expect(body).toContain('## Error')
+    expect(body).toContain('Error text')
+    expect(body).toContain('**Pull request:**')
+    expect(body).toContain('https://github.com/test/repo/pull/123')
+  })
+})
+
+describe('json', () => {
+  it('sends JSON response with status code', () => {
+    const mockRes = {
+      statusCode: 200,
+      setHeader: vi.fn(),
+      end: vi.fn(),
+    } as unknown as ServerResponse
+
+    json(mockRes, 200, { key: 'value' })
+
+    expect(mockRes.statusCode).toBe(200)
+    expect(mockRes.setHeader).toHaveBeenCalledWith('Content-Type', 'application/json')
+    expect(mockRes.end).toHaveBeenCalledWith('{"key":"value"}')
+  })
+
+  it('handles different status codes', () => {
+    const mockRes = {
+      statusCode: 200,
+      setHeader: vi.fn(),
+      end: vi.fn(),
+    } as unknown as ServerResponse
+
+    json(mockRes, 404, { error: 'Not found' })
+
+    expect(mockRes.statusCode).toBe(404)
+    expect(mockRes.end).toHaveBeenCalledWith('{"error":"Not found"}')
+  })
+
+  it('handles complex objects', () => {
+    const mockRes = {
+      statusCode: 200,
+      setHeader: vi.fn(),
+      end: vi.fn(),
+    } as unknown as ServerResponse
+
+    const complexObj = { nested: { array: [1, 2, 3], value: 'test' } }
+    json(mockRes, 200, complexObj)
+
+    expect(mockRes.end).toHaveBeenCalledWith(JSON.stringify(complexObj))
   })
 })
 
@@ -280,6 +367,12 @@ describe('upsertArtifact', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(artifactsValidation.hasSubstantiveContent).mockImplementation((body, title) => {
+      // Default: return valid for substantive content
+      if (!body || body.trim().length < 50) return { valid: false, reason: 'too short' }
+      if (body.includes('(none)')) return { valid: false, reason: 'placeholder' }
+      return { valid: true }
+    })
     mockSupabase = {
       from: vi.fn(() => mockSupabase),
       select: vi.fn(() => mockSupabase),
@@ -288,14 +381,18 @@ describe('upsertArtifact', () => {
       maybeSingle: vi.fn(),
       limit: vi.fn(() => mockSupabase),
       single: vi.fn(),
-      update: vi.fn(() => mockSupabase),
-      insert: vi.fn(() => mockSupabase),
-      delete: vi.fn(() => mockSupabase),
-      in: vi.fn(() => mockSupabase),
+      update: vi.fn(() => ({
+        eq: vi.fn(() => ({ error: null })),
+      })),
+      insert: vi.fn(() => ({ error: null })),
+      delete: vi.fn(() => ({
+        in: vi.fn(() => ({ error: null })),
+      })),
     }
   })
 
   it('rejects artifact with insufficient content (too short)', async () => {
+    vi.mocked(artifactsValidation.hasSubstantiveContent).mockReturnValue({ valid: false, reason: 'too short' })
     const shortBody = 'Too short'
     const result = await upsertArtifact(mockSupabase, ticketPk, repoFullName, agentType, title, shortBody)
     expect(result.ok).toBe(false)
@@ -303,6 +400,7 @@ describe('upsertArtifact', () => {
   })
 
   it('rejects artifact with placeholder content', async () => {
+    vi.mocked(artifactsValidation.hasSubstantiveContent).mockReturnValue({ valid: false, reason: 'placeholder' })
     const placeholderBody = '(none)'
     const result = await upsertArtifact(mockSupabase, ticketPk, repoFullName, agentType, title, placeholderBody)
     expect(result.ok).toBe(false)
@@ -310,9 +408,87 @@ describe('upsertArtifact', () => {
   })
 
   it('rejects empty artifact body', async () => {
+    vi.mocked(artifactsValidation.hasSubstantiveContent).mockReturnValue({ valid: false, reason: 'empty' })
     const emptyBody = ''
     const result = await upsertArtifact(mockSupabase, ticketPk, repoFullName, agentType, title, emptyBody)
     expect(result.ok).toBe(false)
     expect(result.error).toContain('validation failed')
+  })
+
+  it('inserts new artifact when none exists', async () => {
+    vi.mocked(artifactsShared.extractArtifactTypeFromTitle).mockReturnValue(null)
+
+    mockSupabase.from.mockReturnValue(mockSupabase)
+    mockSupabase.select.mockReturnValue(mockSupabase)
+    mockSupabase.eq.mockReturnValue(mockSupabase)
+    mockSupabase.order.mockReturnValue({ data: [], error: null })
+
+    const result = await upsertArtifact(mockSupabase, ticketPk, repoFullName, agentType, title, bodyMd)
+
+    expect(result.ok).toBe(true)
+    expect(mockSupabase.insert).toHaveBeenCalled()
+  })
+
+  it('updates existing artifact when found by canonical title', async () => {
+    vi.mocked(artifactsShared.extractArtifactTypeFromTitle).mockReturnValue('plan')
+    vi.mocked(artifactsShared.createCanonicalTitle).mockReturnValue('Plan for ticket HAL-0123')
+    vi.mocked(artifactsShared.findArtifactsByCanonicalId).mockResolvedValue({
+      artifacts: [{ artifact_id: 'existing-id', body_md: bodyMd, created_at: '2024-01-01', title: 'Plan for ticket HAL-0123' }],
+      error: null,
+    })
+
+    mockSupabase.from.mockReturnValue(mockSupabase)
+    mockSupabase.select.mockReturnValue(mockSupabase)
+    mockSupabase.eq.mockReturnValue(mockSupabase)
+    mockSupabase.maybeSingle.mockResolvedValue({ data: { display_id: 'HAL-0123' }, error: null })
+
+    const result = await upsertArtifact(mockSupabase, ticketPk, repoFullName, agentType, title, bodyMd)
+
+    expect(result.ok).toBe(true)
+    expect(mockSupabase.update).toHaveBeenCalled()
+  })
+
+  it('handles duplicate key error by updating existing artifact', async () => {
+    vi.mocked(artifactsShared.extractArtifactTypeFromTitle).mockReturnValue(null)
+
+    mockSupabase.from.mockReturnValue(mockSupabase)
+    mockSupabase.select.mockReturnValue(mockSupabase)
+    mockSupabase.eq.mockReturnValue(mockSupabase)
+    mockSupabase.order.mockReturnValue(mockSupabase)
+    mockSupabase.limit.mockReturnValue(mockSupabase)
+    mockSupabase.single.mockResolvedValue({ data: { artifact_id: 'existing-id' }, error: null })
+    mockSupabase.insert.mockReturnValue({ error: { message: 'duplicate key', code: '23505' } })
+
+    const result = await upsertArtifact(mockSupabase, ticketPk, repoFullName, agentType, title, bodyMd)
+
+    expect(result.ok).toBe(true)
+    expect(mockSupabase.update).toHaveBeenCalled()
+  })
+
+  it('cleans up empty artifacts before updating', async () => {
+    vi.mocked(artifactsShared.extractArtifactTypeFromTitle).mockReturnValue('plan')
+    vi.mocked(artifactsShared.createCanonicalTitle).mockReturnValue('Plan for ticket HAL-0123')
+    vi.mocked(artifactsShared.findArtifactsByCanonicalId).mockResolvedValue({
+      artifacts: [
+        { artifact_id: 'empty-id', body_md: '(none)', created_at: '2024-01-01', title: 'Plan for ticket HAL-0123' },
+        { artifact_id: 'valid-id', body_md: bodyMd, created_at: '2024-01-02', title: 'Plan for ticket HAL-0123' },
+      ],
+      error: null,
+    })
+    vi.mocked(artifactsValidation.hasSubstantiveContent).mockImplementation((body, title) => {
+      if (body === '(none)') return { valid: false, reason: 'placeholder' }
+      return { valid: true }
+    })
+
+    mockSupabase.from.mockReturnValue(mockSupabase)
+    mockSupabase.select.mockReturnValue(mockSupabase)
+    mockSupabase.eq.mockReturnValue(mockSupabase)
+    mockSupabase.maybeSingle.mockResolvedValue({ data: { display_id: 'HAL-0123' }, error: null })
+
+    const result = await upsertArtifact(mockSupabase, ticketPk, repoFullName, agentType, title, bodyMd)
+
+    expect(result.ok).toBe(true)
+    expect(mockSupabase.delete).toHaveBeenCalled()
+    expect(mockSupabase.update).toHaveBeenCalled()
   })
 })

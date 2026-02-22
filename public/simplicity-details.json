@@ -101,8 +101,63 @@
       "maintainability": 0
     }
   ],
-  "mostRecentImprovements": [],
-  "generatedAt": "2026-02-22T07:21:30.596Z",
+  "mostRecentImprovements": [
+    {
+      "file": "src/hooks/useAgentRuns.ts",
+      "before": 36.17,
+      "after": 36.17,
+      "delta": 0
+    },
+    {
+      "file": "api/implementation-agent/run.ts",
+      "before": 33.68,
+      "after": 33.68,
+      "delta": 0
+    },
+    {
+      "file": "api/agent-runs/sync-artifacts.ts",
+      "before": 35.81,
+      "after": 35.81,
+      "delta": 0
+    },
+    {
+      "file": "api/instructions/get-topic.ts",
+      "before": 33.31,
+      "after": 33.31,
+      "delta": 0
+    },
+    {
+      "file": "api/agent-runs/status.ts",
+      "before": 33.78,
+      "after": 33.78,
+      "delta": 0
+    },
+    {
+      "file": "api/drift-attempts/get.ts",
+      "before": 35.78,
+      "after": 35.78,
+      "delta": 0
+    },
+    {
+      "file": "api/acceptance-criteria-status/update.ts",
+      "before": 29.54,
+      "after": 29.54,
+      "delta": 0
+    },
+    {
+      "file": "api/red/list.ts",
+      "before": 37.92,
+      "after": 37.92,
+      "delta": 0
+    },
+    {
+      "file": "api/artifacts/insert-implementation.ts",
+      "before": 29.71,
+      "after": 29.71,
+      "delta": 0
+    }
+  ],
+  "generatedAt": "2026-02-22T12:46:35.267Z",
   "filesAnalyzed": 407,
   "unroundedCodeQuality": 51.2,
   "unroundedMaintainability": 51.2,
