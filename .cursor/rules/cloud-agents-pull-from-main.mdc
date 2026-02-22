@@ -26,14 +26,16 @@ git checkout main && git pull origin main
 
 Determine your feature branch name from the ticket (typically `ticket/<id>-<short-title-kebab>` format, e.g., `ticket/0817-add-a-rule-to-create-and-push-branch-early`).
 
-**If the branch does not exist:**
+#### If the branch does not exist
+
 ```bash
 git switch -c ticket/0817-add-a-rule-to-create-and-push-branch-early
 # OR (if using older git versions)
 git checkout -b ticket/0817-add-a-rule-to-create-and-push-branch-early
 ```
 
-**If the branch already exists:**
+#### If the branch already exists
+
 ```bash
 git switch ticket/0817-add-a-rule-to-create-and-push-branch-early
 # OR (if using older git versions)
@@ -48,7 +50,8 @@ git checkout ticket/0817-add-a-rule-to-create-and-push-branch-early
 git push -u origin ticket/0817-add-a-rule-to-create-and-push-branch-early
 ```
 
-**If the branch already exists and upstream is missing:**
+#### If the branch already exists and upstream is missing
+
 If you switched to an existing branch that doesn't have upstream tracking set, run the same push command:
 ```bash
 git push -u origin ticket/0817-add-a-rule-to-create-and-push-branch-early
