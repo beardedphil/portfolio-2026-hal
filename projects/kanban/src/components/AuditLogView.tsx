@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { redactSecrets } from '../lib/redactSecrets'
 
 interface AuditLogViewProps {
   isOpen: boolean
@@ -190,7 +191,7 @@ export function AuditLogView({
                     <details style={{ marginTop: '0.5rem' }}>
                       <summary style={{ cursor: 'pointer', fontSize: '0.9em', color: '#666' }}>Metadata</summary>
                       <pre style={{ marginTop: '0.5rem', padding: '0.5rem', backgroundColor: '#fff', borderRadius: '4px', fontSize: '0.85em', overflow: 'auto' }}>
-                        {JSON.stringify(log.metadata, null, 2)}
+                        {JSON.stringify(redactSecrets(log.metadata), null, 2)}
                       </pre>
                     </details>
                   )}
