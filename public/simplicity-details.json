@@ -45,6 +45,10 @@
       "maintainability": 0
     },
     {
+      "file": "src/components/DiagnosticsModal.tsx",
+      "maintainability": 6.08
+    },
+    {
       "file": "agents/src/agents/projectManager.ts",
       "maintainability": 9
     },
@@ -75,19 +79,9 @@
     {
       "file": "api/conversations/working-memory/update.ts",
       "maintainability": 18.36
-    },
-    {
-      "file": "api/tickets/_docs-consistency-check.ts",
-      "maintainability": 18.76
     }
   ],
   "mostRecentImprovements": [
-    {
-      "file": "src/components/DiagnosticsModal.tsx",
-      "before": 9.54,
-      "after": 20.33,
-      "delta": 10.79
-    },
     {
       "file": "api/instructions/migrate-process-docs.ts",
       "before": 15.59,
@@ -119,8 +113,8 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-22T04:33:35.346Z",
-  "filesAnalyzed": 369,
+  "generatedAt": "2026-02-22T04:49:00.518Z",
+  "filesAnalyzed": 370,
   "unroundedMaintainability": 32.8,
   "unroundedSimplicity": 32.8
 }
