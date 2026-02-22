@@ -49,10 +49,6 @@
       "maintainability": 9
     },
     {
-      "file": "src/components/DiagnosticsModal.tsx",
-      "maintainability": 9.54
-    },
-    {
       "file": "api/context-bundles/_builder.ts",
       "maintainability": 11.28
     },
@@ -74,14 +70,24 @@
     },
     {
       "file": "api/auth/github/callback.ts",
-      "maintainability": 16.29
+      "maintainability": 16.14
     },
     {
       "file": "api/conversations/working-memory/update.ts",
       "maintainability": 18.36
+    },
+    {
+      "file": "api/tickets/_docs-consistency-check.ts",
+      "maintainability": 18.76
     }
   ],
   "mostRecentImprovements": [
+    {
+      "file": "src/components/DiagnosticsModal.tsx",
+      "before": 9.54,
+      "after": 20.33,
+      "delta": 10.79
+    },
     {
       "file": "api/instructions/migrate-process-docs.ts",
       "before": 15.59,
@@ -111,22 +117,10 @@
       "before": 15.41,
       "after": 15.41,
       "delta": 0
-    },
-    {
-      "file": "src/components/DiagnosticsModal.tsx",
-      "before": 9.54,
-      "after": 9.54,
-      "delta": 0
-    },
-    {
-      "file": "api/auth/github/callback.ts",
-      "before": 16.29,
-      "after": 16.29,
-      "delta": 0
     }
   ],
-  "generatedAt": "2026-02-22T04:28:38.391Z",
-  "filesAnalyzed": 366,
+  "generatedAt": "2026-02-22T04:33:35.346Z",
+  "filesAnalyzed": 369,
   "unroundedMaintainability": 32.8,
   "unroundedSimplicity": 32.8
 }
