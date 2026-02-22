@@ -64,6 +64,13 @@ interface PreviewResult {
   }
   sectionMetrics?: Record<string, number>
   bundle?: unknown // Bundle content for preview
+  retrievalMetadata?: {
+    repoFilter: string
+    recencyWindow: string | null
+    pinnedIncluded: boolean
+    itemsConsidered: number
+    itemsSelected: number
+  }
   error?: string
 }
 
@@ -139,6 +146,11 @@ export function ContextBundleModal({
   const [continuityCheckResult, setContinuityCheckResult] = useState<ContinuityCheckResult | null>(null)
   const [continuityCheckLoading, setContinuityCheckLoading] = useState(false)
   const [showContinuityCheck, setShowContinuityCheck] = useState(false)
+  const [generating, setGenerating] = useState(false)
+  const [useHybridRetrieval, setUseHybridRetrieval] = useState(true)
+  const [retrievalQuery, setRetrievalQuery] = useState('')
+  const [recencyDays, setRecencyDays] = useState<number | null>(30)
+  const [includePinned, setIncludePinned] = useState(false)
   const apiBaseUrlRef = useRef<string>('')
 
   // Load API base URL
@@ -174,6 +186,10 @@ export function ContextBundleModal({
       setBundlePreviewText('')
       setContinuityCheckResult(null)
       setShowContinuityCheck(false)
+      // Set default query from ticket ID if available
+      if (initialTicketId && !retrievalQuery) {
+        setRetrievalQuery(`Ticket ${initialTicketId} requirements and implementation details`)
+      }
       if (repoFullName) {
         loadBundles()
       }
@@ -324,16 +340,27 @@ export function ContextBundleModal({
 
     try {
       const apiBaseUrl = apiBaseUrlRef.current || window.location.origin
+      const requestBody: any = {
+        ticketId: ticketIdToUse,
+        repoFullName,
+        role: selectedRole,
+        supabaseUrl,
+        supabaseAnonKey,
+      }
+
+      // Add hybrid retrieval options if enabled
+      if (useHybridRetrieval && retrievalQuery) {
+        requestBody.useHybridRetrieval = true
+        requestBody.retrievalQuery = retrievalQuery
+        requestBody.recencyDays = recencyDays
+        requestBody.includePinned = includePinned
+        // OpenAI API key should be provided by the server (from env)
+      }
+
       const response = await fetch(`${apiBaseUrl}/api/context-bundles/preview`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ticketId: ticketIdToUse,
-          repoFullName,
-          role: selectedRole,
-          supabaseUrl,
-          supabaseAnonKey,
-        }),
+        body: JSON.stringify(requestBody),
       })
 
       const data = (await response.json()) as PreviewResult
@@ -354,6 +381,57 @@ export function ContextBundleModal({
       setPreview(null)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleGenerate = async () => {
+    const ticketIdToUse = ticketId
+    if (!repoFullName || !ticketIdToUse || !supabaseUrl || !supabaseAnonKey) return
+
+    setGenerating(true)
+    setError(null)
+
+    try {
+      const apiBaseUrl = apiBaseUrlRef.current || window.location.origin
+      const requestBody: any = {
+        ticketId: ticketIdToUse,
+        repoFullName,
+        role: selectedRole,
+        supabaseUrl,
+        supabaseAnonKey,
+      }
+
+      // Add hybrid retrieval options if enabled
+      if (useHybridRetrieval && retrievalQuery) {
+        requestBody.useHybridRetrieval = true
+        requestBody.retrievalQuery = retrievalQuery
+        requestBody.recencyDays = recencyDays
+        requestBody.includePinned = includePinned
+      }
+
+      const response = await fetch(`${apiBaseUrl}/api/context-bundles/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      })
+
+      const data = (await response.json()) as { success: boolean; error?: string; bundle?: any }
+
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to generate bundle')
+      }
+
+      // Reload bundles to show the new one
+      await loadBundles()
+      
+      // Select the newly created bundle if possible
+      if (data.bundle?.bundle_id) {
+        setSelectedBundleId(data.bundle.bundle_id)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to generate bundle')
+    } finally {
+      setGenerating(false)
     }
   }
 
@@ -535,6 +613,136 @@ export function ContextBundleModal({
                       ))}
                     </div>
                   </div>
+
+                  {/* Hybrid Retrieval Options */}
+                  <div style={{ border: '1px solid var(--hal-border)', borderRadius: '8px', padding: '16px' }}>
+                    <h3 style={{ margin: '0 0 12px 0', fontSize: '16px' }}>Retrieval Options</h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={useHybridRetrieval}
+                          onChange={(e) => setUseHybridRetrieval(e.target.checked)}
+                        />
+                        <span>Use hybrid retrieval (vector similarity + metadata filters)</span>
+                      </label>
+                      {useHybridRetrieval && (
+                        <>
+                          <div>
+                            <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px' }}>
+                              Query (for vector similarity search):
+                            </label>
+                            <input
+                              type="text"
+                              value={retrievalQuery}
+                              onChange={(e) => setRetrievalQuery(e.target.value)}
+                              placeholder="Enter query to find relevant artifacts..."
+                              style={{
+                                width: '100%',
+                                padding: '8px',
+                                fontSize: '14px',
+                                border: '1px solid var(--hal-border)',
+                                borderRadius: '4px',
+                              }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px' }}>
+                              Recency window (days, leave empty for no filter):
+                            </label>
+                            <input
+                              type="number"
+                              value={recencyDays ?? ''}
+                              onChange={(e) => {
+                                const val = e.target.value
+                                setRecencyDays(val === '' ? null : parseInt(val, 10))
+                              }}
+                              placeholder="30"
+                              min="1"
+                              style={{
+                                width: '100%',
+                                padding: '8px',
+                                fontSize: '14px',
+                                border: '1px solid var(--hal-border)',
+                                borderRadius: '4px',
+                              }}
+                            />
+                          </div>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                            <input
+                              type="checkbox"
+                              checked={includePinned}
+                              onChange={(e) => setIncludePinned(e.target.checked)}
+                            />
+                            <span>Include pinned artifacts</span>
+                          </label>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Generate Button */}
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      onClick={handleGenerate}
+                      disabled={generating || (useHybridRetrieval && !retrievalQuery)}
+                      style={{
+                        opacity: generating || (useHybridRetrieval && !retrievalQuery) ? 0.5 : 1,
+                        cursor: generating || (useHybridRetrieval && !retrievalQuery) ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      {generating ? 'Generating...' : 'Generate Context Bundle'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-standard"
+                      onClick={() => loadPreview()}
+                      disabled={loading || (useHybridRetrieval && !retrievalQuery)}
+                      style={{
+                        opacity: loading || (useHybridRetrieval && !retrievalQuery) ? 0.5 : 1,
+                        cursor: loading || (useHybridRetrieval && !retrievalQuery) ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      {loading ? 'Loading...' : 'Preview'}
+                    </button>
+                  </div>
+
+                  {/* Retrieval Sources Summary */}
+                  {preview?.retrievalMetadata && (
+                    <div style={{ border: '1px solid var(--hal-border)', borderRadius: '8px', padding: '16px', background: 'var(--hal-surface-alt)' }}>
+                      <h3 style={{ margin: '0 0 12px 0', fontSize: '16px' }}>Retrieval Sources</h3>
+                      {preview.retrievalMetadata.itemsConsidered === 0 ? (
+                        <div style={{ padding: '12px', background: 'var(--hal-status-error, #c62828)', color: 'white', borderRadius: '4px' }}>
+                          <strong>No matching sources found</strong>
+                          <p style={{ margin: '8px 0 0 0', fontSize: '14px' }}>
+                            No artifacts matched the specified filters (repo: {preview.retrievalMetadata.repoFilter}
+                            {preview.retrievalMetadata.recencyWindow ? `, ${preview.retrievalMetadata.recencyWindow}` : ''}
+                            {preview.retrievalMetadata.pinnedIncluded ? ', pinned only' : ''}).
+                          </p>
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          <div>
+                            <strong>Repo filter:</strong> {preview.retrievalMetadata.repoFilter}
+                          </div>
+                          <div>
+                            <strong>Pinned included:</strong> {preview.retrievalMetadata.pinnedIncluded ? 'Yes' : 'No'}
+                          </div>
+                          <div>
+                            <strong>Recency window:</strong> {preview.retrievalMetadata.recencyWindow || 'No filter'}
+                          </div>
+                          <div>
+                            <strong>Items considered:</strong> {formatNumber(preview.retrievalMetadata.itemsConsidered)}
+                          </div>
+                          <div>
+                            <strong>Items selected:</strong> {formatNumber(preview.retrievalMetadata.itemsSelected)}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Budget Status */}
                   {preview?.budget && (

@@ -60,6 +60,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         base_sha?: string
         head_sha?: string
       } | null
+      // Hybrid retrieval options
+      useHybridRetrieval?: boolean
+      retrievalQuery?: string
+      recencyDays?: number | null
+      includePinned?: boolean
+      openaiApiKey?: string
     }
 
     const ticketPk = typeof body.ticketPk === 'string' ? body.ticketPk.trim() || undefined : undefined
@@ -171,6 +177,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       supabaseAnonKey,
       selectedArtifactIds,
       gitRef: body.gitRef || null,
+      useHybridRetrieval: body.useHybridRetrieval ?? false,
+      retrievalQuery: body.retrievalQuery,
+      recencyDays: body.recencyDays ?? null,
+      includePinned: body.includePinned ?? false,
+      openaiApiKey: body.openaiApiKey || process.env.OPENAI_API_KEY || undefined,
     })
 
     if (!builderResult.success || !builderResult.bundle) {
@@ -200,6 +211,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       },
       sectionMetrics,
       bundle: bundle, // Include bundle content for preview
+      retrievalMetadata: builderResult.retrievalMetadata,
     })
   } catch (err) {
     console.error('Error in preview context bundle handler:', err)
