@@ -50,7 +50,7 @@ export function useKanbanWorkButton({
       await routeKanbanWorkButtonClick(data as KanbanWorkButtonPayload, {
         pmChatWidgetOpen,
         openPmChatWidget: () => setPmChatWidgetOpen(true),
-        setSelectedChatTarget: () => setSelectedChatTarget('project-manager'),
+        setSelectedChatTarget: (target: 'project-manager') => setSelectedChatTarget(target),
         setSelectedConversationId,
         getDefaultPmConversationId: () => getDefaultConversationId('project-manager'),
         triggerAgentRun: (content, target, conversationId) => triggerAgentRun(content, target, undefined, conversationId),

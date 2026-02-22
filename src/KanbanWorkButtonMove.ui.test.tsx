@@ -145,5 +145,38 @@ describe('Kanban UI work button behavior', () => {
       within(todoColumnAfter!).queryByText('Test Ticket A')
     ).not.toBeInTheDocument()
   })
+
+  it('handles rapid clicks on "Implement top ticket" without errors', async () => {
+    render(<Harness />)
+
+    const todoColumn = document.querySelector(
+      '[data-column-id="col-todo"]'
+    ) as HTMLElement | null
+    expect(todoColumn).not.toBeNull()
+
+    const implementButton = within(todoColumn!).getByRole('button', {
+      name: 'Implement top ticket',
+    })
+
+    // Rapidly click the button multiple times to test for race conditions
+    fireEvent.click(implementButton)
+    fireEvent.click(implementButton)
+    fireEvent.click(implementButton)
+
+    // Ticket should still move correctly despite rapid clicks
+    const activeWork = screen.getByLabelText('Active Work')
+    await waitFor(() => {
+      expect(within(activeWork).getByText('Test Ticket A')).toBeInTheDocument()
+    }, { timeout: 3000 })
+
+    // To-do should now be empty.
+    const todoColumnAfter = document.querySelector(
+      '[data-column-id="col-todo"]'
+    ) as HTMLElement | null
+    expect(todoColumnAfter).not.toBeNull()
+    expect(
+      within(todoColumnAfter!).queryByText('Test Ticket A')
+    ).not.toBeInTheDocument()
+  })
 })
 
