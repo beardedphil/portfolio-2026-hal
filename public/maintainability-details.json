@@ -17,10 +17,6 @@
       "maintainability": 0
     },
     {
-      "file": "api/agent-runs/launch.ts",
-      "maintainability": 0
-    },
-    {
       "file": "api/agent-runs/providers/openai.ts",
       "maintainability": 0
     },
@@ -53,6 +49,10 @@
       "maintainability": 11.28
     },
     {
+      "file": "api/agent-runs/launch.test.ts",
+      "maintainability": 12.09
+    },
+    {
       "file": "src/hooks/useProcessReview.ts",
       "maintainability": 14.04
     },
@@ -73,12 +73,12 @@
       "maintainability": 16.29
     },
     {
-      "file": "api/agent-runs/launch.test.ts",
-      "maintainability": 16.53
-    },
-    {
       "file": "api/conversations/working-memory/update.ts",
       "maintainability": 18.36
+    },
+    {
+      "file": "projects/kanban/src/components/ArtifactReportViewer.tsx",
+      "maintainability": 18.61
     }
   ],
   "mostRecentImprovements": [
@@ -101,12 +101,6 @@
       "delta": 0
     },
     {
-      "file": "api/agent-runs/launch.test.ts",
-      "before": 16.53,
-      "after": 16.53,
-      "delta": 0
-    },
-    {
       "file": "api/conversations/working-memory/update.ts",
       "before": 18.36,
       "after": 18.36,
@@ -119,14 +113,20 @@
       "delta": 0
     },
     {
+      "file": "projects/kanban/src/components/ArtifactReportViewer.tsx",
+      "before": 18.61,
+      "after": 18.61,
+      "delta": 0
+    },
+    {
       "file": "api/auth/github/callback.ts",
       "before": 16.29,
       "after": 16.29,
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-22T02:21:35.252Z",
-  "filesAnalyzed": 347,
-  "unroundedMaintainability": 33.2,
-  "unroundedSimplicity": 33.2
+  "generatedAt": "2026-02-22T02:25:43.214Z",
+  "filesAnalyzed": 353,
+  "unroundedMaintainability": 33.3,
+  "unroundedSimplicity": 33.3
 }

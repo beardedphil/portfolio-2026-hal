@@ -16,12 +16,22 @@ import * as shared from './_shared.js'
 import * as config from '../_lib/github/config.js'
 import * as session from '../_lib/github/session.js'
 import * as githubApi from '../_lib/github/githubApi.js'
+import * as launchShared from './launch/shared.js'
+import * as launchPrompts from './launch/prompts.js'
+import * as launchProjectManager from './launch/project-manager.js'
+import * as launchProcessReview from './launch/process-review.js'
+import * as launchCursorAgents from './launch/cursor-agents.js'
 
 // Mock dependencies
 vi.mock('./_shared.js')
 vi.mock('../_lib/github/config.js')
 vi.mock('../_lib/github/session.js')
 vi.mock('../_lib/github/githubApi.js')
+vi.mock('./launch/shared.js')
+vi.mock('./launch/prompts.js')
+vi.mock('./launch/project-manager.js')
+vi.mock('./launch/process-review.js')
+vi.mock('./launch/cursor-agents.js')
 
 describe('agent-runs/launch handler', () => {
   let mockSupabase: any
@@ -101,8 +111,34 @@ describe('agent-runs/launch handler', () => {
     vi.mocked(shared.upsertArtifact).mockResolvedValue({ ok: true } as any)
     vi.mocked(config.getOrigin).mockReturnValue('https://test.example.com')
     vi.mocked(session.getSession).mockResolvedValue({ github: { accessToken: 'test-token' } } as any)
-    vi.mocked(githubApi.listBranches).mockResolvedValue({ branches: ['main'] })
-    vi.mocked(githubApi.ensureInitialCommit).mockResolvedValue({ success: true })
+    vi.mocked(githubApi.listBranches).mockResolvedValue({ branches: [{ name: 'main' }] })
+    vi.mocked(githubApi.ensureInitialCommit).mockResolvedValue({ ok: true } as any)
+
+    // Mock launch module functions
+    vi.mocked(launchShared.determineAgentType).mockImplementation((body: any) => {
+      if (body.agentType === 'qa') return 'qa'
+      if (body.agentType === 'project-manager') return 'project-manager'
+      if (body.agentType === 'process-review') return 'process-review'
+      return 'implementation'
+    })
+    vi.mocked(launchShared.parseTicketContent).mockReturnValue({
+      goal: 'Test goal',
+      deliverable: 'Test deliverable',
+      criteria: 'Test criteria',
+    })
+    vi.mocked(launchShared.moveQATicketToDoing).mockResolvedValue(undefined)
+    vi.mocked(launchShared.findExistingPrUrl).mockResolvedValue(null)
+    vi.mocked(launchPrompts.buildImplementationPrompt).mockReturnValue('Implementation prompt')
+    vi.mocked(launchPrompts.buildQAPrompt).mockReturnValue('QA prompt')
+    vi.mocked(launchProjectManager.handleProjectManagerLaunch).mockResolvedValue(true)
+    vi.mocked(launchProcessReview.handleProcessReviewLaunch).mockResolvedValue(true)
+    vi.mocked(launchCursorAgents.bootstrapEmptyRepo).mockResolvedValue(true)
+    vi.mocked(launchCursorAgents.updateRunStages).mockResolvedValue(undefined)
+    vi.mocked(launchCursorAgents.launchCursorAgent).mockResolvedValue({
+      success: true,
+      cursorAgentId: 'test-agent-id',
+      cursorStatus: 'CREATING',
+    })
 
     // Mock global fetch
     global.fetch = vi.fn() as any
@@ -611,14 +647,13 @@ describe('agent-runs/launch handler', () => {
 
       await handler(mockReq as IncomingMessage, mockRes as ServerResponse)
 
-      // Verify ticket was moved to col-doing
-      expect(ticketUpdateChain.update).toHaveBeenCalled()
-      const updateCall = vi.mocked(ticketUpdateChain.update).mock.calls[0]?.[0]
-      expect(updateCall).toMatchObject({
-        kanban_column_id: 'col-doing',
-        kanban_position: 6, // next position after 5
-      })
-      expect(ticketUpdateChain.eq).toHaveBeenCalledWith('pk', 'ticket-pk')
+      // Verify ticket was moved to col-doing via the extracted function
+      expect(launchShared.moveQATicketToDoing).toHaveBeenCalledWith(
+        mockSupabase,
+        'test/repo',
+        'ticket-pk',
+        'HAL-0123'
+      )
     })
 
     it('should not move ticket if not in col-qa', async () => {
