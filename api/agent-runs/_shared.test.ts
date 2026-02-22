@@ -7,8 +7,10 @@ import {
   humanReadableCursorError,
   appendProgress,
   buildWorklogBodyFromProgress,
+  upsertArtifact,
 } from './_shared.js'
 import type { IncomingMessage, ServerResponse } from 'http'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 const originalEnv = process.env
 
@@ -197,7 +199,7 @@ describe('buildWorklogBodyFromProgress', () => {
       { at: '2024-01-01T00:00:00Z', message: 'Step 1' },
       { at: '2024-01-01T00:01:00Z', message: 'Step 2' },
     ]
-    const body = buildWorklogBodyFromProgress('HAL-0123', progress, 'succeeded')
+    const body = buildWorklogBodyFromProgress('HAL-0123', progress, 'succeeded', 'Summary text', null, null)
     expect(body).toContain('HAL-0123')
     expect(body).toContain('Step 1')
     expect(body).toContain('Step 2')
@@ -205,13 +207,413 @@ describe('buildWorklogBodyFromProgress', () => {
   })
 
   it('handles empty progress', () => {
-    const body = buildWorklogBodyFromProgress('HAL-0123', [], 'succeeded')
+    const body = buildWorklogBodyFromProgress('HAL-0123', [], 'succeeded', null, null, null)
     expect(body).toContain('HAL-0123')
   })
 
   it('handles empty progress array', () => {
-    const body = buildWorklogBodyFromProgress('HAL-0123', [], 'succeeded')
+    const body = buildWorklogBodyFromProgress('HAL-0123', [], 'succeeded', null, null, null)
     expect(body).toContain('HAL-0123')
     expect(body).toContain('## Progress')
+  })
+})
+
+describe('upsertArtifact', () => {
+  let mockSupabase: SupabaseClient<any, 'public', any>
+  const ticketPk = 'ticket-123'
+  const repoFullName = 'test/repo'
+  const agentType = 'implementation'
+  const validBody = 'This is a valid artifact body with enough content to pass validation. It has more than 50 characters.'
+
+  beforeEach(() => {
+    mockSupabase = {
+      from: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn(),
+      single: vi.fn(),
+      limit: vi.fn().mockReturnThis(),
+      update: vi.fn().mockReturnThis(),
+      insert: vi.fn().mockReturnThis(),
+      delete: vi.fn().mockReturnThis(),
+      in: vi.fn().mockReturnThis(),
+    } as unknown as SupabaseClient<any, 'public', any>
+  })
+
+  describe('validation behavior', () => {
+    it('rejects empty body_md', async () => {
+      const result = await upsertArtifact(mockSupabase, ticketPk, repoFullName, agentType, 'Plan for ticket HAL-0123', '')
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.error).toContain('validation failed')
+      }
+    })
+
+    it('rejects body_md that is too short', async () => {
+      const result = await upsertArtifact(mockSupabase, ticketPk, repoFullName, agentType, 'Plan for ticket HAL-0123', 'Short')
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.error).toContain('too short')
+      }
+    })
+
+    it('rejects placeholder content', async () => {
+      const result = await upsertArtifact(mockSupabase, ticketPk, repoFullName, agentType, 'Plan for ticket HAL-0123', '(none)')
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.error).toContain('placeholder')
+      }
+    })
+  })
+
+  describe('canonical title matching behavior', () => {
+    it('finds existing artifact by canonical title when artifact type is extractable', async () => {
+      // Mock ticket lookup
+      const mockTicket = { display_id: 'HAL-0123' }
+      ;(mockSupabase.from as any).mockImplementation((table: string) => {
+        if (table === 'tickets') {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({ data: mockTicket, error: null }),
+          }
+        }
+        if (table === 'agent_artifacts') {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            order: vi.fn().mockReturnThis(),
+            limit: vi.fn().mockReturnThis(),
+            single: vi.fn().mockResolvedValue({
+              data: { artifact_id: 'artifact-1', body_md: validBody, created_at: '2024-01-01' },
+              error: null,
+            }),
+            update: vi.fn().mockReturnThis(),
+            insert: vi.fn().mockResolvedValue({ data: null, error: null }),
+          }
+        }
+        return mockSupabase
+      })
+
+      // Mock findArtifactsByCanonicalId to return existing artifact
+      vi.spyOn(await import('../artifacts/_shared.js'), 'findArtifactsByCanonicalId').mockResolvedValue({
+        artifacts: [{ artifact_id: 'artifact-1', body_md: validBody, created_at: '2024-01-01', title: 'Plan for ticket HAL-0123' }],
+        error: null,
+      })
+
+      const result = await upsertArtifact(
+        mockSupabase,
+        ticketPk,
+        repoFullName,
+        agentType,
+        'Plan for ticket HAL-0123',
+        validBody
+      )
+
+      // Should update existing artifact
+      expect(mockSupabase.from).toHaveBeenCalledWith('agent_artifacts')
+    })
+
+    it('falls back to exact title matching when artifact type cannot be extracted', async () => {
+      ;(mockSupabase.from as any).mockImplementation((table: string) => {
+        if (table === 'agent_artifacts') {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            order: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: [{ artifact_id: 'artifact-1', body_md: validBody, created_at: '2024-01-01' }],
+              error: null,
+            }),
+            update: vi.fn().mockReturnThis(),
+            insert: vi.fn().mockResolvedValue({ data: null, error: null }),
+          }
+        }
+        return mockSupabase
+      })
+
+      const result = await upsertArtifact(
+        mockSupabase,
+        ticketPk,
+        repoFullName,
+        agentType,
+        'Custom Title Without Type',
+        validBody
+      )
+
+      expect(mockSupabase.from).toHaveBeenCalledWith('agent_artifacts')
+    })
+  })
+
+  describe('empty artifact deletion behavior', () => {
+    it('deletes empty/placeholder artifacts before updating', async () => {
+      const emptyArtifact = { artifact_id: 'empty-1', body_md: '(none)', created_at: '2024-01-01', title: 'Plan for ticket HAL-0123' }
+      const validArtifact = { artifact_id: 'valid-1', body_md: validBody, created_at: '2024-01-02', title: 'Plan for ticket HAL-0123' }
+
+      let deleteCalled = false
+      ;(mockSupabase.from as any).mockImplementation((table: string) => {
+        if (table === 'agent_artifacts') {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            order: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: [emptyArtifact, validArtifact],
+              error: null,
+            }),
+            delete: vi.fn().mockReturnThis(),
+            in: vi.fn().mockImplementation(() => {
+              deleteCalled = true
+              return { error: null }
+            }),
+            update: vi.fn().mockReturnThis(),
+            insert: vi.fn().mockResolvedValue({ data: null, error: null }),
+          }
+        }
+        if (table === 'tickets') {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: { display_id: 'HAL-0123' },
+              error: null,
+            }),
+          }
+        }
+        return mockSupabase
+      })
+
+      // Mock findArtifactsByCanonicalId
+      vi.spyOn(await import('../artifacts/_shared.js'), 'findArtifactsByCanonicalId').mockResolvedValue({
+        artifacts: [emptyArtifact, validArtifact],
+        error: null,
+      })
+
+      await upsertArtifact(mockSupabase, ticketPk, repoFullName, agentType, 'Plan for ticket HAL-0123', validBody)
+
+      expect(deleteCalled).toBe(true)
+    })
+
+    it('handles deletion errors gracefully and continues with update', async () => {
+      const emptyArtifact = { artifact_id: 'empty-1', body_md: '(none)', created_at: '2024-01-01', title: 'Plan for ticket HAL-0123' }
+
+      ;(mockSupabase.from as any).mockImplementation((table: string) => {
+        if (table === 'agent_artifacts') {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            order: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: [emptyArtifact],
+              error: null,
+            }),
+            delete: vi.fn().mockReturnThis(),
+            in: vi.fn().mockResolvedValue({
+              error: { message: 'Delete failed' },
+            }),
+            update: vi.fn().mockReturnThis(),
+            insert: vi.fn().mockResolvedValue({ data: null, error: null }),
+          }
+        }
+        if (table === 'tickets') {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: { display_id: 'HAL-0123' },
+              error: null,
+            }),
+          }
+        }
+        return mockSupabase
+      })
+
+      // Mock findArtifactsByCanonicalId
+      vi.spyOn(await import('../artifacts/_shared.js'), 'findArtifactsByCanonicalId').mockResolvedValue({
+        artifacts: [emptyArtifact],
+        error: null,
+      })
+
+      // Should still proceed even if deletion fails
+      const result = await upsertArtifact(mockSupabase, ticketPk, repoFullName, agentType, 'Plan for ticket HAL-0123', validBody)
+      // Result depends on whether update/insert succeeds, but deletion error shouldn't block it
+      expect(mockSupabase.from).toHaveBeenCalled()
+    })
+  })
+
+  describe('update vs insert behavior', () => {
+    it('updates existing artifact with content when found', async () => {
+      const existingArtifact = { artifact_id: 'artifact-1', body_md: validBody, created_at: '2024-01-01', title: 'Plan for ticket HAL-0123' }
+      let updateCalled = false
+
+      ;(mockSupabase.from as any).mockImplementation((table: string) => {
+        if (table === 'agent_artifacts') {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            order: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: [existingArtifact],
+              error: null,
+            }),
+            delete: vi.fn().mockReturnThis(),
+            in: vi.fn().mockResolvedValue({ error: null }),
+            update: vi.fn().mockReturnThis(),
+            insert: vi.fn(),
+          }
+        }
+        if (table === 'tickets') {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: { display_id: 'HAL-0123' },
+              error: null,
+            }),
+          }
+        }
+        return mockSupabase
+      })
+
+      // Mock the update chain
+      const updateChain = {
+        eq: vi.fn().mockResolvedValue({ error: null }),
+      }
+      ;(mockSupabase.from('agent_artifacts').update as any) = vi.fn().mockReturnValue(updateChain)
+
+      // Mock findArtifactsByCanonicalId
+      vi.spyOn(await import('../artifacts/_shared.js'), 'findArtifactsByCanonicalId').mockResolvedValue({
+        artifacts: [existingArtifact],
+        error: null,
+      })
+
+      const result = await upsertArtifact(mockSupabase, ticketPk, repoFullName, agentType, 'Plan for ticket HAL-0123', validBody)
+
+      expect(result.ok).toBe(true)
+    })
+
+    it('inserts new artifact when no existing artifact found', async () => {
+      let insertCalled = false
+
+      ;(mockSupabase.from as any).mockImplementation((table: string) => {
+        if (table === 'agent_artifacts') {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            order: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: [],
+              error: null,
+            }),
+            delete: vi.fn().mockReturnThis(),
+            in: vi.fn().mockResolvedValue({ error: null }),
+            update: vi.fn().mockReturnThis(),
+            insert: vi.fn().mockImplementation(() => {
+              insertCalled = true
+              return Promise.resolve({ data: null, error: null })
+            }),
+          }
+        }
+        if (table === 'tickets') {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: { display_id: 'HAL-0123' },
+              error: null,
+            }),
+          }
+        }
+        return mockSupabase
+      })
+
+      // Mock findArtifactsByCanonicalId
+      vi.spyOn(await import('../artifacts/_shared.js'), 'findArtifactsByCanonicalId').mockResolvedValue({
+        artifacts: [],
+        error: null,
+      })
+
+      const result = await upsertArtifact(mockSupabase, ticketPk, repoFullName, agentType, 'Plan for ticket HAL-0123', validBody)
+
+      expect(insertCalled).toBe(true)
+      expect(result.ok).toBe(true)
+    })
+
+    it('handles race condition on insert by retrying with update', async () => {
+      const existingArtifact = { artifact_id: 'artifact-1' }
+      let insertAttempted = false
+      let updateCalled = false
+
+      const mockEqForSelect = vi.fn().mockReturnThis()
+      const mockOrder = vi.fn().mockReturnThis()
+      const mockLimit = vi.fn().mockReturnThis()
+      const mockSingle = vi.fn().mockResolvedValue({
+        data: existingArtifact,
+        error: null,
+      })
+
+      const mockEqForUpdate = vi.fn().mockImplementation(() => {
+        updateCalled = true
+        return Promise.resolve({ error: null })
+      })
+      const mockUpdateChain = {
+        eq: mockEqForUpdate,
+      }
+      const mockUpdate = vi.fn().mockReturnValue(mockUpdateChain)
+
+      ;(mockSupabase.from as any).mockImplementation((table: string) => {
+        if (table === 'agent_artifacts') {
+          const baseChain = {
+            select: vi.fn().mockReturnThis(),
+            eq: mockEqForSelect,
+            order: mockOrder,
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: [],
+              error: null,
+            }),
+            single: mockSingle,
+            limit: mockLimit,
+            delete: vi.fn().mockReturnThis(),
+            in: vi.fn().mockResolvedValue({ error: null }),
+            update: mockUpdate,
+            insert: vi.fn().mockImplementation(() => {
+              insertAttempted = true
+              // Simulate duplicate key error
+              return Promise.resolve({
+                data: null,
+                error: { message: 'duplicate key value violates unique constraint', code: '23505' },
+              })
+            }),
+          }
+          // Make eq chainable for select queries
+          mockEqForSelect.mockReturnValue(baseChain)
+          return baseChain
+        }
+        if (table === 'tickets') {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: { display_id: 'HAL-0123' },
+              error: null,
+            }),
+          }
+        }
+        return mockSupabase
+      })
+
+      // Mock findArtifactsByCanonicalId
+      vi.spyOn(await import('../artifacts/_shared.js'), 'findArtifactsByCanonicalId').mockResolvedValue({
+        artifacts: [],
+        error: null,
+      })
+
+      const result = await upsertArtifact(mockSupabase, ticketPk, repoFullName, agentType, 'Plan for ticket HAL-0123', validBody)
+
+      expect(insertAttempted).toBe(true)
+      expect(updateCalled).toBe(true)
+      expect(result.ok).toBe(true)
+    })
   })
 })

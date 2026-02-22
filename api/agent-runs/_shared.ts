@@ -122,6 +122,192 @@ export function buildWorklogBodyFromProgress(
 /** Result type for upsertArtifact so callers can narrow safely. */
 export type UpsertArtifactResult = { ok: true } | { ok: false; error: string }
 
+type ArtifactRow = { artifact_id: string; body_md?: string; created_at: string }
+
+/**
+ * Validates artifact content and returns error message if invalid.
+ * Centralized validation to avoid repetition.
+ */
+function validateArtifactContent(bodyMd: string, title: string, context: string): UpsertArtifactResult | null {
+  const validation = hasSubstantiveContent(bodyMd, title)
+  if (!validation.valid) {
+    const msg = context.includes('validation failed')
+      ? `Artifact "${title}" validation failed: ${validation.reason || 'insufficient content'}. Skipping storage to prevent blank/placeholder artifacts.`
+      : `Cannot store blank/placeholder artifact: ${validation.reason || 'Artifact body is empty or placeholder-only'}`
+    console.warn('[agent-runs]', msg, context.includes('Body length') ? `Title: ${title}, Body length: ${bodyMd.length}` : '')
+    return { ok: false, error: msg }
+  }
+  return null
+}
+
+/**
+ * Finds existing artifacts by canonical title or exact title match.
+ * Returns artifacts array and normalized title.
+ */
+async function findExistingArtifacts(
+  supabase: SupabaseClient<any, 'public', any>,
+  ticketPk: string,
+  agentType: string,
+  title: string
+): Promise<{ artifacts: ArtifactRow[]; normalizedTitle: string; error: string | null }> {
+  const artifactType = extractArtifactTypeFromTitle(title)
+  
+  if (!artifactType) {
+    // Fall back to exact title matching when artifact type cannot be extracted
+    const { data: existingArtifacts, error: selectErr } = await supabase
+      .from('agent_artifacts')
+      .select('artifact_id, body_md, created_at')
+      .eq('ticket_pk', ticketPk)
+      .eq('agent_type', agentType)
+      .eq('title', title)
+      .order('created_at', { ascending: false })
+    
+    if (selectErr) {
+      return { artifacts: [], normalizedTitle: title, error: `agent_artifacts select: ${selectErr.message}` }
+    }
+    
+    return {
+      artifacts: (existingArtifacts || []) as ArtifactRow[],
+      normalizedTitle: title,
+      error: null,
+    }
+  }
+
+  // Get ticket's display_id for canonical title normalization
+  const { data: ticket, error: ticketErr } = await supabase
+    .from('tickets')
+    .select('display_id')
+    .eq('pk', ticketPk)
+    .maybeSingle()
+  
+  if (ticketErr) {
+    console.warn('[agent-runs] Failed to fetch ticket display_id, using title as-is:', ticketErr.message)
+  }
+  
+  const displayId = (ticket as { display_id?: string })?.display_id || title.match(/\d+/)?.[0] || ''
+  const canonicalTitle = createCanonicalTitle(artifactType, displayId)
+  
+  // Find existing artifacts by canonical identifier
+  const { artifacts: existingArtifacts, error: findError } = await findArtifactsByCanonicalId(
+    supabase,
+    ticketPk,
+    agentType as 'implementation' | 'qa',
+    artifactType
+  )
+  
+  if (findError) {
+    return { artifacts: [], normalizedTitle: canonicalTitle, error: `agent_artifacts select: ${findError}` }
+  }
+  
+  return {
+    artifacts: (existingArtifacts || []) as ArtifactRow[],
+    normalizedTitle: canonicalTitle,
+    error: null,
+  }
+}
+
+/**
+ * Identifies and deletes empty/placeholder artifacts.
+ * Returns array of artifact IDs that were identified as empty.
+ */
+async function deleteEmptyArtifacts(
+  supabase: SupabaseClient<any, 'public', any>,
+  artifacts: ArtifactRow[],
+  title: string
+): Promise<string[]> {
+  const emptyArtifactIds: string[] = []
+  
+  for (const artifact of artifacts) {
+    const currentBody = artifact.body_md || ''
+    const validation = hasSubstantiveContent(currentBody, title)
+    if (!validation.valid) {
+      emptyArtifactIds.push(artifact.artifact_id)
+    }
+  }
+
+  if (emptyArtifactIds.length > 0) {
+    const { error: deleteErr } = await supabase
+      .from('agent_artifacts')
+      .delete()
+      .in('artifact_id', emptyArtifactIds)
+    
+    if (deleteErr) {
+      // Log but don't fail - we can still proceed with update/insert
+      console.warn('[agent-runs] Failed to delete empty artifacts:', deleteErr.message)
+    }
+  }
+  
+  return emptyArtifactIds
+}
+
+/**
+ * Updates an existing artifact.
+ */
+async function updateArtifact(
+  supabase: SupabaseClient<any, 'public', any>,
+  artifactId: string,
+  title: string,
+  bodyMd: string
+): Promise<UpsertArtifactResult> {
+  const { error: updateErr } = await supabase
+    .from('agent_artifacts')
+    .update({ title, body_md: bodyMd } as Record<string, unknown>)
+    .eq('artifact_id', artifactId)
+  
+  if (updateErr) {
+    const msg = `agent_artifacts update: ${updateErr.message}`
+    console.error('[agent-runs]', msg)
+    return { ok: false, error: msg }
+  }
+  
+  return { ok: true }
+}
+
+/**
+ * Inserts a new artifact, handling race conditions by retrying with update.
+ */
+async function insertArtifact(
+  supabase: SupabaseClient<any, 'public', any>,
+  ticketPk: string,
+  repoFullName: string,
+  agentType: string,
+  title: string,
+  bodyMd: string
+): Promise<UpsertArtifactResult> {
+  const { error: insertErr } = await supabase.from('agent_artifacts').insert({
+    ticket_pk: ticketPk,
+    repo_full_name: repoFullName,
+    agent_type: agentType,
+    title,
+    body_md: bodyMd,
+  } as Record<string, unknown>)
+  
+  if (!insertErr) {
+    return { ok: true }
+  }
+
+  // Handle race condition: if duplicate key error, try to find and update the existing artifact
+  if (insertErr.message.includes('duplicate') || insertErr.code === '23505') {
+    const { data: existingArtifact, error: findErr } = await supabase
+      .from('agent_artifacts')
+      .select('artifact_id')
+      .eq('ticket_pk', ticketPk)
+      .eq('agent_type', agentType)
+      .eq('title', title)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single()
+
+    if (!findErr && existingArtifact?.artifact_id) {
+      return await updateArtifact(supabase, existingArtifact.artifact_id, title, bodyMd)
+    }
+  }
+
+  const msg = `agent_artifacts insert: ${insertErr.message}`
+  console.error('[agent-runs]', msg)
+  return { ok: false, error: msg }
+}
+
 /** Upsert one artifact: update body_md if row exists, otherwise insert. Returns error message if failed.
  * Handles duplicates and empty artifacts (0121).
  * Validates content before storing to prevent blank/placeholder artifacts (0137).
@@ -134,185 +320,48 @@ export async function upsertArtifact(
   title: string,
   bodyMd: string
 ): Promise<UpsertArtifactResult> {
-  // Validate that body_md contains substantive content before storing (0137)
-  const contentValidation = hasSubstantiveContent(bodyMd, title)
-  if (!contentValidation.valid) {
-    const msg = `Artifact "${title}" validation failed: ${contentValidation.reason || 'insufficient content'}. Skipping storage to prevent blank/placeholder artifacts.`
-    console.warn('[agent-runs]', msg)
-    return { ok: false, error: msg }
-  }
-  // Extract artifact type from title and get ticket's display_id for canonical matching (0121)
-  const artifactType = extractArtifactTypeFromTitle(title)
-  let artifacts: Array<{ artifact_id: string; body_md?: string; created_at: string }> = []
+  // Validate content before processing
+  const validationError = validateArtifactContent(bodyMd, title, 'validation failed')
+  if (validationError) return validationError
+
+  // Find existing artifacts
+  const { artifacts, normalizedTitle, error: findError } = await findExistingArtifacts(
+    supabase,
+    ticketPk,
+    agentType,
+    title
+  )
   
-  if (!artifactType) {
-    // If we can't extract artifact type, fall back to exact title matching
-    const { data: existingArtifacts, error: selectErr } = await supabase
-      .from('agent_artifacts')
-      .select('artifact_id, body_md, created_at')
-      .eq('ticket_pk', ticketPk)
-      .eq('agent_type', agentType)
-      .eq('title', title)
-      .order('created_at', { ascending: false })
-    if (selectErr) {
-      const msg = `agent_artifacts select: ${selectErr.message}`
-      console.error('[agent-runs]', msg)
-      return { ok: false, error: msg }
-    }
-    artifacts = (existingArtifacts || []) as Array<{
-      artifact_id: string
-      body_md?: string
-      created_at: string
-    }>
-  } else {
-    // Get ticket's display_id for canonical title normalization
-    const { data: ticket, error: ticketErr } = await supabase
-      .from('tickets')
-      .select('display_id')
-      .eq('pk', ticketPk)
-      .maybeSingle()
-    
-    if (ticketErr) {
-      console.warn('[agent-runs] Failed to fetch ticket display_id, using title as-is:', ticketErr.message)
-    }
-    
-    const displayId = (ticket as { display_id?: string })?.display_id || title.match(/\d+/)?.[0] || ''
-    const canonicalTitle = createCanonicalTitle(artifactType, displayId)
-    
-    // Find existing artifacts by canonical identifier (ticket_pk + agent_type + artifact_type)
-    // instead of exact title match to handle different title formats (0121)
-    const { artifacts: existingArtifacts, error: findError } = await findArtifactsByCanonicalId(
-      supabase,
-      ticketPk,
-      agentType as 'implementation' | 'qa',
-      artifactType
-    )
-    
-    if (findError) {
-      const msg = `agent_artifacts select: ${findError}`
-      console.error('[agent-runs]', msg)
-      return { ok: false, error: msg }
-    }
-    
-    artifacts = (existingArtifacts || []) as Array<{
-      artifact_id: string
-      body_md?: string
-      created_at: string
-    }>
-    
-    // Use canonical title for consistency
-    title = canonicalTitle
+  if (findError) {
+    console.error('[agent-runs]', findError)
+    return { ok: false, error: findError }
   }
 
-  // Validate the new body_md before storing (prevent blank artifacts)
-  const contentValidation2 = hasSubstantiveContent(bodyMd, title)
-  if (!contentValidation2.valid) {
-    const msg = `Cannot store blank/placeholder artifact: ${contentValidation2.reason || 'Artifact body is empty or placeholder-only'}`
-    console.warn('[agent-runs]', msg)
-    return { ok: false, error: msg }
-  }
+  // Validate again with normalized title (maintains original behavior)
+  const validationError2 = validateArtifactContent(bodyMd, normalizedTitle, 'Cannot store')
+  if (validationError2) return validationError2
 
-  // Identify empty/placeholder artifacts using proper validation
-  const emptyArtifactIds: string[] = []
-  for (const artifact of artifacts) {
-    const currentBody = artifact.body_md || ''
-    const currentValidation = hasSubstantiveContent(currentBody, title)
-    if (!currentValidation.valid) {
-      emptyArtifactIds.push(artifact.artifact_id)
-    }
-  }
+  // Delete empty artifacts
+  const emptyArtifactIds = await deleteEmptyArtifacts(supabase, artifacts, normalizedTitle)
 
-  // Delete all empty/placeholder artifacts to clean up duplicates
-  if (emptyArtifactIds.length > 0) {
-    const { error: deleteErr } = await supabase
-      .from('agent_artifacts')
-      .delete()
-      .in('artifact_id', emptyArtifactIds)
-    if (deleteErr) {
-      // Log but don't fail - we can still proceed with update/insert
-      console.warn('[agent-runs] Failed to delete empty artifacts:', deleteErr.message)
-    }
-  }
-
-  // Determine which artifact to update (prefer the most recent one with content)
+  // Find target artifact to update (prefer most recent one with content)
   const artifactsWithContent = artifacts.filter((a) => !emptyArtifactIds.includes(a.artifact_id))
-  let targetArtifactId: string | null = null
-  if (artifactsWithContent.length > 0) {
-    targetArtifactId = artifactsWithContent[0].artifact_id
-  } else if (artifacts.length > 0) {
-    // If all were empty and we deleted them, check if any remain (race condition)
-    const remaining = artifacts.filter((a) => !emptyArtifactIds.includes(a.artifact_id))
-    if (remaining.length > 0) {
-      targetArtifactId = remaining[0].artifact_id
-    }
-  }
+  const targetArtifactId = artifactsWithContent.length > 0
+    ? artifactsWithContent[0].artifact_id
+    : null
 
   if (targetArtifactId) {
-    // Validate content before updating (0137: prevent blank/placeholder artifacts)
-    const contentValidation3 = hasSubstantiveContent(bodyMd, title)
-    if (!contentValidation3.valid) {
-      const msg = `Artifact content validation failed: ${contentValidation3.reason || 'Content is empty or placeholder-only'}`
-      console.warn('[agent-runs]', msg, 'Title:', title, 'Body length:', bodyMd.length)
-      return { ok: false, error: msg }
-    }
-
-    // Update the target artifact with canonical title and new body (0121)
-    const { error: updateErr } = await supabase
-      .from('agent_artifacts')
-      .update({ title, body_md: bodyMd } as Record<string, unknown>)
-      .eq('artifact_id', targetArtifactId)
-    if (updateErr) {
-      const msg = `agent_artifacts update: ${updateErr.message}`
-      console.error('[agent-runs]', msg)
-      return { ok: false, error: msg }
-    }
-    return { ok: true }
+    // Validate before updating (maintains original behavior)
+    const validationError3 = validateArtifactContent(bodyMd, normalizedTitle, 'Body length')
+    if (validationError3) return validationError3
+    
+    return await updateArtifact(supabase, targetArtifactId, normalizedTitle, bodyMd)
   }
 
-  // Validate content before inserting (0137: prevent blank/placeholder artifacts)
-  const contentValidation4 = hasSubstantiveContent(bodyMd, title)
-  if (!contentValidation4.valid) {
-    const msg = `Artifact content validation failed: ${contentValidation4.reason || 'Content is empty or placeholder-only'}`
-    console.warn('[agent-runs]', msg, 'Title:', title, 'Body length:', bodyMd.length)
-    return { ok: false, error: msg }
-  }
+  // Validate before inserting (maintains original behavior)
+  const validationError4 = validateArtifactContent(bodyMd, normalizedTitle, 'Body length')
+  if (validationError4) return validationError4
 
-  // No existing artifact found (or all were deleted), insert new one with canonical title (0121)
-  const { error: insertErr } = await supabase.from('agent_artifacts').insert({
-    ticket_pk: ticketPk,
-    repo_full_name: repoFullName,
-    agent_type: agentType,
-    title, // Use canonical title if available
-    body_md: bodyMd,
-  } as Record<string, unknown>)
-  if (insertErr) {
-    // Handle race condition: if duplicate key error, try to find and update the existing artifact
-    if (insertErr.message.includes('duplicate') || insertErr.code === '23505') {
-      const { data: existingArtifact, error: findErr } = await supabase
-        .from('agent_artifacts')
-        .select('artifact_id')
-        .eq('ticket_pk', ticketPk)
-        .eq('agent_type', agentType)
-        .eq('title', title)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single()
-
-      if (!findErr && existingArtifact?.artifact_id) {
-        const { error: updateErr } = await supabase
-          .from('agent_artifacts')
-          .update({ body_md: bodyMd } as Record<string, unknown>)
-          .eq('artifact_id', existingArtifact.artifact_id)
-
-        if (!updateErr) {
-          return { ok: true }
-        }
-      }
-    }
-
-    const msg = `agent_artifacts insert: ${insertErr.message}`
-    console.error('[agent-runs]', msg)
-    return { ok: false, error: msg }
-  }
-  return { ok: true }
+  // Insert new artifact
+  return await insertArtifact(supabase, ticketPk, repoFullName, agentType, normalizedTitle, bodyMd)
 }

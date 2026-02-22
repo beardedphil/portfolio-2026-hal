@@ -2,164 +2,146 @@
   "topOffenders": [
     {
       "file": "api/agent-runs/launch.ts",
-      "codeQuality": 5.12,
+      "codeQuality": 5.31,
       "maintainability": 0
     },
     {
       "file": "agents/src/agents/projectManager/redDocumentTool.ts",
-      "codeQuality": 18.45,
+      "codeQuality": 18.64,
       "maintainability": 19.4
     },
     {
       "file": "api/agent-tools/execute.ts",
-      "codeQuality": 21.44,
+      "codeQuality": 21.63,
       "maintainability": 20.55
     },
     {
       "file": "api/acceptance-criteria-status/update.ts",
-      "codeQuality": 29.54,
+      "codeQuality": 29.74,
       "maintainability": 24.17
     },
     {
       "file": "api/artifacts/insert-implementation.ts",
-      "codeQuality": 29.71,
+      "codeQuality": 29.9,
       "maintainability": 22.44
     },
     {
       "file": "api/instructions/get-topic.ts",
-      "codeQuality": 33.31,
+      "codeQuality": 33.51,
       "maintainability": 8.93
     },
     {
       "file": "agents/src/agents/projectManager/ticketTools.ts",
-      "codeQuality": 33.36,
+      "codeQuality": 33.55,
       "maintainability": 12.86
     },
     {
       "file": "api/implementation-agent/run.ts",
-      "codeQuality": 33.68,
+      "codeQuality": 33.88,
       "maintainability": 12.68
     },
     {
       "file": "api/agent-runs/status.ts",
-      "codeQuality": 33.78,
+      "codeQuality": 33.98,
       "maintainability": 0
     },
     {
       "file": "api/red/backfill-artifacts-todo.ts",
-      "codeQuality": 34.46,
+      "codeQuality": 34.65,
       "maintainability": 19.76
     },
     {
       "file": "api/tickets/get.ts",
-      "codeQuality": 34.53,
+      "codeQuality": 34.72,
       "maintainability": 12.05
     },
     {
       "file": "api/drift-attempts/get.ts",
-      "codeQuality": 35.78,
+      "codeQuality": 35.98,
       "maintainability": 26.53
     },
     {
       "file": "api/agent-runs/sync-artifacts.ts",
-      "codeQuality": 35.81,
+      "codeQuality": 36.01,
       "maintainability": 26.06
     },
     {
       "file": "api/agent-runs/providers/openai.ts",
-      "codeQuality": 35.89,
+      "codeQuality": 36.08,
       "maintainability": 0
     },
     {
       "file": "src/hooks/useAgentRuns.ts",
-      "codeQuality": 36.17,
+      "codeQuality": 36.37,
       "maintainability": 0
     },
     {
       "file": "api/context-bundles/build-from-run.ts",
-      "codeQuality": 36.35,
+      "codeQuality": 36.54,
       "maintainability": 15.39
     },
     {
       "file": "api/tickets/move.ts",
-      "codeQuality": 36.59,
+      "codeQuality": 36.78,
       "maintainability": 0
     },
     {
       "file": "api/conversations/working-memory/update.ts",
-      "codeQuality": 37.72,
+      "codeQuality": 37.91,
       "maintainability": 10.74
     },
     {
       "file": "api/red/list.ts",
-      "codeQuality": 37.92,
+      "codeQuality": 38.11,
       "maintainability": 21.43
     },
     {
       "file": "api/instructions/get-index.ts",
-      "codeQuality": 38.25,
+      "codeQuality": 38.44,
       "maintainability": 0
     }
   ],
   "mostRecentImprovements": [
     {
-      "file": "src/hooks/useAgentRuns.ts",
-      "before": 36.17,
-      "after": 36.17,
-      "delta": 0
-    },
-    {
-      "file": "api/implementation-agent/run.ts",
-      "before": 33.68,
-      "after": 33.68,
-      "delta": 0
-    },
-    {
-      "file": "api/agent-runs/sync-artifacts.ts",
-      "before": 35.81,
-      "after": 35.81,
-      "delta": 0
-    },
-    {
-      "file": "api/instructions/get-topic.ts",
-      "before": 33.31,
-      "after": 33.31,
-      "delta": 0
-    },
-    {
-      "file": "api/agent-runs/status.ts",
-      "before": 33.78,
-      "after": 33.78,
-      "delta": 0
-    },
-    {
-      "file": "api/drift-attempts/get.ts",
-      "before": 35.78,
-      "after": 35.78,
-      "delta": 0
-    },
-    {
-      "file": "api/acceptance-criteria-status/update.ts",
-      "before": 29.54,
-      "after": 29.54,
-      "delta": 0
-    },
-    {
       "file": "api/red/list.ts",
-      "before": 37.92,
-      "after": 37.92,
+      "before": 38.11,
+      "after": 38.11,
       "delta": 0
     },
     {
       "file": "api/artifacts/insert-implementation.ts",
-      "before": 29.71,
-      "after": 29.71,
+      "before": 29.9,
+      "after": 29.9,
+      "delta": 0
+    },
+    {
+      "file": "api/tickets/move.ts",
+      "before": 36.78,
+      "after": 36.78,
+      "delta": 0
+    },
+    {
+      "file": "api/conversations/working-memory/update.ts",
+      "before": 37.91,
+      "after": 37.91,
+      "delta": 0
+    },
+    {
+      "file": "agents/src/agents/projectManager/redDocumentTool.ts",
+      "before": 18.64,
+      "after": 18.64,
+      "delta": 0
+    },
+    {
+      "file": "agents/src/agents/projectManager/ticketTools.ts",
+      "before": 33.55,
+      "after": 33.55,
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-22T07:03:00.196Z",
-  "filesAnalyzed": 382,
-  "unroundedCodeQuality": 51.1,
-  "unroundedMaintainability": 51.1,
-  "unroundedSimplicity": 51.1
+  "generatedAt": "2026-02-22T07:22:32.444Z",
+  "filesAnalyzed": 407,
+  "unroundedCodeQuality": 51.4,
+  "unroundedMaintainability": 51.4,
+  "unroundedSimplicity": 51.4
 }
