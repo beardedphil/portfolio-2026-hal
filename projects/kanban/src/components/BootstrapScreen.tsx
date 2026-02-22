@@ -9,6 +9,14 @@ interface BootstrapScreenProps {
   onClose?: () => void
 }
 
+interface SupabaseProjectInfo {
+  project_ref: string
+  project_url: string
+  status: string
+  created_at: string
+  updated_at: string
+}
+
 export function BootstrapScreen({
   projectId,
   supabaseUrl,
@@ -21,6 +29,9 @@ export function BootstrapScreen({
   const [error, setError] = useState<string | null>(null)
   const [expandedErrorStep, setExpandedErrorStep] = useState<string | null>(null)
   const [polling, setPolling] = useState(false)
+  const [supabaseManagementToken, setSupabaseManagementToken] = useState('')
+  const [supabaseOrganizationId, setSupabaseOrganizationId] = useState('')
+  const [supabaseProjectInfo, setSupabaseProjectInfo] = useState<SupabaseProjectInfo | null>(null)
 
   const loadBootstrapRun = useCallback(async () => {
     try {
@@ -56,7 +67,8 @@ export function BootstrapScreen({
   // Load bootstrap run on mount and when projectId changes
   useEffect(() => {
     loadBootstrapRun()
-  }, [projectId, loadBootstrapRun])
+    loadSupabaseProjectInfo()
+  }, [projectId, loadBootstrapRun, loadSupabaseProjectInfo])
 
   // Poll for status updates when run is active
   useEffect(() => {
@@ -110,17 +122,54 @@ export function BootstrapScreen({
     }
   }, [projectId, supabaseUrl, supabaseAnonKey, apiBaseUrl])
 
+  const loadSupabaseProjectInfo = useCallback(async () => {
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/bootstrap/supabase-project`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId,
+          supabaseUrl,
+          supabaseAnonKey,
+        }),
+      })
+
+      const result = await response.json()
+      if (result.success && result.project) {
+        setSupabaseProjectInfo(result.project)
+      } else {
+        setSupabaseProjectInfo(null)
+      }
+    } catch (err) {
+      // Silently fail - project may not exist yet
+      setSupabaseProjectInfo(null)
+    }
+  }, [projectId, supabaseUrl, supabaseAnonKey, apiBaseUrl])
+
   const executeNextStep = useCallback(
     async (runId: string) => {
       try {
+        const stepBody: any = {
+          runId,
+          supabaseUrl,
+          supabaseAnonKey,
+        }
+
+        // Add Supabase Management API context for create_supabase_project step
+        const currentStep = run?.current_step
+        if (currentStep === 'create_supabase_project') {
+          if (supabaseManagementToken) {
+            stepBody.supabaseManagementToken = supabaseManagementToken
+          }
+          if (supabaseOrganizationId) {
+            stepBody.supabaseOrganizationId = supabaseOrganizationId
+          }
+        }
+
         const response = await fetch(`${apiBaseUrl}/api/bootstrap/step`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            runId,
-            supabaseUrl,
-            supabaseAnonKey,
-          }),
+          body: JSON.stringify(stepBody),
         })
 
         const result = await response.json()
@@ -132,6 +181,11 @@ export function BootstrapScreen({
         }
 
         setRun(result.run)
+
+        // If create_supabase_project step succeeded, load project info
+        if (result.stepResult?.success && currentStep === 'create_supabase_project') {
+          await loadSupabaseProjectInfo()
+        }
 
         // If step succeeded and there are more steps, continue
         if (result.stepResult.success && result.run.status === 'running') {
@@ -145,7 +199,7 @@ export function BootstrapScreen({
         await loadBootstrapRun()
       }
     },
-    [supabaseUrl, supabaseAnonKey, apiBaseUrl, loadBootstrapRun]
+    [supabaseUrl, supabaseAnonKey, apiBaseUrl, loadBootstrapRun, run?.current_step, supabaseManagementToken, supabaseOrganizationId, loadSupabaseProjectInfo]
   )
 
   const retryStep = useCallback(
@@ -229,15 +283,59 @@ export function BootstrapScreen({
         )}
 
         {!run && (
-          <div className="modal-actions" style={{ marginBottom: '1rem' }}>
-            <button
-              type="button"
-              className="primary btn-standard"
-              onClick={startBootstrap}
-              disabled={loading}
-            >
-              {loading ? 'Starting...' : 'Start bootstrap'}
-            </button>
+          <div style={{ marginBottom: '1rem' }}>
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+                Supabase Management API Token
+              </label>
+              <input
+                type="password"
+                value={supabaseManagementToken}
+                onChange={(e) => setSupabaseManagementToken(e.target.value)}
+                placeholder="sbp_..."
+                style={{
+                  width: '100%',
+                  padding: '0.5rem',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  fontSize: '0.9rem',
+                }}
+              />
+              <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#666' }}>
+                Generate a Personal Access Token from your Supabase account settings
+              </p>
+            </div>
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+                Organization ID
+              </label>
+              <input
+                type="text"
+                value={supabaseOrganizationId}
+                onChange={(e) => setSupabaseOrganizationId(e.target.value)}
+                placeholder="org_..."
+                style={{
+                  width: '100%',
+                  padding: '0.5rem',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  fontSize: '0.9rem',
+                }}
+              />
+              <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#666' }}>
+                Find your organization ID in your Supabase organization settings
+              </p>
+            </div>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="primary btn-standard"
+                onClick={startBootstrap}
+                disabled={loading || !supabaseManagementToken || !supabaseOrganizationId}
+              >
+                {loading ? 'Starting...' : 'Start bootstrap'}
+              </button>
+            </div>
           </div>
         )}
 
@@ -348,6 +446,37 @@ export function BootstrapScreen({
                 )
               })}
             </div>
+
+            {supabaseProjectInfo && (
+              <div style={{ marginTop: '1.5rem', padding: '1rem', background: '#e8f5e9', borderRadius: '4px', border: '1px solid #4caf50' }}>
+                <h3 style={{ marginTop: 0, marginBottom: '0.75rem' }}>Supabase Project</h3>
+                <div style={{ marginBottom: '0.5rem' }}>
+                  <strong>Status:</strong> {supabaseProjectInfo.status === 'created' ? 'Created' : supabaseProjectInfo.status === 'failed' ? 'Failed' : 'Not configured'}
+                </div>
+                <div style={{ marginBottom: '0.5rem' }}>
+                  <strong>Project Ref:</strong> {supabaseProjectInfo.project_ref}
+                </div>
+                <div style={{ marginBottom: '0.5rem' }}>
+                  <strong>Project URL:</strong>{' '}
+                  <a href={supabaseProjectInfo.project_url} target="_blank" rel="noopener noreferrer" style={{ color: '#1976d2' }}>
+                    {supabaseProjectInfo.project_url}
+                  </a>
+                </div>
+                <div style={{ marginBottom: '0.5rem' }}>
+                  <strong>Created:</strong> {new Date(supabaseProjectInfo.created_at).toLocaleString()}
+                </div>
+                <div style={{ marginTop: '0.75rem', padding: '0.75rem', background: '#fff', borderRadius: '4px', border: '1px solid #ddd' }}>
+                  <div style={{ marginBottom: '0.5rem' }}>
+                    <strong>Anon Key:</strong> <span style={{ fontFamily: 'monospace', color: '#666' }}>••••••••••••••••</span>{' '}
+                    <span style={{ color: '#4caf50', fontSize: '0.85rem' }}>✓ Stored securely</span>
+                  </div>
+                  <div>
+                    <strong>Service Role Key:</strong> <span style={{ fontFamily: 'monospace', color: '#666' }}>••••••••••••••••</span>{' '}
+                    <span style={{ color: '#4caf50', fontSize: '0.85rem' }}>✓ Stored securely</span>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {run.logs && run.logs.length > 0 && (
               <div style={{ marginTop: '1.5rem' }}>
