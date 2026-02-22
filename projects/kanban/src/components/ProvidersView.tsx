@@ -24,7 +24,6 @@ export function ProvidersView({
   apiBaseUrl,
 }: ProvidersViewProps) {
   const [providers, setProviders] = useState<ProviderStatus[]>([])
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [disconnectingProvider, setDisconnectingProvider] = useState<string | null>(null)
   const [confirmDisconnect, setConfirmDisconnect] = useState<string | null>(null)
