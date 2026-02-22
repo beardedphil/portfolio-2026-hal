@@ -20,13 +20,26 @@ interface SearchResult {
   similarity: number
 }
 
+interface Failure {
+  id: string
+  failure_type: string
+  root_cause: string | null
+  prevention_candidate: string | null
+  recurrence_count: number
+  first_seen_at: string
+  last_seen_at: string
+  source_type: 'drift_attempt' | 'agent_outcome'
+  source_id: string | null
+  ticket_pk: string | null
+  metadata: Record<string, any>
+}
+
 interface DiagnosticsModalProps {
   isOpen: boolean
   onClose: () => void
   supabaseUrl: string | null
   supabaseAnonKey: string | null
   openaiApiKey?: string | null
-  connectedGithubRepo?: { fullName: string } | null
 }
 
 export function DiagnosticsModal({
@@ -35,7 +48,6 @@ export function DiagnosticsModal({
   supabaseUrl,
   supabaseAnonKey,
   openaiApiKey,
-  connectedGithubRepo,
 }: DiagnosticsModalProps) {
   const [embeddingsStatus, setEmbeddingsStatus] = useState<EmbeddingsStatus | null>(null)
   const [loadingStatus, setLoadingStatus] = useState(false)
@@ -43,26 +55,16 @@ export function DiagnosticsModal({
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
   const [searching, setSearching] = useState(false)
   const [searchError, setSearchError] = useState<string | null>(null)
-  const [repoInitStatus, setRepoInitStatus] = useState<{
-    loading: boolean
-    success: boolean | null
-    message: string | null
-    default_branch: string | null
-    initial_commit_sha: string | null
-    alreadyInitialized: boolean | null
-  }>({
-    loading: false,
-    success: null,
-    message: null,
-    default_branch: null,
-    initial_commit_sha: null,
-    alreadyInitialized: null,
-  })
+  const [failures, setFailures] = useState<Failure[]>([])
+  const [loadingFailures, setLoadingFailures] = useState(false)
+  const [failuresError, setFailuresError] = useState<string | null>(null)
+  const [selectedFailure, setSelectedFailure] = useState<Failure | null>(null)
 
-  // Load embeddings status when modal opens
+  // Load embeddings status and failures when modal opens
   useEffect(() => {
     if (!isOpen) return
     loadEmbeddingsStatus()
+    loadFailures()
   }, [isOpen, supabaseUrl, supabaseAnonKey])
 
   async function loadEmbeddingsStatus() {
@@ -155,6 +157,55 @@ export function DiagnosticsModal({
     }
   }
 
+  async function loadFailures() {
+    if (!supabaseUrl || !supabaseAnonKey) {
+      setFailuresError('Supabase credentials not configured')
+      return
+    }
+
+    setLoadingFailures(true)
+    setFailuresError(null)
+    try {
+      const res = await fetch('/api/failures/list', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          limit: 100,
+          orderBy: 'last_seen_at',
+          orderDirection: 'desc',
+          supabaseUrl,
+          supabaseAnonKey,
+        }),
+      })
+
+      const data = (await res.json()) as {
+        success: boolean
+        failures: Failure[]
+        error?: string
+      }
+
+      if (!data.success) {
+        setFailuresError(data.error || 'Failed to load failures')
+        return
+      }
+
+      setFailures(data.failures || [])
+    } catch (err) {
+      setFailuresError(err instanceof Error ? err.message : 'Failed to load failures')
+    } finally {
+      setLoadingFailures(false)
+    }
+  }
+
+  function formatDate(dateString: string): string {
+    try {
+      const date = new Date(dateString)
+      return date.toLocaleString()
+    } catch {
+      return dateString
+    }
+  }
+
   async function handleResultClick(result: SearchResult) {
     if (!result.ticket_pk || !supabaseUrl || !supabaseAnonKey) {
       alert(`Artifact: ${result.title}\n\nSnippet: ${result.snippet}`)
@@ -181,93 +232,6 @@ export function DiagnosticsModal({
     } catch (err) {
       // Fallback: just show the artifact info
       alert(`Artifact: ${result.title}\n\nSnippet: ${result.snippet}`)
-    }
-  }
-
-  async function handleEnsureRepoInitialized() {
-    if (!connectedGithubRepo?.fullName) {
-      setRepoInitStatus({
-        loading: false,
-        success: false,
-        message: 'No GitHub repository connected. Please connect a repository first.',
-        default_branch: null,
-        initial_commit_sha: null,
-        alreadyInitialized: null,
-      })
-      return
-    }
-
-    if (!supabaseUrl || !supabaseAnonKey) {
-      setRepoInitStatus({
-        loading: false,
-        success: false,
-        message: 'Supabase credentials not configured.',
-        default_branch: null,
-        initial_commit_sha: null,
-        alreadyInitialized: null,
-      })
-      return
-    }
-
-    setRepoInitStatus({
-      loading: true,
-      success: null,
-      message: null,
-      default_branch: null,
-      initial_commit_sha: null,
-      alreadyInitialized: null,
-    })
-
-    try {
-      const res = await fetch('/api/github/ensure-initialized', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          repoFullName: connectedGithubRepo.fullName,
-          supabaseUrl,
-          supabaseAnonKey,
-        }),
-      })
-
-      const data = (await res.json()) as {
-        success: boolean
-        alreadyInitialized?: boolean
-        default_branch?: string
-        initial_commit_sha?: string
-        error?: string
-      }
-
-      if (!data.success) {
-        setRepoInitStatus({
-          loading: false,
-          success: false,
-          message: data.error || 'Failed to initialize repository',
-          default_branch: null,
-          initial_commit_sha: null,
-          alreadyInitialized: null,
-        })
-        return
-      }
-
-      setRepoInitStatus({
-        loading: false,
-        success: true,
-        message: data.alreadyInitialized
-          ? 'Repository is already initialized.'
-          : 'Repository initialized successfully. A main branch with an initial commit has been created.',
-        default_branch: data.default_branch || null,
-        initial_commit_sha: data.initial_commit_sha || null,
-        alreadyInitialized: data.alreadyInitialized || false,
-      })
-    } catch (err) {
-      setRepoInitStatus({
-        loading: false,
-        success: false,
-        message: err instanceof Error ? err.message : 'Failed to initialize repository',
-        default_branch: null,
-        initial_commit_sha: null,
-        alreadyInitialized: null,
-      })
     }
   }
 
@@ -311,71 +275,6 @@ export function DiagnosticsModal({
                 Provider OAuth tokens and Supabase service keys are encrypted using AES-256-GCM before being stored.
                 Raw token/key values are never displayed after initial entry.
               </p>
-            </div>
-          </section>
-
-          {/* Bootstrap / Diagnostics Section */}
-          <section style={{ marginBottom: '2rem' }}>
-            <h4 style={{ margin: '0 0 1rem 0', fontSize: '1.1rem', fontWeight: 600 }}>Bootstrap / Diagnostics</h4>
-            <div style={{ marginBottom: '1rem' }}>
-              <button
-                type="button"
-                className="btn-standard"
-                onClick={handleEnsureRepoInitialized}
-                disabled={repoInitStatus.loading || !connectedGithubRepo?.fullName || !supabaseUrl || !supabaseAnonKey}
-                style={{ marginBottom: '0.5rem' }}
-              >
-                {repoInitStatus.loading ? 'Initializing...' : 'Ensure repo initialized'}
-              </button>
-              {!connectedGithubRepo?.fullName && (
-                <p style={{ color: 'var(--hal-text-muted)', fontSize: '0.9rem', marginTop: '0.5rem' }}>
-                  Connect a GitHub repository to enable this feature.
-                </p>
-              )}
-              {repoInitStatus.message && (
-                <div
-                  style={{
-                    marginTop: '0.5rem',
-                    padding: '0.75rem',
-                    borderRadius: '4px',
-                    background:
-                      repoInitStatus.success === true
-                        ? 'rgba(46, 125, 50, 0.1)'
-                        : repoInitStatus.success === false
-                          ? 'rgba(198, 40, 40, 0.1)'
-                          : 'rgba(108, 117, 125, 0.1)',
-                    color:
-                      repoInitStatus.success === true
-                        ? 'var(--hal-status-ok)'
-                        : repoInitStatus.success === false
-                          ? 'var(--hal-status-error)'
-                          : 'var(--hal-text)',
-                    border:
-                      repoInitStatus.success === true
-                        ? '1px solid var(--hal-status-ok)'
-                        : repoInitStatus.success === false
-                          ? '1px solid var(--hal-status-error)'
-                          : '1px solid var(--hal-border)',
-                  }}
-                >
-                  {repoInitStatus.message}
-                </div>
-              )}
-              {repoInitStatus.success === true && repoInitStatus.default_branch && (
-                <div style={{ marginTop: '0.75rem', fontSize: '0.9rem', color: 'var(--hal-text)' }}>
-                  <div style={{ marginBottom: '0.25rem' }}>
-                    <strong>Default branch:</strong> {repoInitStatus.default_branch}
-                  </div>
-                  {repoInitStatus.initial_commit_sha && (
-                    <div>
-                      <strong>Initial commit SHA:</strong>{' '}
-                      <code style={{ fontSize: '0.85em', background: 'var(--hal-surface-alt)', padding: '0.2em 0.4em', borderRadius: '3px' }}>
-                        {repoInitStatus.initial_commit_sha}
-                      </code>
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
           </section>
 
@@ -520,8 +419,188 @@ export function DiagnosticsModal({
               )}
             </section>
           )}
+
+          {/* Failures Library Section */}
+          <section style={{ marginTop: '2rem' }}>
+            <h4 style={{ margin: '0 0 1rem 0', fontSize: '1.1rem', fontWeight: 600 }}>Failures</h4>
+            {loadingFailures ? (
+              <p style={{ color: 'var(--hal-text-muted)' }}>Loading failures...</p>
+            ) : failuresError ? (
+              <p style={{ color: 'var(--hal-status-error)' }}>Error: {failuresError}</p>
+            ) : failures.length === 0 ? (
+              <div style={{ padding: '1rem', border: '1px solid var(--hal-border)', borderRadius: '6px', background: 'var(--hal-surface-alt)' }}>
+                <p style={{ margin: 0, color: 'var(--hal-text-muted)' }}>
+                  No failures have been recorded yet. Failures are automatically recorded when drift attempts or agent outcomes fail.
+                </p>
+              </div>
+            ) : (
+              <div>
+                <div style={{ marginBottom: '1rem', fontSize: '0.9rem', color: 'var(--hal-text-muted)' }}>
+                  {failures.length} failure{failures.length !== 1 ? 's' : ''} recorded
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table
+                    style={{
+                      width: '100%',
+                      borderCollapse: 'collapse',
+                      fontSize: '0.9rem',
+                    }}
+                  >
+                    <thead>
+                      <tr style={{ borderBottom: '2px solid var(--hal-border)' }}>
+                        <th style={{ padding: '0.5rem', textAlign: 'left', fontWeight: 600 }}>Type</th>
+                        <th style={{ padding: '0.5rem', textAlign: 'left', fontWeight: 600 }}>Recurrences</th>
+                        <th style={{ padding: '0.5rem', textAlign: 'left', fontWeight: 600 }}>First Seen</th>
+                        <th style={{ padding: '0.5rem', textAlign: 'left', fontWeight: 600 }}>Last Seen</th>
+                        <th style={{ padding: '0.5rem', textAlign: 'left', fontWeight: 600 }}>Source</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {failures.map((failure) => (
+                        <tr
+                          key={failure.id}
+                          onClick={() => setSelectedFailure(failure)}
+                          style={{
+                            cursor: 'pointer',
+                            borderBottom: '1px solid var(--hal-border)',
+                            transition: 'background 0.2s',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = 'var(--hal-surface)'
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = 'transparent'
+                          }}
+                        >
+                          <td style={{ padding: '0.5rem' }}>{failure.failure_type}</td>
+                          <td style={{ padding: '0.5rem' }}>
+                            {failure.recurrence_count > 1 ? (
+                              <span style={{ color: 'var(--hal-status-error)', fontWeight: 600 }}>{failure.recurrence_count}</span>
+                            ) : (
+                              '1'
+                            )}
+                          </td>
+                          <td style={{ padding: '0.5rem', color: 'var(--hal-text-muted)', fontSize: '0.85rem' }}>
+                            {formatDate(failure.first_seen_at)}
+                          </td>
+                          <td style={{ padding: '0.5rem', color: 'var(--hal-text-muted)', fontSize: '0.85rem' }}>
+                            {formatDate(failure.last_seen_at)}
+                          </td>
+                          <td style={{ padding: '0.5rem', fontSize: '0.85rem', color: 'var(--hal-text-muted)' }}>
+                            {failure.source_type === 'drift_attempt' ? 'Drift' : 'Agent'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </section>
         </div>
       </div>
+
+      {/* Failure Details Modal */}
+      {selectedFailure && (
+        <div
+          className="conversation-modal-overlay"
+          onClick={() => setSelectedFailure(null)}
+          style={{ zIndex: 10001 }}
+        >
+          <div
+            className="conversation-modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: '80vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}
+          >
+            <div className="conversation-modal-header">
+              <h3>Failure Details</h3>
+              <button
+                type="button"
+                className="conversation-modal-close btn-destructive"
+                onClick={() => setSelectedFailure(null)}
+                aria-label="Close failure details"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="conversation-modal-content" style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
+              <div style={{ marginBottom: '1.5rem' }}>
+                <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '1rem', fontWeight: 600 }}>Failure Type</h4>
+                <p style={{ margin: 0, color: 'var(--hal-text)' }}>{selectedFailure.failure_type}</p>
+              </div>
+
+              <div style={{ marginBottom: '1.5rem' }}>
+                <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '1rem', fontWeight: 600 }}>Recurrence Information</h4>
+                <p style={{ margin: '0.25rem 0', color: 'var(--hal-text)' }}>
+                  <strong>Count:</strong> {selectedFailure.recurrence_count} occurrence{selectedFailure.recurrence_count !== 1 ? 's' : ''}
+                </p>
+                <p style={{ margin: '0.25rem 0', color: 'var(--hal-text)' }}>
+                  <strong>First Seen:</strong> {formatDate(selectedFailure.first_seen_at)}
+                </p>
+                <p style={{ margin: '0.25rem 0', color: 'var(--hal-text)' }}>
+                  <strong>Last Seen:</strong> {formatDate(selectedFailure.last_seen_at)}
+                </p>
+              </div>
+
+              <div style={{ marginBottom: '1.5rem' }}>
+                <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '1rem', fontWeight: 600 }}>Root Cause</h4>
+                {selectedFailure.root_cause ? (
+                  <div
+                    style={{
+                      padding: '0.75rem',
+                      background: 'var(--hal-surface-alt)',
+                      borderRadius: '4px',
+                      whiteSpace: 'pre-wrap',
+                      color: 'var(--hal-text)',
+                    }}
+                  >
+                    {selectedFailure.root_cause}
+                  </div>
+                ) : (
+                  <p style={{ margin: 0, color: 'var(--hal-text-muted)', fontStyle: 'italic' }}>No root cause recorded</p>
+                )}
+              </div>
+
+              <div style={{ marginBottom: '1.5rem' }}>
+                <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '1rem', fontWeight: 600 }}>Prevention Candidate</h4>
+                {selectedFailure.prevention_candidate ? (
+                  <div
+                    style={{
+                      padding: '0.75rem',
+                      background: 'var(--hal-surface-alt)',
+                      borderRadius: '4px',
+                      whiteSpace: 'pre-wrap',
+                      color: 'var(--hal-text)',
+                    }}
+                  >
+                    {selectedFailure.prevention_candidate}
+                  </div>
+                ) : (
+                  <p style={{ margin: 0, color: 'var(--hal-text-muted)', fontStyle: 'italic' }}>No prevention candidate recorded</p>
+                )}
+              </div>
+
+              <div style={{ marginBottom: '1.5rem' }}>
+                <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '1rem', fontWeight: 600 }}>Source</h4>
+                <p style={{ margin: '0.25rem 0', color: 'var(--hal-text)' }}>
+                  <strong>Type:</strong> {selectedFailure.source_type === 'drift_attempt' ? 'Drift Attempt' : 'Agent Outcome'}
+                </p>
+                {selectedFailure.metadata?.agentType && (
+                  <p style={{ margin: '0.25rem 0', color: 'var(--hal-text)' }}>
+                    <strong>Agent Type:</strong> {selectedFailure.metadata.agentType}
+                  </p>
+                )}
+                {selectedFailure.metadata?.transition && (
+                  <p style={{ margin: '0.25rem 0', color: 'var(--hal-text)' }}>
+                    <strong>Transition:</strong> {selectedFailure.metadata.transition}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
