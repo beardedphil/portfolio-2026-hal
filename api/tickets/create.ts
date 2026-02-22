@@ -105,6 +105,22 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     // Determine next ticket number (repo-scoped)
     const startNum = await getNextTicketNumber(supabase, repoFullName)
 
+    // Double-check idempotency after getting ticket number (handles concurrent requests)
+    // This prevents race conditions where multiple requests pass the initial check
+    if (singleSuggestion) {
+      const doubleCheckTicket = await checkIdempotency(supabase, singleSuggestion, repoFullName, sourceRef)
+      if (doubleCheckTicket) {
+        json(res, 200, {
+          success: true,
+          ticketId: doubleCheckTicket.display_id || doubleCheckTicket.id,
+          id: doubleCheckTicket.id,
+          pk: doubleCheckTicket.pk,
+          duplicate: true,
+        })
+        return
+      }
+    }
+
     // Generate ticket content from suggestions
     // Support both single suggestion field (new) and single-item array (backward compatibility) (0167)
     const isSingleSuggestion = singleSuggestion !== undefined || suggestions.length === 1
