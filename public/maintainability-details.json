@@ -53,8 +53,16 @@
       "maintainability": 11.28
     },
     {
+      "file": "api/conversations/working-memory/update.ts",
+      "maintainability": 13.74
+    },
+    {
       "file": "src/hooks/useProcessReview.ts",
       "maintainability": 14.04
+    },
+    {
+      "file": "api/conversations/working-memory/update.test.ts",
+      "maintainability": 14.28
     },
     {
       "file": "api/instructions/get-topic.ts",
@@ -71,14 +79,6 @@
     {
       "file": "api/auth/github/callback.ts",
       "maintainability": 16.29
-    },
-    {
-      "file": "api/conversations/working-memory/update.ts",
-      "maintainability": 18.36
-    },
-    {
-      "file": "api/tickets/_docs-consistency-check.ts",
-      "maintainability": 18.76
     }
   ],
   "mostRecentImprovements": [
@@ -101,12 +101,6 @@
       "delta": 0
     },
     {
-      "file": "api/conversations/working-memory/update.ts",
-      "before": 18.36,
-      "after": 18.36,
-      "delta": 0
-    },
-    {
       "file": "api/tickets/create-pr.ts",
       "before": 15.41,
       "after": 15.41,
@@ -119,8 +113,8 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-22T03:09:43.156Z",
-  "filesAnalyzed": 350,
-  "unroundedMaintainability": 33.3,
-  "unroundedSimplicity": 33.3
+  "generatedAt": "2026-02-22T04:10:13.708Z",
+  "filesAnalyzed": 356,
+  "unroundedMaintainability": 32.9,
+  "unroundedSimplicity": 32.9
 }
