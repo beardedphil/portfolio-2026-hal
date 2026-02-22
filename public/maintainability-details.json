@@ -17,10 +17,6 @@
       "maintainability": 0
     },
     {
-      "file": "api/agent-runs/launch.ts",
-      "maintainability": 0
-    },
-    {
       "file": "api/agent-runs/providers/openai.ts",
       "maintainability": 0
     },
@@ -43,6 +39,10 @@
     {
       "file": "projects/kanban/src/App.tsx",
       "maintainability": 0
+    },
+    {
+      "file": "api/agent-runs/launch.ts",
+      "maintainability": 3.54
     },
     {
       "file": "agents/src/agents/projectManager.ts",
@@ -83,6 +83,12 @@
   ],
   "mostRecentImprovements": [
     {
+      "file": "api/agent-runs/launch.ts",
+      "before": 0,
+      "after": 3.54,
+      "delta": 3.54
+    },
+    {
       "file": "api/instructions/migrate-process-docs.ts",
       "before": 15.59,
       "after": 15.59,
@@ -119,8 +125,8 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-22T03:09:43.156Z",
-  "filesAnalyzed": 350,
-  "unroundedMaintainability": 33.3,
-  "unroundedSimplicity": 33.3
+  "generatedAt": "2026-02-22T03:41:36.994Z",
+  "filesAnalyzed": 352,
+  "unroundedMaintainability": 33.2,
+  "unroundedSimplicity": 33.2
 }
