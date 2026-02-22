@@ -233,6 +233,55 @@ export async function runPmAgent(
     return { valid: true }
   }
 
+  // Helper: Execute fetch ticket content tool logic
+  const executeFetchTicketContent = async (input: { ticket_id: string }): Promise<{
+    success: true
+    id: string
+    display_id?: string
+    ticket_number?: number
+    repo_full_name?: string
+    title: string
+    body_md: string
+    kanban_column_id: string | null
+    artifacts: Array<{
+      artifact_id: string
+      ticket_pk: string
+      repo_full_name?: string | null
+      agent_type: string
+      title: string
+      body_md: string | null
+      created_at: string
+      updated_at?: string | null
+    }>
+    artifacts_error?: string
+    ticket?: Record<string, any>
+  } | { success: false; error: string }> => {
+    const ticketNumber = parseTicketNumber(input.ticket_id)
+    const normalizedId = String(ticketNumber ?? 0).padStart(4, '0')
+    const { json: data } = await halFetchJson(
+      '/api/tickets/get',
+      { ticketId: input.ticket_id },
+      { timeoutMs: 20_000, progressMessage: `Fetching ticket ${input.ticket_id}…` }
+    )
+    if (!data?.success || !data?.ticket) {
+      return { success: false, error: data?.error || `Ticket ${input.ticket_id} not found.` }
+    }
+    const ticket = data.ticket as any
+    return {
+      success: true,
+      id: ticket.id ?? normalizedId,
+      display_id: ticket.display_id ?? undefined,
+      ticket_number: ticket.ticket_number ?? undefined,
+      repo_full_name: ticket.repo_full_name ?? undefined,
+      title: ticket.title ?? '',
+      body_md: data.body_md ?? ticket.body_md ?? '',
+      kanban_column_id: ticket.kanban_column_id ?? null,
+      artifacts: Array.isArray(data.artifacts) ? data.artifacts : [],
+      ...(data.artifacts_error ? { artifacts_error: String(data.artifacts_error) } : {}),
+      ticket,
+    }
+  }
+
   // Helper: Execute create ticket tool logic
   const executeCreateTicket = async (input: { title: string; body_md: string }): Promise<{
     success: true
@@ -397,65 +446,13 @@ export async function runPmAgent(
       ticket_id: z.string().describe('Ticket reference (e.g. "HAL-0012", "0012", or "12").'),
     }),
     execute: async (input: { ticket_id: string }) => {
-      const ticketNumber = parseTicketNumber(input.ticket_id)
-      const normalizedId = String(ticketNumber ?? 0).padStart(4, '0')
-      type FetchResult =
-        | {
-            success: true
-            id: string
-            display_id?: string
-            ticket_number?: number
-            repo_full_name?: string
-            title: string
-            body_md: string
-            kanban_column_id: string | null
-            artifacts: Array<{
-              artifact_id: string
-              ticket_pk: string
-              repo_full_name?: string | null
-              agent_type: string
-              title: string
-              body_md: string | null
-              created_at: string
-              updated_at?: string | null
-            }>
-            artifacts_error?: string
-            ticket?: Record<string, any>
-          }
-        | { success: false; error: string }
-
-      let out: FetchResult
+      let out
       try {
-        const { json: data } = await halFetchJson(
-          '/api/tickets/get',
-          { ticketId: input.ticket_id },
-          { timeoutMs: 20_000, progressMessage: `Fetching ticket ${input.ticket_id}…` }
-        )
-        if (!data?.success || !data?.ticket) {
-          out = { success: false, error: data?.error || `Ticket ${input.ticket_id} not found.` }
-          toolCalls.push({ name: 'fetch_ticket_content', input, output: out })
-          return out
-        }
-
-        const ticket = data.ticket as any
-        out = {
-          success: true,
-          id: ticket.id ?? normalizedId,
-          display_id: ticket.display_id ?? undefined,
-          ticket_number: ticket.ticket_number ?? undefined,
-          repo_full_name: ticket.repo_full_name ?? undefined,
-          title: ticket.title ?? '',
-          body_md: data.body_md ?? ticket.body_md ?? '',
-          kanban_column_id: ticket.kanban_column_id ?? null,
-          artifacts: Array.isArray(data.artifacts) ? data.artifacts : [],
-          ...(data.artifacts_error ? { artifacts_error: String(data.artifacts_error) } : {}),
-          ticket,
-        }
+        out = await executeFetchTicketContent(input)
       } catch (err) {
         if (isAbortError(err)) throw err
         out = { success: false, error: err instanceof Error ? err.message : String(err) }
       }
-
       toolCalls.push({ name: 'fetch_ticket_content', input, output: out })
       return out
     },
