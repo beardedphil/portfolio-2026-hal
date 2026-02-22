@@ -156,6 +156,15 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       console.warn(`[get-diagnostics] Failed to fetch storage attempts: ${attemptsError.message}`)
     }
 
+    const artifactsList = (artifacts || []) as Array<{
+      artifact_id: string
+      ticket_pk: string
+      agent_type: string
+      title: string
+      body_md?: string
+      created_at: string
+    }>
+
     // Fetch embedding job statistics for artifacts in this ticket
     const artifactIds = artifactsList.map((a) => a.artifact_id)
     let embeddingJobs: {
@@ -205,15 +214,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         embeddingJobs.recentJobs = recentJobs as typeof embeddingJobs.recentJobs
       }
     }
-
-    const artifactsList = (artifacts || []) as Array<{
-      artifact_id: string
-      ticket_pk: string
-      agent_type: string
-      title: string
-      body_md?: string
-      created_at: string
-    }>
 
     const attemptsList = (attempts || []) as Array<{
       attempt_id: string
