@@ -60,7 +60,7 @@ export function ColdStartContinuityModal({
   supabaseUrl,
   supabaseAnonKey,
 }: ColdStartContinuityModalProps) {
-  const [ticketPk, setTicketPk] = useState<string | null>(initialTicketPk)
+  const [ticketPk] = useState<string | null>(initialTicketPk)
   const [ticketId, setTicketId] = useState<string | null>(initialTicketId)
   const [repoFullName, setRepoFullName] = useState<string | null>(initialRepoFullName)
   const [selectedRole, setSelectedRole] = useState<RoleOption>(
