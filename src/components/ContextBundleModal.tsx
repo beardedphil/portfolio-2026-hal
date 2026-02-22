@@ -146,6 +146,19 @@ export function ContextBundleModal({
   const [continuityCheckResult, setContinuityCheckResult] = useState<ContinuityCheckResult | null>(null)
   const [continuityCheckLoading, setContinuityCheckLoading] = useState(false)
   const [showContinuityCheck, setShowContinuityCheck] = useState(false)
+  const [generating, setGenerating] = useState(false)
+  const [generationResult, setGenerationResult] = useState<{
+    success: boolean
+    bundleId?: string
+    retrievalMetadata?: {
+      repoFilter?: string
+      pinnedIncluded: boolean
+      recencyWindow?: string
+      totalConsidered: number
+      totalSelected: number
+    }
+    error?: string
+  } | null>(null)
   const apiBaseUrlRef = useRef<string>('')
 
   // Load API base URL
@@ -181,6 +194,8 @@ export function ContextBundleModal({
       setBundlePreviewText('')
       setContinuityCheckResult(null)
       setShowContinuityCheck(false)
+      setGenerating(false)
+      setGenerationResult(null)
       if (repoFullName) {
         loadBundles()
       }
@@ -372,6 +387,84 @@ export function ContextBundleModal({
     }
   }
 
+  const handleGenerateBundle = async () => {
+    const ticketIdToUse = ticketId || selectedBundle?.ticket_id
+    if (!repoFullName || !ticketIdToUse || !supabaseUrl || !supabaseAnonKey) {
+      setError('Repository, ticket, and Supabase credentials are required to generate a bundle.')
+      return
+    }
+
+    setGenerating(true)
+    setError(null)
+    setGenerationResult(null)
+
+    try {
+      const apiBaseUrl = apiBaseUrlRef.current || window.location.origin
+      // Use hybrid retrieval with defaults: repo filter, recency window (30 days), deterministic
+      const response = await fetch(`${apiBaseUrl}/api/context-bundles/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ticketId: ticketIdToUse,
+          repoFullName,
+          role: selectedRole,
+          supabaseUrl,
+          supabaseAnonKey,
+          hybridRetrieval: {
+            query: undefined, // No query - use metadata filters only
+            repoFullName,
+            includePinned: false, // TODO: Add UI control for this
+            recencyDays: 30, // TODO: Add UI control for this
+            limit: 20,
+            deterministic: true, // Ensure same inputs → same results
+          },
+        }),
+      })
+
+      const data = (await response.json()) as {
+        success: boolean
+        bundle?: { bundle_id: string; version: number; role: string; created_at: string }
+        retrievalMetadata?: {
+          repoFilter?: string
+          pinnedIncluded: boolean
+          recencyWindow?: string
+          totalConsidered: number
+          totalSelected: number
+        }
+        error?: string
+      }
+
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to generate bundle')
+      }
+
+      setGenerationResult({
+        success: true,
+        bundleId: data.bundle?.bundle_id,
+        retrievalMetadata: data.retrievalMetadata,
+      })
+
+      // Reload bundles list to include the new bundle
+      await loadBundles()
+
+      // Select the newly generated bundle
+      if (data.bundle?.bundle_id) {
+        setSelectedBundleId(data.bundle.bundle_id)
+        if (repoFullName) {
+          localStorage.setItem(`context-bundle-selected-${repoFullName}`, data.bundle.bundle_id)
+        }
+      }
+    } catch (err) {
+      setGenerationResult({
+        success: false,
+        error: err instanceof Error ? err.message : 'Failed to generate bundle',
+      })
+      setError(err instanceof Error ? err.message : 'Failed to generate bundle')
+    } finally {
+      setGenerating(false)
+    }
+  }
+
   const handleUseBundle = () => {
     if (!preview || preview.budget?.exceeds) {
       return
@@ -524,12 +617,12 @@ export function ContextBundleModal({
                 </div>
               )}
 
-              {selectedBundleId && (
-                <>
-                  {/* Role Selector */}
-                  <div style={{ border: '1px solid var(--hal-border)', borderRadius: '8px', padding: '16px' }}>
-                    <h3 style={{ margin: '0 0 12px 0', fontSize: '16px' }}>Agent Role</h3>
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {/* Generate Bundle Section */}
+              {previewTicketId && (
+                <div style={{ border: '1px solid var(--hal-border)', borderRadius: '8px', padding: '16px' }}>
+                  <h3 style={{ margin: '0 0 12px 0', fontSize: '16px' }}>Generate Context Bundle</h3>
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', flex: 1 }}>
                       {ROLE_OPTIONS.map((option) => (
                         <button
                           key={option.value}
@@ -549,7 +642,85 @@ export function ContextBundleModal({
                         </button>
                       ))}
                     </div>
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      onClick={handleGenerateBundle}
+                      disabled={generating || !repoFullName || !previewTicketId || !supabaseUrl || !supabaseAnonKey}
+                      style={{
+                        opacity: generating || !repoFullName || !previewTicketId || !supabaseUrl || !supabaseAnonKey ? 0.5 : 1,
+                        cursor: generating || !repoFullName || !previewTicketId || !supabaseUrl || !supabaseAnonKey ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      {generating ? 'Generating...' : 'Generate Context Bundle'}
+                    </button>
                   </div>
+                  {generationResult && (
+                    <div
+                      style={{
+                        marginTop: '12px',
+                        padding: '12px',
+                        background: generationResult.success
+                          ? 'var(--hal-status-success, #2e7d32)'
+                          : 'var(--hal-status-error, #c62828)',
+                        color: 'white',
+                        borderRadius: '4px',
+                        fontSize: '14px',
+                      }}
+                    >
+                      {generationResult.success ? (
+                        <div>
+                          <strong>✓ Bundle generated successfully!</strong>
+                          {generationResult.bundleId && (
+                            <div style={{ marginTop: '4px', fontSize: '12px' }}>
+                              Bundle ID: {generationResult.bundleId}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div>
+                          <strong>✗ Generation failed:</strong> {generationResult.error}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {selectedBundleId && (
+                <>
+                  {/* Retrieval Sources Summary (from generation) */}
+                  {generationResult?.success && generationResult.retrievalMetadata && (
+                    <div style={{ border: '1px solid var(--hal-border)', borderRadius: '8px', padding: '16px' }}>
+                      <h3 style={{ margin: '0 0 12px 0', fontSize: '16px' }}>Retrieval sources</h3>
+                      <div style={{ fontSize: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {generationResult.retrievalMetadata.repoFilter && (
+                          <div>
+                            <strong>Repo filter:</strong> {generationResult.retrievalMetadata.repoFilter}
+                          </div>
+                        )}
+                        <div>
+                          <strong>Pinned included:</strong> {generationResult.retrievalMetadata.pinnedIncluded ? 'Yes' : 'No'}
+                        </div>
+                        {generationResult.retrievalMetadata.recencyWindow && (
+                          <div>
+                            <strong>Recency window:</strong> {generationResult.retrievalMetadata.recencyWindow}
+                          </div>
+                        )}
+                        <div>
+                          <strong>Items considered:</strong> {formatNumber(generationResult.retrievalMetadata.totalConsidered)}
+                        </div>
+                        <div>
+                          <strong>Items selected:</strong> {formatNumber(generationResult.retrievalMetadata.totalSelected)}
+                        </div>
+                        {generationResult.retrievalMetadata.totalConsidered === 0 && (
+                          <div style={{ padding: '12px', background: 'var(--hal-surface-alt)', borderRadius: '4px', marginTop: '8px' }}>
+                            <strong>No matching sources found</strong>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Retrieval Sources Summary */}
                   {preview?.retrievalMetadata && (
