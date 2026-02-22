@@ -11,6 +11,27 @@ interface EmbeddingsStatus {
   error?: string
 }
 
+interface EmbeddingJob {
+  job_id: string
+  artifact_id: string
+  status: 'queued' | 'processing' | 'succeeded' | 'failed'
+  created_at: string
+  started_at?: string
+  completed_at?: string
+  chunks_processed?: number
+  chunks_skipped?: number
+  chunks_failed?: number
+  error_message?: string
+}
+
+interface EmbeddingStats {
+  queued: number
+  processing: number
+  succeeded: number
+  failed: number
+  total: number
+}
+
 interface SearchResult {
   chunk_id: string
   artifact_id: string
@@ -26,6 +47,8 @@ interface DiagnosticsModalProps {
   supabaseUrl: string | null
   supabaseAnonKey: string | null
   openaiApiKey?: string | null
+  ticketId?: string | null
+  ticketPk?: string | null
 }
 
 export function DiagnosticsModal({
@@ -34,6 +57,8 @@ export function DiagnosticsModal({
   supabaseUrl,
   supabaseAnonKey,
   openaiApiKey,
+  ticketId,
+  ticketPk,
 }: DiagnosticsModalProps) {
   const [embeddingsStatus, setEmbeddingsStatus] = useState<EmbeddingsStatus | null>(null)
   const [loadingStatus, setLoadingStatus] = useState(false)
@@ -41,12 +66,18 @@ export function DiagnosticsModal({
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
   const [searching, setSearching] = useState(false)
   const [searchError, setSearchError] = useState<string | null>(null)
+  const [embeddingJobs, setEmbeddingJobs] = useState<EmbeddingJob[]>([])
+  const [embeddingStats, setEmbeddingStats] = useState<EmbeddingStats | null>(null)
+  const [loadingJobs, setLoadingJobs] = useState(false)
 
-  // Load embeddings status when modal opens
+  // Load embeddings status and jobs when modal opens
   useEffect(() => {
     if (!isOpen) return
     loadEmbeddingsStatus()
-  }, [isOpen, supabaseUrl, supabaseAnonKey])
+    if (ticketId || ticketPk) {
+      loadEmbeddingJobs()
+    }
+  }, [isOpen, supabaseUrl, supabaseAnonKey, ticketId, ticketPk])
 
   async function loadEmbeddingsStatus() {
     if (!supabaseUrl || !supabaseAnonKey) {
@@ -80,6 +111,42 @@ export function DiagnosticsModal({
       })
     } finally {
       setLoadingStatus(false)
+    }
+  }
+
+  async function loadEmbeddingJobs() {
+    if (!supabaseUrl || !supabaseAnonKey || (!ticketId && !ticketPk)) {
+      return
+    }
+
+    setLoadingJobs(true)
+    try {
+      const res = await fetch('/api/artifacts/get-diagnostics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ticketId,
+          ticketPk,
+          supabaseUrl,
+          supabaseAnonKey,
+        }),
+      })
+
+      const data = (await res.json()) as {
+        success: boolean
+        embeddingJobs?: EmbeddingJob[]
+        embeddingStats?: EmbeddingStats
+        error?: string
+      }
+
+      if (data.success) {
+        setEmbeddingJobs(data.embeddingJobs || [])
+        setEmbeddingStats(data.embeddingStats || null)
+      }
+    } catch (err) {
+      console.error('Failed to load embedding jobs:', err)
+    } finally {
+      setLoadingJobs(false)
     }
   }
 
@@ -185,6 +252,105 @@ export function DiagnosticsModal({
         </div>
 
         <div className="conversation-modal-content" style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
+          {/* Embedding Jobs Queue / Worker Status Section */}
+          {(ticketId || ticketPk) && (
+            <section style={{ marginBottom: '2rem' }}>
+              <h4 style={{ margin: '0 0 1rem 0', fontSize: '1.1rem', fontWeight: 600 }}>Embedding Jobs Queue</h4>
+              {loadingJobs ? (
+                <p style={{ color: 'var(--hal-text-muted)' }}>Loading jobs...</p>
+              ) : embeddingStats ? (
+                <div>
+                  <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                    <div style={{ padding: '0.5rem 1rem', background: 'var(--hal-surface-alt)', borderRadius: '4px' }}>
+                      <div style={{ fontSize: '0.85rem', color: 'var(--hal-text-muted)', marginBottom: '0.25rem' }}>Queued</div>
+                      <div style={{ fontSize: '1.2rem', fontWeight: 600, color: 'var(--hal-text)' }}>{embeddingStats.queued}</div>
+                    </div>
+                    <div style={{ padding: '0.5rem 1rem', background: 'var(--hal-surface-alt)', borderRadius: '4px' }}>
+                      <div style={{ fontSize: '0.85rem', color: 'var(--hal-text-muted)', marginBottom: '0.25rem' }}>Processing</div>
+                      <div style={{ fontSize: '1.2rem', fontWeight: 600, color: 'var(--hal-status-ok)' }}>{embeddingStats.processing}</div>
+                    </div>
+                    <div style={{ padding: '0.5rem 1rem', background: 'var(--hal-surface-alt)', borderRadius: '4px' }}>
+                      <div style={{ fontSize: '0.85rem', color: 'var(--hal-text-muted)', marginBottom: '0.25rem' }}>Succeeded</div>
+                      <div style={{ fontSize: '1.2rem', fontWeight: 600, color: 'var(--hal-status-ok)' }}>{embeddingStats.succeeded}</div>
+                    </div>
+                    <div style={{ padding: '0.5rem 1rem', background: 'var(--hal-surface-alt)', borderRadius: '4px' }}>
+                      <div style={{ fontSize: '0.85rem', color: 'var(--hal-text-muted)', marginBottom: '0.25rem' }}>Failed</div>
+                      <div style={{ fontSize: '1.2rem', fontWeight: 600, color: 'var(--hal-status-error)' }}>{embeddingStats.failed}</div>
+                    </div>
+                    <div style={{ padding: '0.5rem 1rem', background: 'var(--hal-surface-alt)', borderRadius: '4px' }}>
+                      <div style={{ fontSize: '0.85rem', color: 'var(--hal-text-muted)', marginBottom: '0.25rem' }}>Total</div>
+                      <div style={{ fontSize: '1.2rem', fontWeight: 600, color: 'var(--hal-text)' }}>{embeddingStats.total}</div>
+                    </div>
+                  </div>
+
+                  {/* Recent Jobs List */}
+                  {embeddingJobs.length > 0 && (
+                    <div>
+                      <h5 style={{ margin: '1rem 0 0.5rem 0', fontSize: '1rem', fontWeight: 600 }}>Recent Jobs</h5>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        {embeddingJobs.slice(0, 10).map((job) => (
+                          <div
+                            key={job.job_id}
+                            style={{
+                              padding: '0.75rem',
+                              border: '1px solid var(--hal-border)',
+                              borderRadius: '4px',
+                              background: 'var(--hal-surface-alt)',
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '0.25rem' }}>
+                              <span
+                                style={{
+                                  padding: '0.25rem 0.5rem',
+                                  borderRadius: '3px',
+                                  fontSize: '0.85rem',
+                                  fontWeight: 500,
+                                  background:
+                                    job.status === 'succeeded'
+                                      ? 'rgba(46, 125, 50, 0.1)'
+                                      : job.status === 'failed'
+                                        ? 'rgba(198, 40, 40, 0.1)'
+                                        : job.status === 'processing'
+                                          ? 'rgba(33, 150, 243, 0.1)'
+                                          : 'rgba(108, 117, 125, 0.1)',
+                                  color:
+                                    job.status === 'succeeded'
+                                      ? 'var(--hal-status-ok)'
+                                      : job.status === 'failed'
+                                        ? 'var(--hal-status-error)'
+                                        : job.status === 'processing'
+                                          ? '#2196F3'
+                                          : 'var(--hal-text-muted)',
+                                }}
+                              >
+                                {job.status.toUpperCase()}
+                              </span>
+                              <span style={{ fontSize: '0.85rem', color: 'var(--hal-text-muted)' }}>
+                                {new Date(job.created_at).toLocaleString()}
+                              </span>
+                            </div>
+                            {(job.chunks_processed !== undefined || job.chunks_skipped !== undefined || job.chunks_failed !== undefined) && (
+                              <div style={{ fontSize: '0.85rem', color: 'var(--hal-text-muted)', marginTop: '0.25rem' }}>
+                                Processed: {job.chunks_processed || 0} | Skipped: {job.chunks_skipped || 0} | Failed: {job.chunks_failed || 0}
+                              </div>
+                            )}
+                            {job.error_message && (
+                              <div style={{ fontSize: '0.85rem', color: 'var(--hal-status-error)', marginTop: '0.25rem' }}>
+                                Error: {job.error_message}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p style={{ color: 'var(--hal-text-muted)' }}>No embedding jobs found</p>
+              )}
+            </section>
+          )}
+
           {/* Embeddings / Vector Search Status Section */}
           <section style={{ marginBottom: '2rem' }}>
             <h4 style={{ margin: '0 0 1rem 0', fontSize: '1.1rem', fontWeight: 600 }}>Embeddings / Vector Search</h4>

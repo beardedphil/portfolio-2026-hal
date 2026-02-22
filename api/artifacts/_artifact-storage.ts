@@ -15,6 +15,7 @@ import {
   deleteDuplicateArtifacts,
   handleRaceCondition,
 } from './_artifact-operations.js'
+import { enqueueEmbeddingJob } from './_enqueue-embedding-helper.js'
 
 export interface ArtifactStorageOptions {
   supabase: SupabaseClient
@@ -149,6 +150,9 @@ export async function storeArtifact(
       'stored'
     )
 
+    // Enqueue embedding job for updated artifact
+    await enqueueEmbeddingJob(supabase, targetArtifactId)
+
     return {
       success: true,
       artifact_id: targetArtifactId,
@@ -190,6 +194,8 @@ export async function storeArtifact(
           endpointPath,
           'stored'
         )
+        // Enqueue embedding job for race-condition-handled artifact
+        await enqueueEmbeddingJob(supabase, raceResult.artifact_id)
         return {
           success: true,
           artifact_id: raceResult.artifact_id,
@@ -222,6 +228,9 @@ export async function storeArtifact(
     endpointPath,
     'stored'
   )
+
+  // Enqueue embedding job for new artifact
+  await enqueueEmbeddingJob(supabase, insertResult.artifact_id)
 
   return {
     success: true,
