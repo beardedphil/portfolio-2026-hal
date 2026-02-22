@@ -109,6 +109,32 @@ Only after all four steps are complete should you proceed with reading files, ma
 
 **MANDATORY:** Agents must **never** perform work on detached HEAD or a non-ticket branch. All work must be performed on the correct feature branch for the ticket.
 
+## Do Not
+
+**MANDATORY:** The following destructive git commands are **prohibited by default** and must **never** be used unless explicitly required by the ticket:
+
+- `git reset --hard` — Discards all uncommitted changes and resets the working directory to a specific commit
+- `git clean -fd` — Removes untracked files and directories
+- Force-push operations (`git push --force` or `git push --force-with-lease`) — Overwrites remote branch history
+
+### Exception: When Ticket Explicitly Requires Destructive Commands
+
+Destructive commands are **only allowed** when **both** of the following conditions are met:
+
+1. **The ticket explicitly requires the destructive command** — The ticket description, acceptance criteria, or instructions must clearly state that a destructive command is needed (e.g., "reset the branch to a clean state" or "force-push to fix branch history").
+
+2. **The agent creates a backup and documents the rationale** — Before executing any destructive command, the agent **MUST**:
+   - Create a backup using one of the following methods:
+     - **Patch file:** `git diff > backup.patch` (for uncommitted changes)
+     - **Stash:** `git stash push -m "backup before destructive operation"` (for uncommitted changes)
+     - **Branch backup:** `git branch backup-<timestamp>` (for committed work that might be lost)
+   - Document the rationale in the worklog or decisions artifact, explaining:
+     - Why the destructive command is necessary
+     - What backup was created and where it is stored
+     - What will be lost and why it's acceptable
+
+**If a destructive command is needed but the ticket doesn't explicitly require it:** The agent must **not** execute the command. Instead, the agent should document the situation and request clarification or create a follow-up ticket.
+
 ### If You Discover Work on the Wrong Branch
 
 If you discover that work has landed on the wrong branch (detached HEAD, `main`, or a different feature branch), you **MUST** immediately fix this:
@@ -138,12 +164,25 @@ If you discover that work has landed on the wrong branch (detached HEAD, `main`,
    ```
 
 5. **If work was already committed on the wrong branch, you may need to reset that branch:**
+   
+   **WARNING:** This step involves destructive commands (`git reset --hard` and `git push --force`). See the "Do Not" section above for requirements.
+   
+   **Before proceeding:** Ensure you have created a backup branch of the work that will be removed:
    ```bash
-   # Only if you need to remove commits from the wrong branch
+   git branch backup-<wrong-branch>-<timestamp>  # Create backup before destructive operations
+   ```
+   
+   **Only if you need to remove commits from the wrong branch:**
+   ```bash
    git checkout <wrong-branch>
    git reset --hard <commit-before-wrong-work>
-   git push --force origin <wrong-branch>  # Use with caution
+   git push --force origin <wrong-branch>  # Use with caution - see "Do Not" section
    ```
+   
+   **Documentation required:** Document in your worklog or decisions artifact:
+   - Why the reset and force-push were necessary
+   - What backup branch was created
+   - What commits were removed and why
 
 **CRITICAL:** Do not continue working until the branch situation is corrected. All commits must be on the correct feature branch for the ticket.
 
