@@ -15,6 +15,7 @@ import { createClient } from '@supabase/supabase-js'
 import { getLatestManifest } from '../_lib/integration-manifest/context-integration.js'
 import { distillArtifact } from './_distill.js'
 import type { DistilledArtifact } from './_distill.js'
+import { hybridSearch } from '../artifacts/hybrid-search.js'
 
 export interface BundleBuilderOptions {
   ticketPk: string
@@ -23,13 +24,19 @@ export interface BundleBuilderOptions {
   role: string
   supabaseUrl: string
   supabaseAnonKey: string
-  selectedArtifactIds?: string[]
+  selectedArtifactIds?: string[] // Deprecated: use hybrid retrieval instead
   gitRef?: {
     pr_url?: string
     pr_number?: number
     base_sha?: string
     head_sha?: string
   } | null
+  // Hybrid retrieval options
+  useHybridRetrieval?: boolean // If true, use hybrid retrieval instead of selectedArtifactIds
+  retrievalQuery?: string // Query text for vector similarity search
+  recencyDays?: number | null // Recency window in days (null = no filter)
+  includePinned?: boolean // Include pinned artifacts (future)
+  openaiApiKey?: string // Required for hybrid retrieval
 }
 
 export interface ContextBundleV0 {
@@ -93,6 +100,13 @@ export interface BuilderResult {
     version: number
     schema_version: string
   } | null
+  retrievalMetadata?: {
+    repoFilter: string
+    recencyWindow: string | null
+    pinnedIncluded: boolean
+    itemsConsidered: number
+    itemsSelected: number
+  }
   error?: string
 }
 
@@ -105,7 +119,21 @@ export interface BuilderResult {
 export async function buildContextBundleV0(
   options: BundleBuilderOptions
 ): Promise<BuilderResult> {
-  const { ticketPk, ticketId, repoFullName, role, supabaseUrl, supabaseAnonKey, selectedArtifactIds = [], gitRef = null } = options
+  const {
+    ticketPk,
+    ticketId,
+    repoFullName,
+    role,
+    supabaseUrl,
+    supabaseAnonKey,
+    selectedArtifactIds = [],
+    gitRef = null,
+    useHybridRetrieval = false,
+    retrievalQuery,
+    recencyDays = null,
+    includePinned = false,
+    openaiApiKey,
+  } = options
 
   const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
@@ -196,11 +224,47 @@ export async function buildContextBundleV0(
     }
 
     // 6. Get relevant artifacts (distilled)
-    const relevantArtifacts = await getRelevantArtifacts(
-      supabase,
-      ticketPk,
-      selectedArtifactIds
-    )
+    // Use hybrid retrieval if enabled, otherwise fall back to selectedArtifactIds
+    let relevantArtifacts: Array<{
+      artifact_id: string
+      artifact_title: string
+      summary: string
+      hard_facts: string[]
+      keywords: string[]
+    }> = []
+    let retrievalMetadata: BuilderResult['retrievalMetadata'] | undefined = undefined
+
+    if (useHybridRetrieval && retrievalQuery && openaiApiKey) {
+      // Use hybrid retrieval
+      const hybridResult = await hybridSearch({
+        query: retrievalQuery,
+        repoFullName,
+        limit: 20, // Get more artifacts for context bundle
+        recencyDays,
+        includePinned,
+        supabaseUrl,
+        supabaseAnonKey,
+        openaiApiKey,
+        deterministic: true,
+      })
+
+      if (hybridResult.success && hybridResult.results.length > 0) {
+        // Fetch and distill the retrieved artifacts
+        const retrievedArtifactIds = hybridResult.results.map((r) => r.artifact_id)
+        relevantArtifacts = await getRelevantArtifacts(supabase, ticketPk, retrievedArtifactIds)
+        retrievalMetadata = hybridResult.retrievalMetadata
+      } else if (!hybridResult.success) {
+        // If hybrid retrieval fails, log error but continue with empty artifacts
+        console.warn(`[context-bundle] Hybrid retrieval failed: ${hybridResult.error}`)
+        retrievalMetadata = hybridResult.retrievalMetadata
+      } else {
+        // No results found
+        retrievalMetadata = hybridResult.retrievalMetadata
+      }
+    } else {
+      // Fall back to selectedArtifactIds (legacy behavior)
+      relevantArtifacts = await getRelevantArtifacts(supabase, ticketPk, selectedArtifactIds)
+    }
 
     // 7. Get instructions (role-specific)
     const instructions = await getRoleSpecificInstructions(supabase, repoFullName, role)
@@ -232,6 +296,7 @@ export async function buildContextBundleV0(
       bundle,
       redReference,
       integrationManifestReference,
+      retrievalMetadata,
     }
   } catch (err) {
     return {
