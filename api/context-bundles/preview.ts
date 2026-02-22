@@ -51,7 +51,15 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       ticketId?: string
       repoFullName?: string
       role?: string
-      selectedArtifactIds?: string[]
+      selectedArtifactIds?: string[] // Deprecated: use hybridRetrieval instead
+      hybridRetrieval?: {
+        query?: string
+        includePinned?: boolean
+        recencyDays?: number
+        limit?: number
+        deterministic?: boolean
+        openaiApiKey?: string
+      }
       supabaseUrl?: string
       supabaseAnonKey?: string
       gitRef?: {
@@ -69,6 +77,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const selectedArtifactIds = Array.isArray(body.selectedArtifactIds)
       ? body.selectedArtifactIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
       : []
+    const hybridRetrieval = body.hybridRetrieval
 
     const { supabaseUrl, supabaseAnonKey } = parseSupabaseCredentials(body)
 
@@ -170,6 +179,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       supabaseUrl,
       supabaseAnonKey,
       selectedArtifactIds,
+      hybridRetrieval,
       gitRef: body.gitRef || null,
     })
 
@@ -200,6 +210,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       },
       sectionMetrics,
       bundle: bundle, // Include bundle content for preview
+      retrievalMetadata: builderResult.retrievalMetadata,
     })
   } catch (err) {
     console.error('Error in preview context bundle handler:', err)
