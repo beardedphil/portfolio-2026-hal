@@ -73,12 +73,12 @@
       "maintainability": 16.29
     },
     {
-      "file": "api/conversations/working-memory/update.ts",
-      "maintainability": 18.36
+      "file": "projects/kanban/src/components/ArtifactReportViewer.tsx",
+      "maintainability": 16.55
     },
     {
-      "file": "projects/kanban/src/components/ArtifactReportViewer.tsx",
-      "maintainability": 18.61
+      "file": "api/conversations/working-memory/update.ts",
+      "maintainability": 18.36
     }
   ],
   "mostRecentImprovements": [
@@ -119,8 +119,8 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-22T01:13:44.423Z",
-  "filesAnalyzed": 334,
-  "unroundedMaintainability": 33.7,
-  "unroundedSimplicity": 33.7
+  "generatedAt": "2026-02-22T01:17:13.990Z",
+  "filesAnalyzed": 335,
+  "unroundedMaintainability": 33.6,
+  "unroundedSimplicity": 33.6
 }
