@@ -232,7 +232,7 @@ export function ArtifactReportViewer({
   }, [canGoNext, effectiveIndex, onNavigate])
 
   // Artifact validation and display data
-  const isValidArtifact = artifact && artifact.artifact_id
+  const isValidArtifact = !!(artifact && artifact.artifact_id)
   const artifactTitle = isValidArtifact ? (artifact.title || 'Untitled Artifact') : 'Artifact Viewer'
   const artifactBodyMd = isValidArtifact ? (artifact.body_md || '') : ''
   const artifactCreatedAt = isValidArtifact ? (artifact.created_at || new Date().toISOString()) : new Date().toISOString()
