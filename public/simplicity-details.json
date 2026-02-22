@@ -29,10 +29,6 @@
       "maintainability": 0
     },
     {
-      "file": "api/instructions/get-index.ts",
-      "maintainability": 0
-    },
-    {
       "file": "agents/src/agents/projectManager/contextBuilding.ts",
       "maintainability": 0
     },
@@ -45,45 +41,98 @@
       "maintainability": 0
     },
     {
-      "file": "api/implementation-agent/run.ts",
-      "maintainability": 6.15
+      "file": "api/instructions/get-index.ts",
+      "maintainability": 7.99
     },
     {
       "file": "src/hooks/useProcessReview.ts",
-      "maintainability": 14.04
-    },
-    {
-      "file": "api/instructions/get-topic.ts",
-      "maintainability": 15.27
+      "maintainability": 18.54
     },
     {
       "file": "api/context-bundles/_builder.ts",
-      "maintainability": 15.28
-    },
-    {
-      "file": "api/tickets/create-pr.ts",
-      "maintainability": 15.41
-    },
-    {
-      "file": "api/instructions/migrate-process-docs.ts",
-      "maintainability": 15.59
+      "maintainability": 24.4
     },
     {
       "file": "api/auth/github/callback.ts",
-      "maintainability": 16.29
+      "maintainability": 24.45
+    },
+    {
+      "file": "projects/kanban/src/components/ArtifactReportViewer.tsx",
+      "maintainability": 24.62
     },
     {
       "file": "api/qa-agent/run.ts",
-      "maintainability": 16.69
+      "maintainability": 24.9
     },
     {
-      "file": "api/process-review/create-tickets.ts",
-      "maintainability": 17.61
+      "file": "api/tickets/create-pr.ts",
+      "maintainability": 25.54
+    },
+    {
+      "file": "api/instructions/migrate-process-docs.ts",
+      "maintainability": 26.39
+    },
+    {
+      "file": "api/instructions/get-topic.ts",
+      "maintainability": 26.6
+    },
+    {
+      "file": "api/conversations/working-memory/update.ts",
+      "maintainability": 27.95
     }
   ],
-  "mostRecentImprovements": [],
-  "generatedAt": "2026-02-22T00:04:59.526Z",
+  "mostRecentImprovements": [
+    {
+      "file": "api/implementation-agent/run.ts",
+      "before": 12.23,
+      "after": 32.85,
+      "delta": 20.62
+    },
+    {
+      "file": "api/tickets/create-pr.ts",
+      "before": 25.54,
+      "after": 25.54,
+      "delta": 0
+    },
+    {
+      "file": "api/auth/github/callback.ts",
+      "before": 24.45,
+      "after": 24.45,
+      "delta": 0
+    },
+    {
+      "file": "src/hooks/useProcessReview.ts",
+      "before": 18.54,
+      "after": 18.54,
+      "delta": 0
+    },
+    {
+      "file": "api/instructions/get-index.ts",
+      "before": 7.99,
+      "after": 7.99,
+      "delta": 0
+    },
+    {
+      "file": "api/instructions/get-topic.ts",
+      "before": 26.6,
+      "after": 26.6,
+      "delta": 0
+    },
+    {
+      "file": "api/qa-agent/run.ts",
+      "before": 24.9,
+      "after": 24.9,
+      "delta": 0
+    },
+    {
+      "file": "api/instructions/migrate-process-docs.ts",
+      "before": 26.39,
+      "after": 26.39,
+      "delta": 0
+    }
+  ],
+  "generatedAt": "2026-02-21T22:42:27.407Z",
   "filesAnalyzed": 325,
-  "unroundedMaintainability": 33.8,
-  "unroundedSimplicity": 33.8
+  "unroundedMaintainability": 39.4,
+  "unroundedSimplicity": 39.4
 }

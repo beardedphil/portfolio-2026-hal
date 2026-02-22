@@ -45,10 +45,6 @@
       "maintainability": 7.99
     },
     {
-      "file": "api/implementation-agent/run.ts",
-      "maintainability": 12.23
-    },
-    {
       "file": "src/hooks/useProcessReview.ts",
       "maintainability": 18.54
     },
@@ -79,9 +75,19 @@
     {
       "file": "api/instructions/get-topic.ts",
       "maintainability": 26.6
+    },
+    {
+      "file": "api/conversations/working-memory/update.ts",
+      "maintainability": 27.95
     }
   ],
   "mostRecentImprovements": [
+    {
+      "file": "api/implementation-agent/run.ts",
+      "before": 12.23,
+      "after": 32.85,
+      "delta": 20.62
+    },
     {
       "file": "api/tickets/create-pr.ts",
       "before": 25.54,
@@ -125,7 +131,7 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-21T23:59:38.985Z",
+  "generatedAt": "2026-02-21T22:42:27.407Z",
   "filesAnalyzed": 325,
   "unroundedMaintainability": 39.4,
   "unroundedSimplicity": 39.4
