@@ -15,6 +15,180 @@ import {
 
 export type AgentType = 'implementation' | 'qa' | 'project-manager' | 'process-review'
 
+/**
+ * Parses ticket body markdown to extract goal, deliverable, and acceptance criteria.
+ */
+export function parseTicketBody(bodyMd: string): {
+  goal: string
+  deliverable: string
+  criteria: string
+} {
+  const goalMatch = bodyMd.match(/##\s*Goal[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
+  const deliverableMatch = bodyMd.match(/##\s*Human-verifiable deliverable[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
+  const criteriaMatch = bodyMd.match(/##\s*Acceptance criteria[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
+  return {
+    goal: (goalMatch?.[1] ?? '').trim(),
+    deliverable: (deliverableMatch?.[1] ?? '').trim(),
+    criteria: (criteriaMatch?.[1] ?? '').trim(),
+  }
+}
+
+/**
+ * Extracts branch name from QA ticket body.
+ */
+export function extractBranchName(bodyMd: string): string | undefined {
+  const branchMatch = bodyMd.match(/##\s*QA[^\n]*\n[\s\S]*?Branch[:\s]+([^\n]+)/i)
+  return branchMatch?.[1]?.trim()
+}
+
+/**
+ * Determines agent type from request body, defaulting to 'implementation'.
+ */
+export function determineAgentType(body: { agentType?: AgentType }): AgentType {
+  return body.agentType === 'qa'
+    ? 'qa'
+    : body.agentType === 'project-manager'
+      ? 'project-manager'
+      : body.agentType === 'process-review'
+        ? 'process-review'
+        : 'implementation'
+}
+
+/**
+ * Builds prompt text for implementation agent.
+ */
+export function buildImplementationPrompt(params: {
+  repoFullName: string
+  ticketNumber: number
+  displayId: string
+  currentColumnId: string | null
+  defaultBranch: string
+  halApiBaseUrl: string
+  goal: string
+  deliverable: string
+  criteria: string
+}): string {
+  return [
+    'Implement this ticket.',
+    '',
+    '## Inputs (provided by HAL)',
+    `- **agentType**: implementation`,
+    `- **repoFullName**: ${params.repoFullName}`,
+    `- **ticketNumber**: ${params.ticketNumber}`,
+    `- **displayId**: ${params.displayId}`,
+    `- **currentColumnId**: ${params.currentColumnId || 'col-unassigned'}`,
+    `- **defaultBranch**: ${params.defaultBranch}`,
+    `- **HAL API base URL**: ${params.halApiBaseUrl}`,
+    '',
+    '## Tools you can use',
+    '- Cursor Cloud Agent built-ins: read/search/edit files, run shell commands (git, npm), and use `gh` for GitHub.',
+    '- HAL server endpoints (no Supabase creds required): `POST /api/artifacts/insert-implementation`, `POST /api/artifacts/get`, `POST /api/tickets/move`.',
+    '',
+    '## MANDATORY first step: pull latest from main',
+    '',
+    '**Before starting any work**, pull the latest code. Do not assume you have the latest code.',
+    'Run: `git checkout main && git pull origin main`',
+    'Then create or checkout your feature branch and proceed.',
+    '',
+    '## Ticket',
+    `**ID**: ${params.displayId}`,
+    `**Repo**: ${params.repoFullName}`,
+    '',
+    '## Goal',
+    params.goal || '(not specified)',
+    '',
+    '## Human-verifiable deliverable',
+    params.deliverable || '(not specified)',
+    '',
+    '## Acceptance criteria',
+    params.criteria || '(not specified)',
+  ].join('\n')
+}
+
+/**
+ * Builds prompt text for QA agent.
+ */
+export function buildQAPrompt(params: {
+  repoFullName: string
+  ticketNumber: number
+  displayId: string
+  currentColumnId: string | null
+  defaultBranch: string
+  halApiBaseUrl: string
+  goal: string
+  deliverable: string
+  criteria: string
+}): string {
+  return [
+    'QA this ticket implementation. Review the code, generate a QA report, and complete the QA workflow.',
+    '',
+    '## Inputs (provided by HAL)',
+    `- **agentType**: qa`,
+    `- **repoFullName**: ${params.repoFullName}`,
+    `- **ticketNumber**: ${params.ticketNumber}`,
+    `- **displayId**: ${params.displayId}`,
+    `- **currentColumnId**: ${params.currentColumnId || 'col-unassigned'}`,
+    `- **defaultBranch**: ${params.defaultBranch}`,
+    `- **HAL API base URL**: ${params.halApiBaseUrl}`,
+    '',
+    '## Tools you can use',
+    '- Cursor Cloud Agent built-ins: read/search/edit files, run shell commands (git, npm), and use `gh` for GitHub.',
+    '- HAL server endpoints (no Supabase creds required): `POST /api/artifacts/insert-qa`, `POST /api/artifacts/get`, `POST /api/tickets/move`.',
+    '',
+    '## MANDATORY first step: pull latest from main',
+    '',
+    '**Before starting any QA work**, pull the latest code. Do not assume you have the latest code.',
+    'Run: `git checkout main && git pull origin main`',
+    '',
+    '## MANDATORY: Load Your Instructions First',
+    '',
+    '**BEFORE starting any QA work, you MUST load your basic instructions from Supabase.**',
+    '',
+    '**Step 1: Load basic instructions:**',
+    '```javascript',
+    'const baseUrl = process.env.HAL_API_URL || \'http://localhost:5173\'',
+    'const res = await fetch(`${baseUrl}/api/instructions/get`, {',
+    '  method: \'POST\',',
+    '  headers: { \'Content-Type\': \'application/json\' },',
+    '  body: JSON.stringify({',
+    '    agentType: \'qa\',',
+    '    includeBasic: true,',
+    '    includeSituational: false,',
+    '  }),',
+    '})',
+    'const result = await res.json()',
+    'if (result.success) {',
+    '  // result.instructions contains your basic instructions',
+    '  // These include all mandatory workflows, QA report requirements, and procedures',
+    '  // READ AND FOLLOW THESE INSTRUCTIONS - they contain critical requirements',
+    '}',
+    '```',
+    '',
+    '**The instructions from Supabase contain:**',
+    '- Required implementation artifacts you must verify before starting QA',
+    '- How to structure and store QA reports',
+    '- When to pass/fail tickets',
+    '- How to move tickets after QA',
+    '- Code citation requirements',
+    '- All other mandatory QA workflows',
+    '',
+    '**DO NOT proceed with QA until you have loaded and read your instructions from Supabase.**',
+    '',
+    '## Ticket',
+    `**ID**: ${params.displayId}`,
+    `**Repo**: ${params.repoFullName}`,
+    '',
+    '## Goal',
+    params.goal || '(not specified)',
+    '',
+    '## Human-verifiable deliverable',
+    params.deliverable || '(not specified)',
+    '',
+    '## Acceptance criteria',
+    params.criteria || '(not specified)',
+  ].join('\n')
+}
+
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   if (!validateMethod(req, res, 'POST')) {
     return
@@ -37,14 +211,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       model?: string
     }
 
-    const agentType: AgentType =
-      body.agentType === 'qa'
-        ? 'qa'
-        : body.agentType === 'project-manager'
-          ? 'project-manager'
-          : body.agentType === 'process-review'
-            ? 'process-review'
-            : 'implementation'
+    const agentType: AgentType = determineAgentType(body)
     // Implementation and QA: do not send model — let Cursor auto-select.
     const model = (typeof body.model === 'string' ? body.model.trim() : '') || ''
     const repoFullName = typeof body.repoFullName === 'string' ? body.repoFullName.trim() : ''
@@ -161,13 +328,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       }
     }
 
-    // Build prompt
-    const goalMatch = bodyMd.match(/##\s*Goal[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
-    const deliverableMatch = bodyMd.match(/##\s*Human-verifiable deliverable[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
-    const criteriaMatch = bodyMd.match(/##\s*Acceptance criteria[^\n]*\n([\s\S]*?)(?=\n##|$)/i)
-    const goal = (goalMatch?.[1] ?? '').trim()
-    const deliverable = (deliverableMatch?.[1] ?? '').trim()
-    const criteria = (criteriaMatch?.[1] ?? '').trim()
+    // Parse ticket body
+    const { goal, deliverable, criteria } = parseTicketBody(bodyMd)
 
     // Process Review (OpenAI) launch: just create run row; /work will generate streamed output.
     if (agentType === 'process-review') {
@@ -204,109 +366,28 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const promptText =
       agentType === 'implementation'
-        ? [
-            'Implement this ticket.',
-            '',
-            '## Inputs (provided by HAL)',
-            `- **agentType**: implementation`,
-            `- **repoFullName**: ${repoFullName}`,
-            `- **ticketNumber**: ${ticketNumber}`,
-            `- **displayId**: ${displayId}`,
-            `- **currentColumnId**: ${currentColumnId || 'col-unassigned'}`,
-            `- **defaultBranch**: ${defaultBranch}`,
-            `- **HAL API base URL**: ${halApiBaseUrl}`,
-            '',
-            '## Tools you can use',
-            '- Cursor Cloud Agent built-ins: read/search/edit files, run shell commands (git, npm), and use `gh` for GitHub.',
-            '- HAL server endpoints (no Supabase creds required): `POST /api/artifacts/insert-implementation`, `POST /api/artifacts/get`, `POST /api/tickets/move`.',
-            '',
-            '## MANDATORY first step: pull latest from main',
-            '',
-            '**Before starting any work**, pull the latest code. Do not assume you have the latest code.',
-            'Run: `git checkout main && git pull origin main`',
-            'Then create or checkout your feature branch and proceed.',
-            '',
-            '## Ticket',
-            `**ID**: ${displayId}`,
-            `**Repo**: ${repoFullName}`,
-            '',
-            '## Goal',
-            goal || '(not specified)',
-            '',
-            '## Human-verifiable deliverable',
-            deliverable || '(not specified)',
-            '',
-            '## Acceptance criteria',
-            criteria || '(not specified)',
-          ].join('\n')
-        : [
-            'QA this ticket implementation. Review the code, generate a QA report, and complete the QA workflow.',
-            '',
-            '## Inputs (provided by HAL)',
-            `- **agentType**: qa`,
-            `- **repoFullName**: ${repoFullName}`,
-            `- **ticketNumber**: ${ticketNumber}`,
-            `- **displayId**: ${displayId}`,
-            `- **currentColumnId**: ${currentColumnId || 'col-unassigned'}`,
-            `- **defaultBranch**: ${defaultBranch}`,
-            `- **HAL API base URL**: ${halApiBaseUrl}`,
-            '',
-            '## Tools you can use',
-            '- Cursor Cloud Agent built-ins: read/search/edit files, run shell commands (git, npm), and use `gh` for GitHub.',
-            '- HAL server endpoints (no Supabase creds required): `POST /api/artifacts/insert-qa`, `POST /api/artifacts/get`, `POST /api/tickets/move`.',
-            '',
-            '## MANDATORY first step: pull latest from main',
-            '',
-            '**Before starting any QA work**, pull the latest code. Do not assume you have the latest code.',
-            'Run: `git checkout main && git pull origin main`',
-            '',
-            '## MANDATORY: Load Your Instructions First',
-            '',
-            '**BEFORE starting any QA work, you MUST load your basic instructions from Supabase.**',
-            '',
-            '**Step 1: Load basic instructions:**',
-            '```javascript',
-            'const baseUrl = process.env.HAL_API_URL || \'http://localhost:5173\'',
-            'const res = await fetch(`${baseUrl}/api/instructions/get`, {',
-            '  method: \'POST\',',
-            '  headers: { \'Content-Type\': \'application/json\' },',
-            '  body: JSON.stringify({',
-            '    agentType: \'qa\',',
-            '    includeBasic: true,',
-            '    includeSituational: false,',
-            '  }),',
-            '})',
-            'const result = await res.json()',
-            'if (result.success) {',
-            '  // result.instructions contains your basic instructions',
-            '  // These include all mandatory workflows, QA report requirements, and procedures',
-            '  // READ AND FOLLOW THESE INSTRUCTIONS - they contain critical requirements',
-            '}',
-            '```',
-            '',
-            '**The instructions from Supabase contain:**',
-            '- Required implementation artifacts you must verify before starting QA',
-            '- How to structure and store QA reports',
-            '- When to pass/fail tickets',
-            '- How to move tickets after QA',
-            '- Code citation requirements',
-            '- All other mandatory QA workflows',
-            '',
-            '**DO NOT proceed with QA until you have loaded and read your instructions from Supabase.**',
-            '',
-            '## Ticket',
-            `**ID**: ${displayId}`,
-            `**Repo**: ${repoFullName}`,
-            '',
-            '## Goal',
-            goal || '(not specified)',
-            '',
-            '## Human-verifiable deliverable',
-            deliverable || '(not specified)',
-            '',
-            '## Acceptance criteria',
-            criteria || '(not specified)',
-          ].join('\n')
+        ? buildImplementationPrompt({
+            repoFullName,
+            ticketNumber: ticketNumber!,
+            displayId,
+            currentColumnId,
+            defaultBranch,
+            halApiBaseUrl,
+            goal,
+            deliverable,
+            criteria,
+          })
+        : buildQAPrompt({
+            repoFullName,
+            ticketNumber: ticketNumber!,
+            displayId,
+            currentColumnId,
+            defaultBranch,
+            halApiBaseUrl,
+            goal,
+            deliverable,
+            criteria,
+          })
 
     // Create run row - start with 'preparing' stage (0690)
     const initialProgress = appendProgress([], `Launching ${agentType} run for ${displayId}`)
@@ -345,8 +426,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     // For QA: update to 'fetching_branch' stage (0690)
     // Extract branch name from ticket body for QA
     if (agentType === 'qa') {
-      const branchMatch = bodyMd.match(/##\s*QA[^\n]*\n[\s\S]*?Branch[:\s]+([^\n]+)/i)
-      const branchName = branchMatch?.[1]?.trim()
+      const branchName = extractBranchName(bodyMd)
       if (branchName) {
         await supabase
           .from('hal_agent_runs')
