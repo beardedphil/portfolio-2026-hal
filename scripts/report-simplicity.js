@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 
 /**
- * Reports a single repo-wide Simplicity metric for QA reports.
+ * Reports a single repo-wide Code Quality metric for QA reports.
  * Uses TypeScript compiler API to compute a maintainability index per file:
  *   - AST-based cyclomatic complexity (McCabe)
  *   - Real Halstead volume (operator/operand counting)
  *   - Microsoft formula: MI = 171 - 5.2*ln(HV) - 0.23*CC - 16.2*ln(LOC)
  * Averages across the repo (same scope as coverage: src, api, agents, projects).
- * Outputs "Simplicity: XX%" for QA reports and the dashboard.
+ * Outputs "Code Quality: XX%" for QA reports and the dashboard.
  */
 
 import fs from 'fs'
@@ -90,14 +90,14 @@ function collectAllPaths() {
 }
 
 /**
- * Compute cyclomatic complexity via AST (McCabe-style).
+ * Compute cyclomatic complexity for a node (function/method/file).
  * Counts decision points: if, for, while, switch/case, catch, ternary, &&, ||.
  */
-function getCyclomaticComplexity(sourceFile) {
+function computeCyclomaticComplexity(node) {
   let complexity = 1
 
-  function visit(node) {
-    switch (node.kind) {
+  function visit(n) {
+    switch (n.kind) {
       case ts.SyntaxKind.IfStatement:
       case ts.SyntaxKind.ForStatement:
       case ts.SyntaxKind.ForInStatement:
@@ -114,7 +114,7 @@ function getCyclomaticComplexity(sourceFile) {
         complexity += 1
         break
       case ts.SyntaxKind.BinaryExpression: {
-        const op = node.operatorToken?.kind
+        const op = n.operatorToken?.kind
         if (op === ts.SyntaxKind.AmpersandAmpersandToken || op === ts.SyntaxKind.BarBarToken || op === ts.SyntaxKind.QuestionQuestionToken) {
           complexity += 1
         }
@@ -123,10 +123,59 @@ function getCyclomaticComplexity(sourceFile) {
       default:
         break
     }
+    ts.forEachChild(n, visit)
+  }
+  visit(node)
+  return complexity
+}
+
+/**
+ * Compute cyclomatic complexity via AST (McCabe-style) for entire file.
+ * Counts decision points: if, for, while, switch/case, catch, ternary, &&, ||.
+ */
+function getCyclomaticComplexity(sourceFile) {
+  return computeCyclomaticComplexity(sourceFile)
+}
+
+/**
+ * Compute per-function cyclomatic complexity and return statistics.
+ * Returns { avgComplexity, maxComplexity, functionCount, totalComplexity }
+ */
+function getFunctionComplexityMetrics(sourceFile) {
+  const functionComplexities = []
+  
+  function visit(node) {
+    // Check for function declarations, methods, arrow functions
+    if (
+      node.kind === ts.SyntaxKind.FunctionDeclaration ||
+      node.kind === ts.SyntaxKind.MethodDeclaration ||
+      node.kind === ts.SyntaxKind.FunctionExpression ||
+      node.kind === ts.SyntaxKind.ArrowFunction ||
+      node.kind === ts.SyntaxKind.GetAccessor ||
+      node.kind === ts.SyntaxKind.SetAccessor
+    ) {
+      const funcComplexity = computeCyclomaticComplexity(node)
+      functionComplexities.push(funcComplexity)
+    }
     ts.forEachChild(node, visit)
   }
+  
   visit(sourceFile)
-  return complexity
+  
+  if (functionComplexities.length === 0) {
+    return { avgComplexity: 0, maxComplexity: 0, functionCount: 0, totalComplexity: 0 }
+  }
+  
+  const totalComplexity = functionComplexities.reduce((a, b) => a + b, 0)
+  const avgComplexity = totalComplexity / functionComplexities.length
+  const maxComplexity = Math.max(...functionComplexities)
+  
+  return {
+    avgComplexity,
+    maxComplexity,
+    functionCount: functionComplexities.length,
+    totalComplexity
+  }
 }
 
 /**
@@ -225,6 +274,93 @@ function getLinesOfCode(sourceText) {
 }
 
 /**
+ * Count functions and compute average function length (LOC per function).
+ */
+function getFunctionMetrics(sourceFile, sourceText) {
+  const lines = sourceText.split('\n')
+  let functionCount = 0
+  let totalFunctionLines = 0
+  
+  function visit(node) {
+    if (
+      node.kind === ts.SyntaxKind.FunctionDeclaration ||
+      node.kind === ts.SyntaxKind.MethodDeclaration ||
+      node.kind === ts.SyntaxKind.FunctionExpression ||
+      node.kind === ts.SyntaxKind.ArrowFunction ||
+      node.kind === ts.SyntaxKind.GetAccessor ||
+      node.kind === ts.SyntaxKind.SetAccessor
+    ) {
+      functionCount++
+      const start = node.getFullStart()
+      const end = node.getEnd()
+      const funcText = sourceText.substring(start, end)
+      const funcLines = funcText.split('\n').filter(line => {
+        const trimmed = line.trim()
+        return trimmed.length > 0 && !trimmed.startsWith('//') && !trimmed.startsWith('/*') && !trimmed.startsWith('*')
+      }).length
+      totalFunctionLines += funcLines
+    }
+    ts.forEachChild(node, visit)
+  }
+  
+  visit(sourceFile)
+  
+  return {
+    functionCount,
+    avgFunctionLength: functionCount > 0 ? totalFunctionLines / functionCount : 0,
+    totalFunctionLines
+  }
+}
+
+/**
+ * Analyze type safety: count `any` usage and missing return types.
+ * Returns { anyCount, missingReturnTypeCount, totalFunctions, typeSafetyScore }
+ */
+function getTypeSafetyMetrics(sourceFile) {
+  let anyCount = 0
+  let missingReturnTypeCount = 0
+  let totalFunctions = 0
+  
+  function visit(node) {
+    // Count `any` in type annotations
+    if (node.kind === ts.SyntaxKind.AnyKeyword) {
+      anyCount++
+    }
+    
+    // Check function return types
+    if (
+      node.kind === ts.SyntaxKind.FunctionDeclaration ||
+      node.kind === ts.SyntaxKind.MethodDeclaration ||
+      node.kind === ts.SyntaxKind.FunctionExpression ||
+      node.kind === ts.SyntaxKind.ArrowFunction
+    ) {
+      totalFunctions++
+      // Check if return type is missing (not explicitly declared)
+      if (!node.type) {
+        missingReturnTypeCount++
+      }
+    }
+    
+    ts.forEachChild(node, visit)
+  }
+  
+  visit(sourceFile)
+  
+  // Calculate type safety score (0-100)
+  // Penalize: any usage (50 points max) and missing return types (30 points max)
+  const anyRatio = totalFunctions > 0 ? anyCount / (totalFunctions * 2) : 0 // Normalize: assume max 2 any per function
+  const missingTypeRatio = totalFunctions > 0 ? missingReturnTypeCount / totalFunctions : 0
+  const typeSafetyScore = Math.max(0, 100 - (anyRatio * 50) - (missingTypeRatio * 30))
+  
+  return {
+    anyCount,
+    missingReturnTypeCount,
+    totalFunctions,
+    typeSafetyScore
+  }
+}
+
+/**
  * Calculate maintainability index for a TypeScript/TSX file.
  * Uses Microsoft-style formula with real cyclomatic complexity and Halstead volume.
  * Returns a value between 0-171 (standard maintainability index scale).
@@ -261,6 +397,63 @@ function calculateMaintainability(filePath) {
   }
 }
 
+/**
+ * Calculate all quality metrics for a file.
+ * Returns { maintainability, functionComplexity, typeSafety, codeOrganization } or null if error.
+ */
+function calculateFileMetrics(filePath) {
+  try {
+    const sourceText = fs.readFileSync(filePath, 'utf8')
+    const sourceFile = ts.createSourceFile(
+      filePath,
+      sourceText,
+      ts.ScriptTarget.Latest,
+      true
+    )
+
+    const loc = getLinesOfCode(sourceText)
+    if (loc === 0) {
+      return null // Skip empty files
+    }
+
+    // Maintainability index (0-171 scale)
+    const maintainability = calculateMaintainability(filePath)
+    if (maintainability < 0) return null
+
+    // Function complexity metrics
+    const funcMetrics = getFunctionComplexityMetrics(sourceFile)
+    const functionComplexityScore = funcMetrics.functionCount > 0
+      ? Math.max(0, 100 - (funcMetrics.avgComplexity * 2)) // Penalize: complexity * 2 points
+      : 100 // No functions = perfect score (unlikely but handle edge case)
+
+    // Type safety metrics
+    const typeSafety = getTypeSafetyMetrics(sourceFile)
+
+    // Code organization (function length, file size)
+    const funcOrgMetrics = getFunctionMetrics(sourceFile, sourceText)
+    // Penalize: very long functions (>50 LOC) and very large files (>500 LOC)
+    const avgFuncLengthPenalty = funcOrgMetrics.avgFunctionLength > 50
+      ? Math.min(20, (funcOrgMetrics.avgFunctionLength - 50) * 0.4)
+      : 0
+    const fileSizePenalty = loc > 500
+      ? Math.min(20, (loc - 500) * 0.04)
+      : 0
+    const codeOrganizationScore = Math.max(0, 100 - avgFuncLengthPenalty - fileSizePenalty)
+
+    return {
+      maintainability, // 0-171 scale
+      functionComplexity: functionComplexityScore, // 0-100 scale
+      typeSafety: typeSafety.typeSafetyScore, // 0-100 scale
+      codeOrganization: codeOrganizationScore, // 0-100 scale
+      loc,
+      funcMetrics,
+      typeSafetyMetrics: typeSafety
+    }
+  } catch (error) {
+    return null
+  }
+}
+
 function readJson(filePath, fallback) {
   try {
     const raw = fs.readFileSync(filePath, 'utf8')
@@ -278,79 +471,151 @@ function writeJson(filePath, data) {
 function main() {
   const filePaths = collectAllPaths()
   if (filePaths.length === 0) {
-    console.log('Simplicity: N/A')
+    console.log('Code Quality: N/A')
     process.exit(0)
   }
 
-  let sum = 0
-  let count = 0
-  const fileMaintainability = []
+  // Collect metrics for all files
+  const fileMetrics = []
+  let totalMaintainability = 0
+  let totalFunctionComplexity = 0
+  let totalTypeSafety = 0
+  let totalCodeOrganization = 0
+  let validFileCount = 0
   
   for (const filePath of filePaths) {
     const relativePath = path.relative(ROOT_DIR, filePath).replace(/\\/g, '/')
-    const maintainability = calculateMaintainability(filePath)
-    // Explicitly exclude sentinel values (-1) and ensure value is valid
-    if (maintainability >= 0 && maintainability <= 171 && Number.isFinite(maintainability)) {
-      sum += maintainability
-      count += 1
-      fileMaintainability.push({ file: relativePath, maintainability })
+    const metrics = calculateFileMetrics(filePath)
+    
+    if (metrics) {
+      validFileCount++
+      totalMaintainability += metrics.maintainability
+      totalFunctionComplexity += metrics.functionComplexity
+      totalTypeSafety += metrics.typeSafety
+      totalCodeOrganization += metrics.codeOrganization
+      
+      fileMetrics.push({
+        file: relativePath,
+        maintainability: metrics.maintainability,
+        functionComplexity: metrics.functionComplexity,
+        typeSafety: metrics.typeSafety,
+        codeOrganization: metrics.codeOrganization
+      })
     }
   }
 
-  if (count === 0) {
-    console.log('Simplicity: N/A')
+  if (validFileCount === 0) {
+    console.log('Code Quality: N/A')
     process.exit(0)
   }
 
-  const overallAvg = sum / count
-  // Maintainability index is typically 0–171; scale to 0–100 and clamp
-  const unroundedMaintainability = Math.min(100, Math.max(0, (overallAvg / 171) * 100))
-  const maintainabilityPct = Math.round(unroundedMaintainability)
-  console.log(`Simplicity: ${maintainabilityPct}%`)
+  // Calculate average scores
+  const avgMaintainability = totalMaintainability / validFileCount
+  const avgFunctionComplexity = totalFunctionComplexity / validFileCount
+  const avgTypeSafety = totalTypeSafety / validFileCount
+  const avgCodeOrganization = totalCodeOrganization / validFileCount
+
+  // Convert maintainability from 0-171 scale to 0-100 scale
+  const maintainabilityScore = Math.min(100, Math.max(0, (avgMaintainability / 171) * 100))
+
+  // Read test coverage
+  const coverageSummaryPath = path.join(ROOT_DIR, 'coverage', 'coverage-summary.json')
+  let testCoverageScore = 0
+  try {
+    const coverageData = readJson(coverageSummaryPath, null)
+    if (coverageData?.total?.lines?.pct != null) {
+      testCoverageScore = Math.min(100, Math.max(0, Number(coverageData.total.lines.pct)))
+    }
+  } catch (_) {
+    // Coverage not available, use 0
+  }
+
+  // Composite Code Quality formula (weighted average)
+  // Function Complexity: 30%, Test Coverage: 25%, Maintainability: 25%, Type Safety: 15%, Code Organization: 5%
+  const codeQuality = 
+    (avgFunctionComplexity * 0.30) +
+    (testCoverageScore * 0.25) +
+    (maintainabilityScore * 0.25) +
+    (avgTypeSafety * 0.15) +
+    (avgCodeOrganization * 0.05)
+
+  const unroundedCodeQuality = Math.min(100, Math.max(0, codeQuality))
+  const codeQualityPct = Math.round(unroundedCodeQuality)
+  console.log(`Code Quality: ${codeQualityPct}%`)
 
   // Update repo metrics file for dashboard (no QA report parsing)
   const metricsPath = path.join(ROOT_DIR, 'public', 'metrics.json')
-  let metrics = { coverage: null, maintainability: null, updatedAt: null }
+  let metrics = { coverage: null, codeQuality: null, updatedAt: null }
   try {
     const raw = fs.readFileSync(metricsPath, 'utf8')
     metrics = { ...metrics, ...JSON.parse(raw) }
   } catch (_) {}
-  // Write new field names
-  metrics.maintainability = maintainabilityPct
-  metrics.unroundedMaintainability = Math.round(unroundedMaintainability * 10) / 10 // Round to 1 decimal place
+  // Write new field names (Code Quality)
+  metrics.codeQuality = codeQualityPct
+  metrics.unroundedCodeQuality = Math.round(unroundedCodeQuality * 10) / 10 // Round to 1 decimal place
   // Keep legacy fields for backward compatibility during migration
-  metrics.simplicity = maintainabilityPct
-  metrics.unroundedSimplicity = Math.round(unroundedMaintainability * 10) / 10
+  metrics.maintainability = codeQualityPct
+  metrics.unroundedMaintainability = Math.round(unroundedCodeQuality * 10) / 10
+  metrics.simplicity = codeQualityPct
+  metrics.unroundedSimplicity = Math.round(unroundedCodeQuality * 10) / 10
   metrics.updatedAt = new Date().toISOString()
   fs.mkdirSync(path.dirname(metricsPath), { recursive: true })
   fs.writeFileSync(metricsPath, JSON.stringify(metrics, null, 2) + '\n', 'utf8')
 
-  // Generate maintainability-details.json with top offenders and improvements
-  // Also write to simplicity-details.json for backward compatibility during migration
+  // Generate code-quality-details.json with top offenders and improvements
+  // Also write to maintainability-details.json and simplicity-details.json for backward compatibility during migration
+  const codeQualityDetailsPath = path.join(ROOT_DIR, 'public', 'code-quality-details.json')
   const maintainabilityDetailsPath = path.join(ROOT_DIR, 'public', 'maintainability-details.json')
   const simplicityDetailsPath = path.join(ROOT_DIR, 'public', 'simplicity-details.json')
   
-  // Sort by maintainability (ascending) to get worst offenders first
-  fileMaintainability.sort((a, b) => a.maintainability - b.maintainability)
+  // Calculate composite code quality per file for ranking
+  const fileCodeQuality = fileMetrics.map(item => {
+    const maintainabilityScore = Math.min(100, Math.max(0, (item.maintainability / 171) * 100))
+    // Use same weights as overall calculation
+    const fileQuality = 
+      (item.functionComplexity * 0.30) +
+      (testCoverageScore * 0.25) + // Use overall coverage for file ranking
+      (maintainabilityScore * 0.25) +
+      (item.typeSafety * 0.15) +
+      (item.codeOrganization * 0.05)
+    return {
+      file: item.file,
+      codeQuality: Math.min(100, Math.max(0, fileQuality)),
+      maintainability: item.maintainability
+    }
+  })
+
+  // Sort by code quality (ascending) to get worst offenders first
+  fileCodeQuality.sort((a, b) => a.codeQuality - b.codeQuality)
   
-  // Top 20 offenders (lowest maintainability)
-  const topOffenders = fileMaintainability.slice(0, 20).map((item) => ({
+  // Top 20 offenders (lowest code quality)
+  const topOffenders = fileCodeQuality.slice(0, 20).map((item) => ({
     file: item.file,
-    maintainability: Math.round(item.maintainability * 100) / 100, // Keep precision for maintainability index
+    codeQuality: Math.round(item.codeQuality * 100) / 100, // Keep precision
+    // Legacy field for backward compatibility
+    maintainability: Math.round((item.maintainability / 171) * 100 * 100) / 100,
   }))
 
-  // Compare with previous maintainability-details.json or simplicity-details.json to find improvements
+  // Compare with previous code-quality-details.json, maintainability-details.json, or simplicity-details.json to find improvements
+  const previousCodeQualityDetails = readJson(codeQualityDetailsPath, null)
   const previousMaintainabilityDetails = readJson(maintainabilityDetailsPath, null)
   const previousSimplicityDetails = readJson(simplicityDetailsPath, null)
-  const previousDetails = previousMaintainabilityDetails ?? previousSimplicityDetails
-  const previousMaintainability = previousDetails?.topOffenders
-    ? new Map(previousDetails.topOffenders.map((item) => [item.file, item.maintainability]))
+  const previousDetails = previousCodeQualityDetails ?? previousMaintainabilityDetails ?? previousSimplicityDetails
+  
+  // Support both new (codeQuality) and legacy (maintainability) field names
+  const previousCodeQuality = previousDetails?.topOffenders
+    ? new Map(previousDetails.topOffenders.map((item) => {
+        const file = item.file
+        // Try codeQuality first, fall back to maintainability (convert index to percentage)
+        const value = item.codeQuality ?? (item.maintainability != null ? (item.maintainability / 171) * 100 : null)
+        return [file, value]
+      }))
     : null
 
-  const improvements = fileMaintainability
+  const improvements = fileCodeQuality
     .map((item) => {
-      const before = previousMaintainability?.get(item.file) ?? null
-      const after = item.maintainability
+      const before = previousCodeQuality?.get(item.file) ?? null
+      const after = item.codeQuality
       const delta = before !== null ? after - before : 0
       return { file: item.file, before, after, delta }
     })
@@ -364,19 +629,22 @@ function main() {
       delta: Math.round(item.delta * 100) / 100,
     }))
 
-  const maintainabilityDetails = {
+  const codeQualityDetails = {
     topOffenders,
     mostRecentImprovements: improvements,
     generatedAt: new Date().toISOString(),
-    filesAnalyzed: count,
-    unroundedMaintainability: Math.round(unroundedMaintainability * 10) / 10, // Round to 1 decimal place
-    // Legacy field for backward compatibility
-    unroundedSimplicity: Math.round(unroundedMaintainability * 10) / 10,
+    filesAnalyzed: validFileCount,
+    unroundedCodeQuality: Math.round(unroundedCodeQuality * 10) / 10, // Round to 1 decimal place
+    // Legacy fields for backward compatibility
+    unroundedMaintainability: Math.round(unroundedCodeQuality * 10) / 10,
+    unroundedSimplicity: Math.round(unroundedCodeQuality * 10) / 10,
   }
 
-  // Write to both files during migration
-  writeJson(maintainabilityDetailsPath, maintainabilityDetails)
-  writeJson(simplicityDetailsPath, maintainabilityDetails) // Backward compatibility
+  // Write to new file (code-quality-details.json)
+  writeJson(codeQualityDetailsPath, codeQualityDetails)
+  // Also write to legacy files for backward compatibility during migration
+  writeJson(maintainabilityDetailsPath, codeQualityDetails)
+  writeJson(simplicityDetailsPath, codeQualityDetails)
 }
 
 main()
