@@ -15,49 +15,40 @@ Before making changes, running tests, or loading instructions:
 git checkout main && git pull origin main
 ```
 
-- **Implementation agents:** Then follow the "Implementation Agent Branch Setup" section below to create/switch to your feature branch, push it immediately with upstream tracking, and verify upstream is set **before** reading files or making any code edits.
+- **Implementation agents:** Then follow the "Implementation Agent Branch Setup" section below.
 - **QA agents:** Then proceed with loading instructions and QA workflow.
 
 ## Implementation Agent Branch Setup
 
-**MANDATORY:** Implementation agents **MUST** create or switch to the feature branch and push it immediately with upstream tracking **before** reading files or making any code edits. This ensures work is never done on an untracked local branch.
+**MANDATORY:** Implementation agents **MUST** create or switch to the feature branch and push it with upstream tracking **BEFORE** reading any files or making any code edits. This ensures work is never done on an untracked local branch.
 
 ### Step 1: Create or Switch to Feature Branch
 
-Determine your feature branch name from the ticket (typically `ticket/<id>-<short-title-kebab>` format, e.g., `ticket/0817-add-a-rule-to-create-and-push-branch-early`).
-
-#### If the branch does not exist
+Create a new branch using the ticket number and a descriptive name, or switch to an existing branch:
 
 ```bash
 git switch -c ticket/0817-add-a-rule-to-create-and-push-branch-early
-# Alternative for older git versions: use checkout -b instead
-git checkout -b ticket/0817-add-a-rule-to-create-and-push-branch-early
 ```
 
-#### If the branch already exists
-
+**If the branch already exists locally or remotely:**
 ```bash
 git switch ticket/0817-add-a-rule-to-create-and-push-branch-early
-# Alternative for older git versions: use checkout instead
-git checkout ticket/0817-add-a-rule-to-create-and-push-branch-early
 ```
 
 ### Step 2: Push Branch with Upstream Tracking
 
-**MANDATORY:** Push the branch immediately with upstream tracking (`-u` flag):
+**MANDATORY:** Push the branch immediately with upstream tracking:
 
 ```bash
 git push -u origin ticket/0817-add-a-rule-to-create-and-push-branch-early
 ```
 
-#### If the branch already exists and upstream is missing
-
-If you switched to an existing branch that doesn't have upstream tracking set, run the same push command:
+**If upstream is already set but you want to ensure it's correct:**
 ```bash
 git push -u origin ticket/0817-add-a-rule-to-create-and-push-branch-early
 ```
 
-This will set the upstream tracking even if the branch already exists remotely.
+This command will set the upstream tracking relationship if it doesn't exist, or update it if it does.
 
 ### Step 3: Verify Upstream is Set
 
@@ -67,22 +58,52 @@ This will set the upstream tracking even if the branch already exists remotely.
 git rev-parse --abbrev-ref --symbolic-full-name @{u}
 ```
 
-**Expected output:** The command should output something like:
+**Expected output:**
 ```
 origin/ticket/0817-add-a-rule-to-create-and-push-branch-early
 ```
 
-**If the command fails or outputs nothing:** The upstream is not set. Re-run `git push -u origin <branch-name>` and verify again.
+If this command outputs the expected remote branch name, upstream tracking is correctly set. If it fails or outputs something unexpected, the upstream is not set correctly and you must run `git push -u origin <branch-name>` again.
 
-### Why Push Early?
+### Why Push Early
 
-Pushing the branch immediately (before any code edits) ensures:
-- **Remote backup:** Work is backed up remotely, preventing loss if the local branch is reset or the environment is lost
-- **CI/PR integration:** Enables continuous integration and pull request workflows to run from the start
-- **Collaboration:** Other agents or team members can access the branch if needed
-- **Work safety:** Prevents losing work if the local branch is accidentally deleted or reset
+Pushing the branch immediately after creation (before any code edits) provides several critical benefits:
 
-**CRITICAL:** Do not proceed with reading files or making code edits until the branch is created, pushed with upstream tracking, and upstream verification succeeds.
+- **Remote backup:** Work is backed up to the remote repository from the start, preventing loss if the local environment is reset or lost
+- **CI/PR integration:** Enables continuous integration systems and pull request workflows to run from the first commit
+- **Collaboration:** Other team members can see the branch exists and track progress
+- **Safety:** Prevents losing work if the local branch is accidentally reset or deleted
+
+### Safe Alternative: Branch Already Exists
+
+If the branch already exists (either locally or remotely), use this safe workflow:
+
+1. **Switch to the existing branch:**
+   ```bash
+   git switch ticket/0817-add-a-rule-to-create-and-push-branch-early
+   ```
+
+2. **Verify or set upstream tracking:**
+   ```bash
+   git push -u origin ticket/0817-add-a-rule-to-create-and-push-branch-early
+   ```
+
+3. **Verify upstream is set:**
+   ```bash
+   git rev-parse --abbrev-ref --symbolic-full-name @{u}
+   ```
+
+This ensures upstream tracking is configured even if the branch existed before you started work.
+
+### Critical Ordering
+
+**DO NOT** read files, make code edits, or run any other commands until:
+1. ✅ You have pulled latest from `main`
+2. ✅ You have created/switched to the feature branch
+3. ✅ You have pushed the branch with upstream tracking (`git push -u origin <branch-name>`)
+4. ✅ You have verified upstream is set (`git rev-parse --abbrev-ref --symbolic-full-name @{u}`)
+
+Only after all four steps are complete should you proceed with reading files, making code changes, or any other implementation work.
 
 ## Never Work on Detached HEAD or Wrong Branch
 
@@ -164,47 +185,6 @@ If you discover that work has landed on the wrong branch (detached HEAD, `main`,
    - What commits were removed and why
 
 **CRITICAL:** Do not continue working until the branch situation is corrected. All commits must be on the correct feature branch for the ticket.
-
-### If You Discover Uncommitted Work
-
-If you discover that you have uncommitted changes (work that exists but hasn't been committed yet), you **MUST** preserve this work by creating or switching to the correct feature branch:
-
-#### Case 1: Uncommitted changes on any branch (including detached HEAD)
-
-If you have uncommitted changes but no commits yet, create or switch to the correct feature branch to preserve your working tree:
-
-1. **Create or switch to the correct feature branch:**
-   ```bash
-   git switch -c <ticket-branch>  # Creates new branch and switches to it, preserving uncommitted changes
-   # OR (if using older git versions)
-   git checkout -b <ticket-branch>  # Creates new branch and switches to it, preserving uncommitted changes
-   ```
-
-2. **Continue with your work** — your uncommitted changes are now on the correct branch and can be committed normally.
-
-#### Case 2: Detached HEAD with uncommitted changes
-
-If you are on a detached HEAD state with uncommitted changes, create a new branch to preserve the working tree, then commit and push:
-
-1. **Create a new branch from the current detached HEAD state:**
-   ```bash
-   git switch -c <ticket-branch>  # Creates new branch from current HEAD, preserving uncommitted changes
-   # OR (if using older git versions)
-   git checkout -b <ticket-branch>  # Creates new branch from current HEAD, preserving uncommitted changes
-   ```
-
-2. **Commit your uncommitted changes:**
-   ```bash
-   git add .
-   git commit -m "Initial work for ticket <ticket-id>"
-   ```
-
-3. **Push the branch:**
-   ```bash
-   git push -u origin <ticket-branch>
-   ```
-
-**CRITICAL:** The `git switch -c` (or `git checkout -b`) command preserves uncommitted changes when creating a new branch. This ensures your work is not lost when moving to the correct branch.
 
 ## Why
 

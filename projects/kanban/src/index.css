@@ -922,6 +922,12 @@ h1 {
   }
 }
 
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* 0033: ticket detail modal */
 .ticket-detail-backdrop {
   position: fixed;

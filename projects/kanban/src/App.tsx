@@ -3229,6 +3229,7 @@ function App() {
           supabaseUrl={supabaseProjectUrl || ''}
           supabaseAnonKey={supabaseAnonKey || ''}
           apiBaseUrl={import.meta.env.VITE_HAL_API_BASE_URL || (typeof window !== 'undefined' ? window.location.origin : '')}
+          connectedGithubRepo={connectedGithubRepo}
           onClose={() => setBootstrapScreenOpen(false)}
         />
       )}

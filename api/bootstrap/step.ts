@@ -20,14 +20,18 @@ async function executeStep(
   stepId: BootstrapStepId,
   projectId: string,
   runId: string,
-  supabase: ReturnType<typeof createClient>,
-  context?: {
-    supabaseManagementToken?: string
-    supabaseOrganizationId?: string
-    supabaseProjectName?: string
-    supabaseRegion?: string
+  supabase: any,
+  stepParams?: {
+    supabaseManagementApiToken?: string
+    organizationId?: string
+    projectName?: string
+    region?: string
+    previewUrl?: string
+    vercelToken?: string
+    githubRepo?: string
+    githubToken?: string
   }
-): Promise<{ success: boolean; error?: string; errorDetails?: string }> {
+): Promise<{ success: boolean; error?: string; errorDetails?: string; previewUrl?: string }> {
   switch (stepId) {
     case 'ensure_repo_initialized':
       // TODO (T2): Implement ensure_repo_initialized using GitHub Git Database API
@@ -37,8 +41,8 @@ async function executeStep(
 
     case 'create_supabase_project':
       try {
-        // Validate required context
-        if (!context?.supabaseManagementToken) {
+        // Validate required parameters
+        if (!stepParams?.supabaseManagementApiToken) {
           return {
             success: false,
             error: 'Supabase Management API token is required',
@@ -46,7 +50,7 @@ async function executeStep(
           }
         }
 
-        if (!context?.supabaseOrganizationId) {
+        if (!stepParams?.organizationId) {
           return {
             success: false,
             error: 'Organization ID is required',
@@ -55,14 +59,14 @@ async function executeStep(
         }
 
         // Generate project name if not provided
-        const projectName = context.supabaseProjectName || `${projectId}-${Date.now()}`
-        const region = context.supabaseRegion || 'us-east-1'
+        const projectName = stepParams.projectName || `hal-${projectId.replace(/[^a-z0-9-]/gi, '-').toLowerCase()}`
+        const region = stepParams.region || 'us-east-1'
 
         // Create Supabase project via Management API
         const { project, apiKeys } = await createSupabaseProject(
-          context.supabaseManagementToken,
+          stepParams.supabaseManagementApiToken,
           projectName,
-          context.supabaseOrganizationId,
+          stepParams.organizationId,
           region
         )
 
@@ -143,14 +147,222 @@ async function executeStep(
       }
 
     case 'create_vercel_project':
-      // TODO (T5): Implement create_vercel_project via Vercel API
-      await new Promise((resolve) => setTimeout(resolve, 2000))
-      return { success: true }
+      try {
+        // Validate required parameters
+        if (!stepParams?.vercelToken) {
+          return {
+            success: false,
+            error: 'Vercel API token is required',
+            errorDetails: 'Please provide a Vercel API token to create a project. Get one from https://vercel.com/account/tokens',
+          }
+        }
 
-    case 'verify_preview':
-      // TODO (T6): Implement verify_preview by polling /version.json
-      await new Promise((resolve) => setTimeout(resolve, 1500))
-      return { success: true }
+        if (!stepParams?.githubRepo) {
+          return {
+            success: false,
+            error: 'GitHub repository is required',
+            errorDetails: 'Please provide a GitHub repository (owner/repo format) to link to the Vercel project.',
+          }
+        }
+
+        const vercelToken = stepParams.vercelToken
+        const githubRepo = stepParams.githubRepo
+        const projectName = projectId.split('/').pop() || projectId.replace(/[^a-z0-9-]/gi, '-').toLowerCase()
+
+        // Step 1: Create Vercel project and link GitHub repo
+        const createProjectResponse = await fetch('https://api.vercel.com/v11/projects', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${vercelToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            name: projectName,
+            gitRepository: {
+              repo: githubRepo,
+              type: 'github',
+            },
+            framework: null, // Auto-detect
+          }),
+        })
+
+        if (!createProjectResponse.ok) {
+          const errorData = await createProjectResponse.json().catch(() => ({ error: 'Unknown error' }))
+          const errorMessage = errorData.error?.message || errorData.message || `HTTP ${createProjectResponse.status}: ${createProjectResponse.statusText}`
+          
+          if (createProjectResponse.status === 401 || createProjectResponse.status === 403) {
+            return {
+              success: false,
+              error: 'Vercel authentication failed',
+              errorDetails: `Invalid or expired Vercel API token: ${errorMessage}`,
+            }
+          }
+          
+          if (createProjectResponse.status === 409) {
+            return {
+              success: false,
+              error: 'Project already exists',
+              errorDetails: `A Vercel project with this name already exists. ${errorMessage}`,
+            }
+          }
+
+          return {
+            success: false,
+            error: 'Failed to create Vercel project',
+            errorDetails: errorMessage,
+          }
+        }
+
+        const projectData = await createProjectResponse.json()
+        const vercelProjectId = projectData.id || projectData.name
+
+        // Step 2: Set required environment variables
+        // Get Supabase credentials from the database if available
+        const { data: supabaseProject } = await supabase
+          .from('supabase_projects')
+          .select('project_url')
+          .eq('repo_full_name', projectId)
+          .single()
+
+        const envVars: Array<{ key: string; value: string; type: 'plain' | 'secret'; target: string[] }> = []
+
+        if (supabaseProject?.project_url) {
+          envVars.push({
+            key: 'VITE_SUPABASE_URL',
+            value: supabaseProject.project_url,
+            type: 'plain',
+            target: ['production', 'preview', 'development'],
+          })
+        }
+
+        // Set environment variables
+        for (const envVar of envVars) {
+          const envResponse = await fetch(`https://api.vercel.com/v10/projects/${encodeURIComponent(vercelProjectId)}/env?upsert=true`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${vercelToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(envVar),
+          })
+
+          if (!envResponse.ok) {
+            const errorData = await envResponse.json().catch(() => ({ error: 'Unknown error' }))
+            console.warn(`[bootstrap] Failed to set env var ${envVar.key}:`, errorData)
+            // Continue even if env var setting fails - user can set manually
+          }
+        }
+
+        // Step 3: Vercel automatically triggers a deployment when a GitHub repo is linked
+        // We'll construct the preview URL from the project data
+        // The actual deployment URL will be available after the first deployment completes
+        const previewUrl = projectData.alias?.[0] || `https://${vercelProjectId}.vercel.app`
+
+        // Store Vercel project metadata in bootstrap run (we'll add this to the run metadata)
+        // For now, we'll return the preview URL in the step result
+        return {
+          success: true,
+          previewUrl, // Return preview URL to be stored
+        }
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : String(err)
+        
+        if (errorMessage.includes('fetch failed') || errorMessage.includes('ECONNREFUSED')) {
+          return {
+            success: false,
+            error: 'Network error connecting to Vercel API',
+            errorDetails: errorMessage,
+          }
+        }
+
+        return {
+          success: false,
+          error: 'Failed to create Vercel project',
+          errorDetails: errorMessage,
+        }
+      }
+
+    case 'verify_preview': {
+      // Get preview URL from step parameters or bootstrap run metadata
+      const previewUrl = stepParams?.previewUrl as string | undefined
+
+      if (!previewUrl) {
+        return {
+          success: false,
+          error: 'Preview URL is required',
+          errorDetails: 'Please provide a preview URL to verify. The preview URL should be available after the Vercel project is created.',
+        }
+      }
+
+      // Normalize URL (ensure it has protocol, remove trailing slash)
+      const normalizedUrl = previewUrl.trim().startsWith('http') ? previewUrl.trim() : `https://${previewUrl.trim()}`
+      const versionJsonUrl = `${normalizedUrl.replace(/\/$/, '')}/version.json`
+
+      // Poll /version.json with retries
+      const maxAttempts = 30 // 30 attempts
+      const pollIntervalMs = 2000 // 2 seconds between attempts
+      let lastError: string | null = null
+      let lastStatusCode: number | null = null
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          const response = await fetch(versionJsonUrl, {
+            method: 'GET',
+            headers: {
+              'Accept': 'application/json',
+            },
+            // Add timeout to prevent hanging
+            signal: AbortSignal.timeout(8000), // 8 second timeout per request
+          })
+
+          if (response.ok) {
+            // Verify it's valid JSON
+            const data = await response.json()
+            
+            // Basic validation: check if it looks like a version.json payload
+            if (typeof data === 'object' && data !== null) {
+              // Success! Preview is live and /version.json is accessible
+              return { success: true }
+            } else {
+              lastError = 'Invalid JSON response from /version.json'
+              lastStatusCode = response.status
+            }
+          } else {
+            lastError = `HTTP ${response.status}: ${response.statusText}`
+            lastStatusCode = response.status
+          }
+        } catch (err) {
+          if (err instanceof Error) {
+            // Handle timeout or network errors
+            if (err.name === 'TimeoutError' || err.name === 'AbortError' || err.message.includes('timeout')) {
+              lastError = 'Request timeout'
+            } else if (err.message.includes('fetch failed') || err.message.includes('ECONNREFUSED') || err.message.includes('ENOTFOUND')) {
+              lastError = 'Network error: Preview not reachable'
+            } else {
+              lastError = `Network error: ${err.message}`
+            }
+          } else {
+            lastError = 'Unknown error occurred'
+          }
+        }
+
+        // If not the last attempt, wait before retrying
+        if (attempt < maxAttempts) {
+          await new Promise((resolve) => setTimeout(resolve, pollIntervalMs))
+        }
+      }
+
+      // All attempts failed
+      const errorMessage = lastStatusCode
+        ? `Preview verification failed after ${maxAttempts} attempts. Last error: ${lastError} (Status: ${lastStatusCode})`
+        : `Preview verification failed after ${maxAttempts} attempts. Last error: ${lastError || 'Unknown error'}`
+
+      return {
+        success: false,
+        error: errorMessage,
+        errorDetails: `Unable to reach ${versionJsonUrl} after ${maxAttempts} attempts (${maxAttempts * pollIntervalMs / 1000} seconds). The preview deployment may still be building, or the URL may be incorrect.`,
+      }
+    }
 
     default:
       return {
@@ -185,10 +397,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       stepId?: string
       supabaseUrl?: string
       supabaseAnonKey?: string
-      supabaseManagementToken?: string
-      supabaseOrganizationId?: string
-      supabaseProjectName?: string
-      supabaseRegion?: string
+      supabaseManagementApiToken?: string
+      organizationId?: string
+      projectName?: string
+      region?: string
+      previewUrl?: string
+      vercelToken?: string
+      githubRepo?: string
+      githubToken?: string
     }
 
     const runId = typeof body.runId === 'string' ? body.runId.trim() : undefined
@@ -279,22 +495,30 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       })
       .eq('id', runId)
 
-    // Execute the step with context
-    const stepContext = {
-      supabaseManagementToken: typeof body.supabaseManagementToken === 'string' ? body.supabaseManagementToken.trim() : undefined,
-      supabaseOrganizationId: typeof body.supabaseOrganizationId === 'string' ? body.supabaseOrganizationId.trim() : undefined,
-      supabaseProjectName: typeof body.supabaseProjectName === 'string' ? body.supabaseProjectName.trim() : undefined,
-      supabaseRegion: typeof body.supabaseRegion === 'string' ? body.supabaseRegion.trim() : undefined,
+    // Execute the step with step-specific parameters
+    const stepParams = {
+      supabaseManagementApiToken: typeof body.supabaseManagementApiToken === 'string' ? body.supabaseManagementApiToken.trim() : undefined,
+      organizationId: typeof body.organizationId === 'string' ? body.organizationId.trim() : undefined,
+      projectName: typeof body.projectName === 'string' ? body.projectName.trim() : undefined,
+      region: typeof body.region === 'string' ? body.region.trim() : undefined,
+      previewUrl: typeof body.previewUrl === 'string' ? body.previewUrl.trim() : undefined,
+      vercelToken: typeof body.vercelToken === 'string' ? body.vercelToken.trim() : undefined,
+      githubRepo: typeof body.githubRepo === 'string' ? body.githubRepo.trim() : undefined,
+      githubToken: typeof body.githubToken === 'string' ? body.githubToken.trim() : undefined,
     }
-    const stepResult = await executeStep(stepId, run.project_id, runId, supabase, stepContext)
+    const stepResult = await executeStep(stepId, run.project_id, runId, supabase, stepParams)
 
-    // Update step with result
-    const completedStepHistory = updateStepRecord(runningStepHistory, stepId, {
+    // Update step with result (include preview URL if available)
+    const stepRecordUpdates: any = {
       status: stepResult.success ? 'succeeded' : 'failed',
       completed_at: new Date().toISOString(),
       error_summary: stepResult.error || null,
       error_details: stepResult.errorDetails || null,
-    })
+    }
+    if (stepResult.previewUrl) {
+      stepRecordUpdates.preview_url = stepResult.previewUrl
+    }
+    const completedStepHistory = updateStepRecord(runningStepHistory, stepId, stepRecordUpdates)
 
     const completedLogs = addLogEntry(
       runningLogs,
@@ -371,6 +595,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         success: stepResult.success,
         error: stepResult.error || null,
         errorDetails: stepResult.errorDetails || null,
+        previewUrl: stepResult.previewUrl || null,
       },
     })
   } catch (err) {
