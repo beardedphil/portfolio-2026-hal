@@ -15,8 +15,71 @@ Before making changes, running tests, or loading instructions:
 git checkout main && git pull origin main
 ```
 
-- **Implementation agents:** Then create or checkout your feature branch and proceed.
+- **Implementation agents:** Then follow the "Implementation Agent Branch Setup" section below to create/switch to your feature branch, push it immediately with upstream tracking, and verify upstream is set **before** reading files or making any code edits.
 - **QA agents:** Then proceed with loading instructions and QA workflow.
+
+## Implementation Agent Branch Setup
+
+**MANDATORY:** Implementation agents **MUST** create or switch to the feature branch and push it immediately with upstream tracking **before** reading files or making any code edits. This ensures work is never done on an untracked local branch.
+
+### Step 1: Create or Switch to Feature Branch
+
+Determine your feature branch name from the ticket (typically `ticket/<id>-<short-title-kebab>` format, e.g., `ticket/0817-add-a-rule-to-create-and-push-branch-early`).
+
+**If the branch does not exist:**
+```bash
+git switch -c ticket/0817-add-a-rule-to-create-and-push-branch-early
+# OR (if using older git versions)
+git checkout -b ticket/0817-add-a-rule-to-create-and-push-branch-early
+```
+
+**If the branch already exists:**
+```bash
+git switch ticket/0817-add-a-rule-to-create-and-push-branch-early
+# OR (if using older git versions)
+git checkout ticket/0817-add-a-rule-to-create-and-push-branch-early
+```
+
+### Step 2: Push Branch with Upstream Tracking
+
+**MANDATORY:** Push the branch immediately with upstream tracking (`-u` flag):
+
+```bash
+git push -u origin ticket/0817-add-a-rule-to-create-and-push-branch-early
+```
+
+**If the branch already exists and upstream is missing:**
+If you switched to an existing branch that doesn't have upstream tracking set, run the same push command:
+```bash
+git push -u origin ticket/0817-add-a-rule-to-create-and-push-branch-early
+```
+
+This will set the upstream tracking even if the branch already exists remotely.
+
+### Step 3: Verify Upstream is Set
+
+**MANDATORY:** Verify that upstream tracking is correctly configured:
+
+```bash
+git rev-parse --abbrev-ref --symbolic-full-name @{u}
+```
+
+**Expected output:** The command should output something like:
+```
+origin/ticket/0817-add-a-rule-to-create-and-push-branch-early
+```
+
+**If the command fails or outputs nothing:** The upstream is not set. Re-run `git push -u origin <branch-name>` and verify again.
+
+### Why Push Early?
+
+Pushing the branch immediately (before any code edits) ensures:
+- **Remote backup:** Work is backed up remotely, preventing loss if the local branch is reset or the environment is lost
+- **CI/PR integration:** Enables continuous integration and pull request workflows to run from the start
+- **Collaboration:** Other agents or team members can access the branch if needed
+- **Work safety:** Prevents losing work if the local branch is accidentally deleted or reset
+
+**CRITICAL:** Do not proceed with reading files or making code edits until the branch is created, pushed with upstream tracking, and upstream verification succeeds.
 
 ## Never Work on Detached HEAD or Wrong Branch
 
