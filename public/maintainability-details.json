@@ -1,129 +1,171 @@
 {
   "topOffenders": [
     {
-      "file": "src/App.tsx",
-      "codeQuality": 0,
+      "file": "api/agent-runs/launch.ts",
+      "codeQuality": 8.54,
       "maintainability": 0
     },
     {
-      "file": "src/components/ContextBundleModal.tsx",
-      "codeQuality": 0,
+      "file": "agents/src/agents/projectManager/redDocumentTool.ts",
+      "codeQuality": 21.88,
+      "maintainability": 19.4
+    },
+    {
+      "file": "api/agent-tools/execute.ts",
+      "codeQuality": 24.86,
+      "maintainability": 20.55
+    },
+    {
+      "file": "api/acceptance-criteria-status/update.ts",
+      "codeQuality": 32.97,
+      "maintainability": 24.17
+    },
+    {
+      "file": "api/artifacts/insert-implementation.ts",
+      "codeQuality": 33.14,
+      "maintainability": 22.44
+    },
+    {
+      "file": "api/instructions/get-topic.ts",
+      "codeQuality": 36.74,
+      "maintainability": 8.93
+    },
+    {
+      "file": "agents/src/agents/projectManager/ticketTools.ts",
+      "codeQuality": 36.79,
+      "maintainability": 12.86
+    },
+    {
+      "file": "api/implementation-agent/run.ts",
+      "codeQuality": 37.11,
+      "maintainability": 12.68
+    },
+    {
+      "file": "api/agent-runs/status.ts",
+      "codeQuality": 37.21,
+      "maintainability": 0
+    },
+    {
+      "file": "api/red/backfill-artifacts-todo.ts",
+      "codeQuality": 37.88,
+      "maintainability": 19.76
+    },
+    {
+      "file": "api/tickets/get.ts",
+      "codeQuality": 37.95,
+      "maintainability": 12.05
+    },
+    {
+      "file": "api/drift-attempts/get.ts",
+      "codeQuality": 39.21,
+      "maintainability": 26.53
+    },
+    {
+      "file": "api/agent-runs/sync-artifacts.ts",
+      "codeQuality": 39.24,
+      "maintainability": 26.06
+    },
+    {
+      "file": "api/agent-runs/providers/openai.ts",
+      "codeQuality": 39.31,
       "maintainability": 0
     },
     {
       "file": "src/hooks/useAgentRuns.ts",
-      "codeQuality": 0,
+      "codeQuality": 39.6,
       "maintainability": 0
     },
     {
-      "file": "src/hooks/useKanban.ts",
-      "codeQuality": 0,
-      "maintainability": 0
-    },
-    {
-      "file": "api/agent-runs/launch.ts",
-      "codeQuality": 0,
-      "maintainability": 0
-    },
-    {
-      "file": "api/agent-runs/providers/openai.ts",
-      "codeQuality": 0,
-      "maintainability": 0
-    },
-    {
-      "file": "api/agent-runs/status.ts",
-      "codeQuality": 0,
-      "maintainability": 0
-    },
-    {
-      "file": "api/instructions/get-index.ts",
-      "codeQuality": 0,
-      "maintainability": 0
+      "file": "api/context-bundles/build-from-run.ts",
+      "codeQuality": 39.77,
+      "maintainability": 15.39
     },
     {
       "file": "api/tickets/move.ts",
-      "codeQuality": 0,
+      "codeQuality": 40.02,
       "maintainability": 0
-    },
-    {
-      "file": "agents/src/agents/projectManager/contextBuilding.ts",
-      "codeQuality": 0,
-      "maintainability": 0
-    },
-    {
-      "file": "projects/kanban/src/App.tsx",
-      "codeQuality": 0,
-      "maintainability": 0
-    },
-    {
-      "file": "api/context-bundles/_builder.ts",
-      "codeQuality": 1.42,
-      "maintainability": 2.43
-    },
-    {
-      "file": "src/components/DiagnosticsModal.tsx",
-      "codeQuality": 2.02,
-      "maintainability": 3.46
-    },
-    {
-      "file": "agents/src/agents/projectManager.ts",
-      "codeQuality": 5.27,
-      "maintainability": 9
-    },
-    {
-      "file": "src/hooks/useProcessReview.ts",
-      "codeQuality": 8.21,
-      "maintainability": 14.04
-    },
-    {
-      "file": "api/instructions/get-topic.ts",
-      "codeQuality": 8.93,
-      "maintainability": 15.27
-    },
-    {
-      "file": "api/tickets/create-pr.ts",
-      "codeQuality": 9.01,
-      "maintainability": 15.41
-    },
-    {
-      "file": "api/instructions/migrate-process-docs.ts",
-      "codeQuality": 9.12,
-      "maintainability": 15.59
-    },
-    {
-      "file": "api/auth/github/callback.ts",
-      "codeQuality": 9.44,
-      "maintainability": 16.14
     },
     {
       "file": "api/conversations/working-memory/update.ts",
-      "codeQuality": 10.74,
-      "maintainability": 18.36
+      "codeQuality": 41.15,
+      "maintainability": 10.74
+    },
+    {
+      "file": "api/red/list.ts",
+      "codeQuality": 41.35,
+      "maintainability": 21.43
+    },
+    {
+      "file": "api/instructions/get-index.ts",
+      "codeQuality": 41.68,
+      "maintainability": 0
     }
   ],
   "mostRecentImprovements": [
     {
-      "file": "src/hooks/useProcessReview.ts",
-      "before": 8.21,
-      "after": 8.21,
+      "file": "api/agent-tools/execute.ts",
+      "before": 24.86,
+      "after": 24.86,
       "delta": 0
     },
     {
-      "file": "api/tickets/create-pr.ts",
-      "before": 9.01,
-      "after": 9.01,
+      "file": "api/agent-runs/launch.ts",
+      "before": 8.54,
+      "after": 8.54,
       "delta": 0
     },
     {
-      "file": "src/components/DiagnosticsModal.tsx",
-      "before": 2.02,
-      "after": 2.02,
+      "file": "api/agent-runs/providers/openai.ts",
+      "before": 39.31,
+      "after": 39.31,
+      "delta": 0
+    },
+    {
+      "file": "api/context-bundles/build-from-run.ts",
+      "before": 39.77,
+      "after": 39.77,
+      "delta": 0
+    },
+    {
+      "file": "api/red/backfill-artifacts-todo.ts",
+      "before": 37.88,
+      "after": 37.88,
+      "delta": 0
+    },
+    {
+      "file": "api/tickets/get.ts",
+      "before": 37.95,
+      "after": 37.95,
+      "delta": 0
+    },
+    {
+      "file": "src/hooks/useAgentRuns.ts",
+      "before": 39.6,
+      "after": 39.6,
+      "delta": 0
+    },
+    {
+      "file": "api/implementation-agent/run.ts",
+      "before": 37.11,
+      "after": 37.11,
+      "delta": 0
+    },
+    {
+      "file": "api/agent-runs/sync-artifacts.ts",
+      "before": 39.24,
+      "after": 39.24,
+      "delta": 0
+    },
+    {
+      "file": "api/instructions/get-topic.ts",
+      "before": 36.74,
+      "after": 36.74,
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-22T06:09:00.535Z",
+  "generatedAt": "2026-02-22T06:13:36.217Z",
   "filesAnalyzed": 375,
-  "unroundedCodeQuality": 32.7,
-  "unroundedMaintainability": 32.7,
-  "unroundedSimplicity": 32.7
+  "unroundedCodeQuality": 54.6,
+  "unroundedMaintainability": 54.6,
+  "unroundedSimplicity": 54.6
 }
