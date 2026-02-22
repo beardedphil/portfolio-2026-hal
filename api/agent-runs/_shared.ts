@@ -221,43 +221,75 @@ function findTargetArtifactId(
   return null
 }
 
-/** Helper: Handle race condition when insert fails with duplicate key error. */
-async function handleDuplicateInsertError(
+/** Helper: Update an existing artifact. */
+async function updateExistingArtifact(
   supabase: SupabaseClient<any, 'public', any>,
-  insertErr: any,
-  ticketPk: string,
-  agentType: string,
-  title: string,
+  artifactId: string,
+  canonicalTitle: string,
   bodyMd: string
-): Promise<UpsertArtifactResult | null> {
-  if (!insertErr.message.includes('duplicate') && insertErr.code !== '23505') {
-    return null
-  }
-
-  const { data: existingArtifact, error: findErr } = await supabase
-    .from('agent_artifacts')
-    .select('artifact_id')
-    .eq('ticket_pk', ticketPk)
-    .eq('agent_type', agentType)
-    .eq('title', title)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .single()
-
-  if (findErr || !existingArtifact?.artifact_id) {
-    return null
-  }
-
+): Promise<UpsertArtifactResult> {
   const { error: updateErr } = await supabase
     .from('agent_artifacts')
-    .update({ body_md: bodyMd } as Record<string, unknown>)
-    .eq('artifact_id', existingArtifact.artifact_id)
-
+    .update({ title: canonicalTitle, body_md: bodyMd } as Record<string, unknown>)
+    .eq('artifact_id', artifactId)
+  
   if (updateErr) {
-    return null
+    const msg = `agent_artifacts update: ${updateErr.message}`
+    console.error('[agent-runs]', msg)
+    return { ok: false, error: msg }
+  }
+  
+  return { ok: true }
+}
+
+/** Helper: Insert a new artifact, handling duplicate key errors. */
+async function insertNewArtifact(
+  supabase: SupabaseClient<any, 'public', any>,
+  ticketPk: string,
+  repoFullName: string,
+  agentType: string,
+  canonicalTitle: string,
+  bodyMd: string
+): Promise<UpsertArtifactResult> {
+  const { error: insertErr } = await supabase.from('agent_artifacts').insert({
+    ticket_pk: ticketPk,
+    repo_full_name: repoFullName,
+    agent_type: agentType,
+    title: canonicalTitle,
+    body_md: bodyMd,
+  } as Record<string, unknown>)
+
+  if (!insertErr) {
+    return { ok: true }
   }
 
-  return { ok: true }
+  // Handle race condition: duplicate key error
+  if (insertErr.message.includes('duplicate') || insertErr.code === '23505') {
+    const { data: existingArtifact, error: findErr } = await supabase
+      .from('agent_artifacts')
+      .select('artifact_id')
+      .eq('ticket_pk', ticketPk)
+      .eq('agent_type', agentType)
+      .eq('title', canonicalTitle)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single()
+
+    if (!findErr && existingArtifact?.artifact_id) {
+      const { error: updateErr } = await supabase
+        .from('agent_artifacts')
+        .update({ body_md: bodyMd } as Record<string, unknown>)
+        .eq('artifact_id', existingArtifact.artifact_id)
+
+      if (!updateErr) {
+        return { ok: true }
+      }
+    }
+  }
+
+  const msg = `agent_artifacts insert: ${insertErr.message}`
+  console.error('[agent-runs]', msg)
+  return { ok: false, error: msg }
 }
 
 /** Upsert one artifact: update body_md if row exists, otherwise insert. Returns error message if failed.
@@ -311,46 +343,8 @@ export async function upsertArtifact(
   const targetArtifactId = findTargetArtifactId(artifacts, emptyArtifactIds)
 
   if (targetArtifactId) {
-    // Update existing artifact
-    const { error: updateErr } = await supabase
-      .from('agent_artifacts')
-      .update({ title: canonicalTitle, body_md: bodyMd } as Record<string, unknown>)
-      .eq('artifact_id', targetArtifactId)
-    if (updateErr) {
-      const msg = `agent_artifacts update: ${updateErr.message}`
-      console.error('[agent-runs]', msg)
-      return { ok: false, error: msg }
-    }
-    return { ok: true }
+    return await updateExistingArtifact(supabase, targetArtifactId, canonicalTitle, bodyMd)
   }
 
-  // Insert new artifact
-  const { error: insertErr } = await supabase.from('agent_artifacts').insert({
-    ticket_pk: ticketPk,
-    repo_full_name: repoFullName,
-    agent_type: agentType,
-    title: canonicalTitle,
-    body_md: bodyMd,
-  } as Record<string, unknown>)
-
-  if (insertErr) {
-    // Handle race condition: duplicate key error
-    const raceConditionResult = await handleDuplicateInsertError(
-      supabase,
-      insertErr,
-      ticketPk,
-      agentType,
-      canonicalTitle,
-      bodyMd
-    )
-    if (raceConditionResult) {
-      return raceConditionResult
-    }
-
-    const msg = `agent_artifacts insert: ${insertErr.message}`
-    console.error('[agent-runs]', msg)
-    return { ok: false, error: msg }
-  }
-
-  return { ok: true }
+  return await insertNewArtifact(supabase, ticketPk, repoFullName, agentType, canonicalTitle, bodyMd)
 }

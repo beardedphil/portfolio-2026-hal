@@ -413,4 +413,289 @@ describe('upsertArtifact', () => {
     expect(mockDelete).toHaveBeenCalled()
     expect(mockInsert).toHaveBeenCalled()
   })
+
+  it('normalizes title to canonical format when artifact type is extractable', async () => {
+    const mockInsert = vi.fn().mockResolvedValue({ error: null })
+    const mockTicketQuery = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ 
+        data: { display_id: 'HAL-0127' }, 
+        error: null 
+      }),
+    }
+
+    const mockSupabase = {
+      from: vi.fn((table: string) => {
+        if (table === 'tickets') return mockTicketQuery
+        if (table === 'agent_artifacts') {
+          return {
+            insert: mockInsert,
+          }
+        }
+        return {}
+      }),
+    } as any
+
+    const artifactShared = await import('../artifacts/_shared.js')
+    vi.spyOn(artifactShared, 'findArtifactsByCanonicalId').mockResolvedValue({ 
+      artifacts: [], 
+      error: null 
+    })
+
+    const result = await upsertArtifact(
+      mockSupabase,
+      ticketPk,
+      repoFullName,
+      agentType,
+      'Plan for ticket HAL-0127', // Variant title
+      validBody
+    )
+
+    expect(result.ok).toBe(true)
+    expect(mockInsert).toHaveBeenCalled()
+    // Verify canonical title was used (normalized display_id)
+    const insertCall = mockInsert.mock.calls[0][0]
+    expect(insertCall.title).toBe('Plan for ticket 0127') // Canonical format
+  })
+
+  it('updates existing artifact with substantive content instead of inserting duplicate', async () => {
+    const existingArtifact = {
+      artifact_id: 'artifact-123',
+      body_md: 'Existing substantive content that is valid and has enough characters to pass validation checks.',
+      created_at: '2024-01-01T00:00:00Z',
+    }
+
+    const mockUpdateEq = vi.fn().mockResolvedValue({ error: null })
+    const mockUpdate = vi.fn().mockReturnValue({
+      eq: mockUpdateEq,
+    })
+
+    const mockTicketQuery = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ 
+        data: { display_id: '0127' }, 
+        error: null 
+      }),
+    }
+
+    const mockSupabase = {
+      from: vi.fn((table: string) => {
+        if (table === 'tickets') return mockTicketQuery
+        if (table === 'agent_artifacts') {
+          return {
+            update: mockUpdate,
+          }
+        }
+        return {}
+      }),
+    } as any
+
+    const artifactShared = await import('../artifacts/_shared.js')
+    vi.spyOn(artifactShared, 'findArtifactsByCanonicalId').mockResolvedValue({
+      artifacts: [existingArtifact],
+      error: null,
+    })
+
+    const result = await upsertArtifact(
+      mockSupabase,
+      ticketPk,
+      repoFullName,
+      agentType,
+      'Plan for ticket 0127',
+      validBody
+    )
+
+    expect(result.ok).toBe(true)
+    expect(mockUpdate).toHaveBeenCalled()
+    expect(mockUpdateEq).toHaveBeenCalledWith('artifact_id', 'artifact-123')
+  })
+
+  it('handles duplicate key error by finding and updating existing artifact', async () => {
+    const duplicateError = {
+      message: 'duplicate key value violates unique constraint',
+      code: '23505',
+    }
+
+    const mockInsert = vi.fn().mockResolvedValue({ error: duplicateError })
+    const mockUpdateEq = vi.fn().mockResolvedValue({ error: null })
+    const mockUpdate = vi.fn().mockReturnValue({
+      eq: mockUpdateEq,
+    })
+
+    // Create proper query builder chain for duplicate error handling
+    const mockSingle = vi.fn().mockResolvedValue({ 
+      data: { artifact_id: 'existing-123' }, 
+      error: null 
+    })
+    const mockLimit = vi.fn().mockReturnValue({
+      single: mockSingle,
+    })
+    const mockOrder = vi.fn().mockReturnValue({
+      limit: mockLimit,
+    })
+    const mockEq3 = vi.fn().mockReturnValue({
+      order: mockOrder,
+    })
+    const mockEq2 = vi.fn().mockReturnValue({
+      eq: mockEq3,
+    })
+    const mockEq1 = vi.fn().mockReturnValue({
+      eq: mockEq2,
+    })
+    const mockSelect = vi.fn().mockReturnValue({
+      eq: mockEq1,
+    })
+
+    const mockTicketQuery = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ 
+        data: { display_id: '0127' }, 
+        error: null 
+      }),
+    }
+
+    const mockSupabase = {
+      from: vi.fn((table: string) => {
+        if (table === 'tickets') return mockTicketQuery
+        if (table === 'agent_artifacts') {
+          return {
+            insert: mockInsert,
+            select: mockSelect,
+            update: mockUpdate,
+          }
+        }
+        return {}
+      }),
+    } as any
+
+    const artifactShared = await import('../artifacts/_shared.js')
+    vi.spyOn(artifactShared, 'findArtifactsByCanonicalId').mockResolvedValue({ 
+      artifacts: [], 
+      error: null 
+    })
+
+    const result = await upsertArtifact(
+      mockSupabase,
+      ticketPk,
+      repoFullName,
+      agentType,
+      'Plan for ticket 0127',
+      validBody
+    )
+
+    expect(result.ok).toBe(true)
+    expect(mockInsert).toHaveBeenCalled()
+    expect(mockUpdate).toHaveBeenCalled()
+  })
+
+  it('deletes multiple empty artifacts when multiple placeholders exist', async () => {
+    const emptyArtifacts = [
+      {
+        artifact_id: 'empty-1',
+        body_md: '(none)',
+        created_at: '2024-01-01T00:00:00Z',
+      },
+      {
+        artifact_id: 'empty-2',
+        body_md: 'Short',
+        created_at: '2024-01-01T00:01:00Z',
+      },
+    ]
+
+    const mockDeleteIn = vi.fn().mockResolvedValue({ error: null })
+    const mockDelete = vi.fn().mockReturnValue({
+      in: mockDeleteIn,
+    })
+
+    const mockInsert = vi.fn().mockResolvedValue({ error: null })
+    const mockTicketQuery = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ 
+        data: { display_id: '0127' }, 
+        error: null 
+      }),
+    }
+
+    const mockSupabase = {
+      from: vi.fn((table: string) => {
+        if (table === 'tickets') return mockTicketQuery
+        if (table === 'agent_artifacts') {
+          return {
+            delete: mockDelete,
+            insert: mockInsert,
+          }
+        }
+        return {}
+      }),
+    } as any
+
+    const artifactShared = await import('../artifacts/_shared.js')
+    vi.spyOn(artifactShared, 'findArtifactsByCanonicalId').mockResolvedValue({
+      artifacts: emptyArtifacts,
+      error: null,
+    })
+
+    const result = await upsertArtifact(
+      mockSupabase,
+      ticketPk,
+      repoFullName,
+      agentType,
+      'Plan for ticket 0127',
+      validBody
+    )
+
+    expect(result.ok).toBe(true)
+    expect(mockDelete).toHaveBeenCalled()
+    expect(mockDeleteIn).toHaveBeenCalledWith('artifact_id', ['empty-1', 'empty-2'])
+    expect(mockInsert).toHaveBeenCalled()
+  })
+
+  it('falls back to exact title matching when artifact type cannot be extracted', async () => {
+    // Create proper query builder chain for exact title matching
+    const mockOrder = vi.fn().mockResolvedValue({ 
+      data: [], 
+      error: null 
+    })
+    const mockEq3 = vi.fn().mockReturnValue({
+      order: mockOrder,
+    })
+    const mockEq2 = vi.fn().mockReturnValue({
+      eq: mockEq3,
+    })
+    const mockEq1 = vi.fn().mockReturnValue({
+      eq: mockEq2,
+    })
+    const mockSelect = vi.fn().mockReturnValue({
+      eq: mockEq1,
+    })
+
+    const mockSupabase = {
+      from: vi.fn((table: string) => {
+        if (table === 'agent_artifacts') {
+          return {
+            select: mockSelect,
+            insert: vi.fn().mockResolvedValue({ error: null }),
+          }
+        }
+        return {}
+      }),
+    } as any
+
+    const result = await upsertArtifact(
+      mockSupabase,
+      ticketPk,
+      repoFullName,
+      agentType,
+      'Custom Title Without Pattern', // No extractable artifact type
+      validBody
+    )
+
+    expect(result.ok).toBe(true)
+    // Should use exact title matching (not canonical)
+    expect(mockSelect).toHaveBeenCalled()
+  })
 })
