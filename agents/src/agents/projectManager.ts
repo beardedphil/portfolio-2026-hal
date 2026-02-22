@@ -50,6 +50,9 @@ import {
   isAbortError as isAbortErrorHelper,
   generateFallbackReply,
 } from './projectManager/replyGeneration.js'
+import { halFetchJson as halFetchJsonHelper } from './projectManager/halApiClient.js'
+import { buildPrompt } from './projectManager/promptBuilding.js'
+import { hasGitHubRepo, createRepoUsageTracker } from './projectManager/repoUsage.js'
 
 // Re-export for backward compatibility
 export type { ReadyCheckResult }
@@ -224,48 +227,17 @@ export async function runPmAgent(
 
   const isAbortError = (err: unknown) => isAbortErrorHelper(err, config.abortSignal)
 
-  const halFetchJson = async (
+  const halFetch = async (
     path: string,
     body: unknown,
     opts?: { timeoutMs?: number; progressMessage?: string }
   ) => {
-    const timeoutMs = Math.max(1_000, Math.floor(opts?.timeoutMs ?? 20_000))
-    const controller = new AbortController()
-    const t = setTimeout(() => controller.abort(new Error('HAL request timeout')), timeoutMs)
-    const onAbort = () => controller.abort(config.abortSignal?.reason ?? new Error('Aborted'))
-    try {
-      const progress = String(opts?.progressMessage ?? '').trim()
-      if (progress) await config.onProgress?.(progress)
-      if (config.abortSignal) config.abortSignal.addEventListener('abort', onAbort, { once: true })
-      const res = await fetch(`${halBaseUrl}${path}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body ?? {}),
-        signal: controller.signal,
-      })
-      const text = await res.text()
-      let json: any = {}
-      if (text) {
-        try {
-          json = JSON.parse(text)
-        } catch (e) {
-          const contentType = res.headers.get('content-type') || 'unknown'
-          const prefix = text.slice(0, 200)
-          json = {
-            success: false,
-            error: `Non-JSON response from ${path} (HTTP ${res.status}, content-type: ${contentType}): ${prefix}`,
-          }
-        }
-      }
-      return { ok: res.ok, json }
-    } finally {
-      clearTimeout(t)
-      try {
-        if (config.abortSignal) config.abortSignal.removeEventListener('abort', onAbort)
-      } catch {
-        // ignore
-      }
-    }
+    return halFetchJsonHelper(halBaseUrl, path, body, {
+      timeoutMs: opts?.timeoutMs,
+      progressMessage: opts?.progressMessage,
+      abortSignal: config.abortSignal,
+      onProgress: config.onProgress,
+    })
   }
 
   const createTicketTool = tool({
@@ -314,7 +286,7 @@ export async function runPmAgent(
             ? config.projectId.trim()
             : 'beardedphil/portfolio-2026-hal'
 
-        const { json: created } = await halFetchJson(
+        const { json: created } = await halFetch(
           '/api/tickets/create-general',
           {
             title: input.title.trim(),
@@ -340,7 +312,7 @@ export async function runPmAgent(
         const normalizedBodyMd = normalizeTitleLineInBody(bodyMdTrimmed, displayId)
         // Persist normalized Title line (and strip QA blocks server-side).
         try {
-          await halFetchJson(
+          await halFetch(
             '/api/tickets/update',
             {
               ...(ticketPk ? { ticketPk } : { ticketId: displayId }),
@@ -357,7 +329,7 @@ export async function runPmAgent(
         let movedToTodo = false
         let moveError: string | undefined
         if (readiness.ready) {
-          const { json: moved } = await halFetchJson(
+          const { json: moved } = await halFetch(
             '/api/tickets/move',
             { ticketId: displayId, columnId: COL_TODO, position: 'bottom' },
             { timeoutMs: 25_000, progressMessage: `Moving ${displayId} to To Do…` }
@@ -425,7 +397,7 @@ export async function runPmAgent(
 
       let out: FetchResult
       try {
-        const { json: data } = await halFetchJson(
+        const { json: data } = await halFetch(
           '/api/tickets/get',
           { ticketId: input.ticket_id },
           { timeoutMs: 20_000, progressMessage: `Fetching ticket ${input.ticket_id}…` }
@@ -524,7 +496,7 @@ export async function runPmAgent(
         bodyMdTrimmed = normalizeBodyForReady(bodyMdTrimmed)
 
         // Fetch ticket to get display_id / pk for robust update.
-        const { json: fetched } = await halFetchJson(
+        const { json: fetched } = await halFetch(
           '/api/tickets/get',
           { ticketId: input.ticket_id },
           { timeoutMs: 20_000, progressMessage: `Fetching ticket ${input.ticket_id} for update…` }
@@ -540,7 +512,7 @@ export async function runPmAgent(
         const ticketPk = typeof ticket.pk === 'string' ? ticket.pk : undefined
         const normalizedBodyMd = normalizeTitleLineInBody(bodyMdTrimmed, displayId)
 
-        const { json: updated } = await halFetchJson(
+        const { json: updated } = await halFetch(
           '/api/tickets/update',
           {
             ...(ticketPk ? { ticketPk } : { ticketId: displayId }),
@@ -613,7 +585,7 @@ export async function runPmAgent(
       let out: MoveResult
       try {
         // Fetch current column and preferred display id
-        const { json: fetched } = await halFetchJson(
+        const { json: fetched } = await halFetch(
           '/api/tickets/get',
           { ticketId: input.ticket_id },
           { timeoutMs: 20_000, progressMessage: `Checking current column for ${input.ticket_id}…` }
@@ -636,7 +608,7 @@ export async function runPmAgent(
         }
         const ticketIdToMove = String(ticket.display_id || input.ticket_id)
         const position = input.position ?? 'bottom'
-        const { json: moved } = await halFetchJson(
+        const { json: moved } = await halFetch(
           '/api/tickets/move',
           { ticketId: ticketIdToMove, columnId: COL_TODO, position },
           { timeoutMs: 25_000, progressMessage: `Moving ${ticketIdToMove} to To Do…` }
@@ -889,7 +861,7 @@ export async function runPmAgent(
       let out: CreateRedResult
       try {
         // Fetch ticket to get ticketPk and repoFullName
-        const { json: fetched } = await halFetchJson(
+        const { json: fetched } = await halFetch(
           '/api/tickets/get',
           { ticketId: input.ticket_id },
           { timeoutMs: 20_000, progressMessage: `Fetching ticket ${input.ticket_id} for RED…` }
@@ -914,7 +886,7 @@ export async function runPmAgent(
         }
 
         // Idempotency: if a RED already exists, reuse it instead of creating new versions.
-        const { json: existing } = await halFetchJson(
+        const { json: existing } = await halFetch(
           '/api/red/list',
           { ticketPk, repoFullName },
           { timeoutMs: 20_000, progressMessage: `Checking existing REDs for ${input.ticket_id}…` }
@@ -923,7 +895,7 @@ export async function runPmAgent(
           const latest = existing.red_versions[0] as any
           // Best-effort: ensure it's validated for "latest-valid" gates
           try {
-            await halFetchJson(
+            await halFetch(
               '/api/red/validate',
               {
                 redId: latest.red_id,
@@ -940,7 +912,7 @@ export async function runPmAgent(
           // Best-effort: create/update mirrored RED artifact for visibility in ticket Artifacts.
           try {
             const vNum = Number(latest.version ?? 0) || 0
-            const { json: redGet } = await halFetchJson(
+            const { json: redGet } = await halFetch(
               '/api/red/get',
               { ticketPk, ticketId: input.ticket_id, repoFullName, version: vNum },
               { timeoutMs: 20_000, progressMessage: `Loading latest RED JSON for ${input.ticket_id}…` }
@@ -964,7 +936,7 @@ Validation Status: ${validationStatus}
 ${JSON.stringify(redJsonForArtifact, null, 2)}
 \`\`\`
 `
-              await halFetchJson(
+              await halFetch(
                 '/api/artifacts/insert-implementation',
                 { ticketId: ticketPk, artifactType: 'red', title: artifactTitle, body_md: artifactBody },
                 { timeoutMs: 25_000, progressMessage: `Saving RED artifact for ${input.ticket_id}…` }
@@ -999,7 +971,7 @@ ${JSON.stringify(redJsonForArtifact, null, 2)}
         }
 
         // Create RED document via HAL API
-        const { json: created } = await halFetchJson(
+        const { json: created } = await halFetch(
           '/api/red/insert',
           {
             ticketPk,
@@ -1015,7 +987,7 @@ ${JSON.stringify(redJsonForArtifact, null, 2)}
         } else {
           // Option A: validate via separate table (immutable RED rows)
           try {
-            await halFetchJson(
+            await halFetch(
               '/api/red/validate',
               {
                 redId: created.red_document.red_id,
@@ -1050,7 +1022,7 @@ Validation Status: ${validationStatus}
 ${JSON.stringify(redJsonForArtifact, null, 2)}
 \`\`\`
 `
-            await halFetchJson(
+            await halFetch(
               '/api/artifacts/insert-implementation',
               { ticketId: ticketPk, artifactType: 'red', title: artifactTitle, body_md: artifactBody },
               { timeoutMs: 25_000, progressMessage: `Saving RED artifact for ${input.ticket_id}…` }
@@ -1077,21 +1049,19 @@ ${JSON.stringify(redJsonForArtifact, null, 2)}
   })
 
   // Helper: use GitHub API when githubReadFile is provided (Connect GitHub Repo); otherwise use HAL repo (direct FS)
-  const hasGitHubRepo =
-    typeof config.repoFullName === 'string' &&
-    config.repoFullName.trim() !== '' &&
-    typeof config.githubReadFile === 'function'
+  const hasGitHub = hasGitHubRepo(config)
   
   // Track which repo is being used for debugging (0119)
-  const repoUsage: Array<{ tool: string; usedGitHub: boolean; path?: string }> = []
+  const repoUsageTracker = createRepoUsageTracker()
+  const repoUsage = repoUsageTracker.records
   
   // Debug logging (0119: verify PM agent receives correct config)
   if (typeof console !== 'undefined' && console.warn) {
-    console.warn(`[PM Agent] hasGitHubRepo=${hasGitHubRepo}, repoFullName=${config.repoFullName || 'NOT SET'}, hasGithubReadFile=${typeof config.githubReadFile === 'function'}, hasGithubSearchCode=${typeof config.githubSearchCode === 'function'}`)
+    console.warn(`[PM Agent] hasGitHubRepo=${hasGitHub}, repoFullName=${config.repoFullName || 'NOT SET'}, hasGithubReadFile=${typeof config.githubReadFile === 'function'}, hasGithubSearchCode=${typeof config.githubSearchCode === 'function'}`)
   }
 
   const readFileTool = tool({
-    description: hasGitHubRepo
+    description: hasGitHub
       ? 'Read file contents from the connected GitHub repo. Path is relative to repo root. Max 500 lines. Uses committed code on default branch.'
       : 'Read file contents from HAL repo. Path is relative to repo root. Max 500 lines.',
     parameters: z.object({
@@ -1099,9 +1069,9 @@ ${JSON.stringify(redJsonForArtifact, null, 2)}
     }),
     execute: async (input) => {
       let out: { content: string } | { error: string }
-      const usedGitHub = !!(hasGitHubRepo && config.githubReadFile)
-      repoUsage.push({ tool: 'read_file', usedGitHub, path: input.path })
-      if (hasGitHubRepo && config.githubReadFile) {
+      const usedGitHub = !!(hasGitHub && config.githubReadFile)
+      repoUsageTracker.track('read_file', usedGitHub, input.path)
+      if (hasGitHub && config.githubReadFile) {
         // Debug: log when using GitHub API (0119)
         if (typeof console !== 'undefined' && console.log) {
           console.log(`[PM Agent] Using GitHub API to read: ${config.repoFullName}/${input.path}`)
@@ -1110,7 +1080,7 @@ ${JSON.stringify(redJsonForArtifact, null, 2)}
       } else {
         // Debug: log when falling back to HAL repo (0119)
         if (typeof console !== 'undefined' && console.warn) {
-          console.warn(`[PM Agent] Falling back to HAL repo for: ${input.path} (hasGitHubRepo=${hasGitHubRepo}, hasGithubReadFile=${typeof config.githubReadFile === 'function'})`)
+          console.warn(`[PM Agent] Falling back to HAL repo for: ${input.path} (hasGitHubRepo=${hasGitHub}, hasGithubReadFile=${typeof config.githubReadFile === 'function'})`)
         }
         out = await readFile(ctx, input)
       }
@@ -1413,7 +1383,7 @@ ${JSON.stringify(redJsonForArtifact, null, 2)}
   })
 
   const searchFilesTool = tool({
-    description: hasGitHubRepo
+    description: hasGitHub
       ? 'Search code in the connected GitHub repo. Pattern is used as search term (GitHub does not support full regex).'
       : 'Regex search across files in HAL repo. Pattern is JavaScript regex.',
     parameters: z.object({
@@ -1422,9 +1392,9 @@ ${JSON.stringify(redJsonForArtifact, null, 2)}
     }),
     execute: async (input) => {
       let out: { matches: Array<{ path: string; line: number; text: string }> } | { error: string }
-      const usedGitHub = !!(hasGitHubRepo && config.githubSearchCode)
-      repoUsage.push({ tool: 'search_files', usedGitHub, path: input.pattern })
-      if (hasGitHubRepo && config.githubSearchCode) {
+      const usedGitHub = !!(hasGitHub && config.githubSearchCode)
+      repoUsageTracker.track('search_files', usedGitHub, input.pattern)
+      if (hasGitHub && config.githubSearchCode) {
         // Debug: log when using GitHub API (0119)
         if (typeof console !== 'undefined' && console.log) {
           console.log(`[PM Agent] Using GitHub API to search: ${config.repoFullName} pattern: ${input.pattern}`)
@@ -1433,7 +1403,7 @@ ${JSON.stringify(redJsonForArtifact, null, 2)}
       } else {
         // Debug: log when falling back to HAL repo (0119)
         if (typeof console !== 'undefined' && console.warn) {
-          console.warn(`[PM Agent] Falling back to HAL repo for search: ${input.pattern} (hasGitHubRepo=${hasGitHubRepo}, hasGithubSearchCode=${typeof config.githubSearchCode === 'function'})`)
+          console.warn(`[PM Agent] Falling back to HAL repo for search: ${input.pattern} (hasGitHubRepo=${hasGitHub}, hasGithubSearchCode=${typeof config.githubSearchCode === 'function'})`)
         }
         out = await searchFiles(ctx, { pattern: input.pattern, glob: input.glob })
       }
@@ -1447,7 +1417,7 @@ ${JSON.stringify(redJsonForArtifact, null, 2)}
   const tools = {
     get_instruction_set: getInstructionSetTool,
     list_directory: tool({
-      description: hasGitHubRepo
+      description: hasGitHub
         ? 'List files in a directory in the connected GitHub repo. Path is relative to repo root.'
         : 'List files in a directory in HAL repo. Path is relative to repo root.',
       parameters: z.object({
@@ -1455,9 +1425,9 @@ ${JSON.stringify(redJsonForArtifact, null, 2)}
       }),
       execute: async (input) => {
         let out: { entries: string[] } | { error: string }
-        const usedGitHub = !!(hasGitHubRepo && config.githubListDirectory)
-        repoUsage.push({ tool: 'list_directory', usedGitHub, path: input.path })
-        if (hasGitHubRepo && config.githubListDirectory) {
+        const usedGitHub = !!(hasGitHub && config.githubListDirectory)
+        repoUsageTracker.track('list_directory', usedGitHub, input.path)
+        if (hasGitHub && config.githubListDirectory) {
           // Debug: log when using GitHub API (0119)
           if (typeof console !== 'undefined' && console.log) {
             console.log(`[PM Agent] Using GitHub API to list directory: ${config.repoFullName}/${input.path}`)
@@ -1466,7 +1436,7 @@ ${JSON.stringify(redJsonForArtifact, null, 2)}
         } else {
           // Debug: log when falling back to HAL repo (0119)
           if (typeof console !== 'undefined' && console.warn) {
-            console.warn(`[PM Agent] Falling back to HAL repo for list_directory: ${input.path} (hasGitHubRepo=${hasGitHubRepo}, hasGithubListDirectory=${typeof config.githubListDirectory === 'function'})`)
+            console.warn(`[PM Agent] Falling back to HAL repo for list_directory: ${input.path} (hasGitHubRepo=${hasGitHub}, hasGithubListDirectory=${typeof config.githubListDirectory === 'function'})`)
           }
           out = await listDirectory(ctx, input)
         }
@@ -1494,44 +1464,13 @@ ${JSON.stringify(redJsonForArtifact, null, 2)}
     ...(createRedDocumentTool ? { create_red_document_v2: createRedDocumentTool } : {}),
   }
 
-  const promptBase = `${contextPack}\n\n---\n\nRespond to the user message above using the tools as needed.`
-
-  // Build full prompt text for display (system instructions + context pack + user message + images if present)
-  const hasImages = config.images && config.images.length > 0
-  const isVisionModel = config.openaiModel.includes('vision') || config.openaiModel.includes('gpt-4o')
-  let imageInfo = ''
-  if (hasImages) {
-    const imageList = config.images!.map((img, idx) => `  ${idx + 1}. ${img.filename || `Image ${idx + 1}`} (${img.mimeType || 'image'})`).join('\n')
-    if (isVisionModel) {
-      imageInfo = `\n\n## Images (included in prompt)\n\n${imageList}\n\n(Note: Images are sent as base64-encoded data URLs in the prompt array, but are not shown in this text representation.)`
-    } else {
-      imageInfo = `\n\n## Images (provided but ignored)\n\n${imageList}\n\n(Note: Images were provided but the model (${config.openaiModel}) does not support vision. Images are ignored.)`
-    }
-  }
-  const fullPromptText = `## System Instructions\n\n${PM_SYSTEM_INSTRUCTIONS}\n\n---\n\n## User Prompt\n\n${promptBase}${imageInfo}`
-
-  // Build prompt with images if present
-  // For vision models, prompt must be an array of content parts
-  // For non-vision models, prompt is a string (images are ignored)
-  // Note: hasImages and isVisionModel are already defined above when building fullPromptText
-  
-  let prompt: string | Array<{ type: 'text' | 'image'; text?: string; image?: string }>
-  if (hasImages && isVisionModel) {
-    // Vision model: use array format with text and images
-    prompt = [
-      { type: 'text' as const, text: promptBase },
-      ...config.images!.map((img) => ({ type: 'image' as const, image: img.dataUrl })),
-    ]
-    // For vision models, note that images are included but not shown in text representation
-    // The fullPromptText will show the text portion
-  } else {
-    // Non-vision model or no images: use string format
-    prompt = promptBase
-    if (hasImages && !isVisionModel) {
-      // Log warning but don't fail - user can still send text
-      console.warn('[PM Agent] Images provided but model does not support vision. Images will be ignored.')
-    }
-  }
+  const { prompt, fullPromptText } = buildPrompt({
+    contextPack,
+    systemInstructions: PM_SYSTEM_INSTRUCTIONS,
+    message,
+    images: config.images,
+    openaiModel: config.openaiModel,
+  })
 
   const providerOptions =
     config.previousResponseId != null && config.previousResponseId !== ''
