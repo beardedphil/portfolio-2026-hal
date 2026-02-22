@@ -49,6 +49,10 @@
       "maintainability": 9
     },
     {
+      "file": "api/agent-runs/launch.test.ts",
+      "maintainability": 9.71
+    },
+    {
       "file": "src/hooks/useProcessReview.ts",
       "maintainability": 14.04
     },
@@ -75,10 +79,6 @@
     {
       "file": "api/conversations/working-memory/update.ts",
       "maintainability": 18.36
-    },
-    {
-      "file": "projects/kanban/src/components/ArtifactReportViewer.tsx",
-      "maintainability": 18.61
     }
   ],
   "mostRecentImprovements": [
@@ -125,8 +125,8 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-22T01:20:56.365Z",
-  "filesAnalyzed": 343,
-  "unroundedMaintainability": 33.4,
-  "unroundedSimplicity": 33.4
+  "generatedAt": "2026-02-22T01:31:36.804Z",
+  "filesAnalyzed": 344,
+  "unroundedMaintainability": 33.3,
+  "unroundedSimplicity": 33.3
 }

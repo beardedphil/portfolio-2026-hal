@@ -114,8 +114,15 @@ describe('agent-runs/launch handler', () => {
         yield Buffer.from(JSON.stringify({ agentType: 'implementation', ticketNumber: 123 }))
       }
 
-      await handler(mockReq as IncomingMessage, mockRes as ServerResponse)
+      try {
+        await handler(mockReq as IncomingMessage, mockRes as ServerResponse)
+      } catch (err) {
+        console.error('Handler threw error:', err)
+        throw err
+      }
 
+      // Check if end was called
+      expect(mockRes.end).toHaveBeenCalled()
       expect(responseStatus).toBe(400)
       expect(responseBody).toMatchObject({
         error: 'repoFullName is required.',
