@@ -2,125 +2,128 @@
   "topOffenders": [
     {
       "file": "src/App.tsx",
+      "codeQuality": 0,
       "maintainability": 0
     },
     {
       "file": "src/components/ContextBundleModal.tsx",
+      "codeQuality": 0,
       "maintainability": 0
     },
     {
       "file": "src/hooks/useAgentRuns.ts",
+      "codeQuality": 0,
       "maintainability": 0
     },
     {
       "file": "src/hooks/useKanban.ts",
+      "codeQuality": 0,
       "maintainability": 0
     },
     {
       "file": "api/agent-runs/launch.ts",
+      "codeQuality": 0,
       "maintainability": 0
     },
     {
       "file": "api/agent-runs/providers/openai.ts",
+      "codeQuality": 0,
       "maintainability": 0
     },
     {
       "file": "api/agent-runs/status.ts",
+      "codeQuality": 0,
       "maintainability": 0
     },
     {
       "file": "api/instructions/get-index.ts",
+      "codeQuality": 0,
       "maintainability": 0
     },
     {
       "file": "api/tickets/move.ts",
+      "codeQuality": 0,
       "maintainability": 0
     },
     {
       "file": "agents/src/agents/projectManager/contextBuilding.ts",
+      "codeQuality": 0,
       "maintainability": 0
     },
     {
       "file": "projects/kanban/src/App.tsx",
+      "codeQuality": 0,
       "maintainability": 0
     },
     {
-      "file": "agents/src/agents/projectManager.ts",
-      "maintainability": 9
+      "file": "api/context-bundles/_builder.ts",
+      "codeQuality": 1.42,
+      "maintainability": 2.43
     },
     {
       "file": "src/components/DiagnosticsModal.tsx",
-      "maintainability": 9.54
+      "codeQuality": 2.02,
+      "maintainability": 3.46
     },
     {
-      "file": "api/context-bundles/_builder.ts",
-      "maintainability": 11.28
+      "file": "agents/src/agents/projectManager.ts",
+      "codeQuality": 5.27,
+      "maintainability": 9
     },
     {
       "file": "src/hooks/useProcessReview.ts",
+      "codeQuality": 8.21,
       "maintainability": 14.04
     },
     {
       "file": "api/instructions/get-topic.ts",
+      "codeQuality": 8.93,
       "maintainability": 15.27
     },
     {
       "file": "api/tickets/create-pr.ts",
+      "codeQuality": 9.01,
       "maintainability": 15.41
     },
     {
       "file": "api/instructions/migrate-process-docs.ts",
+      "codeQuality": 9.12,
       "maintainability": 15.59
     },
     {
       "file": "api/auth/github/callback.ts",
-      "maintainability": 16.29
+      "codeQuality": 9.44,
+      "maintainability": 16.14
     },
     {
       "file": "api/conversations/working-memory/update.ts",
+      "codeQuality": 10.74,
       "maintainability": 18.36
     }
   ],
   "mostRecentImprovements": [
     {
-      "file": "api/instructions/migrate-process-docs.ts",
-      "before": 15.59,
-      "after": 15.59,
-      "delta": 0
-    },
-    {
       "file": "src/hooks/useProcessReview.ts",
-      "before": 14.04,
-      "after": 14.04,
-      "delta": 0
-    },
-    {
-      "file": "agents/src/agents/projectManager.ts",
-      "before": 9,
-      "after": 9,
-      "delta": 0
-    },
-    {
-      "file": "api/conversations/working-memory/update.ts",
-      "before": 18.36,
-      "after": 18.36,
+      "before": 8.21,
+      "after": 8.21,
       "delta": 0
     },
     {
       "file": "api/tickets/create-pr.ts",
-      "before": 15.41,
-      "after": 15.41,
+      "before": 9.01,
+      "after": 9.01,
       "delta": 0
     },
     {
-      "file": "api/auth/github/callback.ts",
-      "before": 16.29,
-      "after": 16.29,
+      "file": "src/components/DiagnosticsModal.tsx",
+      "before": 2.02,
+      "after": 2.02,
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-22T04:26:57.888Z",
-  "filesAnalyzed": 359,
-  "unroundedMaintainability": 32.9,
-  "unroundedSimplicity": 32.9
+  "generatedAt": "2026-02-22T06:08:15.364Z",
+  "filesAnalyzed": 375,
+  "unroundedCodeQuality": 32.7,
+  "unroundedMaintainability": 32.7,
+  "unroundedSimplicity": 32.7
 }
