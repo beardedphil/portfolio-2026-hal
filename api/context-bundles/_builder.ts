@@ -84,6 +84,56 @@ export interface ContextBundleV0 {
   }
 }
 
+/**
+ * Get open findings from latest failing drift attempts (HAL-0766)
+ * Returns an array of human-readable findings derived from the latest failing drift attempts
+ */
+async function getOpenFindingsFromDriftAttempts(
+  supabase: ReturnType<typeof createClient>,
+  ticketPk: string
+): Promise<string[]> {
+  try {
+    // Fetch latest failing drift attempts for this ticket
+    const { data: attempts, error } = await supabase
+      .from('drift_attempts')
+      .select('reason_messages, transition, attempted_at, blocked')
+      .eq('ticket_pk', ticketPk)
+      .eq('blocked', true)
+      .order('attempted_at', { ascending: false })
+      .limit(10) // Get last 10 failing attempts
+
+    if (error || !attempts || attempts.length === 0) {
+      return []
+    }
+
+    // Collect unique findings from reason_messages (stable ordering)
+    const findingsSet = new Set<string>()
+    const transitionNames: Record<string, string> = {
+      'col-qa': 'Ready for QA',
+      'col-human-in-the-loop': 'Human in the Loop',
+      'col-process-review': 'Process Review',
+      'col-done': 'Done',
+    }
+
+    for (const attempt of attempts) {
+      if (attempt.reason_messages && Array.isArray(attempt.reason_messages)) {
+        const transitionName = transitionNames[attempt.transition] || attempt.transition
+        for (const msg of attempt.reason_messages) {
+          // Format: "Transition: Reason message"
+          const finding = `${transitionName}: ${msg}`
+          findingsSet.add(finding)
+        }
+      }
+    }
+
+    // Convert to array and sort for stable ordering
+    return Array.from(findingsSet).sort()
+  } catch (err) {
+    console.error('[getOpenFindingsFromDriftAttempts] Error:', err)
+    return []
+  }
+}
+
 export interface BuilderResult {
   success: boolean
   bundle?: ContextBundleV0
@@ -156,10 +206,11 @@ export async function buildContextBundleV0(
     // 4. Get repo context (file pointers + snippets)
     const repoContext = await getRepoContext(repoFullName, gitRef)
 
-    // 5. Get state snapshot (placeholder for now - can be enhanced later)
+    // 5. Get state snapshot (HAL-0766: populate open_findings from latest failing drift attempts)
+    const openFindings = await getOpenFindingsFromDriftAttempts(supabase, ticketPk)
     const stateSnapshot = {
       statuses: {},
-      open_findings: [],
+      open_findings: openFindings,
       failing_tests: [],
       last_known_good_commit: gitRef?.base_sha || null,
     }

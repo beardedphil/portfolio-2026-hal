@@ -11,6 +11,68 @@ import { parseAcceptanceCriteria } from './_acceptance-criteria-parser.js'
 import { evaluateCiStatus, type CiStatusSummary } from '../_lib/github/checks.js'
 import { getSession } from '../_lib/github/session.js'
 
+/**
+ * Extract PR number from PR URL (HAL-0766)
+ */
+function extractPrNumber(prUrl: string | null): number | null {
+  if (!prUrl) return null
+  const m = prUrl.match(/github\.com\/[^/]+\/[^/]+\/pull\/(\d+)/i)
+  if (!m) return null
+  const prNumber = parseInt(m[1], 10)
+  return Number.isFinite(prNumber) ? prNumber : null
+}
+
+/**
+ * Normalize failure reasons into types and messages (HAL-0766)
+ * Returns stable-ordered arrays of reason types and messages
+ */
+function normalizeFailureReasons(
+  errorCode: string | undefined,
+  error: string | undefined,
+  evaluationError: string | null,
+  ciStatus: CiStatusSummary | { error: string } | null,
+  unmetAcCount?: number
+): { reasonTypes: string[]; reasonMessages: string[] } {
+  const reasonTypes: string[] = []
+  const reasonMessages: string[] = []
+
+  // Check for unmet ACs
+  if (unmetAcCount && unmetAcCount > 0) {
+    reasonTypes.push('UNMET_AC')
+    reasonMessages.push(`${unmetAcCount} acceptance criteria item(s) are marked as unmet`)
+  }
+
+  // Check for missing PR
+  if (errorCode === 'NO_PR_REQUIRED' || errorCode === 'NO_PR_ASSOCIATED') {
+    reasonTypes.push('NO_PR_LINKED')
+    reasonMessages.push('No GitHub Pull Request linked to this ticket')
+  }
+
+  // Check for CI evaluation errors
+  if (evaluationError) {
+    reasonTypes.push('CI_EVALUATION_ERROR')
+    reasonMessages.push(`CI evaluation failed: ${evaluationError}`)
+  }
+
+  // Check for failing CI checks
+  if (ciStatus && !('error' in ciStatus) && ciStatus.overall === 'failing') {
+    reasonTypes.push('CI_CHECKS_FAILING')
+    if (ciStatus.failingCheckNames && ciStatus.failingCheckNames.length > 0) {
+      reasonMessages.push(`CI checks failing: ${ciStatus.failingCheckNames.join(', ')}`)
+    } else {
+      reasonMessages.push('Required CI checks are failing')
+    }
+  }
+
+  // Generic error fallback
+  if (error && reasonTypes.length === 0) {
+    reasonTypes.push('UNKNOWN_ERROR')
+    reasonMessages.push(error)
+  }
+
+  return { reasonTypes, reasonMessages }
+}
+
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
   // CORS: Allow cross-origin requests (for scripts calling from different origins)
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -268,6 +330,34 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             .filter(Boolean)
             .join('\n')
 
+          // Normalize failure reasons (HAL-0766)
+          const { reasonTypes, reasonMessages } = normalizeFailureReasons(
+            'UNMET_AC_BLOCKER',
+            `Cannot move ticket: ${acStatusRecords.length} acceptance criteria item(s) are marked as unmet.`,
+            null,
+            null,
+            acStatusRecords.length
+          )
+
+          // Store drift attempt record (HAL-0766)
+          await supabase.from('drift_attempts').insert({
+            ticket_pk: resolvedTicketPk,
+            transition: columnId,
+            pr_url: null,
+            pr_number: null,
+            evaluated_head_sha: null,
+            head_sha: null,
+            overall_status: null,
+            required_checks: null,
+            failing_check_names: null,
+            checks_page_url: null,
+            evaluation_error: null,
+            reason_types: reasonTypes.length > 0 ? reasonTypes : null,
+            reason_messages: reasonMessages.length > 0 ? reasonMessages : null,
+            references: null,
+            blocked: true,
+          })
+
           json(res, 200, {
             success: false,
             error: `Cannot move ticket: ${acStatusRecords.length} acceptance criteria item(s) are marked as unmet. All acceptance criteria must be met before moving to this column.`,
@@ -307,16 +397,30 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
       // If no PR linked, block the transition
       if (!prUrl || prUrl.length === 0) {
-        // Store drift attempt record
+        // Normalize failure reasons
+        const { reasonTypes, reasonMessages } = normalizeFailureReasons(
+          'NO_PR_REQUIRED',
+          'A GitHub Pull Request must be linked to this ticket before it can be moved to this column.',
+          'No PR linked',
+          null
+        )
+
+        // Store drift attempt record (HAL-0766)
         await supabase.from('drift_attempts').insert({
           ticket_pk: resolvedTicketPk,
+          transition: columnId,
           pr_url: null,
+          pr_number: null,
           evaluated_head_sha: null,
+          head_sha: null,
           overall_status: null,
           required_checks: null,
           failing_check_names: null,
           checks_page_url: null,
           evaluation_error: 'No PR linked',
+          reason_types: reasonTypes.length > 0 ? reasonTypes : null,
+          reason_messages: reasonMessages.length > 0 ? reasonMessages : null,
+          references: null,
           blocked: true,
         })
 
@@ -352,18 +456,52 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         ciStatus = { error: evaluationError }
       }
 
-      // Store drift attempt record
+      // Extract PR number from PR URL (HAL-0766)
+      const prNumber = extractPrNumber(prUrl)
+
+      // Normalize failure reasons (HAL-0766)
+      const { reasonTypes, reasonMessages } = normalizeFailureReasons(
+        undefined,
+        undefined,
+        evaluationError,
+        ciStatus
+      )
+
+      // Build references object (HAL-0766)
+      const references: any = {
+        pr_url: prUrl,
+      }
+      if (prNumber) {
+        references.pr_number = prNumber
+      }
+      if (ciStatus && !('error' in ciStatus)) {
+        references.evaluated_sha = ciStatus.evaluatedSha
+      }
+
+      // Store drift attempt record (HAL-0766)
       const driftAttemptData: any = {
         ticket_pk: resolvedTicketPk,
+        transition: columnId,
         pr_url: prUrl,
+        pr_number: prNumber,
         blocked: false,
+        reason_types: reasonTypes.length > 0 ? reasonTypes : null,
+        reason_messages: reasonMessages.length > 0 ? reasonMessages : null,
+        references: Object.keys(references).length > 0 ? references : null,
       }
 
       if ('error' in ciStatus) {
         driftAttemptData.evaluation_error = evaluationError
         driftAttemptData.blocked = true
+        driftAttemptData.evaluated_head_sha = null
+        driftAttemptData.head_sha = null
+        driftAttemptData.overall_status = null
+        driftAttemptData.required_checks = null
+        driftAttemptData.failing_check_names = null
+        driftAttemptData.checks_page_url = null
       } else {
         driftAttemptData.evaluated_head_sha = ciStatus.evaluatedSha
+        driftAttemptData.head_sha = ciStatus.evaluatedSha // Use evaluated SHA as head SHA
         driftAttemptData.overall_status = ciStatus.overall
         driftAttemptData.required_checks = ciStatus.requiredChecks
         driftAttemptData.failing_check_names = ciStatus.failingCheckNames
@@ -378,6 +516,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         const failingChecksList = ciStatus.failingCheckNames.length > 0
           ? ciStatus.failingCheckNames.map((name) => `  - ${name}`).join('\n')
           : '  - Required checks (unit and/or e2e) are failing'
+
+        // Update drift attempt with normalized reasons for CI failure (already stored above, but update blocked status)
+        // The drift attempt was already inserted above, so we don't need to insert again
 
         json(res, 200, {
           success: false,
@@ -399,6 +540,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       if ('error' in ciStatus) {
         console.warn(`[drift-gate] CI evaluation failed for ticket ${resolvedTicketPk}: ${evaluationError}`)
         // Continue with the move - don't block on CI evaluation errors
+        // Drift attempt already stored above with error
+      } else if (ciStatus.overall === 'passing') {
+        // Store successful drift attempt (HAL-0766) - already stored above, but ensure it's marked as not blocked
+        // The drift attempt was already inserted above with blocked: false for passing status
       }
     }
 
