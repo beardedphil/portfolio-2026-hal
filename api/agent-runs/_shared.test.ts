@@ -7,8 +7,11 @@ import {
   humanReadableCursorError,
   appendProgress,
   buildWorklogBodyFromProgress,
+  readJsonBody,
+  upsertArtifact,
 } from './_shared.js'
 import type { IncomingMessage, ServerResponse } from 'http'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 const originalEnv = process.env
 
@@ -213,5 +216,103 @@ describe('buildWorklogBodyFromProgress', () => {
     const body = buildWorklogBodyFromProgress('HAL-0123', [], 'succeeded')
     expect(body).toContain('HAL-0123')
     expect(body).toContain('## Progress')
+  })
+})
+
+describe('readJsonBody', () => {
+  it('parses valid JSON body', async () => {
+    const chunks = [Buffer.from('{"key":"value"}')]
+    const req = {
+      [Symbol.asyncIterator]: async function* () {
+        for (const chunk of chunks) {
+          yield chunk
+        }
+      },
+    } as IncomingMessage
+    const result = await readJsonBody(req)
+    expect(result).toEqual({ key: 'value' })
+  })
+
+  it('returns empty object for empty body', async () => {
+    const req = {
+      [Symbol.asyncIterator]: async function* () {
+        // No chunks
+      },
+    } as IncomingMessage
+    const result = await readJsonBody(req)
+    expect(result).toEqual({})
+  })
+
+  it('handles string chunks', async () => {
+    const chunks = ['{"test":', ' "data"}']
+    const req = {
+      [Symbol.asyncIterator]: async function* () {
+        for (const chunk of chunks) {
+          yield chunk
+        }
+      },
+    } as IncomingMessage
+    const result = await readJsonBody(req)
+    expect(result).toEqual({ test: 'data' })
+  })
+
+  it('trims whitespace from body', async () => {
+    const chunks = [Buffer.from('  {"key":"value"}  ')]
+    const req = {
+      [Symbol.asyncIterator]: async function* () {
+        for (const chunk of chunks) {
+          yield chunk
+        }
+      },
+    } as IncomingMessage
+    const result = await readJsonBody(req)
+    expect(result).toEqual({ key: 'value' })
+  })
+})
+
+describe('upsertArtifact', () => {
+  let mockSupabase: any
+  const ticketPk = 'ticket-123'
+  const repoFullName = 'test/repo'
+  const agentType = 'implementation'
+  const title = 'Plan for ticket HAL-0123'
+  const bodyMd = 'This is a substantive artifact body with enough content to pass validation. It contains actual meaningful information about the plan.'
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockSupabase = {
+      from: vi.fn(() => mockSupabase),
+      select: vi.fn(() => mockSupabase),
+      eq: vi.fn(() => mockSupabase),
+      order: vi.fn(() => mockSupabase),
+      maybeSingle: vi.fn(),
+      limit: vi.fn(() => mockSupabase),
+      single: vi.fn(),
+      update: vi.fn(() => mockSupabase),
+      insert: vi.fn(() => mockSupabase),
+      delete: vi.fn(() => mockSupabase),
+      in: vi.fn(() => mockSupabase),
+    }
+  })
+
+  it('rejects artifact with insufficient content (too short)', async () => {
+    const shortBody = 'Too short'
+    const result = await upsertArtifact(mockSupabase, ticketPk, repoFullName, agentType, title, shortBody)
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('validation failed')
+  })
+
+  it('rejects artifact with placeholder content', async () => {
+    const placeholderBody = '(none)'
+    const result = await upsertArtifact(mockSupabase, ticketPk, repoFullName, agentType, title, placeholderBody)
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('validation failed')
+  })
+
+  it('rejects empty artifact body', async () => {
+    const emptyBody = ''
+    const result = await upsertArtifact(mockSupabase, ticketPk, repoFullName, agentType, title, emptyBody)
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('validation failed')
   })
 })
