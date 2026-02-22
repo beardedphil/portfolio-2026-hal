@@ -195,7 +195,7 @@ function transformToDbFormat(
 }
 
 async function fetchMessages(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   projectId: string,
   agent: string
 ) {
@@ -216,7 +216,7 @@ async function fetchMessages(
 }
 
 async function checkIfUpdateNeeded(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   projectId: string,
   agent: string,
   currentSequence: number,
@@ -289,7 +289,7 @@ async function callOpenAI(apiKey: string, model: string, prompt: string) {
 }
 
 async function saveWorkingMemory(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   projectId: string,
   agent: string,
   workingMemory: WorkingMemoryData,
@@ -298,7 +298,7 @@ async function saveWorkingMemory(
   const dbData = transformToDbFormat(workingMemory, projectId, agent, throughSequence)
   const { error } = await supabase
     .from('hal_conversation_working_memory')
-    .upsert(dbData, { onConflict: 'project_id,agent' })
+    .upsert(dbData as any, { onConflict: 'project_id,agent' })
 
   if (error) {
     return { error: `Failed to save working memory: ${error.message}` }
