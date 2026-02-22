@@ -37,10 +37,6 @@
       "maintainability": 0
     },
     {
-      "file": "agents/src/agents/projectManager.ts",
-      "maintainability": 0
-    },
-    {
       "file": "projects/kanban/src/App.tsx",
       "maintainability": 0
     },
@@ -79,11 +75,52 @@
     {
       "file": "api/process-review/create-tickets.ts",
       "maintainability": 17.61
+    },
+    {
+      "file": "api/tickets/move.ts",
+      "maintainability": 17.97
     }
   ],
-  "mostRecentImprovements": [],
-  "generatedAt": "2026-02-21T23:57:23.548Z",
-  "filesAnalyzed": 324,
-  "unroundedMaintainability": 33.9,
-  "unroundedSimplicity": 33.9
+  "mostRecentImprovements": [
+    {
+      "file": "api/instructions/migrate-process-docs.ts",
+      "before": 15.59,
+      "after": 15.59,
+      "delta": 0
+    },
+    {
+      "file": "api/qa-agent/run.ts",
+      "before": 16.69,
+      "after": 16.69,
+      "delta": 0
+    },
+    {
+      "file": "src/hooks/useProcessReview.ts",
+      "before": 14.04,
+      "after": 14.04,
+      "delta": 0
+    },
+    {
+      "file": "api/process-review/create-tickets.ts",
+      "before": 17.61,
+      "after": 17.61,
+      "delta": 0
+    },
+    {
+      "file": "api/tickets/create-pr.ts",
+      "before": 15.41,
+      "after": 15.41,
+      "delta": 0
+    },
+    {
+      "file": "api/auth/github/callback.ts",
+      "before": 16.29,
+      "after": 16.29,
+      "delta": 0
+    }
+  ],
+  "generatedAt": "2026-02-22T00:16:15.499Z",
+  "filesAnalyzed": 332,
+  "unroundedMaintainability": 33.6,
+  "unroundedSimplicity": 33.6
 }
