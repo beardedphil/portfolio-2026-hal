@@ -15,11 +15,7 @@ create table if not exists public.providers (
   credentials jsonb null, -- Encrypted/stored credentials (if needed for revocation)
   metadata jsonb null, -- Additional provider-specific metadata
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  
-  -- Ensure one active connection per provider type per project
-  constraint providers_project_provider_unique unique (project_id, provider_type, status) 
-    where status = 'connected'
+  updated_at timestamptz not null default now()
 );
 
 -- Index for fast lookups by project
@@ -27,6 +23,12 @@ create index if not exists idx_providers_project_id on public.providers(project_
 
 -- Index for finding connected providers
 create index if not exists idx_providers_status on public.providers(status) where status = 'connected';
+
+-- Unique index: Ensure one active connection per provider type per project
+-- This partial unique index only applies when status = 'connected'
+create unique index if not exists idx_providers_project_provider_unique 
+  on public.providers(project_id, provider_type) 
+  where status = 'connected';
 
 -- Auto-update updated_at timestamp
 create or replace function public.providers_touch_updated_at()
@@ -53,10 +55,7 @@ create table if not exists public.audit_log (
   summary text not null, -- Human-readable summary (e.g., "Disconnected Cursor API provider")
   details jsonb null, -- Additional details (secrets redacted)
   error_message text null, -- Error message if status is 'failed'
-  created_at timestamptz not null default now(),
-  
-  -- Index for fast lookups by project
-  constraint audit_log_project_id_fk foreign key (project_id) references public.bootstrap_runs(project_id) on delete cascade
+  created_at timestamptz not null default now()
 );
 
 -- Index for fast lookups by project and time
