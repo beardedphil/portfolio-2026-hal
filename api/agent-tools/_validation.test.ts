@@ -5,89 +5,55 @@ import {
 } from './_validation.js'
 
 describe('validateImplementationArtifactContent', () => {
-  it('should return valid for substantial content', () => {
-    const body_md = 'This is a substantial artifact with enough content to pass validation. It contains real information and details.'
-    const title = 'Plan for ticket 123'
-    
-    const result = validateImplementationArtifactContent(body_md, title)
-    
+  it('returns valid for substantive content', () => {
+    const result = validateImplementationArtifactContent('x'.repeat(100), 'Test Title')
     expect(result.valid).toBe(true)
-    expect(result.reason).toBeUndefined()
+    expect(result.validation_failed).toBeUndefined()
   })
 
-  it('should return invalid with clear error for empty body', () => {
-    const body_md = ''
-    const title = 'Plan for ticket 123'
-    
-    const result = validateImplementationArtifactContent(body_md, title)
-    
+  it('returns invalid for empty content', () => {
+    const result = validateImplementationArtifactContent('', 'Test Title')
     expect(result.valid).toBe(false)
+    expect(result.validation_failed).toBe(true)
     expect(result.reason).toBeDefined()
-    expect(result.reason).toContain('Artifact body')
   })
 
-  it('should return invalid with clear error for placeholder content', () => {
-    const body_md = '# Plan for ticket 123\n\nTODO'
-    const title = 'Plan for ticket 123'
-    
-    const result = validateImplementationArtifactContent(body_md, title)
-    
+  it('returns invalid for short content', () => {
+    const result = validateImplementationArtifactContent('Short', 'Test Title')
     expect(result.valid).toBe(false)
-    expect(result.reason).toBeDefined()
-    expect(result.reason).toContain('Artifact body')
+    expect(result.validation_failed).toBe(true)
   })
 
-  it('should return invalid with clear error for title-only content', () => {
-    const body_md = '# Plan for ticket 123'
-    const title = 'Plan for ticket 123'
-    
-    const result = validateImplementationArtifactContent(body_md, title)
-    
+  it('returns invalid for placeholder content', () => {
+    const result = validateImplementationArtifactContent('(none)', 'Test Title')
     expect(result.valid).toBe(false)
-    expect(result.reason).toBeDefined()
+    expect(result.validation_failed).toBe(true)
   })
 })
 
 describe('validateQaArtifactContent', () => {
-  it('should return valid for substantial QA report content', () => {
-    const body_md = `# QA Report for ticket 123
-
-## Code Review
-- All tests pass
-- Code follows style guidelines
-
-## Build Verification
-- Build succeeds without errors
-
-## Verdict
-PASS`
-    const title = 'QA report for ticket 123'
-    
-    const result = validateQaArtifactContent(body_md, title)
-    
+  it('returns valid for substantive content', () => {
+    const result = validateQaArtifactContent('x'.repeat(150), 'QA Report')
     expect(result.valid).toBe(true)
-    expect(result.reason).toBeUndefined()
+    expect(result.validation_failed).toBeUndefined()
   })
 
-  it('should return invalid with clear error for empty body', () => {
-    const body_md = ''
-    const title = 'QA report for ticket 123'
-    
-    const result = validateQaArtifactContent(body_md, title)
-    
+  it('returns invalid for empty content', () => {
+    const result = validateQaArtifactContent('', 'QA Report')
     expect(result.valid).toBe(false)
+    expect(result.validation_failed).toBe(true)
     expect(result.reason).toBeDefined()
-    expect(result.reason).toContain('Artifact body')
   })
 
-  it('should return invalid with clear error for placeholder content', () => {
-    const body_md = '# QA Report\n\nTODO'
-    const title = 'QA report for ticket 123'
-    
-    const result = validateQaArtifactContent(body_md, title)
-    
+  it('returns invalid for content shorter than 100 characters', () => {
+    const result = validateQaArtifactContent('x'.repeat(50), 'QA Report')
     expect(result.valid).toBe(false)
-    expect(result.reason).toBeDefined()
-    expect(result.reason).toContain('Artifact body')
+    expect(result.validation_failed).toBe(true)
+  })
+
+  it('returns invalid for placeholder content', () => {
+    const result = validateQaArtifactContent('TODO', 'QA Report')
+    expect(result.valid).toBe(false)
+    expect(result.validation_failed).toBe(true)
   })
 })

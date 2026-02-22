@@ -30,3 +30,20 @@ Lines | Path
 
 **Advisory** line limit check: lists source files over 250 lines. It does **not** block the build (exits 0). Target is 250 lines per file; refactor long files when convenient. Runs as part of `npm run build:hal` for visibility. Use `npm run report:lines` for a full report.
 
+### `npm run test:coverage`
+
+Runs the test suite with coverage reporting and enforces a **minimum 25% line coverage threshold**. The build will fail if coverage drops below this threshold.
+
+**Coverage threshold enforcement:**
+- **Minimum line coverage:** 25%
+- **Enforced in:** `vitest.config.ts` (thresholds configuration)
+- **CI enforcement:** The CI workflow (`.github/workflows/ci.yml`) runs `npm run test:coverage` and will fail the build if coverage is below 25%
+- **Local testing:** Run `npm run test:coverage` to check coverage locally. The command will fail if coverage is below the threshold.
+
+**Coverage reporters:**
+- Text summary (console output)
+- JSON summary (`coverage/coverage-summary.json`)
+- Coverage details are also published to `public/coverage-details.json` via the `update-metrics` workflow
+
+**To run tests without coverage:** Use `npm test` (or `npm test -- --run` for single run mode).
+

@@ -91,6 +91,12 @@ export default defineConfig(({ mode }) => {
           '**/*.json',
           '**/hal-template/**',
         ],
+        thresholds: {
+          lines: 25,
+          statements: 25,
+          branches: 25,
+          functions: 25,
+        },
       },
     },
   }

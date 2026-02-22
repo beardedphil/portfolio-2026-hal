@@ -31,7 +31,8 @@ jobs:
         run: |
           mkdir -p coverage
           npm run test:coverage
-        continue-on-error: true
+        # This will fail if coverage is below 25% due to vitest.config.ts thresholds
+        # We keep continue-on-error: false here to ensure metrics are only updated if tests pass
 
       - name: Update metrics from coverage
         run: node scripts/update-metrics-from-coverage.js
