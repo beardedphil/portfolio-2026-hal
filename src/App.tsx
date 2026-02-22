@@ -533,7 +533,6 @@ function App() {
     if (url && key) {
       win.postMessage({ type: 'HAL_CONNECT_SUPABASE', url, key }, origin)
     }
->>>>>>> Stashed changes
     if (connectedGithubRepo?.fullName) {
       setConnectedProject(connectedGithubRepo.fullName)
     }
@@ -1053,11 +1052,7 @@ function App() {
                   setSelectedConversationId(null)
                 }}
               />
-                    <span className="chat-preview-unread">{unreadByTarget['project-manager']}</span>
-                  )}
-                </div>
-                <div className="chat-preview-text">{getChatTargetPreview('project-manager')}</div>
-              </div>
+            )}
 
               {/* Standup */}
               <div
