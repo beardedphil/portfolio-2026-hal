@@ -694,32 +694,6 @@ export function BootstrapScreen({
                           </div>
                         )}
 
-                        {/* Show in-progress state for verify_preview step */}
-                        {stepDef.id === 'verify_preview' && status === 'running' && (
-                          <div style={{ marginTop: '1rem', padding: '1rem', background: '#fff3cd', borderRadius: '4px', border: '1px solid #ff9800' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                              <span style={{ fontSize: '1.2rem' }}>⏳</span>
-                              <strong style={{ fontSize: '0.9rem' }}>Verifying preview…</strong>
-                            </div>
-                            <p style={{ margin: 0, fontSize: '0.85rem', color: '#666' }}>
-                              Polling /version.json on {previewUrl || 'the preview URL'}... This may take a minute while the preview deployment finishes.
-                            </p>
-                          </div>
-                        )}
-
-                        {/* Show success state for verify_preview step */}
-                        {stepDef.id === 'verify_preview' && status === 'succeeded' && (
-                          <div style={{ marginTop: '1rem', padding: '1rem', background: '#e8f5e9', borderRadius: '4px', border: '1px solid #4caf50' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                              <span style={{ fontSize: '1.2rem' }}>✓</span>
-                              <strong style={{ fontSize: '0.9rem', color: '#2e7d32' }}>Preview verified</strong>
-                            </div>
-                            <p style={{ margin: 0, fontSize: '0.85rem', color: '#2e7d32' }}>
-                              Successfully fetched /version.json from {previewUrl || 'the preview URL'}. The preview deployment is live and ready.
-                            </p>
-                          </div>
-                        )}
-
                         {/* Show success state for create_supabase_project step */}
                         {stepDef.id === 'create_supabase_project' && status === 'succeeded' && supabaseProject && (
                           <div style={{ marginTop: '1rem', padding: '1rem', background: '#e8f5e9', borderRadius: '4px', border: '1px solid #4caf50' }}>
@@ -841,7 +815,7 @@ export function BootstrapScreen({
                               <div>
                                 <strong style={{ color: '#f57c00' }}>Verifying preview…</strong>
                                 <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.85rem', color: '#666' }}>
-                                  Polling /version.json to confirm the preview deployment is live...
+                                  Polling /version.json on {previewUrl || vercelPreviewUrl || (stepRecord as any)?.preview_url || 'the preview URL'}... This may take a minute while the preview deployment finishes.
                                 </p>
                               </div>
                             </div>
@@ -856,7 +830,7 @@ export function BootstrapScreen({
                               <span>Preview verified</span>
                             </h4>
                             <p style={{ margin: 0, fontSize: '0.85rem', color: '#2e7d32' }}>
-                              Successfully fetched /version.json from the preview deployment.
+                              Successfully fetched /version.json from {previewUrl || vercelPreviewUrl || (stepRecord as any)?.preview_url || 'the preview deployment'}. The preview deployment is live and ready.
                             </p>
                           </div>
                         )}
