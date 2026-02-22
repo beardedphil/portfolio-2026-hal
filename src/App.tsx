@@ -66,7 +66,6 @@ function App() {
   const [imageError, setImageError] = useState<string | null>(null)
   const [sendValidationError, setSendValidationError] = useState<string | null>(null)
   const [lastError, setLastError] = useState<string | null>(null)
-<<<<<<< Updated upstream
   // These are used in logic but not displayed in UI with floating widget (0698)
   const [_lastAgentError, setLastAgentError] = useState<string | null>(null)
   const [_persistenceError, setPersistenceError] = useState<string | null>(null)
@@ -76,15 +75,9 @@ function App() {
   const [_openaiLastError, setOpenaiLastError] = useState<string | null>(null)
   // Diagnostics panel no longer visible - floating widget replaces sidebar (0698)
   // const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
-=======
-  const [lastAgentError, setLastAgentError] = useState<string | null>(null)
-  const [persistenceError, setPersistenceError] = useState<string | null>(null)
-  const [openaiLastStatus, setOpenaiLastStatus] = useState<string | null>(null)
-  const [openaiLastError, setOpenaiLastError] = useState<string | null>(null)
   const [kanbanLoaded, setKanbanLoaded] = useState(false)
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const [encryptionStatus, setEncryptionStatus] = useState<{ configured: boolean; error?: string } | null>(null)
->>>>>>> Stashed changes
   const [connectedProject, setConnectedProject] = useState<string | null>(null)
   // Theme is always 'dark' (0797: removed theme dropdown)
   const theme = 'dark' as const
@@ -314,10 +307,8 @@ function App() {
 
   // Restore connected GitHub repo from localStorage on load (0119: fix repo display after refresh)
   // The repo state is restored for UI display; Kanban will receive the connection message when the iframe loads
-  // Note: GitHub hook handles repo restoration, but we need to set connectedProject here
+  // On load, check whether GitHub session already exists (0079)
   useEffect(() => {
-<<<<<<< Updated upstream
-=======
     refreshGithubAuth().catch(() => {})
   }, [refreshGithubAuth])
 
@@ -1061,24 +1052,7 @@ function App() {
                   setSelectedChatTarget('project-manager')
                   setSelectedConversationId(null)
                 }}
-<<<<<<< Updated upstream
               />
-=======
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault()
-                    setOpenChatTarget('project-manager')
-                    setSelectedChatTarget('project-manager')
-                    setSelectedConversationId(null)
-                    setUnreadByTarget((prev) => ({ ...prev, 'project-manager': 0 }))
-                  }
-                }}
-              >
-                <div className="chat-preview-header">
-                  <span className="chat-preview-name">Project Manager</span>
-                  {unreadByTarget['project-manager'] > 0 && (
                     <span className="chat-preview-unread">{unreadByTarget['project-manager']}</span>
                   )}
                 </div>
@@ -1673,7 +1647,6 @@ function App() {
                   </div>
                 )}
               </div>
->>>>>>> Stashed changes
             )}
             {pmChatWidgetOpen && (
         <PmChatWidget

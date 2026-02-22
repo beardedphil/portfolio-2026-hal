@@ -1,12 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { getOrigin } from '../../_lib/github/config.js'
-<<<<<<< Updated upstream
 import { exchangeCodeForToken } from '../../_lib/github/githubApi.js'
-import { getSession } from '../../_lib/github/session.js'
-=======
-import { exchangeCodeForToken, getViewer } from '../../_lib/github/githubApi.js'
 import { getSession, encryptAccessToken } from '../../_lib/github/session.js'
->>>>>>> Stashed changes
 
 const AUTH_SECRET_MIN = 32
 const CODE_DEDUPE_TTL_MS = 60_000
@@ -186,8 +181,26 @@ async function handleWebRequest(request: Request): Promise<Response> {
 
     const token = await exchangeCodeOnce(code, redirectUri)
 
+    // Encrypt the access token before storing in session
+    let encryptedToken: string
+    try {
+      encryptedToken = encryptAccessToken(token.access_token)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Encryption failed'
+      console.error('[api/auth/github/callback] Failed to encrypt token:', msg)
+      const headers = new Headers({
+        Location: `${origin}/?github=error&reason=${encodeURIComponent('Secrets encryption is not configured. Set HAL_ENCRYPTION_KEY in server environment variables.')}`,
+        'Cache-Control': 'no-store',
+      })
+      const setCookie = outHeaders['set-cookie']
+      if (setCookie) {
+        for (const v of Array.isArray(setCookie) ? setCookie : [setCookie]) headers.append('Set-Cookie', v)
+      }
+      return new Response(null, { status: 302, headers })
+    }
+
     session.github = {
-      accessToken: token.access_token,
+      accessToken: encryptedToken,
       scope: token.scope,
       tokenType: token.token_type,
     }
@@ -286,7 +299,6 @@ export default async function handler(req: IncomingMessage | Request, res?: Serv
       return
     }
 
-<<<<<<< Updated upstream
     if (!expected || state !== expected) {
       // Potential replay/double-hit: if we already saw this code recently, just bounce back.
       if (session.oauthLastCode === code) {
@@ -306,7 +318,14 @@ export default async function handler(req: IncomingMessage | Request, res?: Serv
 
     // Make callback single-use to prevent parallel replays from double-exchanging the same code.
     // Clear state before exchanging so a second hit fails fast (and doesn't "consume" the one-time code).
-=======
+    session.oauthState = undefined
+    session.oauthRedirectUri = undefined
+    session.oauthLastCode = code
+    session.oauthLastCodeAt = Date.now()
+    await session.save()
+
+    const token = await exchangeCodeOnce(code, redirectUri)
+
     // Encrypt the access token before storing in session
     let encryptedToken: string
     try {
@@ -320,15 +339,6 @@ export default async function handler(req: IncomingMessage | Request, res?: Serv
       return
     }
 
->>>>>>> Stashed changes
-    session.oauthState = undefined
-    session.oauthRedirectUri = undefined
-    session.oauthLastCode = code
-    session.oauthLastCodeAt = Date.now()
-    await session.save()
-
-    const token = await exchangeCodeOnce(code, redirectUri)
-
     session.github = {
       accessToken: encryptedToken,
       scope: token.scope,
@@ -339,8 +349,8 @@ export default async function handler(req: IncomingMessage | Request, res?: Serv
     redirect(res, `${origin}/?github=connected`)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-<<<<<<< Updated upstream
-    console.error('[api/auth/github/callback]', msg, err)
+    // Don't log full error object to avoid leaking secrets
+    console.error('[api/auth/github/callback]', msg)
     // UX: this endpoint is a browser redirect target, so redirect back to the app with an error marker.
     // Also clear oauth state so the user can retry cleanly.
     try {
@@ -349,18 +359,12 @@ export default async function handler(req: IncomingMessage | Request, res?: Serv
       session.oauthState = undefined
       session.oauthRedirectUri = undefined
       await session.save()
-      redirect(res, `${origin}/?github=error&reason=${encodeURIComponent(msg.slice(0, 200))}`)
+      redirect(res, `${origin}/?github=error&reason=${encodeURIComponent('OAuth callback failed')}`)
       return
     } catch {
       // Fall back to JSON if we can't redirect.
-      sendJson(res, 500, { error: msg })
+      sendJson(res, 500, { error: 'OAuth callback failed' })
     }
-=======
-    // Don't log full error object to avoid leaking secrets
-    console.error('[api/auth/github/callback]', msg)
-    // Don't expose internal error details to client
-    sendJson(res, 500, { error: 'OAuth callback failed' })
->>>>>>> Stashed changes
   }
 }
 

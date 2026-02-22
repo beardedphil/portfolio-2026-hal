@@ -36,14 +36,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       model?: string
     }
 
-<<<<<<< Updated upstream
     const message = typeof body.message === 'string' ? body.message.trim() : ''
     const conversationId = typeof body.conversationId === 'string' ? body.conversationId.trim() : undefined
     const projectId = typeof body.projectId === 'string' ? body.projectId.trim() : undefined
     const repoFullName = typeof body.repoFullName === 'string' ? body.repoFullName.trim() : undefined
     const defaultBranch = (typeof body.defaultBranch === 'string' ? body.defaultBranch.trim() : '') || 'main'
-=======
-    const message = body.message ?? ''
     let conversationHistory = Array.isArray(body.conversationHistory)
       ? body.conversationHistory
       : undefined
@@ -52,11 +49,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       typeof body.previous_response_id === 'string'
         ? body.previous_response_id
         : undefined
-
-    const projectId =
-      typeof body.projectId === 'string' ? body.projectId.trim() || undefined : undefined
-    const repoFullName =
-      typeof body.repoFullName === 'string' ? body.repoFullName.trim() || undefined : undefined
     const supabaseUrl =
       typeof body.supabaseUrl === 'string' ? body.supabaseUrl.trim() || undefined : undefined
     const supabaseAnonKey =
@@ -228,7 +220,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     const createTicketAvailable = !!(supabaseUrl && supabaseAnonKey)
->>>>>>> Stashed changes
     const images = Array.isArray(body.images) ? body.images : undefined
     const modelOverride = typeof body.model === 'string' ? body.model.trim() : ''
 
