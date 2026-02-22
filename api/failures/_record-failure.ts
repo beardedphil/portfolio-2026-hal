@@ -32,13 +32,13 @@ export function generateFailureFingerprint(input: FailureRecordInput): string {
   }
 
   // Otherwise, generate from failure characteristics
+  // Note: We exclude ticket_pk from fingerprint to group the same failure pattern across tickets
+  // If ticket-specific grouping is needed, provide a custom fingerprint
   const components = [
     input.failure_type,
     input.root_cause || '',
-    // Include key reference fields for uniqueness
-    input.references?.ticket_pk || '',
-    input.references?.drift_attempt_id || '',
-    input.references?.agent_run_id || '',
+    // Include agent_run_id or drift_attempt_id only if they represent a specific failure instance
+    // (not included by default to allow grouping across tickets)
   ]
 
   const combined = components.join('|')
