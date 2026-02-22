@@ -42,9 +42,41 @@ function parseMetrics(data: unknown): QAMetrics | null {
 function fetchMetrics(cacheBust = false): Promise<QAMetrics | null> {
   const url = cacheBust ? `/metrics.json?t=${Date.now()}` : '/metrics.json'
   return fetch(url)
-    .then((res) => (res.ok ? res.json() : null))
+    .then(async (res) => {
+      // Handle missing file (404 or other non-ok responses) - treat as no metrics
+      if (!res.ok) {
+        return null
+      }
+      
+      try {
+        const text = await res.text()
+        
+        // Handle empty file (empty string or whitespace only)
+        if (!text.trim()) {
+          return null
+        }
+        
+        // Parse JSON with explicit error handling
+        try {
+          const data = JSON.parse(text)
+          return data
+        } catch (jsonError) {
+          // Invalid JSON - log non-fatal warning as per AC requirement
+          console.warn(`[HAL] Failed to parse metrics.json: invalid JSON. Treating as no metrics.`, jsonError)
+          return null
+        }
+      } catch (textError) {
+        // Error reading response text - treat as no metrics
+        return null
+      }
+    })
     .then(parseMetrics)
-    .catch(() => null)
+    .catch(() => {
+      // Handle network errors and other fetch failures gracefully
+      // Missing metrics.json is expected in some environments (fresh install, first run, etc.)
+      // Silently return null - no need to log expected cases
+      return null
+    })
 }
 
 interface QAMetricsCardProps {

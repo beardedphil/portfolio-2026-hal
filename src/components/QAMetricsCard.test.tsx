@@ -15,7 +15,7 @@ describe('QAMetricsCard', () => {
   it('renders Test Coverage and Code Quality labels', async () => {
     ;(global.fetch as any).mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ coverage: 85, codeQuality: 90 }),
+      text: () => Promise.resolve(JSON.stringify({ coverage: 85, codeQuality: 90 })),
     })
 
     render(<QAMetricsCard />)
@@ -42,10 +42,10 @@ describe('QAMetricsCard', () => {
     })
   })
 
-  it('shows N/A when metrics.json returns null', async () => {
+  it('shows N/A when metrics.json returns empty string', async () => {
     ;(global.fetch as any).mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve(null),
+      text: () => Promise.resolve(''),
     })
 
     render(<QAMetricsCard />)
@@ -59,7 +59,7 @@ describe('QAMetricsCard', () => {
   it('displays metric values when available', async () => {
     ;(global.fetch as any).mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ coverage: 85, codeQuality: 90 }),
+      text: () => Promise.resolve(JSON.stringify({ coverage: 85, codeQuality: 90 })),
     })
 
     render(<QAMetricsCard />)
@@ -73,7 +73,7 @@ describe('QAMetricsCard', () => {
   it('shows hint when metrics are null', async () => {
     ;(global.fetch as any).mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve(null),
+      text: () => Promise.resolve(''),
     })
 
     render(<QAMetricsCard />)
@@ -98,7 +98,7 @@ describe('QAMetricsCard', () => {
   it('clamps coverage values to 0-100 range', async () => {
     ;(global.fetch as any).mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ coverage: 150, codeQuality: -10 }),
+      text: () => Promise.resolve(JSON.stringify({ coverage: 150, codeQuality: -10 })),
     })
 
     render(<QAMetricsCard />)
@@ -114,7 +114,7 @@ describe('QAMetricsCard', () => {
   it('handles partial metrics (one null value)', async () => {
     ;(global.fetch as any).mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ coverage: 85, codeQuality: null }),
+      text: () => Promise.resolve(JSON.stringify({ coverage: 85, codeQuality: null })),
     })
 
     render(<QAMetricsCard />)
@@ -124,6 +124,44 @@ describe('QAMetricsCard', () => {
       // Code Quality should show N/A
       const naValues = screen.getAllByText('N/A')
       expect(naValues.length).toBeGreaterThanOrEqual(1)
+    })
+  })
+
+  it('handles invalid JSON gracefully with console warning', async () => {
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    ;(global.fetch as any).mockResolvedValue({
+      ok: true,
+      text: () => Promise.resolve('invalid json {'),
+    })
+
+    render(<QAMetricsCard />)
+
+    await waitFor(() => {
+      const naValues = screen.getAllByText('N/A')
+      expect(naValues.length).toBeGreaterThanOrEqual(2)
+    })
+
+    // Verify console warning was logged for invalid JSON
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[HAL] Failed to parse metrics.json: invalid JSON'),
+      expect.any(Error)
+    )
+
+    consoleWarnSpy.mockRestore()
+  })
+
+  it('handles empty file gracefully', async () => {
+    ;(global.fetch as any).mockResolvedValue({
+      ok: true,
+      text: () => Promise.resolve('   '), // whitespace only
+    })
+
+    render(<QAMetricsCard />)
+
+    await waitFor(() => {
+      const naValues = screen.getAllByText('N/A')
+      expect(naValues.length).toBeGreaterThanOrEqual(2)
+      expect(screen.getByText('Run test:coverage and report:code-quality to update')).toBeInTheDocument()
     })
   })
 })
