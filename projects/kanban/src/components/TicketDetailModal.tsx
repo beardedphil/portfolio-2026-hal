@@ -11,6 +11,74 @@ import { HumanValidationSection } from './HumanValidationSection'
 import { AutoDismissMessage } from './AutoDismissMessage'
 import { PullRequestSection } from './PullRequestSection'
 
+// Helper: Get focusable elements within a container
+function getFocusableElements(container: HTMLElement): HTMLElement[] {
+  const selector = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  return Array.from(container.querySelectorAll<HTMLElement>(selector))
+}
+
+// Helper: Handle focus trap for Tab key navigation
+function handleFocusTrap(e: React.KeyboardEvent, container: HTMLElement | null) {
+  if (e.key !== 'Tab' || !container) return false
+  
+  const focusable = getFocusableElements(container)
+  if (focusable.length === 0) return false
+  
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  const activeElement = document.activeElement
+  
+  if (e.shiftKey && activeElement === first) {
+    e.preventDefault()
+    last.focus()
+    return true
+  }
+  
+  if (!e.shiftKey && activeElement === last) {
+    e.preventDefault()
+    first.focus()
+    return true
+  }
+  
+  return false
+}
+
+// Helper: Get failure count color based on count
+function getFailureCountColor(count: number): string {
+  return count >= 3 ? '#d32f2f' : '#f57c00'
+}
+
+// Helper: Get validation success message based on column
+function getValidationSuccessMessage(columnId: string | null, isPass: boolean): string {
+  if (isPass) {
+    return 'Ticket passed successfully. Moving to Process Review...'
+  }
+  return columnId === 'col-human-in-the-loop'
+    ? 'Ticket failed. QA artifact created with FAIL verdict. Moving to To Do...'
+    : 'Ticket failed successfully. Moving to To Do...'
+}
+
+// Helper: Clear validation state
+function clearValidationState(
+  setValidationSteps: (value: string) => void,
+  setValidationNotes: (value: string) => void,
+  setValidationError: (value: string | null) => void,
+  setValidationSuccess: (value: string | null) => void
+) {
+  setValidationSteps('')
+  setValidationNotes('')
+  setValidationError(null)
+  setValidationSuccess(null)
+}
+
+// Helper: Refresh ticket after validation
+function refreshTicketAfterDelay(onTicketUpdate: (() => void) | undefined) {
+  if (!onTicketUpdate) return
+  setTimeout(() => {
+    onTicketUpdate()
+  }, 500)
+}
+
 /** Ticket detail modal (0033): title, metadata, markdown body, close/escape/backdrop, scroll lock, focus trap */
 export function TicketDetailModal({
   open,
@@ -79,7 +147,7 @@ export function TicketDetailModal({
     }
   }, [open])
 
-  // Focus first focusable (close button) when open; focus trap
+  // Focus first focusable (close button) when open
   useEffect(() => {
     if (!open || !modalRef.current) return
     const el = closeBtnRef.current ?? modalRef.current.querySelector<HTMLElement>('button, [href], input, select, textarea')
@@ -92,116 +160,91 @@ export function TicketDetailModal({
         onClose()
         return
       }
-      if (e.key !== 'Tab' || !modalRef.current) return
-      const focusable = modalRef.current.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-      )
-      const list = Array.from(focusable)
-      const first = list[0]
-      const last = list[list.length - 1]
-      if (e.shiftKey) {
-        if (document.activeElement === first) {
-          e.preventDefault()
-          last?.focus()
-        }
-      } else {
-        if (document.activeElement === last) {
-          e.preventDefault()
-          first?.focus()
-        }
-      }
+      handleFocusTrap(e, modalRef.current)
     },
     [onClose]
   )
 
-  const handlePass = useCallback(async () => {
-    if (!ticketId || isProcessing) return
-    
-    // Clear previous messages
-    setValidationError(null)
-    setValidationSuccess(null)
-    
-    setIsProcessing(true)
-    try {
-      await onValidationPass(ticketId)
-      // Success message
-      setValidationSuccess('Ticket passed successfully. Moving to Process Review...')
-      setValidationSteps('')
-      setValidationNotes('')
+  const handleValidationAction = useCallback(
+    async (
+      action: () => Promise<void>,
+      successMessage: string,
+      shouldValidate: boolean = false
+    ) => {
+      if (!ticketId || isProcessing) return
       
-      // Refresh ticket body to show the updated state
-      if (_onTicketUpdate) {
-        // Small delay to allow Supabase update to complete
-        setTimeout(() => {
-          _onTicketUpdate()
-        }, 500)
+      if (shouldValidate && !validationSteps.trim() && !validationNotes.trim()) {
+        setValidationError('Please provide an explanation (steps to validate or notes) before failing the ticket.')
+        return
       }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err)
-      setValidationError(`Failed to pass ticket: ${errorMessage}`)
-      console.error('Failed to pass validation:', err)
-    } finally {
-      setIsProcessing(false)
-    }
-  }, [ticketId, isProcessing, onValidationPass, _onTicketUpdate])
+      
+      setValidationError(null)
+      setValidationSuccess(null)
+      setIsProcessing(true)
+      
+      try {
+        await action()
+        setValidationSuccess(successMessage)
+        setValidationSteps('')
+        setValidationNotes('')
+        refreshTicketAfterDelay(_onTicketUpdate)
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : String(err)
+        const actionType = shouldValidate ? 'fail' : 'pass'
+        setValidationError(`Failed to ${actionType} ticket: ${errorMessage}`)
+        console.error(`Failed to ${actionType} validation:`, err)
+      } finally {
+        setIsProcessing(false)
+      }
+    },
+    [ticketId, isProcessing, validationSteps, validationNotes, _onTicketUpdate]
+  )
+
+  const handlePass = useCallback(async () => {
+    const successMessage = getValidationSuccessMessage(columnId, true)
+    await handleValidationAction(
+      () => onValidationPass(ticketId),
+      successMessage,
+      false
+    )
+  }, [ticketId, onValidationPass, columnId, handleValidationAction])
 
   const handleFail = useCallback(async () => {
-    if (!ticketId || isProcessing) return
-    
-    // Clear previous messages
-    setValidationError(null)
-    setValidationSuccess(null)
-    
-    // Validate that explanation is provided
-    if (!validationSteps.trim() && !validationNotes.trim()) {
-      setValidationError('Please provide an explanation (steps to validate or notes) before failing the ticket.')
-      return
-    }
-    
-    setIsProcessing(true)
-    try {
-      await onValidationFail(ticketId, validationSteps, validationNotes)
-      // Success message will be set based on whether QA artifact was created
-      setValidationSuccess(columnId === 'col-human-in-the-loop' 
-        ? 'Ticket failed. QA artifact created with FAIL verdict. Moving to To Do...'
-        : 'Ticket failed successfully. Moving to To Do...')
-      setValidationSteps('')
-      setValidationNotes('')
-      
-      // Refresh ticket body to show the updated feedback
-      if (_onTicketUpdate) {
-        // Small delay to allow Supabase update to complete
-        setTimeout(() => {
-          _onTicketUpdate()
-        }, 500)
-      }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err)
-      setValidationError(`Failed to fail ticket: ${errorMessage}`)
-      console.error('Failed to fail validation:', err)
-    } finally {
-      setIsProcessing(false)
-    }
-  }, [ticketId, validationSteps, validationNotes, isProcessing, onValidationFail, _onTicketUpdate, columnId])
+    const successMessage = getValidationSuccessMessage(columnId, false)
+    await handleValidationAction(
+      () => onValidationFail(ticketId, validationSteps, validationNotes),
+      successMessage,
+      true
+    )
+  }, [ticketId, validationSteps, validationNotes, onValidationFail, columnId, handleValidationAction])
 
   // Reset validation fields when modal closes
   useEffect(() => {
     if (!open) {
-      setValidationSteps('')
-      setValidationNotes('')
+      clearValidationState(setValidationSteps, setValidationNotes, setValidationError, setValidationSuccess)
       setIsProcessing(false)
-      setValidationError(null)
-      setValidationSuccess(null)
     }
   }, [open])
 
+  const handleStepsChange = useCallback((value: string) => {
+    setValidationSteps(value)
+    if (validationError) setValidationError(null)
+  }, [validationError])
+
+  const handleNotesChange = useCallback((value: string) => {
+    setValidationNotes(value)
+    if (validationError) setValidationError(null)
+  }, [validationError])
+
   if (!open) return null
 
-  const { frontmatter, body: bodyOnly } = body ? parseFrontmatter(body) : { frontmatter: {}, body: '' }
-  const priority = body ? extractPriority(frontmatter, body) : null
-  const markdownBody = body ? stripQAInformationBlockFromBody(bodyOnly) : ''
+  // Compute derived values
+  const parsedBody = body ? parseFrontmatter(body) : { frontmatter: {}, body: '' }
+  const priority = body ? extractPriority(parsedBody.frontmatter, body) : null
+  const markdownBody = body ? stripQAInformationBlockFromBody(parsedBody.body) : ''
   const showValidationSection = columnId === 'col-human-in-the-loop'
   const showProcessReviewSection = columnId === 'col-process-review'
+  const hasHumanFeedback = markdownBody?.includes('## ⚠️ Human Feedback')
 
   return (
     <div
@@ -230,19 +273,15 @@ export function TicketDetailModal({
         <div className="ticket-detail-meta">
           <span className="ticket-detail-id">ID: {ticketId}</span>
           {priority != null && <span className="ticket-detail-priority">Priority: {priority}</span>}
-          {failureCounts && (
-            <>
-              {failureCounts.qa > 0 && (
-                <span className="ticket-detail-failure-count" style={{ color: failureCounts.qa >= 3 ? '#d32f2f' : '#f57c00' }}>
-                  QA fails: {failureCounts.qa}
-                </span>
-              )}
-              {failureCounts.hitl > 0 && (
-                <span className="ticket-detail-failure-count" style={{ color: failureCounts.hitl >= 3 ? '#d32f2f' : '#f57c00' }}>
-                  HITL fails: {failureCounts.hitl}
-                </span>
-              )}
-            </>
+          {failureCounts?.qa > 0 && (
+            <span className="ticket-detail-failure-count" style={{ color: getFailureCountColor(failureCounts.qa) }}>
+              QA fails: {failureCounts.qa}
+            </span>
+          )}
+          {failureCounts?.hitl > 0 && (
+            <span className="ticket-detail-failure-count" style={{ color: getFailureCountColor(failureCounts.hitl) }}>
+              HITL fails: {failureCounts.hitl}
+            </span>
           )}
         </div>
         <div className="ticket-detail-body-wrap">
@@ -266,7 +305,7 @@ export function TicketDetailModal({
             <>
               <div 
                 className="ticket-detail-body"
-                data-has-human-feedback={markdownBody?.includes('## ⚠️ Human Feedback') ? 'true' : undefined}
+                data-has-human-feedback={hasHumanFeedback ? 'true' : undefined}
               >
                 {markdownBody ? (
                   <ReactMarkdown>{markdownBody}</ReactMarkdown>
@@ -317,16 +356,8 @@ export function TicketDetailModal({
                     ticketPk={ticketId}
                     stepsToValidate={validationSteps}
                     notes={validationNotes}
-                    onStepsChange={(value) => {
-                      setValidationSteps(value)
-                      // Clear error when user starts typing
-                      if (validationError) setValidationError(null)
-                    }}
-                    onNotesChange={(value) => {
-                      setValidationNotes(value)
-                      // Clear error when user starts typing
-                      if (validationError) setValidationError(null)
-                    }}
+                    onStepsChange={handleStepsChange}
+                    onNotesChange={handleNotesChange}
                     onPass={handlePass}
                     onFail={handleFail}
                     isProcessing={isProcessing}
