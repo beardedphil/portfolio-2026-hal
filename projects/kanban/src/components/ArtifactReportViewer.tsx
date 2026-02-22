@@ -167,46 +167,36 @@ export function ArtifactReportViewer({
   }, [artifact])
 
   // Calculate navigation state (0148) - must be called before any early returns
-  // Sort artifacts chronologically (oldest first)
-  // If artifacts array is empty but we have an artifact, use it as the only item
   const sortedArtifacts = useMemo(() => {
-    if (artifacts.length === 0 && artifact) {
-      // Fallback: if artifacts array is empty but we have an artifact, use it
-      return [artifact]
-    }
+    if (artifacts.length === 0 && artifact) return [artifact]
     return [...artifacts].sort((a, b) => {
       const timeA = new Date(a.created_at || 0).getTime()
       const timeB = new Date(b.created_at || 0).getTime()
-      if (timeA !== timeB) {
-        return timeA - timeB
-      }
-      // Secondary sort by artifact_id for deterministic ordering when timestamps are equal (0147)
-      return (a.artifact_id || '').localeCompare(b.artifact_id || '')
+      return timeA !== timeB 
+        ? timeA - timeB 
+        : (a.artifact_id || '').localeCompare(b.artifact_id || '')
     })
   }, [artifacts, artifact])
   
-  // Find the actual index of the current artifact in the sorted list
   const actualIndex = useMemo(() => {
-    if (!artifact || !artifact.artifact_id) return -1
-    return sortedArtifacts.findIndex(a => a.artifact_id === artifact.artifact_id)
+    return artifact?.artifact_id 
+      ? sortedArtifacts.findIndex(a => a.artifact_id === artifact.artifact_id)
+      : -1
   }, [sortedArtifacts, artifact])
   
-  // Use actual index if found, otherwise fall back to currentIndex prop, or 0 if artifact is in the list
-  const effectiveIndex = actualIndex >= 0 ? actualIndex : (artifact && sortedArtifacts.length > 0 ? 0 : currentIndex)
+  const effectiveIndex = actualIndex >= 0 
+    ? actualIndex 
+    : (artifact && sortedArtifacts.length > 0 ? 0 : currentIndex)
   
   const canGoPrevious = effectiveIndex > 0
   const canGoNext = effectiveIndex < sortedArtifacts.length - 1
   
   const handlePrevious = useCallback(() => {
-    if (canGoPrevious) {
-      onNavigate(effectiveIndex - 1)
-    }
+    if (canGoPrevious) onNavigate(effectiveIndex - 1)
   }, [canGoPrevious, effectiveIndex, onNavigate])
   
   const handleNext = useCallback(() => {
-    if (canGoNext) {
-      onNavigate(effectiveIndex + 1)
-    }
+    if (canGoNext) onNavigate(effectiveIndex + 1)
   }, [canGoNext, effectiveIndex, onNavigate])
 
   // Handle invalid artifacts in render logic (not early returns after hooks)
