@@ -37,12 +37,15 @@ export async function listBranches(
   }
 }
 
-/** Create the initial commit on the default branch for an empty repo (Contents API creates branch + commit). */
+/** Create the initial commit on the default branch for an empty repo (Contents API creates branch + commit).
+ * Note: For empty repos, Contents API must be used as Git Database API requires at least one commit.
+ * This function uses Contents API to initialize the repo, then returns the commit SHA.
+ */
 export async function ensureInitialCommit(
   token: string,
   repoFullName: string,
   defaultBranch: string
-): Promise<{ ok: true } | { error: string }> {
+): Promise<{ ok: true; commitSha: string } | { error: string }> {
   try {
     const [owner, repo] = repoFullName.split('/')
     if (!owner || !repo) return { error: 'Invalid repo: expected owner/repo' }
@@ -66,9 +69,19 @@ export async function ensureInitialCommit(
     })
     if (!res.ok) {
       const text = await res.text()
+      // If file already exists (409), repo is not empty - that's okay, we'll get SHA from branch
+      if (res.status === 409) {
+        // Try to get the commit SHA from the branch instead
+        const shaResult = await getBranchSha(token, repoFullName, defaultBranch)
+        if ('error' in shaResult) {
+          return { error: `Repository not empty but failed to get commit SHA: ${shaResult.error}` }
+        }
+        return { ok: true, commitSha: shaResult.sha }
+      }
       return { error: `GitHub API ${res.status}: ${text.slice(0, 200)}` }
     }
-    return { ok: true }
+    const data = (await res.json()) as { commit: { sha: string } }
+    return { ok: true, commitSha: data.commit.sha }
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) }
   }

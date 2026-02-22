@@ -36,6 +36,7 @@ import {
   conversationsWorkingMemoryUpdatePlugin,
   acceptanceCriteriaStatusGetPlugin,
   acceptanceCriteriaStatusUpdatePlugin,
+  githubEnsureInitializedPlugin,
 } from './vite/middleware/simple-handlers'
 import { pmCheckUnassignedPlugin } from './vite/middleware/pm-check-unassigned'
 import { pmFileAccessPlugin } from './vite/middleware/pm-file-access'
@@ -150,6 +151,7 @@ export default defineConfig({
     conversationsWorkingMemoryUpdatePlugin(),
     acceptanceCriteriaStatusGetPlugin(),
     acceptanceCriteriaStatusUpdatePlugin(),
+    githubEnsureInitializedPlugin(),
     serveCoveragePlugin(),
   ],
   server: {
