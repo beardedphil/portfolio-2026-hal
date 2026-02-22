@@ -464,12 +464,6 @@ describe('PM agent launch thread lookup', () => {
         defaultBranch: 'main',
       }
 
-      const threadChain = {
-        select: vi.fn(() => threadChain),
-        eq: vi.fn(() => threadChain),
-        maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
-      }
-
       const runInsertChain = {
         insert: vi.fn(() => runInsertChain),
         select: vi.fn(() => runInsertChain),
@@ -484,10 +478,11 @@ describe('PM agent launch thread lookup', () => {
         eq: vi.fn(() => runUpdateChain),
       }
 
+      // When no conversationId/projectId, thread lookup is skipped
+      // createNewAgent needs: runInsertChain (createRunRow), then runUpdateChain (update after launch)
       mockSupabase.from
-        .mockReturnValueOnce(threadChain)
-        .mockReturnValueOnce(runInsertChain)
-        .mockReturnValueOnce(runUpdateChain)
+        .mockReturnValueOnce(runInsertChain) // createRunRow
+        .mockReturnValueOnce(runUpdateChain) // update run after successful launch
 
       vi.mocked(global.fetch).mockResolvedValueOnce({
         ok: true,
@@ -535,12 +530,6 @@ describe('PM agent launch thread lookup', () => {
         repoFullName: 'test/repo',
       }
 
-      const threadChain = {
-        select: vi.fn(() => threadChain),
-        eq: vi.fn(() => threadChain),
-        maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
-      }
-
       const runInsertChain = {
         insert: vi.fn(() => runInsertChain),
         select: vi.fn(() => runInsertChain),
@@ -556,9 +545,8 @@ describe('PM agent launch thread lookup', () => {
       }
 
       mockSupabase.from
-        .mockReturnValueOnce(threadChain)
-        .mockReturnValueOnce(runInsertChain)
-        .mockReturnValueOnce(runUpdateChain)
+        .mockReturnValueOnce(runInsertChain) // createRunRow
+        .mockReturnValueOnce(runUpdateChain) // update run after successful launch
 
       vi.mocked(global.fetch).mockResolvedValueOnce({
         ok: true,
@@ -583,12 +571,6 @@ describe('PM agent launch thread lookup', () => {
         defaultBranch: 'main',
       }
 
-      const threadChain = {
-        select: vi.fn(() => threadChain),
-        eq: vi.fn(() => threadChain),
-        maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
-      }
-
       const runInsertChain = {
         insert: vi.fn(() => runInsertChain),
         select: vi.fn(() => runInsertChain),
@@ -604,7 +586,6 @@ describe('PM agent launch thread lookup', () => {
       }
 
       mockSupabase.from
-        .mockReturnValueOnce(threadChain) // thread lookup
         .mockReturnValueOnce(runInsertChain) // createRunRow
         .mockReturnValueOnce(runUpdateChain) // updateRunOnError
 
@@ -636,12 +617,6 @@ describe('PM agent launch thread lookup', () => {
         defaultBranch: 'main',
       }
 
-      const threadChain = {
-        select: vi.fn(() => threadChain),
-        eq: vi.fn(() => threadChain),
-        maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
-      }
-
       const runInsertChain = {
         insert: vi.fn(() => runInsertChain),
         select: vi.fn(() => runInsertChain),
@@ -657,7 +632,6 @@ describe('PM agent launch thread lookup', () => {
       }
 
       mockSupabase.from
-        .mockReturnValueOnce(threadChain) // thread lookup
         .mockReturnValueOnce(runInsertChain) // createRunRow
         .mockReturnValueOnce(runUpdateChain) // updateRunOnError
 
@@ -688,12 +662,6 @@ describe('PM agent launch thread lookup', () => {
         defaultBranch: 'main',
       }
 
-      const threadChain = {
-        select: vi.fn(() => threadChain),
-        eq: vi.fn(() => threadChain),
-        maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
-      }
-
       const runInsertChain = {
         insert: vi.fn(() => runInsertChain),
         select: vi.fn(() => runInsertChain),
@@ -709,7 +677,6 @@ describe('PM agent launch thread lookup', () => {
       }
 
       mockSupabase.from
-        .mockReturnValueOnce(threadChain) // thread lookup
         .mockReturnValueOnce(runInsertChain) // createRunRow
         .mockReturnValueOnce(runUpdateChain) // updateRunOnError
 
@@ -740,12 +707,6 @@ describe('PM agent launch thread lookup', () => {
         defaultBranch: 'main',
       }
 
-      const threadChain = {
-        select: vi.fn(() => threadChain),
-        eq: vi.fn(() => threadChain),
-        maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
-      }
-
       const runInsertChain = {
         insert: vi.fn(() => runInsertChain),
         select: vi.fn(() => runInsertChain),
@@ -756,8 +717,7 @@ describe('PM agent launch thread lookup', () => {
       }
 
       mockSupabase.from
-        .mockReturnValueOnce(threadChain)
-        .mockReturnValueOnce(runInsertChain)
+        .mockReturnValueOnce(runInsertChain) // createRunRow (fails)
 
       mockReq[Symbol.asyncIterator] = async function* () {
         yield Buffer.from(JSON.stringify(body))
