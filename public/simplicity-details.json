@@ -2,7 +2,7 @@
   "topOffenders": [
     {
       "file": "api/agent-runs/launch.ts",
-      "codeQuality": 5.12,
+      "codeQuality": 3.94,
       "maintainability": 0
     },
     {
@@ -157,9 +157,9 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-22T07:03:00.196Z",
-  "filesAnalyzed": 382,
-  "unroundedCodeQuality": 51.1,
-  "unroundedMaintainability": 51.1,
-  "unroundedSimplicity": 51.1
+  "generatedAt": "2026-02-22T13:21:48.937Z",
+  "filesAnalyzed": 407,
+  "unroundedCodeQuality": 51.2,
+  "unroundedMaintainability": 51.2,
+  "unroundedSimplicity": 51.2
 }
