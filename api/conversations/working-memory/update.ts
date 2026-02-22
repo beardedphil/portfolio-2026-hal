@@ -37,12 +37,16 @@ interface ParsedRequest {
   forceRefresh: boolean
 }
 
+export function parseRequestBody(body: unknown): RequestBody {
+  return body as RequestBody
+}
+
 function getEnvOrBodyValue(bodyValue: unknown, envKeys: string[]): string | undefined {
   const str = typeof bodyValue === 'string' ? bodyValue.trim() || undefined : undefined
   return str || envKeys.map((k) => process.env[k]?.trim()).find((v) => v) || undefined
 }
 
-function validateAndParseRequest(body: RequestBody): { valid: true; parsed: ParsedRequest } | { valid: false; error: string } {
+export function validateAndParseRequest(body: RequestBody): { valid: true; parsed: ParsedRequest } | { valid: false; error: string } {
   const projectId = typeof body.projectId === 'string' ? body.projectId.trim() || undefined : undefined
   const agent = typeof body.agent === 'string' ? body.agent.trim() || undefined : undefined
   const supabaseUrl = getEnvOrBodyValue(body.supabaseUrl, ['SUPABASE_URL', 'VITE_SUPABASE_URL'])
@@ -95,7 +99,7 @@ interface WorkingMemory {
   stakeholders: string[]
 }
 
-function normalizeWorkingMemory(data: {
+export function normalizeWorkingMemory(data: {
   summary?: string
   goals?: string[]
   requirements?: string[]
@@ -119,7 +123,7 @@ function normalizeWorkingMemory(data: {
   }
 }
 
-function formatConversationText(messages: Array<{ role: string; content: string }>): string {
+export function formatConversationText(messages: Array<{ role: string; content: string }>): string {
   return messages.map((m) => `**${m.role}**: ${m.content}`).join('\n\n')
 }
 
@@ -158,7 +162,7 @@ function createWorkingMemoryPrompt(conversationText: string): string {
   return WORKING_MEMORY_PROMPT_TEMPLATE.replace('{conversationText}', conversationText)
 }
 
-function parseJsonFromOpenAIResponse(content: string): string {
+export function parseJsonFromOpenAIResponse(content: string): string {
   let jsonStr = content.trim()
   // Match JSON in markdown code blocks (using [\s\S] instead of . with s flag for compatibility)
   const jsonMatch = content.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/)
@@ -213,19 +217,146 @@ async function callOpenAI(apiKey: string, model: string, prompt: string): Promis
   }
 }
 
-function formatWorkingMemoryResponse(workingMemory: WorkingMemory, throughSequence: number, lastUpdatedAt: string | null) {
-  return {
-    summary: workingMemory.summary,
-    goals: workingMemory.goals,
-    requirements: workingMemory.requirements,
-    constraints: workingMemory.constraints,
-    decisions: workingMemory.decisions,
-    assumptions: workingMemory.assumptions,
-    openQuestions: workingMemory.openQuestions,
-    glossary: workingMemory.glossary,
-    stakeholders: workingMemory.stakeholders,
-    lastUpdatedAt,
-    throughSequence,
+async function fetchMessagesAndCheckExisting(
+  supabase: ReturnType<typeof createClient>,
+  projectId: string,
+  agent: string,
+  forceRefresh: boolean
+): Promise<
+  | { success: true; messages: Array<{ role: string; content: string; sequence: number }>; existingMemory: null }
+  | { success: true; messages: null; existingMemory: WorkingMemory & { throughSequence: number; lastUpdatedAt: string | null } }
+  | { success: false; error: string }
+> {
+  const { data: messages, error: messagesError } = await supabase
+    .from('hal_conversation_messages')
+    .select('role, content, sequence')
+    .eq('project_id', projectId)
+    .eq('agent', agent)
+    .order('sequence', { ascending: true })
+
+  if (messagesError) {
+    return { success: false, error: `Failed to fetch conversation messages: ${messagesError.message}` }
+  }
+
+  if (!messages || messages.length === 0) {
+    return { success: false, error: 'No conversation messages found.' }
+  }
+
+  const currentSequence = messages[messages.length - 1]?.sequence ?? 0
+
+  if (!forceRefresh) {
+    const { data: existingMemory } = await supabase
+      .from('hal_conversation_working_memory')
+      .select('through_sequence')
+      .eq('project_id', projectId)
+      .eq('agent', agent)
+      .maybeSingle()
+
+    const lastProcessedSequence = existingMemory?.through_sequence ?? 0
+
+    if (currentSequence <= lastProcessedSequence) {
+      const { data: existing } = await supabase
+        .from('hal_conversation_working_memory')
+        .select('*')
+        .eq('project_id', projectId)
+        .eq('agent', agent)
+        .maybeSingle()
+
+      if (existing) {
+        const workingMemory = normalizeWorkingMemory({
+          summary: existing.summary,
+          goals: existing.goals,
+          requirements: existing.requirements,
+          constraints: existing.constraints,
+          decisions: existing.decisions,
+          assumptions: existing.assumptions,
+          openQuestions: existing.open_questions,
+          glossary: existing.glossary,
+          stakeholders: existing.stakeholders,
+        })
+
+        return {
+          success: true,
+          messages: null,
+          existingMemory: {
+            ...workingMemory,
+            throughSequence: existing.through_sequence || 0,
+            lastUpdatedAt: existing.last_updated_at || null,
+          },
+        }
+      }
+    }
+  }
+
+  return { success: true, messages, existingMemory: null }
+}
+
+async function generateAndSaveWorkingMemory(
+  supabase: ReturnType<typeof createClient>,
+  messages: Array<{ role: string; content: string; sequence: number }>,
+  projectId: string,
+  agent: string,
+  openaiApiKey: string,
+  openaiModel: string
+): Promise<{ success: true; workingMemory: WorkingMemory & { throughSequence: number; lastUpdatedAt: string } } | { success: false; error: string }> {
+  const prompt = createWorkingMemoryPrompt(formatConversationText(messages))
+  const openaiResult = await callOpenAI(openaiApiKey, openaiModel, prompt)
+
+  if (!openaiResult.success) {
+    return { success: false, error: openaiResult.error }
+  }
+
+  try {
+    const { content } = openaiResult
+    const jsonStr = parseJsonFromOpenAIResponse(content)
+    const parsedMemory = JSON.parse(jsonStr) as {
+      summary?: string
+      goals?: string[]
+      requirements?: string[]
+      constraints?: string[]
+      decisions?: string[]
+      assumptions?: string[]
+      openQuestions?: string[]
+      glossary?: Record<string, string>
+      stakeholders?: string[]
+    }
+
+    const workingMemory = normalizeWorkingMemory(parsedMemory)
+    const currentSequence = messages[messages.length - 1]?.sequence ?? 0
+    const lastUpdatedAt = new Date().toISOString()
+
+    const { error: upsertError } = await supabase.from('hal_conversation_working_memory').upsert(
+      {
+        project_id: projectId,
+        agent,
+        summary: workingMemory.summary,
+        goals: workingMemory.goals,
+        requirements: workingMemory.requirements,
+        constraints: workingMemory.constraints,
+        decisions: workingMemory.decisions,
+        assumptions: workingMemory.assumptions,
+        open_questions: workingMemory.openQuestions,
+        glossary: workingMemory.glossary,
+        stakeholders: workingMemory.stakeholders,
+        through_sequence: currentSequence,
+        last_updated_at: lastUpdatedAt,
+      },
+      { onConflict: 'project_id,agent' }
+    )
+
+    if (upsertError) {
+      return { success: false, error: `Failed to save working memory: ${upsertError.message}` }
+    }
+
+    return {
+      success: true,
+      workingMemory: { ...workingMemory, throughSequence: currentSequence, lastUpdatedAt },
+    }
+  } catch (parseErr) {
+    return {
+      success: false,
+      error: `Failed to parse working memory from OpenAI response: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
+    }
   }
 }
 
@@ -252,157 +383,50 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const validation = validateAndParseRequest(body)
 
     if (!validation.valid) {
-      const errorResult = validation as { valid: false; error: string }
       json(res, 400, {
         success: false,
-        error: errorResult.error,
+        error: validation.error,
       })
       return
     }
 
-    const { parsed } = validation as { valid: true; parsed: ParsedRequest }
+    const { parsed } = validation
     const supabase = createClient(parsed.supabaseUrl, parsed.supabaseAnonKey)
 
-    // Fetch conversation messages
-    const { data: messages, error: messagesError } = await supabase
-      .from('hal_conversation_messages')
-      .select('role, content, sequence')
-      .eq('project_id', parsed.projectId)
-      .eq('agent', parsed.agent)
-      .order('sequence', { ascending: true })
-
-    if (messagesError) {
-      json(res, 200, {
-        success: false,
-        error: `Failed to fetch conversation messages: ${messagesError.message}`,
-      })
+    const fetchResult = await fetchMessagesAndCheckExisting(supabase, parsed.projectId, parsed.agent, parsed.forceRefresh)
+    if (!fetchResult.success) {
+      json(res, 200, { success: false, error: fetchResult.error })
       return
     }
 
-    if (!messages || messages.length === 0) {
-      json(res, 200, {
-        success: false,
-        error: 'No conversation messages found.',
-      })
-      return
-    }
-
-    // Check if we need to update (if forceRefresh is true, or if there are new messages)
-    const { data: existingMemory } = await supabase
-      .from('hal_conversation_working_memory')
-      .select('through_sequence')
-      .eq('project_id', parsed.projectId)
-      .eq('agent', parsed.agent)
-      .maybeSingle()
-
-    const currentSequence = messages[messages.length - 1]?.sequence ?? 0
-    const lastProcessedSequence = existingMemory?.through_sequence ?? 0
-
-    if (!parsed.forceRefresh && currentSequence <= lastProcessedSequence) {
-      // No new messages, return existing memory
-      const { data: existing } = await supabase
-        .from('hal_conversation_working_memory')
-        .select('*')
-        .eq('project_id', parsed.projectId)
-        .eq('agent', parsed.agent)
-        .maybeSingle()
-
-      if (existing) {
-        const workingMemory = normalizeWorkingMemory({
-          summary: existing.summary,
-          goals: existing.goals,
-          requirements: existing.requirements,
-          constraints: existing.constraints,
-          decisions: existing.decisions,
-          assumptions: existing.assumptions,
-          openQuestions: existing.open_questions,
-          glossary: existing.glossary,
-          stakeholders: existing.stakeholders,
-        })
-
-        json(res, 200, {
-          success: true,
-          workingMemory: formatWorkingMemoryResponse(workingMemory, existing.through_sequence || 0, existing.last_updated_at || null),
-          updated: false,
-        })
-        return
-      }
-    }
-
-    // Generate working memory using OpenAI
-    const prompt = createWorkingMemoryPrompt(formatConversationText(messages))
-
-    const openaiResult = await callOpenAI(parsed.openaiApiKey, parsed.openaiModel, prompt)
-
-    if (!openaiResult.success) {
-      const errorResult = openaiResult as { success: false; error: string }
-      json(res, 200, {
-        success: false,
-        error: errorResult.error,
-      })
-      return
-    }
-
-    try {
-      const { content } = openaiResult as { success: true; content: string }
-      const jsonStr = parseJsonFromOpenAIResponse(content)
-      const parsedMemory = JSON.parse(jsonStr) as {
-        summary?: string
-        goals?: string[]
-        requirements?: string[]
-        constraints?: string[]
-        decisions?: string[]
-        assumptions?: string[]
-        openQuestions?: string[]
-        glossary?: Record<string, string>
-        stakeholders?: string[]
-      }
-
-      const workingMemory = normalizeWorkingMemory(parsedMemory)
-
-      // Upsert working memory
-      const { error: upsertError } = await supabase
-        .from('hal_conversation_working_memory')
-        .upsert(
-          {
-            project_id: parsed.projectId,
-            agent: parsed.agent,
-            summary: workingMemory.summary,
-            goals: workingMemory.goals,
-            requirements: workingMemory.requirements,
-            constraints: workingMemory.constraints,
-            decisions: workingMemory.decisions,
-            assumptions: workingMemory.assumptions,
-            open_questions: workingMemory.openQuestions,
-            glossary: workingMemory.glossary,
-            stakeholders: workingMemory.stakeholders,
-            through_sequence: currentSequence,
-            last_updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'project_id,agent' }
-        )
-
-      if (upsertError) {
-        json(res, 200, {
-          success: false,
-          error: `Failed to save working memory: ${upsertError.message}`,
-        })
-        return
-      }
-
-      const lastUpdatedAt = new Date().toISOString()
+    if (fetchResult.existingMemory) {
       json(res, 200, {
         success: true,
-        workingMemory: formatWorkingMemoryResponse(workingMemory, currentSequence, lastUpdatedAt),
-        updated: true,
-      })
-    } catch (parseErr) {
-      json(res, 200, {
-        success: false,
-        error: `Failed to parse working memory from OpenAI response: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
+        workingMemory: fetchResult.existingMemory,
+        updated: false,
       })
       return
     }
+
+    const generateResult = await generateAndSaveWorkingMemory(
+      supabase,
+      fetchResult.messages!,
+      parsed.projectId,
+      parsed.agent,
+      parsed.openaiApiKey,
+      parsed.openaiModel
+    )
+
+    if (!generateResult.success) {
+      json(res, 200, { success: false, error: generateResult.error })
+      return
+    }
+
+    json(res, 200, {
+      success: true,
+      workingMemory: generateResult.workingMemory,
+      updated: true,
+    })
   } catch (err) {
     json(res, 500, {
       success: false,

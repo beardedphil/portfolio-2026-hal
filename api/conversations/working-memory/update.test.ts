@@ -4,86 +4,57 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import {
+  validateAndParseRequest,
+  normalizeWorkingMemory,
+  formatConversationText,
+  parseJsonFromOpenAIResponse,
+} from './update'
 
-// Test helper functions extracted from the handler logic
 describe('working-memory/update.ts behavior', () => {
   describe('Request body parsing and validation', () => {
     it('validates projectId and agent are required', () => {
-      const validateRequired = (body: any): { valid: boolean; error?: string } => {
-        const projectId = typeof body.projectId === 'string' ? body.projectId.trim() || undefined : undefined
-        const agent = typeof body.agent === 'string' ? body.agent.trim() || undefined : undefined
-
-        if (!projectId || !agent) {
-          return { valid: false, error: 'projectId and agent are required.' }
-        }
-        return { valid: true }
-      }
-
-      expect(validateRequired({ projectId: 'test', agent: 'pm' })).toEqual({ valid: true })
-      expect(validateRequired({ projectId: '', agent: 'pm' })).toEqual({ valid: false, error: 'projectId and agent are required.' })
-      expect(validateRequired({ projectId: 'test', agent: '' })).toEqual({ valid: false, error: 'projectId and agent are required.' })
-      expect(validateRequired({})).toEqual({ valid: false, error: 'projectId and agent are required.' })
-      expect(validateRequired({ projectId: '  ', agent: '  ' })).toEqual({ valid: false, error: 'projectId and agent are required.' })
+      expect(validateAndParseRequest({ projectId: 'test', agent: 'pm', openaiApiKey: 'sk-test', openaiModel: 'gpt-4', supabaseUrl: 'https://test.co', supabaseAnonKey: 'key' })).toMatchObject({ valid: true })
+      expect(validateAndParseRequest({ projectId: '', agent: 'pm', openaiApiKey: 'sk-test', openaiModel: 'gpt-4', supabaseUrl: 'https://test.co', supabaseAnonKey: 'key' })).toMatchObject({ valid: false, error: 'projectId and agent are required.' })
+      expect(validateAndParseRequest({ projectId: 'test', agent: '', openaiApiKey: 'sk-test', openaiModel: 'gpt-4', supabaseUrl: 'https://test.co', supabaseAnonKey: 'key' })).toMatchObject({ valid: false, error: 'projectId and agent are required.' })
+      expect(validateAndParseRequest({ openaiApiKey: 'sk-test', openaiModel: 'gpt-4', supabaseUrl: 'https://test.co', supabaseAnonKey: 'key' })).toMatchObject({ valid: false, error: 'projectId and agent are required.' })
+      expect(validateAndParseRequest({ projectId: '  ', agent: '  ', openaiApiKey: 'sk-test', openaiModel: 'gpt-4', supabaseUrl: 'https://test.co', supabaseAnonKey: 'key' })).toMatchObject({ valid: false, error: 'projectId and agent are required.' })
     })
 
     it('validates Supabase credentials from body or environment', () => {
-      const validateSupabaseCredentials = (body: any, env: any): { valid: boolean; error?: string } => {
-        const supabaseUrl =
-          (typeof body.supabaseUrl === 'string' ? body.supabaseUrl.trim() : undefined) ||
-          env.SUPABASE_URL?.trim() ||
-          env.VITE_SUPABASE_URL?.trim() ||
-          undefined
-        const supabaseAnonKey =
-          (typeof body.supabaseAnonKey === 'string' ? body.supabaseAnonKey.trim() : undefined) ||
-          env.SUPABASE_ANON_KEY?.trim() ||
-          env.VITE_SUPABASE_ANON_KEY?.trim() ||
-          undefined
-
-        if (!supabaseUrl || !supabaseAnonKey) {
-          return {
-            valid: false,
-            error: 'Supabase credentials required (provide in request body or set SUPABASE_URL and SUPABASE_ANON_KEY in server environment).',
-          }
-        }
-        return { valid: true }
-      }
-
-      expect(validateSupabaseCredentials({ supabaseUrl: 'https://test.supabase.co', supabaseAnonKey: 'key' }, {})).toEqual({
-        valid: true,
-      })
-      expect(validateSupabaseCredentials({}, { SUPABASE_URL: 'https://test.supabase.co', SUPABASE_ANON_KEY: 'key' })).toEqual({
-        valid: true,
-      })
-      expect(validateSupabaseCredentials({}, {})).toEqual({
+      const originalEnv = { ...process.env }
+      
+      // Test with body values
+      expect(validateAndParseRequest({ projectId: 'test', agent: 'pm', supabaseUrl: 'https://test.supabase.co', supabaseAnonKey: 'key', openaiApiKey: 'sk-test', openaiModel: 'gpt-4' })).toMatchObject({ valid: true })
+      
+      // Test with environment variables
+      process.env.SUPABASE_URL = 'https://env.supabase.co'
+      process.env.SUPABASE_ANON_KEY = 'env-key'
+      expect(validateAndParseRequest({ projectId: 'test', agent: 'pm', openaiApiKey: 'sk-test', openaiModel: 'gpt-4' })).toMatchObject({ valid: true })
+      
+      // Test missing credentials
+      delete process.env.SUPABASE_URL
+      delete process.env.SUPABASE_ANON_KEY
+      expect(validateAndParseRequest({ projectId: 'test', agent: 'pm', openaiApiKey: 'sk-test', openaiModel: 'gpt-4' })).toMatchObject({
         valid: false,
         error: 'Supabase credentials required (provide in request body or set SUPABASE_URL and SUPABASE_ANON_KEY in server environment).',
       })
-      expect(validateSupabaseCredentials({ supabaseUrl: 'https://test.supabase.co' }, {})).toEqual({
+      expect(validateAndParseRequest({ projectId: 'test', agent: 'pm', supabaseUrl: 'https://test.supabase.co', openaiApiKey: 'sk-test', openaiModel: 'gpt-4' })).toMatchObject({
         valid: false,
         error: 'Supabase credentials required (provide in request body or set SUPABASE_URL and SUPABASE_ANON_KEY in server environment).',
       })
+      
+      // Restore original env
+      process.env = originalEnv
     })
 
     it('validates OpenAI credentials are required', () => {
-      const validateOpenAICredentials = (body: any): { valid: boolean; error?: string } => {
-        const openaiApiKey = typeof body.openaiApiKey === 'string' ? body.openaiApiKey.trim() : undefined
-        const openaiModel = typeof body.openaiModel === 'string' ? body.openaiModel.trim() : undefined
-
-        if (!openaiApiKey || !openaiModel) {
-          return {
-            valid: false,
-            error: 'OpenAI credentials required (provide openaiApiKey and openaiModel in request body).',
-          }
-        }
-        return { valid: true }
-      }
-
-      expect(validateOpenAICredentials({ openaiApiKey: 'sk-test', openaiModel: 'gpt-4' })).toEqual({ valid: true })
-      expect(validateOpenAICredentials({ openaiApiKey: 'sk-test' })).toEqual({
+      expect(validateAndParseRequest({ projectId: 'test', agent: 'pm', openaiApiKey: 'sk-test', openaiModel: 'gpt-4', supabaseUrl: 'https://test.co', supabaseAnonKey: 'key' })).toMatchObject({ valid: true })
+      expect(validateAndParseRequest({ projectId: 'test', agent: 'pm', openaiApiKey: 'sk-test', supabaseUrl: 'https://test.co', supabaseAnonKey: 'key' })).toMatchObject({
         valid: false,
         error: 'OpenAI credentials required (provide openaiApiKey and openaiModel in request body).',
       })
-      expect(validateOpenAICredentials({})).toEqual({
+      expect(validateAndParseRequest({ projectId: 'test', agent: 'pm', supabaseUrl: 'https://test.co', supabaseAnonKey: 'key' })).toMatchObject({
         valid: false,
         error: 'OpenAI credentials required (provide openaiApiKey and openaiModel in request body).',
       })
@@ -129,43 +100,20 @@ describe('working-memory/update.ts behavior', () => {
 
   describe('OpenAI response parsing', () => {
     it('extracts JSON from markdown code blocks', () => {
-      const parseJsonFromResponse = (content: string): string => {
-        let jsonStr = content.trim()
-        const jsonMatch = content.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/s)
-        if (jsonMatch) {
-          jsonStr = jsonMatch[1]
-        }
-        return jsonStr
-      }
-
       const plainJson = '{"summary": "test", "goals": []}'
-      expect(parseJsonFromResponse(plainJson)).toBe(plainJson)
+      expect(parseJsonFromOpenAIResponse(plainJson)).toBe(plainJson)
 
       const markdownJson = '```json\n{"summary": "test", "goals": []}\n```'
-      expect(parseJsonFromResponse(markdownJson)).toBe('{"summary": "test", "goals": []}')
+      expect(parseJsonFromOpenAIResponse(markdownJson)).toBe('{"summary": "test", "goals": []}')
 
       const markdownNoLang = '```\n{"summary": "test"}\n```'
-      expect(parseJsonFromResponse(markdownNoLang)).toBe('{"summary": "test"}')
+      expect(parseJsonFromOpenAIResponse(markdownNoLang)).toBe('{"summary": "test"}')
 
       const multilineJson = '```json\n{\n  "summary": "test",\n  "goals": []\n}\n```'
-      expect(parseJsonFromResponse(multilineJson)).toBe('{\n  "summary": "test",\n  "goals": []\n}')
+      expect(parseJsonFromOpenAIResponse(multilineJson)).toBe('{\n  "summary": "test",\n  "goals": []\n}')
     })
 
     it('normalizes working memory fields with defaults', () => {
-      const normalizeWorkingMemory = (workingMemory: any) => {
-        return {
-          summary: workingMemory.summary || '',
-          goals: workingMemory.goals || [],
-          requirements: workingMemory.requirements || [],
-          constraints: workingMemory.constraints || [],
-          decisions: workingMemory.decisions || [],
-          assumptions: workingMemory.assumptions || [],
-          openQuestions: workingMemory.openQuestions || [],
-          glossary: workingMemory.glossary || {},
-          stakeholders: workingMemory.stakeholders || [],
-        }
-      }
-
       expect(normalizeWorkingMemory({})).toEqual({
         summary: '',
         goals: [],
@@ -192,10 +140,6 @@ describe('working-memory/update.ts behavior', () => {
     })
 
     it('formats conversation text from messages', () => {
-      const formatConversationText = (messages: Array<{ role: string; content: string }>): string => {
-        return messages.map((m) => `**${m.role}**: ${m.content}`).join('\n\n')
-      }
-
       expect(formatConversationText([])).toBe('')
       expect(formatConversationText([{ role: 'user', content: 'Hello' }])).toBe('**user**: Hello')
       expect(formatConversationText([{ role: 'user', content: 'Hello' }, { role: 'assistant', content: 'Hi' }])).toBe(
