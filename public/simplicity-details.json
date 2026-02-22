@@ -86,11 +86,6 @@
       "maintainability": 0
     },
     {
-      "file": "api/conversations/working-memory/update.ts",
-      "codeQuality": 37.72,
-      "maintainability": 10.74
-    },
-    {
       "file": "api/red/list.ts",
       "codeQuality": 37.92,
       "maintainability": 21.43
@@ -99,6 +94,11 @@
       "file": "api/instructions/get-index.ts",
       "codeQuality": 38.25,
       "maintainability": 0
+    },
+    {
+      "file": "api/failures/list.ts",
+      "codeQuality": 38.81,
+      "maintainability": 31.26
     }
   ],
   "mostRecentImprovements": [
@@ -112,6 +112,12 @@
       "file": "api/implementation-agent/run.ts",
       "before": 33.68,
       "after": 33.68,
+      "delta": 0
+    },
+    {
+      "file": "api/failures/list.ts",
+      "before": 38.81,
+      "after": 38.81,
       "delta": 0
     },
     {
@@ -157,8 +163,8 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-22T06:55:32.925Z",
-  "filesAnalyzed": 382,
+  "generatedAt": "2026-02-22T12:45:35.438Z",
+  "filesAnalyzed": 383,
   "unroundedCodeQuality": 51.1,
   "unroundedMaintainability": 51.1,
   "unroundedSimplicity": 51.1
