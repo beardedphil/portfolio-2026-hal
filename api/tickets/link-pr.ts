@@ -62,12 +62,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     // Get GitHub token from session or environment (for agent use)
-    let session: Awaited<ReturnType<typeof getSession>> | null = null
-    try {
-      session = await getSession(req, res)
-    } catch {
-      // Session may not be available for agent calls
-    }
+    const session = await getSession(req, res).catch(() => null)
     const ghToken =
       session?.github?.accessToken || process.env.GITHUB_TOKEN?.trim() || process.env.GH_TOKEN?.trim()
     if (!ghToken) {
