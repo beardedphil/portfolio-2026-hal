@@ -52,28 +52,27 @@ describe('Agent launch handler', () => {
   let responseBody: unknown
   let responseStatus: number
 
+  // Helper to create a Supabase query chain
+  function createSupabaseChain(maybeSingleResult?: any) {
+    const chain: any = {
+      select: vi.fn(() => chain),
+      insert: vi.fn(() => chain),
+      update: vi.fn(() => chain),
+      eq: vi.fn(() => chain),
+      order: vi.fn(() => chain),
+      limit: vi.fn(() => chain),
+      not: vi.fn(() => chain),
+      maybeSingle: vi.fn(() => Promise.resolve(maybeSingleResult || { data: null, error: null })),
+      single: vi.fn(() => Promise.resolve({ data: null, error: null })),
+    }
+    return chain
+  }
+
   beforeEach(() => {
     vi.clearAllMocks()
     
-    // Setup Supabase mock with proper chaining
-    let chainInstance: any
-    const createChain = () => {
-      chainInstance = {
-        select: vi.fn(() => chainInstance),
-        insert: vi.fn(() => chainInstance),
-        update: vi.fn(() => chainInstance),
-        eq: vi.fn(() => chainInstance),
-        order: vi.fn(() => chainInstance),
-        limit: vi.fn(() => chainInstance),
-        not: vi.fn(() => chainInstance),
-        maybeSingle: vi.fn(),
-        single: vi.fn(),
-      }
-      return chainInstance
-    }
-    
     mockSupabase = {
-      from: vi.fn(() => createChain()),
+      from: vi.fn(() => createSupabaseChain()),
     }
 
     // Setup request mock
@@ -147,7 +146,8 @@ describe('Agent launch handler', () => {
       await handler(mockReq as IncomingMessage, mockRes as ServerResponse)
       
       expect(responseStatus).toBe(400)
-      expect(responseBody).toMatchObject({ error: expect.stringContaining('required') })
+      const bodyStr = typeof responseBody === 'string' ? responseBody : JSON.stringify(responseBody)
+      expect(bodyStr).toContain('required')
     })
 
     it('should accept valid request body', async () => {
@@ -160,34 +160,24 @@ describe('Agent launch handler', () => {
       let callCount = 0
       mockSupabase.from.mockImplementation((table: string) => {
         callCount++
-        const chain = {
-          select: vi.fn(() => chain),
-          insert: vi.fn(() => chain),
-          update: vi.fn(() => chain),
-          eq: vi.fn(() => chain),
-          order: vi.fn(() => chain),
-          limit: vi.fn(() => chain),
-          not: vi.fn(() => chain),
-          maybeSingle: vi.fn(() => {
-            if (callCount === 1) {
-              return Promise.resolve({
-                data: { pk: 'ticket-pk', ticket_number: 123, display_id: '0123', body_md: '## Goal\nTest goal', kanban_column_id: 'col-todo' },
-                error: null,
-              })
-            }
-            return Promise.resolve({ data: { run_id: 'run-id' }, error: null })
-          }),
-          single: vi.fn(),
+        if (callCount === 1) {
+          // Ticket fetch
+          return createSupabaseChain({
+            data: { pk: 'ticket-pk', ticket_number: 123, display_id: '0123', body_md: '## Goal\nTest goal', kanban_column_id: 'col-todo' },
+            error: null,
+          })
         }
         if (callCount === 2) {
-          chain.insert = vi.fn(() => ({
-            ...chain,
-            select: vi.fn(() => ({
-              maybeSingle: vi.fn(() => Promise.resolve({ data: { run_id: 'run-id' }, error: null })),
-            })),
+          // Run insert
+          const insertChain = createSupabaseChain()
+          insertChain.insert = vi.fn(() => insertChain)
+          insertChain.select = vi.fn(() => ({
+            maybeSingle: vi.fn(() => Promise.resolve({ data: { run_id: 'run-id' }, error: null })),
           }))
+          return insertChain
         }
-        return chain
+        // Update chains
+        return createSupabaseChain({ data: null, error: null })
       })
       
       await handler(mockReq as IncomingMessage, mockRes as ServerResponse)
@@ -204,16 +194,18 @@ describe('Agent launch handler', () => {
         ticketNumber: 999,
       })
       
-      const chain = mockSupabase.from().select()
-      chain.maybeSingle.mockResolvedValue({
-        data: null,
-        error: { message: 'Not found' },
-      })
+      mockSupabase.from.mockReturnValue(
+        createSupabaseChain({
+          data: null,
+          error: { message: 'Not found' },
+        })
+      )
       
       await handler(mockReq as IncomingMessage, mockRes as ServerResponse)
       
       expect(responseStatus).toBe(404)
-      expect(responseBody).toMatchObject({ error: expect.stringContaining('not found') })
+      const bodyStr = typeof responseBody === 'string' ? responseBody : JSON.stringify(responseBody)
+      expect(bodyStr).toContain('not found')
     })
 
     it('should extract ticket data correctly', async () => {

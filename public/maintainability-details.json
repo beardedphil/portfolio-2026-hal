@@ -33,6 +33,10 @@
       "maintainability": 0
     },
     {
+      "file": "api/tickets/move.ts",
+      "maintainability": 0
+    },
+    {
       "file": "agents/src/agents/projectManager/contextBuilding.ts",
       "maintainability": 0
     },
@@ -45,16 +49,20 @@
       "maintainability": 9
     },
     {
+      "file": "api/context-bundles/_builder.ts",
+      "maintainability": 11.28
+    },
+    {
+      "file": "api/agent-runs/launch.test.ts",
+      "maintainability": 11.4
+    },
+    {
       "file": "src/hooks/useProcessReview.ts",
       "maintainability": 14.04
     },
     {
       "file": "api/instructions/get-topic.ts",
       "maintainability": 15.27
-    },
-    {
-      "file": "api/context-bundles/_builder.ts",
-      "maintainability": 15.28
     },
     {
       "file": "api/tickets/create-pr.ts",
@@ -69,25 +77,11 @@
       "maintainability": 16.29
     },
     {
-      "file": "api/qa-agent/run.ts",
-      "maintainability": 16.69
-    },
-    {
-      "file": "api/process-review/create-tickets.ts",
-      "maintainability": 17.61
-    },
-    {
-      "file": "api/tickets/move.ts",
-      "maintainability": 17.97
+      "file": "api/conversations/working-memory/update.ts",
+      "maintainability": 18.36
     }
   ],
   "mostRecentImprovements": [
-    {
-      "file": "agents/src/agents/projectManager.ts",
-      "before": 0,
-      "after": 9,
-      "delta": 9
-    },
     {
       "file": "api/instructions/migrate-process-docs.ts",
       "before": 15.59,
@@ -95,9 +89,9 @@
       "delta": 0
     },
     {
-      "file": "api/qa-agent/run.ts",
-      "before": 16.69,
-      "after": 16.69,
+      "file": "api/agent-runs/launch.test.ts",
+      "before": 11.4,
+      "after": 11.4,
       "delta": 0
     },
     {
@@ -107,9 +101,15 @@
       "delta": 0
     },
     {
-      "file": "api/process-review/create-tickets.ts",
-      "before": 17.61,
-      "after": 17.61,
+      "file": "agents/src/agents/projectManager.ts",
+      "before": 9,
+      "after": 9,
+      "delta": 0
+    },
+    {
+      "file": "api/conversations/working-memory/update.ts",
+      "before": 18.36,
+      "after": 18.36,
       "delta": 0
     },
     {
@@ -125,8 +125,8 @@
       "delta": 0
     }
   ],
-  "generatedAt": "2026-02-22T00:33:40.004Z",
-  "filesAnalyzed": 335,
-  "unroundedMaintainability": 33.6,
-  "unroundedSimplicity": 33.6
+  "generatedAt": "2026-02-22T03:32:28.593Z",
+  "filesAnalyzed": 350,
+  "unroundedMaintainability": 33.2,
+  "unroundedSimplicity": 33.2
 }
