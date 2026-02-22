@@ -130,6 +130,40 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const halApiBaseUrl = getOrigin(req)
 
+    // Check for existing active run to prevent duplicate launches
+    // Active statuses: 'created', 'launching', 'polling', 'running', 'reviewing'
+    const activeStatuses = ['created', 'launching', 'polling', 'running', 'reviewing']
+    const { data: existingRun, error: existingRunErr } = await supabase
+      .from('hal_agent_runs')
+      .select('run_id, status, cursor_agent_id')
+      .eq('repo_full_name', repoFullName)
+      .eq('ticket_number', ticketNumber)
+      .eq('agent_type', agentType)
+      .in('status', activeStatuses)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (existingRunErr) {
+      // Log error but continue - this is a best-effort check
+      console.warn(`[agent-runs/launch] Error checking for existing run: ${existingRunErr.message}`)
+    } else if (existingRun?.run_id) {
+      // Return existing active run instead of creating a new one
+      const existingRunId = existingRun.run_id as string
+      const existingStatus = (existingRun as any).status as string
+      const cursorAgentId = (existingRun as any).cursor_agent_id as string | null
+      console.log(
+        `[agent-runs/launch] Found existing active run ${existingRunId} for ticket ${displayId} (${agentType}), returning existing run instead of creating duplicate`
+      )
+      json(res, 200, {
+        runId: existingRunId,
+        status: existingStatus,
+        ...(cursorAgentId ? { cursorAgentId } : {}),
+        message: 'Using existing active run',
+      })
+      return
+    }
+
     // Update stage to 'fetching_ticket' (0690) - ticket already fetched, but update stage for consistency
     // Note: Run row not created yet, so we'll update after creation
 
