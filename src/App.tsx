@@ -66,6 +66,7 @@ function App() {
   const [imageError, setImageError] = useState<string | null>(null)
   const [sendValidationError, setSendValidationError] = useState<string | null>(null)
   const [lastError, setLastError] = useState<string | null>(null)
+<<<<<<< Updated upstream
   // These are used in logic but not displayed in UI with floating widget (0698)
   const [_lastAgentError, setLastAgentError] = useState<string | null>(null)
   const [_persistenceError, setPersistenceError] = useState<string | null>(null)
@@ -75,6 +76,15 @@ function App() {
   const [_openaiLastError, setOpenaiLastError] = useState<string | null>(null)
   // Diagnostics panel no longer visible - floating widget replaces sidebar (0698)
   // const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
+=======
+  const [lastAgentError, setLastAgentError] = useState<string | null>(null)
+  const [persistenceError, setPersistenceError] = useState<string | null>(null)
+  const [openaiLastStatus, setOpenaiLastStatus] = useState<string | null>(null)
+  const [openaiLastError, setOpenaiLastError] = useState<string | null>(null)
+  const [kanbanLoaded, setKanbanLoaded] = useState(false)
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
+  const [encryptionStatus, setEncryptionStatus] = useState<{ configured: boolean; error?: string } | null>(null)
+>>>>>>> Stashed changes
   const [connectedProject, setConnectedProject] = useState<string | null>(null)
   // Theme is always 'dark' (0797: removed theme dropdown)
   const theme = 'dark' as const
@@ -306,6 +316,233 @@ function App() {
   // The repo state is restored for UI display; Kanban will receive the connection message when the iframe loads
   // Note: GitHub hook handles repo restoration, but we need to set connectedProject here
   useEffect(() => {
+<<<<<<< Updated upstream
+=======
+    refreshGithubAuth().catch(() => {})
+  }, [refreshGithubAuth])
+
+  // Check encryption status on mount (0786)
+  useEffect(() => {
+    const checkEncryptionStatus = async () => {
+      try {
+        const res = await fetch('/api/secrets/status')
+        if (res.ok) {
+          const data = await res.json() as { configured: boolean; error?: string }
+          setEncryptionStatus(data)
+        } else {
+          setEncryptionStatus({ configured: false, error: 'Failed to check encryption status' })
+        }
+      } catch (err) {
+        setEncryptionStatus({ configured: false, error: err instanceof Error ? err.message : 'Unknown error' })
+      }
+    }
+    checkEncryptionStatus()
+  }, [])
+
+  const loadGithubRepos = useCallback(async () => {
+    try {
+      setGithubConnectError(null)
+      const res = await fetch('/api/github/repos', { credentials: 'include' })
+      const text = await res.text()
+      if (!res.ok) {
+        setGithubRepos(null)
+        setGithubConnectError(text.slice(0, 200) || 'Failed to load repos.')
+        return
+      }
+      const json = JSON.parse(text) as { repos: GithubRepo[] }
+      setGithubRepos(Array.isArray(json.repos) ? json.repos : [])
+    } catch (err) {
+      setGithubRepos(null)
+      setGithubConnectError(err instanceof Error ? err.message : String(err))
+    }
+  }, [])
+
+  const handleGithubConnect = useCallback(async () => {
+    setGithubConnectError(null)
+    // If already authenticated, open picker and load repos
+    if (githubAuth?.authenticated) {
+      setGithubRepoPickerOpen(true)
+      if (!githubRepos) {
+        await loadGithubRepos()
+      }
+      return
+    }
+    // Start OAuth flow (redirect)
+    window.location.href = '/api/auth/github/start'
+  }, [githubAuth?.authenticated, githubRepos, loadGithubRepos])
+
+  const handleGithubDisconnect = useCallback(async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
+    } catch {
+      // ignore
+    }
+    setGithubAuth(null)
+    setGithubRepos(null)
+    setGithubRepoPickerOpen(false)
+    setGithubRepoQuery('')
+  }, [])
+
+  const handleSelectGithubRepo = useCallback((repo: GithubRepo) => {
+    const selected: ConnectedGithubRepo = {
+      fullName: repo.full_name,
+      defaultBranch: repo.default_branch,
+      htmlUrl: repo.html_url,
+      private: repo.private,
+    }
+    setConnectedGithubRepo(selected)
+    try {
+      localStorage.setItem('hal-github-repo', JSON.stringify(selected))
+    } catch {
+      // ignore
+    }
+
+    // Use repo full_name as the project id for persistence + ticket flows (0079)
+    setConnectedProject(repo.full_name)
+
+    const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
+    const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
+
+    // Tell Kanban iframe which repo is connected (0079)
+    if (kanbanIframeRef.current?.contentWindow) {
+      kanbanIframeRef.current.contentWindow.postMessage(
+        { type: 'HAL_CONNECT_REPO', repoFullName: repo.full_name },
+        window.location.origin
+      )
+    }
+
+    // If Supabase isn't set yet, use Vercel-provided VITE_ env as default (hosted path)
+    if (!supabaseUrl || !supabaseAnonKey) {
+      if (url && key) {
+        setSupabaseUrl(url)
+        setSupabaseAnonKey(key)
+        if (kanbanIframeRef.current?.contentWindow) {
+          kanbanIframeRef.current.contentWindow.postMessage(
+            { type: 'HAL_CONNECT_SUPABASE', url, key },
+            window.location.origin
+          )
+        }
+      }
+    }
+
+    // Restore agent status from localStorage (0097: preserve agent status across disconnect/reconnect)
+    try {
+      const savedImplStatus = localStorage.getItem('hal-impl-agent-status')
+      if (savedImplStatus && ['preparing', 'fetching_ticket', 'resolving_repo', 'launching', 'polling', 'completed', 'failed'].includes(savedImplStatus)) {
+        setImplAgentRunStatus(savedImplStatus as typeof implAgentRunStatus)
+      }
+      const savedImplProgress = localStorage.getItem('hal-impl-agent-progress')
+      if (savedImplProgress) {
+        try {
+          const parsed = JSON.parse(savedImplProgress) as Array<{ timestamp: string; message: string }>
+          setImplAgentProgress(parsed.map((p) => ({ timestamp: new Date(p.timestamp), message: p.message })))
+        } catch {
+          // ignore parse errors
+        }
+      }
+      const savedImplError = localStorage.getItem('hal-impl-agent-error')
+      if (savedImplError) {
+        setImplAgentError(savedImplError)
+      }
+      const savedQaStatus = localStorage.getItem('hal-qa-agent-status')
+      if (savedQaStatus && ['preparing', 'fetching_ticket', 'fetching_branch', 'launching', 'polling', 'generating_report', 'merging', 'moving_ticket', 'completed', 'failed'].includes(savedQaStatus)) {
+        setQaAgentRunStatus(savedQaStatus as typeof qaAgentRunStatus)
+      }
+      const savedQaProgress = localStorage.getItem('hal-qa-agent-progress')
+      if (savedQaProgress) {
+        try {
+          const parsed = JSON.parse(savedQaProgress) as Array<{ timestamp: string; message: string }>
+          setQaAgentProgress(parsed.map((p) => ({ timestamp: new Date(p.timestamp), message: p.message })))
+        } catch {
+          // ignore parse errors
+        }
+      }
+      const savedQaError = localStorage.getItem('hal-qa-agent-error')
+      if (savedQaError) {
+        setQaAgentError(savedQaError)
+      }
+    } catch {
+      // ignore localStorage errors
+    }
+
+    // Load conversations from localStorage first (0097: preserve chats across disconnect/reconnect)
+    const loadResult = loadConversationsFromStorage(repo.full_name)
+    let restoredConversations = loadResult.conversations || new Map<string, Conversation>()
+    if (loadResult.error) {
+      setPersistenceError(loadResult.error)
+    }
+
+    // Load PM conversations from Supabase and merge (Supabase takes precedence for PM) (HAL_SYNC_COMPLETED will trigger unassigned check when Kanban syncs)
+    if (url && key) {
+      ;(async () => {
+        try {
+          const supabase = createClient(url, key)
+          const { data: rows, error } = await supabase
+            .from('hal_conversation_messages')
+            .select('role, content, sequence, created_at')
+            .eq('project_id', repo.full_name)
+            .eq('agent', PM_AGENT_ID)
+            .order('sequence', { ascending: true })
+          if (!error && rows && rows.length > 0) {
+            const msgs: Message[] = rows.map((r) => ({
+              id: r.sequence as number,
+              agent: r.role === 'user' ? 'user' : 'project-manager',
+              content: r.content ?? '',
+              timestamp: r.created_at ? new Date(r.created_at) : new Date(),
+            }))
+            const maxSeq = Math.max(...msgs.map((m) => m.id))
+            pmMaxSequenceRef.current = maxSeq
+            messageIdRef.current = maxSeq
+            const pmConvId = getConversationId('project-manager', 1)
+            const pmConversation: Conversation = {
+              id: pmConvId,
+              agentRole: 'project-manager',
+              instanceNumber: 1,
+              messages: msgs,
+              createdAt: msgs.length > 0 ? msgs[0].timestamp : new Date(),
+            }
+            // Merge: Supabase PM conversation takes precedence, but keep other agent conversations from localStorage
+            restoredConversations.set(pmConvId, pmConversation)
+          }
+          // Set merged conversations (PM from Supabase if available, others from localStorage)
+          setConversations(restoredConversations)
+          setPersistenceError(null)
+        } catch {
+          // If Supabase load fails, still use localStorage conversations
+          setConversations(restoredConversations)
+        }
+      })()
+    } else {
+      // No Supabase, just use localStorage conversations
+      setConversations(restoredConversations)
+    }
+
+    setGithubRepoPickerOpen(false)
+  }, [supabaseUrl, supabaseAnonKey])
+
+  // Send theme to Kanban iframe when theme changes or iframe loads (0078)
+  useEffect(() => {
+    if (kanbanLoaded && kanbanIframeRef.current?.contentWindow) {
+      kanbanIframeRef.current.contentWindow.postMessage(
+        { type: 'HAL_THEME_CHANGE', theme },
+        '*'
+      )
+    }
+  }, [theme, kanbanLoaded])
+
+
+
+  // When Kanban iframe loads, push current repo + Supabase so it syncs (iframe may load after user connected)
+  useEffect(() => {
+    if (!kanbanLoaded || !kanbanIframeRef.current?.contentWindow) return
+    const win = kanbanIframeRef.current.contentWindow
+    const origin = window.location.origin
+    const url = supabaseUrl?.trim() || (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
+    const key = supabaseAnonKey?.trim() || (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
+    if (url && key) {
+      win.postMessage({ type: 'HAL_CONNECT_SUPABASE', url, key }, origin)
+    }
+>>>>>>> Stashed changes
     if (connectedGithubRepo?.fullName) {
       setConnectedProject(connectedGithubRepo.fullName)
     }
@@ -824,7 +1061,619 @@ function App() {
                   setSelectedChatTarget('project-manager')
                   setSelectedConversationId(null)
                 }}
+<<<<<<< Updated upstream
               />
+=======
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    setOpenChatTarget('project-manager')
+                    setSelectedChatTarget('project-manager')
+                    setSelectedConversationId(null)
+                    setUnreadByTarget((prev) => ({ ...prev, 'project-manager': 0 }))
+                  }
+                }}
+              >
+                <div className="chat-preview-header">
+                  <span className="chat-preview-name">Project Manager</span>
+                  {unreadByTarget['project-manager'] > 0 && (
+                    <span className="chat-preview-unread">{unreadByTarget['project-manager']}</span>
+                  )}
+                </div>
+                <div className="chat-preview-text">{getChatTargetPreview('project-manager')}</div>
+              </div>
+
+              {/* Standup */}
+              <div
+                className={`chat-preview-pane ${openChatTarget === 'standup' ? 'chat-preview-active' : ''}`}
+                onClick={() => {
+                  setOpenChatTarget('standup')
+                  setSelectedChatTarget('standup')
+                  setSelectedConversationId(null)
+                  setUnreadByTarget((prev) => ({ ...prev, standup: 0 }))
+                }}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    setOpenChatTarget('standup')
+                    setSelectedChatTarget('standup')
+                    setSelectedConversationId(null)
+                    setUnreadByTarget((prev) => ({ ...prev, standup: 0 }))
+                  }
+                }}
+              >
+                <div className="chat-preview-header">
+                  <span className="chat-preview-name">Standup (all agents)</span>
+                  {unreadByTarget.standup > 0 && (
+                    <span className="chat-preview-unread">{unreadByTarget.standup}</span>
+                  )}
+                </div>
+                <div className="chat-preview-text">{getChatTargetPreview('standup')}</div>
+              </div>
+
+              {/* QA Group */}
+              <div className="chat-preview-group">
+                <div
+                  className="chat-preview-group-header"
+                  onClick={() => setQaGroupExpanded(!qaGroupExpanded)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      setQaGroupExpanded(!qaGroupExpanded)
+                    }
+                  }}
+                >
+                  <span className="chat-preview-group-icon">{qaGroupExpanded ? '▼' : '▶'}</span>
+                  <span className="chat-preview-name">QA Lead</span>
+                  {unreadByTarget['qa-agent'] > 0 && (
+                    <span className="chat-preview-unread">{unreadByTarget['qa-agent']}</span>
+                  )}
+                </div>
+                {qaGroupExpanded && (
+                  <div className="chat-preview-group-items">
+                    {getConversationsForAgent('qa-agent').length === 0 ? (
+                      <div className="chat-preview-empty">No QA agents running</div>
+                    ) : (
+                      getConversationsForAgent('qa-agent').map((conv) => (
+                        <div
+                          key={conv.id}
+                          className={`chat-preview-pane chat-preview-nested ${openChatTarget === conv.id ? 'chat-preview-active' : ''}`}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setOpenChatTarget(conv.id)
+                            setSelectedChatTarget('qa-agent')
+                            setSelectedConversationId(conv.id)
+                          }}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              setOpenChatTarget(conv.id)
+                              setSelectedChatTarget('qa-agent')
+                              setSelectedConversationId(conv.id)
+                            }
+                          }}
+                        >
+                          <div className="chat-preview-header">
+                            <span className="chat-preview-name">{getConversationLabel(conv)}</span>
+                          </div>
+                          <div className="chat-preview-text">{getConversationPreview(conv)}</div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Implementation Group */}
+              <div className="chat-preview-group">
+                <div
+                  className="chat-preview-group-header"
+                  onClick={() => setImplGroupExpanded(!implGroupExpanded)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      setImplGroupExpanded(!implGroupExpanded)
+                    }
+                  }}
+                >
+                  <span className="chat-preview-group-icon">{implGroupExpanded ? '▼' : '▶'}</span>
+                  <span className="chat-preview-name">Implementation Lead</span>
+                  {unreadByTarget['implementation-agent'] > 0 && (
+                    <span className="chat-preview-unread">{unreadByTarget['implementation-agent']}</span>
+                  )}
+                </div>
+                {implGroupExpanded && (
+                  <div className="chat-preview-group-items">
+                    {getConversationsForAgent('implementation-agent').length === 0 ? (
+                      <div className="chat-preview-empty">No Implementation agents running</div>
+                    ) : (
+                      getConversationsForAgent('implementation-agent').map((conv) => (
+                        <div
+                          key={conv.id}
+                          className={`chat-preview-pane chat-preview-nested ${openChatTarget === conv.id ? 'chat-preview-active' : ''}`}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setOpenChatTarget(conv.id)
+                            setSelectedChatTarget('implementation-agent')
+                            setSelectedConversationId(conv.id)
+                          }}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              setOpenChatTarget(conv.id)
+                              setSelectedChatTarget('implementation-agent')
+                              setSelectedConversationId(conv.id)
+                            }
+                          }}
+                        >
+                          <div className="chat-preview-header">
+                            <span className="chat-preview-name">{getConversationLabel(conv)}</span>
+                          </div>
+                          <div className="chat-preview-text">{getConversationPreview(conv)}</div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
+
+          {!connectedProject ? (
+            <div className="chat-placeholder">
+              <p className="chat-placeholder-text">Connect a project to enable chat</p>
+              <p className="chat-placeholder-hint">
+                Use the "Connect GitHub Repo" button above to connect a project and start chatting with agents.
+              </p>
+            </div>
+          ) : null}
+
+          {/* Agent Status Boxes (0087) - shown at bottom of Chat pane for working agents only */}
+          {connectedProject && (
+            <div className="agent-status-boxes">
+              {/* Implementation Agent status box - only show when working (not idle, not completed) */}
+              {implAgentRunStatus !== 'idle' && implAgentRunStatus !== 'completed' && (
+                <div className="agent-status-box">
+                  <div className="agent-status-box-header">
+                    <span className="agent-status-box-name">Implementation Agent</span>
+                    <span className={`agent-status-box-status agent-status-${implAgentRunStatus}`}>
+                      {formatAgentStatus(implAgentRunStatus)}
+                    </span>
+                  </div>
+                  {implAgentError && (
+                    <div className="agent-status-box-error" role="alert">
+                      {implAgentError}
+                    </div>
+                  )}
+                </div>
+              )}
+              {/* QA Agent status box - only show when working (not idle, not completed) */}
+              {qaAgentRunStatus !== 'idle' && qaAgentRunStatus !== 'completed' && (
+                <div className="agent-status-box">
+                  <div className="agent-status-box-header">
+                    <span className="agent-status-box-name">QA Agent</span>
+                    <span className={`agent-status-box-status agent-status-${qaAgentRunStatus}`}>
+                      {formatAgentStatus(qaAgentRunStatus)}
+                    </span>
+                  </div>
+                  {qaAgentError && (
+                    <div className="agent-status-box-error" role="alert">
+                      {qaAgentError}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Configuration Status Panel (0042) */}
+          <div className="config-status-panel" role="region" aria-label="Configuration Status">
+            <h3 className="config-status-title">Configuration</h3>
+            <div className="config-status-row">
+              <span className="config-status-label">Cursor API:</span>
+              {import.meta.env.VITE_CURSOR_API_KEY ? (
+                <span className="config-status-value config-status-configured">Configured</span>
+              ) : (
+                <span className="config-status-value config-status-not-configured">
+                  Not configured
+                  <span className="config-status-hint">Missing CURSOR_API_KEY and VITE_CURSOR_API_KEY in .env</span>
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Diagnostics panel */}
+          <div className="diagnostics-section">
+            <button
+              type="button"
+              className="diagnostics-toggle"
+              onClick={() => setDiagnosticsOpen(!diagnosticsOpen)}
+              aria-expanded={diagnosticsOpen}
+            >
+              Diagnostics {diagnosticsOpen ? '▼' : '▶'}
+            </button>
+            
+            {diagnosticsOpen && (
+              <div className="diagnostics-panel" role="region" aria-label="Diagnostics">
+                <div className="diag-row">
+                  <span className="diag-label">Chat width (px):</span>
+                  <span className="diag-value">{chatWidth}</span>
+                </div>
+                <div className="diag-row">
+                  <span className="diag-label">Chat width (%):</span>
+                  <span className="diag-value">
+                    {(() => {
+                      const mainElement = document.querySelector('.hal-main')
+                      if (!mainElement) return '—'
+                      const mainRect = mainElement.getBoundingClientRect()
+                      const percentage = (chatWidth / mainRect.width) * 100
+                      return `${percentage.toFixed(1)}%`
+                    })()}
+                  </span>
+                </div>
+                <div className="diag-row">
+                  <span className="diag-label">Resizer dragging:</span>
+                  <span className="diag-value" data-status={isDragging ? 'ok' : undefined}>
+                    {String(isDragging)}
+                  </span>
+                </div>
+                <div className="diag-row">
+                  <span className="diag-label">Theme:</span>
+                  <span className="diag-value">
+                    {diagnostics.theme} ({diagnostics.themeSource})
+                  </span>
+                </div>
+                <div className="diag-row">
+                  <span className="diag-label">Kanban render mode:</span>
+                  <span className="diag-value">{diagnostics.kanbanRenderMode}</span>
+                </div>
+                <div className="diag-row">
+                  <span className="diag-label">Kanban URL:</span>
+                  <span className="diag-value">{diagnostics.kanbanUrl}</span>
+                </div>
+                <div className="diag-row">
+                  <span className="diag-label">Kanban loaded:</span>
+                  <span className="diag-value" data-status={diagnostics.kanbanLoaded ? 'ok' : 'error'}>
+                    {String(diagnostics.kanbanLoaded)}
+                  </span>
+                </div>
+                <div className="diag-row">
+                  <span className="diag-label">Chat target:</span>
+                  <span className="diag-value">{diagnostics.selectedChatTarget}</span>
+                </div>
+                <div className="diag-row">
+                  <span className="diag-label">PM implementation source:</span>
+                  <span className="diag-value">{diagnostics.pmImplementationSource}</span>
+                </div>
+                {lastWorkButtonClick && (
+                  <div className="diag-row">
+                    <span className="diag-label">Last work button click:</span>
+                    <span className="diag-value">
+                      {lastWorkButtonClick.eventId} ({lastWorkButtonClick.timestamp.toLocaleTimeString()})
+                      <br />
+                      <span style={{ fontSize: '0.9em', color: '#666' }}>
+                        Target: {lastWorkButtonClick.chatTarget}
+                      </span>
+                    </span>
+                  </div>
+                )}
+                {selectedChatTarget === 'project-manager' && (
+                  <div className="diag-row">
+                    <span className="diag-label">Agent runner:</span>
+                    <span className="diag-value">{diagnostics.agentRunner ?? '—'}</span>
+                  </div>
+                )}
+                <div className="diag-row">
+                  <span className="diag-label">Last agent error:</span>
+                  <span className="diag-value" data-status={diagnostics.lastAgentError ? 'error' : 'ok'}>
+                    {diagnostics.lastAgentError ?? 'none'}
+                  </span>
+                </div>
+                <div className="diag-row">
+                  <span className="diag-label">Last OpenAI HTTP status:</span>
+                  <span className="diag-value">
+                    {diagnostics.openaiLastStatus ?? 'no request yet'}
+                  </span>
+                </div>
+                <div className="diag-row">
+                  <span className="diag-label">Last OpenAI error:</span>
+                  <span className="diag-value" data-status={diagnostics.openaiLastError ? 'error' : 'ok'}>
+                    {diagnostics.openaiLastError ?? 'none'}
+                  </span>
+                </div>
+                <div className="diag-row">
+                  <span className="diag-label">Last error:</span>
+                  <span className="diag-value" data-status={diagnostics.lastError ? 'error' : 'ok'}>
+                    {diagnostics.lastError ?? 'none'}
+                  </span>
+                </div>
+                <div className="diag-row">
+                  <span className="diag-label">Last send payload summary:</span>
+                  <span className="diag-value">
+                    {diagnostics.lastSendPayloadSummary ?? 'no send yet'}
+                  </span>
+                </div>
+                <div className="diag-row">
+                  <span className="diag-label">Connected project:</span>
+                  <span className="diag-value">
+                    {diagnostics.connectedProject ?? 'none'}
+                  </span>
+                </div>
+                <div className="diag-row">
+                  <span className="diag-label">Repo inspection (GitHub):</span>
+                  <span className="diag-value" data-status={diagnostics.repoInspectionAvailable ? 'ok' : 'error'} title={diagnostics.repoInspectionAvailable ? 'PM agent can read/search repo via GitHub API' : 'Connect GitHub Repo for read_file/search_files'}>
+                    {diagnostics.repoInspectionAvailable ? 'available' : 'not available'}
+                  </span>
+                </div>
+                <div className="diag-row">
+                  <span className="diag-label">Persistence error:</span>
+                  <span className="diag-value" data-status={diagnostics.persistenceError ? 'error' : 'ok'}>
+                    {diagnostics.persistenceError ?? 'none'}
+                  </span>
+                </div>
+                {selectedChatTarget === 'project-manager' && (
+                  <>
+                    <div className="diag-row">
+                      <span className="diag-label">PM last response ID:</span>
+                      <span className="diag-value">
+                        {diagnostics.pmLastResponseId ?? 'none (continuity not used yet)'}
+                      </span>
+                    </div>
+                    <div className="diag-row">
+                      <span className="diag-label">previous_response_id in last request:</span>
+                      <span className="diag-value" data-status={diagnostics.previousResponseIdInLastRequest ? 'ok' : undefined}>
+                        {diagnostics.previousResponseIdInLastRequest ? 'yes' : 'no'}
+                      </span>
+                    </div>
+                  </>
+                )}
+
+                {/* PM Diagnostics: Outbound Request */}
+                {selectedChatTarget === 'project-manager' && (
+                  <div className="diag-section">
+                    <button
+                      type="button"
+                      className="diag-section-toggle"
+                      onClick={() => setOutboundRequestExpanded(!outboundRequestExpanded)}
+                      aria-expanded={outboundRequestExpanded}
+                    >
+                      Outbound Request JSON {outboundRequestExpanded ? '▼' : '▶'}
+                    </button>
+                    {outboundRequestExpanded && (
+                      <div className="diag-section-content">
+                        {diagnostics.lastPmOutboundRequest ? (
+                          <pre className="diag-json">
+                            {JSON.stringify(diagnostics.lastPmOutboundRequest, null, 2)}
+                          </pre>
+                        ) : (
+                          <span className="diag-empty">No request yet</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* PM Diagnostics: Tool Calls */}
+                {selectedChatTarget === 'project-manager' && (
+                  <div className="diag-section">
+                    <button
+                      type="button"
+                      className="diag-section-toggle"
+                      onClick={() => setToolCallsExpanded(!toolCallsExpanded)}
+                      aria-expanded={toolCallsExpanded}
+                    >
+                      Tool Calls {toolCallsExpanded ? '▼' : '▶'}
+                    </button>
+                    {toolCallsExpanded && (
+                      <div className="diag-section-content">
+                        {diagnostics.lastPmToolCalls && diagnostics.lastPmToolCalls.length > 0 ? (
+                          <ul className="diag-tool-calls">
+                            {diagnostics.lastPmToolCalls.map((call, idx) => (
+                              <li key={idx} className="diag-tool-call">
+                                <strong>{call.name}</strong>
+                                <div className="tool-call-detail">
+                                  <span className="tool-call-label">Input:</span>
+                                  <code>{JSON.stringify(call.input)}</code>
+                                </div>
+                                <div className="tool-call-detail">
+                                  <span className="tool-call-label">Output:</span>
+                                  <code className="tool-call-output">
+                                    {typeof call.output === 'string'
+                                      ? call.output.length > 200
+                                        ? call.output.slice(0, 200) + '...'
+                                        : call.output
+                                      : JSON.stringify(call.output).slice(0, 200)}
+                                  </code>
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <span className="diag-empty">No tool calls</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Encryption Status (0786) */}
+                <div className="diag-section">
+                  <div className="diag-section-header">Secrets Encryption</div>
+                  <div className="diag-section-content">
+                    {encryptionStatus === null ? (
+                      <span className="diag-empty">Checking...</span>
+                    ) : encryptionStatus.configured ? (
+                      <span className="diag-sync-ok">Secrets stored encrypted at rest</span>
+                    ) : (
+                      <span className="diag-sync-error">
+                        Not configured
+                        {encryptionStatus.error && <> — {encryptionStatus.error}</>}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* PM Diagnostics: Create ticket availability (0011) */}
+                {selectedChatTarget === 'project-manager' && diagnostics.lastCreateTicketAvailable != null && (
+                  <div className="diag-section">
+                    <div className="diag-section-header">Create ticket (this request)</div>
+                    <div className="diag-section-content">
+                      {diagnostics.lastCreateTicketAvailable ? (
+                        <span className="diag-sync-ok">Available (Supabase creds were sent)</span>
+                      ) : (
+                        <span className="diag-sync-error">Not available — connect project folder with .env (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY)</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* PM Diagnostics: Ticket creation (0011) */}
+                {selectedChatTarget === 'project-manager' && diagnostics.lastTicketCreationResult && (
+                  <div className="diag-section">
+                    <div className="diag-section-header">Ticket creation</div>
+                    <div className="diag-section-content">
+                      <div className="diag-ticket-creation">
+                        <div><strong>Ticket ID:</strong> {diagnostics.lastTicketCreationResult.id}</div>
+                        <div><strong>File path:</strong> {diagnostics.lastTicketCreationResult.filePath}</div>
+                        {diagnostics.lastTicketCreationResult.retried && diagnostics.lastTicketCreationResult.attempts != null && (
+                          <div><strong>Retry:</strong> Collision resolved after {diagnostics.lastTicketCreationResult.attempts} attempt(s)</div>
+                        )}
+                        <div>
+                          <strong>Sync:</strong>{' '}
+                          {diagnostics.lastTicketCreationResult.syncSuccess ? (
+                            <span className="diag-sync-ok">Success</span>
+                          ) : (
+                            <span className="diag-sync-error">
+                              Failed
+                              {diagnostics.lastTicketCreationResult.syncError && (
+                                <> — {diagnostics.lastTicketCreationResult.syncError}</>
+                              )}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* PM Diagnostics: Ticket readiness evaluation (0066) */}
+                {selectedChatTarget === 'project-manager' && diagnostics.lastPmToolCalls && (() => {
+                  const createTicketCall = diagnostics.lastPmToolCalls.find(c => c.name === 'create_ticket')
+                  const updateTicketCall = diagnostics.lastPmToolCalls.find(c => c.name === 'update_ticket_body')
+                  const readinessCall = createTicketCall || updateTicketCall
+                  if (!readinessCall) return null
+                  
+                  const output = readinessCall.output as any
+                  const isSuccess = output?.success === true
+                  const isRejected = output?.success === false && output?.detectedPlaceholders
+                  const hasReadiness = isSuccess && (output?.ready !== undefined || output?.missingItems)
+                  
+                  if (!isRejected && !hasReadiness) return null
+                  
+                  return (
+                    <div className="diag-section">
+                      <div className="diag-section-header">Ticket readiness evaluation</div>
+                      <div className="diag-section-content">
+                        {isRejected ? (
+                          <div className="diag-ticket-readiness">
+                            <div>
+                              <strong>Status:</strong>{' '}
+                              <span className="diag-sync-error">REJECTED</span>
+                            </div>
+                            <div>
+                              <strong>Reason:</strong> Unresolved template placeholder tokens detected
+                            </div>
+                            {output.detectedPlaceholders && Array.isArray(output.detectedPlaceholders) && output.detectedPlaceholders.length > 0 && (
+                              <div>
+                                <strong>Detected placeholders:</strong>{' '}
+                                <code>{output.detectedPlaceholders.join(', ')}</code>
+                              </div>
+                            )}
+                            {output.error && (
+                              <div className="diag-readiness-error">
+                                <strong>Error message:</strong> {output.error}
+                              </div>
+                            )}
+                          </div>
+                        ) : isSuccess && hasReadiness ? (
+                          <div className="diag-ticket-readiness">
+                            <div>
+                              <strong>Status:</strong>{' '}
+                              {output.ready ? (
+                                <span className="diag-sync-ok">PASS</span>
+                              ) : (
+                                <span className="diag-sync-error">FAIL</span>
+                              )}
+                            </div>
+                            {output.missingItems && Array.isArray(output.missingItems) && output.missingItems.length > 0 && (
+                              <div>
+                                <strong>Missing items:</strong>
+                                <ul style={{ marginTop: '0.5em', marginBottom: '0.5em', paddingLeft: '1.5em' }}>
+                                  {output.missingItems.map((item: string, idx: number) => (
+                                    <li key={idx}>{item}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  )
+                })()}
+
+                {/* Auto-move diagnostics (0061) */}
+                {(selectedChatTarget === 'implementation-agent' || selectedChatTarget === 'qa-agent' || selectedChatTarget === 'project-manager') && diagnostics.autoMoveDiagnostics.length > 0 && (
+                  <div className="diag-section">
+                    <div className="diag-section-header">Auto-move diagnostics</div>
+                    <div className="diag-section-content">
+                      <div className="diag-auto-move-list">
+                        {diagnostics.autoMoveDiagnostics.slice(-10).map((entry, idx) => (
+                          <div key={idx} className={`diag-auto-move-entry diag-auto-move-${entry.type}`}>
+                            <span className="diag-auto-move-time">[{formatTime(entry.timestamp)}]</span>
+                            <span className="diag-auto-move-message">{entry.message}</span>
+                          </div>
+                        ))}
+                        {diagnostics.autoMoveDiagnostics.length > 10 && (
+                          <div className="diag-auto-move-more">
+                            ({diagnostics.autoMoveDiagnostics.length - 10} older entries)
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Orphaned completion summary (0067) */}
+                {orphanedCompletionSummary && (
+                  <div className="diag-section">
+                    <div className="diag-section-header">Orphaned completion summary</div>
+                    <div className="diag-section-content">
+                      <div className="diag-auto-move-entry diag-auto-move-error">
+                        <span className="diag-auto-move-message">
+                          Completion summary received but agent type could not be determined. Raw summary retained for troubleshooting:
+                        </span>
+                      </div>
+                      <pre className="diag-json" style={{ marginTop: '8px', whiteSpace: 'pre-wrap' }}>
+                        {orphanedCompletionSummary}
+                      </pre>
+                    </div>
+                  </div>
+                )}
+              </div>
+>>>>>>> Stashed changes
             )}
             {pmChatWidgetOpen && (
         <PmChatWidget

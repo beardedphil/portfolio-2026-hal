@@ -169,19 +169,56 @@ function App() {
 
   // Restore Supabase url/key to state only on mount (no auto-connect). Ensures key is in state when HAL sends HAL_CONNECT_SUPABASE; avoids showing tickets before user has connected this session.
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(SUPABASE_CONFIG_KEY)
-      if (!raw) return
-      const parsed = JSON.parse(raw) as { projectUrl?: string; anonKey?: string }
-      const url = (parsed?.projectUrl ?? '').trim()
-      const key = (parsed?.anonKey ?? '').trim()
-      if (url && key) {
-        setSupabaseProjectUrl(url)
-        setSupabaseAnonKey(key)
+    const restoreConfig = async () => {
+      try {
+        const raw = localStorage.getItem(SUPABASE_CONFIG_KEY)
+        if (!raw) return
+        const parsed = JSON.parse(raw) as { projectUrl?: string; anonKey?: string; encrypted?: boolean }
+        let url = (parsed?.projectUrl ?? '').trim()
+        let key = (parsed?.anonKey ?? '').trim()
+        
+        if (!url || !key) return
+        
+        // Migrate: if keys are plaintext, encrypt them
+        const { encryptSecret, isEncrypted: checkEncrypted } = await import('./lib/encryption.js')
+        const urlIsEncrypted = checkEncrypted(url)
+        const keyIsEncrypted = checkEncrypted(key)
+        
+        if (!urlIsEncrypted || !keyIsEncrypted) {
+          // Plaintext keys detected - encrypt them
+          try {
+            const encryptedUrl = urlIsEncrypted ? url : await encryptSecret(url)
+            const encryptedKey = keyIsEncrypted ? key : await encryptSecret(key)
+            localStorage.setItem(SUPABASE_CONFIG_KEY, JSON.stringify({ 
+              projectUrl: encryptedUrl, 
+              anonKey: encryptedKey,
+              encrypted: true 
+            }))
+            url = encryptedUrl
+            key = encryptedKey
+          } catch (err) {
+            console.error('[Kanban] Failed to encrypt plaintext keys:', err)
+            // Continue with plaintext for this session (migration will retry next time)
+          }
+        }
+        
+        // Decrypt for use in this session
+        try {
+          const { decryptSecret } = await import('./lib/encryption.js')
+          const decryptedUrl = urlIsEncrypted ? await decryptSecret(url) : url
+          const decryptedKey = keyIsEncrypted ? await decryptSecret(key) : key
+          setSupabaseProjectUrl(decryptedUrl)
+          setSupabaseAnonKey(decryptedKey)
+        } catch (err) {
+          console.error('[Kanban] Failed to decrypt keys:', err)
+          // Clear invalid encrypted data
+          localStorage.removeItem(SUPABASE_CONFIG_KEY)
+        }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
     }
+    restoreConfig()
   }, [])
 
   // Restore connected repo from localStorage on load (0119: fix repo display after refresh)
@@ -523,7 +560,26 @@ function App() {
       setSupabaseConnectionStatus('connected')
       setSupabaseProjectUrl(url)
       setSupabaseAnonKey(key)
-      localStorage.setItem(SUPABASE_CONFIG_KEY, JSON.stringify({ projectUrl: url, anonKey: key }))
+      
+      // Encrypt keys before storing in localStorage
+      try {
+        const { encryptSecret } = await import('./lib/encryption.js')
+        const encryptedUrl = await encryptSecret(url)
+        const encryptedKey = await encryptSecret(key)
+        localStorage.setItem(SUPABASE_CONFIG_KEY, JSON.stringify({ 
+          projectUrl: encryptedUrl, 
+          anonKey: encryptedKey,
+          encrypted: true 
+        }))
+      } catch (err) {
+        console.error('[Kanban] Failed to encrypt keys for storage:', err)
+        // Don't store plaintext - fail the connection
+        setSupabaseLastError('Failed to encrypt credentials. Encryption is not configured on the server.')
+        setSupabaseConnectionStatus('disconnected')
+        setSupabaseTickets([])
+        setSupabaseColumnsRows([])
+        return
+      }
     } catch (e) {
       setSupabaseLastError(e instanceof Error ? e.message : String(e))
       setSupabaseConnectionStatus('disconnected')

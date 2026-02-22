@@ -1,7 +1,12 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { getOrigin } from '../../_lib/github/config.js'
+<<<<<<< Updated upstream
 import { exchangeCodeForToken } from '../../_lib/github/githubApi.js'
 import { getSession } from '../../_lib/github/session.js'
+=======
+import { exchangeCodeForToken, getViewer } from '../../_lib/github/githubApi.js'
+import { getSession, encryptAccessToken } from '../../_lib/github/session.js'
+>>>>>>> Stashed changes
 
 const AUTH_SECRET_MIN = 32
 const CODE_DEDUPE_TTL_MS = 60_000
@@ -281,6 +286,7 @@ export default async function handler(req: IncomingMessage | Request, res?: Serv
       return
     }
 
+<<<<<<< Updated upstream
     if (!expected || state !== expected) {
       // Potential replay/double-hit: if we already saw this code recently, just bounce back.
       if (session.oauthLastCode === code) {
@@ -300,6 +306,21 @@ export default async function handler(req: IncomingMessage | Request, res?: Serv
 
     // Make callback single-use to prevent parallel replays from double-exchanging the same code.
     // Clear state before exchanging so a second hit fails fast (and doesn't "consume" the one-time code).
+=======
+    // Encrypt the access token before storing in session
+    let encryptedToken: string
+    try {
+      encryptedToken = encryptAccessToken(token.access_token)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Encryption failed'
+      console.error('[api/auth/github/callback] Failed to encrypt token:', msg)
+      sendJson(res, 503, {
+        error: 'Secrets encryption is not configured. Set HAL_ENCRYPTION_KEY in server environment variables.',
+      })
+      return
+    }
+
+>>>>>>> Stashed changes
     session.oauthState = undefined
     session.oauthRedirectUri = undefined
     session.oauthLastCode = code
@@ -309,7 +330,7 @@ export default async function handler(req: IncomingMessage | Request, res?: Serv
     const token = await exchangeCodeOnce(code, redirectUri)
 
     session.github = {
-      accessToken: token.access_token,
+      accessToken: encryptedToken,
       scope: token.scope,
       tokenType: token.token_type,
     }
@@ -318,6 +339,7 @@ export default async function handler(req: IncomingMessage | Request, res?: Serv
     redirect(res, `${origin}/?github=connected`)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
+<<<<<<< Updated upstream
     console.error('[api/auth/github/callback]', msg, err)
     // UX: this endpoint is a browser redirect target, so redirect back to the app with an error marker.
     // Also clear oauth state so the user can retry cleanly.
@@ -333,6 +355,12 @@ export default async function handler(req: IncomingMessage | Request, res?: Serv
       // Fall back to JSON if we can't redirect.
       sendJson(res, 500, { error: msg })
     }
+=======
+    // Don't log full error object to avoid leaking secrets
+    console.error('[api/auth/github/callback]', msg)
+    // Don't expose internal error details to client
+    sendJson(res, 500, { error: 'OAuth callback failed' })
+>>>>>>> Stashed changes
   }
 }
 
