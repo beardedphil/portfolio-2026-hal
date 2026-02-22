@@ -7,8 +7,10 @@ import {
   humanReadableCursorError,
   appendProgress,
   buildWorklogBodyFromProgress,
+  upsertArtifact,
 } from './_shared.js'
 import type { IncomingMessage, ServerResponse } from 'http'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 const originalEnv = process.env
 
@@ -213,5 +215,202 @@ describe('buildWorklogBodyFromProgress', () => {
     const body = buildWorklogBodyFromProgress('HAL-0123', [], 'succeeded')
     expect(body).toContain('HAL-0123')
     expect(body).toContain('## Progress')
+  })
+})
+
+describe('upsertArtifact', () => {
+  const ticketPk = 'ticket-123'
+  const repoFullName = 'test/repo'
+  const agentType = 'implementation'
+  const validBody = 'This is a valid artifact body with enough content to pass validation. It has more than 50 characters.'
+  
+  it('rejects empty or placeholder content before any database operations', async () => {
+    const mockSupabase = { from: vi.fn() } as any
+
+    const shortBody = 'Short'
+    const placeholderBody = '(none)'
+
+    const result1 = await upsertArtifact(
+      mockSupabase,
+      ticketPk,
+      repoFullName,
+      agentType,
+      'Plan for ticket 0127',
+      shortBody
+    )
+
+    expect(result1.ok).toBe(false)
+    expect(result1.error).toContain('validation failed')
+    expect(mockSupabase.from).not.toHaveBeenCalled()
+
+    const result2 = await upsertArtifact(
+      mockSupabase,
+      ticketPk,
+      repoFullName,
+      agentType,
+      'Plan for ticket 0127',
+      placeholderBody
+    )
+
+    expect(result2.ok).toBe(false)
+    expect(result2.error).toContain('validation failed')
+  })
+
+  it('inserts new artifact when no existing artifacts found by canonical ID', async () => {
+    const mockInsert = vi.fn().mockResolvedValue({ error: null })
+    const mockTicketQuery = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ 
+        data: { display_id: '0127' }, 
+        error: null 
+      }),
+    }
+    const mockArtifactQuery = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      order: vi.fn().mockResolvedValue({ data: [], error: null }),
+    }
+
+    const mockSupabase = {
+      from: vi.fn((table: string) => {
+        if (table === 'tickets') return mockTicketQuery
+        if (table === 'agent_artifacts') {
+          return {
+            ...mockArtifactQuery,
+            insert: mockInsert,
+          }
+        }
+        return {}
+      }),
+    } as any
+
+    // Mock the findArtifactsByCanonicalId function
+    const artifactShared = await import('../artifacts/_shared.js')
+    vi.spyOn(artifactShared, 'findArtifactsByCanonicalId').mockResolvedValue({ 
+      artifacts: [], 
+      error: null 
+    })
+
+    const result = await upsertArtifact(
+      mockSupabase,
+      ticketPk,
+      repoFullName,
+      agentType,
+      'Plan for ticket 0127',
+      validBody
+    )
+
+    expect(result.ok).toBe(true)
+    expect(mockInsert).toHaveBeenCalled()
+  })
+
+  it('updates existing artifact when one with substantive content exists', async () => {
+    const existingArtifact = {
+      artifact_id: 'artifact-123',
+      body_md: 'Existing content that is valid and has enough characters to pass validation.',
+      created_at: '2024-01-01T00:00:00Z',
+    }
+
+    const mockUpdateEq = vi.fn().mockResolvedValue({ error: null })
+    const mockUpdate = vi.fn().mockReturnValue({
+      eq: mockUpdateEq,
+    })
+
+    const mockTicketQuery = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ 
+        data: { display_id: '0127' }, 
+        error: null 
+      }),
+    }
+
+    const mockSupabase = {
+      from: vi.fn((table: string) => {
+        if (table === 'tickets') return mockTicketQuery
+        if (table === 'agent_artifacts') {
+          return {
+            update: mockUpdate,
+          }
+        }
+        return {}
+      }),
+    } as any
+
+    // Mock findArtifactsByCanonicalId to return existing artifact
+    const artifactShared = await import('../artifacts/_shared.js')
+    vi.spyOn(artifactShared, 'findArtifactsByCanonicalId').mockResolvedValue({
+      artifacts: [existingArtifact],
+      error: null,
+    })
+
+    const result = await upsertArtifact(
+      mockSupabase,
+      ticketPk,
+      repoFullName,
+      agentType,
+      'Plan for ticket 0127',
+      validBody
+    )
+
+    expect(result.ok).toBe(true)
+    expect(mockUpdate).toHaveBeenCalled()
+  })
+
+  it('deletes empty placeholder artifacts before inserting new content', async () => {
+    const emptyArtifact = {
+      artifact_id: 'empty-123',
+      body_md: '(none)',
+      created_at: '2024-01-01T00:00:00Z',
+    }
+
+    const mockDeleteIn = vi.fn().mockResolvedValue({ error: null })
+    const mockDelete = vi.fn().mockReturnValue({
+      in: mockDeleteIn,
+    })
+
+    const mockInsert = vi.fn().mockResolvedValue({ error: null })
+    const mockTicketQuery = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ 
+        data: { display_id: '0127' }, 
+        error: null 
+      }),
+    }
+
+    const mockSupabase = {
+      from: vi.fn((table: string) => {
+        if (table === 'tickets') return mockTicketQuery
+        if (table === 'agent_artifacts') {
+          return {
+            delete: mockDelete,
+            insert: mockInsert,
+          }
+        }
+        return {}
+      }),
+    } as any
+
+    // Mock findArtifactsByCanonicalId to return empty artifact
+    const artifactShared = await import('../artifacts/_shared.js')
+    vi.spyOn(artifactShared, 'findArtifactsByCanonicalId').mockResolvedValue({
+      artifacts: [emptyArtifact],
+      error: null,
+    })
+
+    const result = await upsertArtifact(
+      mockSupabase,
+      ticketPk,
+      repoFullName,
+      agentType,
+      'Plan for ticket 0127',
+      validBody
+    )
+
+    expect(result.ok).toBe(true)
+    expect(mockDelete).toHaveBeenCalled()
+    expect(mockInsert).toHaveBeenCalled()
   })
 })
