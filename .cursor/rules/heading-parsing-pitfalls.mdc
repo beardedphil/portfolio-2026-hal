@@ -245,6 +245,20 @@ A non-technical user opens the app, navigates to Settings, sees a "Dark mode" to
 
 - Theme customization beyond light/dark (no color pickers or advanced theming)
 - Per-component theme overrides (global theme only)
+
+## Scope Lock / Out-of-Scope
+
+### Product Flows Changed
+
+- [x] **Instructions retrieval** — Updated theme-related instructions to include dark mode preferences
+
+### Product Flows Not Implemented (Missing Infrastructure)
+
+None — All required infrastructure is in place.
+
+### Escalation Note to PM/QA
+
+N/A — No missing infrastructure or blockers.
 ```
 
 **Why this is good:**
