@@ -52,14 +52,17 @@ export function useConversationPersistence({
             )
 
             if (messagesToSave.length > 0) {
-              // Insert new messages into Supabase
-              const inserts = messagesToSave.map((msg) => ({
-                project_id: connectedProject,
-                agent: convId, // Use conversation ID as agent field (e.g., "project-manager-1", "implementation-agent-2")
-                role: msg.agent === 'user' ? 'user' : msg.agent === 'system' ? 'system' : 'assistant',
-                content: msg.content,
-                sequence: msg.id,
-                created_at: msg.timestamp.toISOString(),
+              // Insert new messages into Supabase one row at a time to avoid the client's
+              // array-insert `columns` query param (quoted names cause PostgREST 400).
+              let insertError: { message: string } | null = null
+              for (const msg of messagesToSave) {
+                const row = {
+                  project_id: connectedProject,
+                  agent: convId,
+                  role: msg.agent === 'user' ? 'user' : msg.agent === 'system' ? 'system' : 'assistant',
+                  content: msg.content,
+                  sequence: msg.id,
+                  created_at: msg.timestamp.toISOString(),
                   ...(msg.imageAttachments && msg.imageAttachments.length > 0
                     ? {
                         images: msg.imageAttachments.map((img) => ({
@@ -69,14 +72,17 @@ export function useConversationPersistence({
                         })),
                       }
                     : {}),
-              }))
+                }
+                const { error } = await supabase.from('hal_conversation_messages').insert(row)
+                if (error) {
+                  insertError = error
+                  console.error(`[HAL] Failed to save messages for conversation ${convId}:`, error)
+                  break
+                }
+              }
 
-              const { error } = await supabase.from('hal_conversation_messages').insert(inserts)
-
-              if (error) {
-                console.error(`[HAL] Failed to save messages for conversation ${convId}:`, error)
-                // Don't overwrite localStorage error if it exists, but show Supabase error
-                setPersistenceError((prev) => prev || `DB: ${error.message}`)
+              if (insertError) {
+                setPersistenceError((prev) => prev || `DB: ${insertError!.message}`)
               } else {
                 // Update max sequence for this conversation
                 const newMaxSeq = Math.max(...messagesToSave.map((m) => m.id), currentMaxSeq)
