@@ -46,3 +46,93 @@ The note may be titled:
 - `Note for implementation agent: HAL-XXXX`
 
 Both formats are recognized and should be checked.
+
+## AC Feasibility Gate
+
+**MANDATORY:** Before creating a branch, reading files, or making any code changes, implementation agents **MUST** perform an "AC Feasibility Gate" check. This gate ensures that all acceptance criteria can be implemented with existing UI surfaces and API endpoints.
+
+### Step 1: Map Each Acceptance Criterion
+
+For **each** acceptance criterion in the ticket, the agent **MUST** explicitly map it to:
+
+1. **An existing UI surface** — Where a human will verify the AC is met (e.g., "Settings page", "Ticket detail view", "Kanban board column")
+2. **An existing API/endpoint or data source** — What enables the AC to be implemented (e.g., "`POST /api/tickets/move` endpoint", "Supabase `tickets` table via HAL API", "localStorage for theme preference")
+
+**Mapping format:**
+```markdown
+### AC 1: [Full text of acceptance criterion]
+
+- **UI Surface:** [Specific UI location where human will verify, e.g., "Settings page toggle switch"]
+- **API/Endpoint:** [Specific API endpoint or data source, e.g., "`POST /api/artifacts/insert-implementation` endpoint"]
+- **Feasibility:** ✅ Feasible / ❌ Not feasible
+
+[If not feasible, explain why below]
+```
+
+### Step 2: Stop and Escalate if Any AC Cannot Be Mapped
+
+**CRITICAL:** If **any** acceptance criterion cannot be mapped to both:
+- An existing UI surface, **OR**
+- An existing API/endpoint or data source
+
+Then the agent **MUST STOP** and **NOT** proceed with implementation. Instead, the agent must do **one** of the following:
+
+#### Option A: File a Clarification Request
+
+Create a clear clarification request that states:
+- **Which AC(s) cannot be mapped** (list the full text of each AC)
+- **What is missing** (e.g., "RED generation UI component does not exist", "No API endpoint for generating RED artifacts")
+- **What information is needed** to proceed (e.g., "Need clarification on where RED generation UI should be located", "Need confirmation that RED generation endpoint should be created in a separate ticket")
+- **Why this blocks implementation** (e.g., "Cannot implement AC without the UI surface where users will verify it")
+
+#### Option B: Propose a Ticket Split
+
+Propose a ticket split that identifies:
+- **Which AC(s) require missing infrastructure** (list the full text of each AC)
+- **What sub-tickets are needed** (e.g., "Ticket A: Create RED generation UI component", "Ticket B: Create `POST /api/artifacts/generate-red` endpoint")
+- **Dependencies** (which sub-tickets must be completed first)
+- **Recommended order** for implementing the sub-tickets
+
+### Step 3: Document the AC Feasibility Gate Results
+
+The agent **MUST** document the AC Feasibility Gate results in the implementation plan artifact:
+
+- **If all ACs are feasible:** Include the complete mapping table in the plan artifact
+- **If any AC is not feasible:** Include the clarification request or ticket split proposal in the plan artifact, and **do not proceed** with implementation
+
+### Example: Failing AC Mapping
+
+**Example scenario:** A ticket has an acceptance criterion: "User can generate a RED (Requirements Engineering Document) artifact from the ticket detail view."
+
+**AC Feasibility Gate check:**
+```markdown
+### AC: "User can generate a RED artifact from the ticket detail view"
+
+- **UI Surface:** ❌ **NOT FOUND** — No RED generation UI component exists in the ticket detail view
+- **API/Endpoint:** ❌ **NOT FOUND** — No `POST /api/artifacts/generate-red` endpoint exists
+- **Feasibility:** ❌ **NOT FEASIBLE**
+
+**Missing components:**
+1. RED generation UI component (button/menu item in ticket detail view)
+2. RED generation API endpoint (`POST /api/artifacts/generate-red`)
+
+**Required action:** STOP implementation. Propose ticket split:
+- Ticket A: Create RED generation UI component in ticket detail view
+- Ticket B: Create `POST /api/artifacts/generate-red` endpoint
+- Ticket C: Wire UI component to API endpoint (depends on A and B)
+```
+
+**Expected behavior:** The agent stops, documents the ticket split proposal in the plan artifact, and does **not** proceed with partial implementation.
+
+### When to Perform AC Feasibility Gate
+
+The AC Feasibility Gate **MUST** be performed:
+1. ✅ After checking for Implementation Agent Note (if any)
+2. ✅ **BEFORE** creating/switching to feature branch
+3. ✅ **BEFORE** reading any files for implementation
+4. ✅ **BEFORE** making any code changes
+
+**CRITICAL ORDERING:**
+- Check for Implementation Agent Note → **AC Feasibility Gate** → Branch Setup → Code Implementation
+
+Only proceed to branch setup and coding if **all** acceptance criteria pass the feasibility gate.
