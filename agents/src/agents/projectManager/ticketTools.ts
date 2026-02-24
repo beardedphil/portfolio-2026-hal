@@ -18,15 +18,16 @@ import {
 import { COL_UNASSIGNED, COL_TODO } from '../projectManager.js'
 import type { ToolCallRecord } from '../projectManager.js'
 
+/** Config for create_ticket: repoFullName is owner/repo (e.g. "beardedphil/portfolio-2026-hal"); projectId is only for DB/conversation, not for repo. */
 export function createTicketTool(
   halFetchJson: (path: string, body: unknown, opts?: { timeoutMs?: number; progressMessage?: string }) => Promise<{ ok: boolean; json: any }>,
   toolCalls: ToolCallRecord[],
-  config: { projectId?: string },
+  config: { projectId?: string; repoFullName?: string },
   isAbortError: (err: unknown) => boolean
 ) {
   return tool({
     description:
-      'Create a new ticket via the HAL API (server-side Supabase secret key). The ticket is created in Unassigned; if it already passes the Ready-to-start checklist, HAL may auto-move it to To Do.',
+      'Create a new ticket via the HAL API (server-side Supabase secret key). Requires a GitHub repository to be connected in HAL; if none is connected, tell the user to connect one first. The ticket is created in Unassigned; if it already passes the Ready-to-start checklist, HAL may auto-move it to To Do.',
     parameters: z.object({
       title: z.string().describe('Short title for the ticket (no ID prefix).'),
       body_md: z.string().describe('Full markdown body for the ticket. No unresolved placeholders.'),
@@ -65,10 +66,20 @@ export function createTicketTool(
 
         bodyMdTrimmed = normalizeBodyForReady(bodyMdTrimmed)
 
+        // Require a connected repo (owner/repo). Do not fall back to HAL's repo—users must not create tickets there.
         const repoFullName =
-          typeof config.projectId === 'string' && config.projectId.trim()
-            ? config.projectId.trim()
-            : 'beardedphil/portfolio-2026-hal'
+          typeof config.repoFullName === 'string' && config.repoFullName.trim() && config.repoFullName.includes('/')
+            ? config.repoFullName.trim()
+            : null
+        if (!repoFullName) {
+          out = {
+            success: false,
+            error:
+              'No GitHub repository is connected. Ask the user to connect a GitHub repository in HAL (e.g. via the project/repo selector) before creating tickets. Ticket creation is not allowed without a connected repo.',
+          }
+          toolCalls.push({ name: 'create_ticket', input, output: out })
+          return out
+        }
 
         const { json: created } = await halFetchJson(
           '/api/tickets/create-general',
