@@ -162,13 +162,20 @@ export function useAgentRuns(params: UseAgentRunsParams) {
 
             // PM agent: async run + SSE stream (works past Vercel timeouts)
             addPmSystemMessage('[Status] Launching PM run (async)...')
+            // Use connectedGithubRepo.fullName when set; fallback to connectedProject so PM launch has a repo whenever the UI shows one as connected
+            const repoForLaunch =
+              (connectedGithubRepo && typeof connectedGithubRepo.fullName === 'string' && connectedGithubRepo.fullName.trim())
+                ? connectedGithubRepo.fullName.trim()
+                : (typeof connectedProject === 'string' && connectedProject.trim().includes('/'))
+                  ? connectedProject.trim()
+                  : undefined
             const launchRes = await fetch('/api/agent-runs/launch', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               credentials: 'include',
               body: JSON.stringify({
                 agentType: 'project-manager',
-                repoFullName: connectedGithubRepo?.fullName,
+                repoFullName: repoForLaunch,
                 defaultBranch: connectedGithubRepo?.defaultBranch || 'main',
                 message: content,
                 conversationId: convId,

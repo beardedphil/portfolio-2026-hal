@@ -97,14 +97,35 @@ export function useGithub() {
   }, [])
 
   // Restore connected GitHub repo from localStorage on load (0119: fix repo display after refresh)
-  // The repo state is restored for UI display; Kanban will receive the connection message when the iframe loads
+  // Accept both fullName (camelCase) and full_name (snake_case) so restoration works regardless of save shape
   useEffect(() => {
     try {
       const saved = localStorage.getItem('hal-github-repo')
       if (saved) {
-        const parsed = JSON.parse(saved) as ConnectedGithubRepo
-        if (parsed?.fullName) {
-          setConnectedGithubRepo(parsed)
+        const parsed = JSON.parse(saved) as Record<string, unknown>
+        const fullName =
+          typeof parsed?.fullName === 'string'
+            ? parsed.fullName.trim()
+            : typeof (parsed as any)?.full_name === 'string'
+              ? (parsed as any).full_name.trim()
+              : ''
+        if (fullName && fullName.includes('/')) {
+          setConnectedGithubRepo({
+            fullName,
+            defaultBranch:
+              typeof parsed?.defaultBranch === 'string'
+                ? parsed.defaultBranch.trim()
+                : typeof (parsed as any)?.default_branch === 'string'
+                  ? (parsed as any).default_branch.trim()
+                  : 'main',
+            htmlUrl:
+              typeof parsed?.htmlUrl === 'string'
+                ? parsed.htmlUrl.trim()
+                : typeof (parsed as any)?.html_url === 'string'
+                  ? (parsed as any).html_url.trim()
+                  : '',
+            private: typeof (parsed as any)?.private === 'boolean' ? (parsed as any).private : false,
+          })
         }
       }
     } catch {
