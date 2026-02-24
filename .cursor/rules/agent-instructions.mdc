@@ -110,3 +110,99 @@ if (!result.success) {
 - `col-wont-implement` - Will Not Implement
 
 **Note:** The HAL API endpoint `/api/tickets/move` uses server-side Supabase credentials, so agents don't need to provide credentials in the request body. The API uses the ticket's primary key (pk) for updates to ensure reliable ticket movement regardless of the ticket ID format provided.
+
+## QA Notes in Completion Summary
+
+**MANDATORY:** All final completion summaries from **Implementation agents** and **Project Manager agents** **MUST** include a **QA Notes** section that maps each Acceptance Criteria to a concrete UI verification location.
+
+### Requirements
+
+1. **Enumerate each Acceptance Criteria** — The QA Notes section must list **every single AC** from the ticket.
+
+2. **Provide exact UI location/route** — For each AC, specify:
+   - The exact UI route/path where the AC can be verified (e.g., `/settings`, `/tickets/HAL-0841`, `/kanban`)
+   - Any relevant UI labels, buttons, or elements that demonstrate the AC is met (e.g., "Settings page → 'Dark mode' toggle switch", "Ticket detail page → 'Status' field shows 'Ready for QA'")
+   - Clear navigation steps if needed (e.g., "Navigate to Settings → Appearance section → Verify 'Dark mode' toggle is visible")
+
+3. **Mark non-UI-verifiable ACs as Blocked** — If any AC cannot be verified in the UI (e.g., requires terminal access, database inspection, or code review), the agent **MUST**:
+   - Mark that AC as **Blocked** in the QA Notes section
+   - **NOT** claim the ticket is complete if any AC is Blocked
+   - Either move the ticket to an appropriate column (e.g., "To-do" if work remains) or create a follow-up ticket to address the non-UI-verifiable requirement
+
+**CRITICAL:** If any AC is marked as **Blocked** (not UI-verifiable), the ticket **CANNOT** be marked complete or moved to "Ready for QA". The agent must either:
+- Update the AC to be UI-verifiable, OR
+- Document why the AC cannot be UI-verifiable and move the ticket to an appropriate status (e.g., "Will Not Implement" if the AC is intentionally non-UI-verifiable)
+
+### QA Notes Section Format
+
+The QA Notes section must appear in the **final completion summary** (the "done" message sent to the user). It should follow this format:
+
+```markdown
+## QA Notes
+
+### AC 1: "[Full text of AC 1]"
+- **UI Location:** `/settings` → Appearance section
+- **Verification:** Navigate to Settings page, scroll to Appearance section, verify "Dark mode" toggle switch is visible and clickable
+- **Status:** ✅ UI-verifiable
+
+### AC 2: "[Full text of AC 2]"
+- **UI Location:** `/tickets/HAL-0841` → Ticket detail page
+- **Verification:** Open ticket HAL-0841, verify "Status" field displays "Ready for QA"
+- **Status:** ✅ UI-verifiable
+
+### AC 3: "[Full text of AC 3]"
+- **UI Location:** N/A (requires database inspection)
+- **Verification:** Cannot be verified in UI - requires direct database access
+- **Status:** ⚠️ Blocked (not UI-verifiable)
+```
+
+### Example: Complete Final Summary with QA Notes
+
+```markdown
+## Summary
+
+Implemented dark mode toggle feature with persistence. Added toggle switch to Settings page, implemented theme switching logic, and stored preference in localStorage.
+
+## Key Decisions
+
+- Used localStorage for persistence to avoid backend changes
+- Implemented theme switching via CSS variables for performance
+
+## QA Notes
+
+### AC 1: "Settings page displays a 'Dark mode' toggle switch that is clearly visible and clickable"
+- **UI Location:** `/settings` → Appearance section
+- **Verification:** Navigate to Settings page, scroll to Appearance section, verify "Dark mode" toggle switch is visible and clickable
+- **Status:** ✅ UI-verifiable
+
+### AC 2: "Clicking the toggle immediately changes the app theme from light to dark (or vice versa) with a smooth transition"
+- **UI Location:** `/settings` → Appearance section → "Dark mode" toggle
+- **Verification:** Click the "Dark mode" toggle, observe entire app UI transitions from light to dark theme (or vice versa) with smooth animation
+- **Status:** ✅ UI-verifiable
+
+### AC 3: "The selected theme preference persists after page refresh (the toggle state matches the current theme on reload)"
+- **UI Location:** `/settings` → Appearance section → "Dark mode" toggle
+- **Verification:** Set theme to dark mode, refresh page (F5 or Cmd+R), verify page reloads with dark theme and toggle switch is in "on" position
+- **Status:** ✅ UI-verifiable
+
+Ticket HAL-0841 implementation completed and moved to QA.
+```
+
+### Integration with AC Confirmation Checklist
+
+The QA Notes section **complements** the AC Confirmation Checklist (see `.cursor/rules/ac-confirmation-checklist.mdc`). Both sections should appear in the final completion summary:
+
+- **AC Confirmation Checklist** — Enumerates each AC with "Met" / "Not met" status and evidence (file paths, artifacts, etc.)
+- **QA Notes** — Maps each AC to exact UI location/route for human verification
+
+Together, these sections ensure that:
+1. All ACs are explicitly addressed (AC Confirmation Checklist)
+2. All ACs can be verified in the UI (QA Notes)
+3. Reviewers can quickly verify completion without terminal access (QA Notes)
+
+### Scope
+
+- **Applies to:** Implementation agents, Project Manager agents
+- **Applies when:** Before sending final completion summary (after moving ticket to "Ready for QA" or final status)
+- **Mandatory:** Yes - this is a required section in completion summaries, not optional
+- **Location:** Must appear in the final chat completion summary message
