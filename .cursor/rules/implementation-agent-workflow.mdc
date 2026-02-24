@@ -46,3 +46,78 @@ The note may be titled:
 - `Note for implementation agent: HAL-XXXX`
 
 Both formats are recognized and should be checked.
+
+## No TODOs in Shipped Paths Check
+
+**MANDATORY:** Before completing implementation and moving a ticket to Ready for QA, implementation agents **MUST** verify that no TODO comments, placeholder logic, or incomplete implementations remain in any code paths that are touched by the ticket's changes, especially in switch-case/step handlers.
+
+### What to Check
+
+**MANDATORY:** Search for TODO/placeholder patterns in any touched switch-case/step handlers (e.g., `verify_preview`, `ensure_repo_initialized`, `create_supabase_project`, `create_vercel_project` in `api/bootstrap/step.ts` or similar step handler files).
+
+**Search patterns to look for:**
+- `TODO` (case-insensitive)
+- `FIXME` (case-insensitive)
+- `XXX` (case-insensitive)
+- `placeholder` (case-insensitive)
+- Comments indicating incomplete implementation (e.g., "For now, simulate", "Temporary", "Stub")
+
+**How to search:**
+```bash
+# Search for TODOs in step handler files
+grep -r -i "TODO\|FIXME\|XXX\|placeholder" api/bootstrap/step.ts
+
+# Or search more broadly in touched files
+grep -r -i "TODO\|FIXME\|XXX\|placeholder" <path-to-touched-files>
+```
+
+### When This Applies
+
+This check applies when:
+- The ticket touches switch-case/step handlers (e.g., bootstrap steps, API route handlers with switch statements)
+- The ticket modifies code paths that are executed in production or shipped code
+- The ticket adds or modifies step handlers, route handlers, or similar control flow structures
+
+### What to Do If TODOs Are Found
+
+**If TODOs/placeholders are found in touched step handlers:**
+1. **Evaluate each TODO:**
+   - If the TODO is **unrelated to the ticket's changes** (e.g., pre-existing TODO in a different step), document it but do not block completion
+   - If the TODO is **related to the ticket's changes** (e.g., placeholder logic in a step handler you modified), you **MUST** either:
+     - **Complete the implementation** to remove the TODO, OR
+     - **Document why the TODO is acceptable** in the completion summary with a clear explanation
+
+2. **If placeholder logic remains:**
+   - **Do not move ticket to Ready for QA** until placeholder logic is removed or explicitly documented as acceptable
+   - Update the implementation to remove placeholder logic, OR
+   - Document in the completion summary why placeholder logic is acceptable (e.g., "TODO in `ensure_repo_initialized` is pre-existing and unrelated to this ticket's changes")
+
+### Completion Summary Requirement
+
+**MANDATORY:** The final completion summary (sent before moving ticket to Ready for QA) **MUST** include a "No TODOs in Shipped Paths" confirmation section that states:
+
+```markdown
+## No TODOs in Shipped Paths
+
+✅ **Verified:** Searched for TODO/placeholder patterns in touched switch-case/step handlers.
+
+**Files checked:**
+- `api/bootstrap/step.ts` (or other relevant files)
+
+**Results:**
+- [ ] No TODOs/placeholders found in touched step handlers, OR
+- [ ] TODOs found but documented below:
+
+**If TODOs found, document each:**
+- `api/bootstrap/step.ts:37` — `TODO (T2): Implement ensure_repo_initialized` — Pre-existing, unrelated to this ticket's changes
+```
+
+**CRITICAL:** If placeholder logic related to the ticket's changes is found and not addressed, the ticket **MUST NOT** be moved to Ready for QA. Complete the implementation or document why placeholder logic is acceptable before proceeding.
+
+### Integration with Existing Workflow
+
+This check should be performed:
+1. **After all code changes are complete** (before committing final changes)
+2. **Before storing final artifacts** (plan, worklog, changed-files, etc.)
+3. **Before moving ticket to Ready for QA** (this is a blocking check)
+4. **Included in the completion summary** (mandatory confirmation section)
