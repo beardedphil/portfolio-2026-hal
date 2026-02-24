@@ -199,7 +199,7 @@ export function parseBootstrapCredentials(body: {
  * Logs an audit event for bootstrap/infra actions.
  */
 export async function logAuditEvent(
-  supabase: ReturnType<typeof createClient>,
+  supabase: ReturnType<typeof createClient> | any,
   projectId: string,
   actionType: string,
   status: 'succeeded' | 'failed' | 'pending',
@@ -208,7 +208,7 @@ export async function logAuditEvent(
   actor?: string
 ): Promise<void> {
   try {
-    await supabase.from('audit_logs').insert({
+    await (supabase as any).from('audit_logs').insert({
       project_id: projectId,
       action_type: actionType,
       status,

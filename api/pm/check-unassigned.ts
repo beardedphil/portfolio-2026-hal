@@ -127,7 +127,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       if (!upd.error) moved.push(displayId)
     }
 
-    const result = { moved, notReady }
+    const result: { moved: string[]; notReady: { id: string; title?: string; missingItems: string[] }[]; error?: string } = { moved, notReady }
 
     // If projectId provided, insert a status message into hal_conversation_messages (parity with dev)
     if (projectId) {

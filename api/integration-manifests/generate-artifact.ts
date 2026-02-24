@@ -162,7 +162,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         }
 
         manifestRecord = newManifest as any
-      }
     }
 
     if (!manifestRecord) {

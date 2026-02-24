@@ -257,8 +257,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     let createdBy: string | undefined = 'system'
     try {
       const session = await getSession(req, res)
-      if (session.github?.user?.login) {
-        createdBy = `user:${session.github.user.login}`
+      if (session.github?.login) {
+        createdBy = `user:${session.github.login}`
       }
     } catch {
       // Session not available, use default
@@ -299,7 +299,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     // totalCharacters was already calculated above from the exact JSON payload
 
     // Insert receipt with budget information
-    const { data: newReceipt, error: receiptError } = await supabase
+    const { data: newReceiptRows, error: receiptError } = await supabase
       .from('bundle_receipts')
       .insert({
         bundle_id: newBundle.bundle_id,
@@ -322,13 +322,16 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         },
       })
       .select()
+      .limit(1)
 
-    if (receiptError) {
+    const newReceipt = Array.isArray(newReceiptRows) && newReceiptRows.length > 0 ? newReceiptRows[0] : null
+
+    if (receiptError || !newReceipt) {
       // Bundle was created but receipt failed - this is a problem
       // We could rollback, but for now just return an error
       return json(res, 500, {
         success: false,
-        error: `Bundle created but failed to store receipt: ${receiptError.message}`,
+        error: `Bundle created but failed to store receipt: ${receiptError?.message ?? 'No receipt returned'}`,
       })
     }
 

@@ -444,7 +444,7 @@ async function getRepoContext(
  * Uses hybrid retrieval if provided, otherwise falls back to selectedArtifactIds.
  */
 async function getRelevantArtifacts(
-  supabase: ReturnType<typeof createClient>,
+  supabase: ReturnType<typeof createClient> | any,
   ticketPk: string,
   selectedArtifactIds: string[],
   hybridRetrieval?: {
@@ -532,13 +532,15 @@ async function getRelevantArtifacts(
   }
 
   // Fetch artifacts
-  const { data: artifacts, error: artifactsError } = await supabase
+  const { data: artifactsData, error: artifactsError } = await supabase
     .from('agent_artifacts')
     .select('artifact_id, title, body_md')
     .in('artifact_id', selectedArtifactIds)
     .eq('ticket_pk', ticketPk)
 
-  if (artifactsError || !artifacts || artifacts.length === 0) {
+  const artifacts = (artifactsData ?? []) as Array<{ artifact_id: string; title: string | null; body_md: string | null }>
+
+  if (artifactsError || artifacts.length === 0) {
     return {
       artifacts: [],
       retrievalMetadata: hybridRetrieval
@@ -594,7 +596,7 @@ async function getRelevantArtifacts(
  * Gets role-specific instructions.
  */
 async function getRoleSpecificInstructions(
-  supabase: ReturnType<typeof createClient>,
+  supabase: ReturnType<typeof createClient> | any,
   repoFullName: string,
   role: string
 ): Promise<{ role_specific: string; output_schema: string }> {
@@ -607,14 +609,16 @@ async function getRoleSpecificInstructions(
   const agentType = roleToAgentType[role] || role
 
   // Fetch instructions
-  const { data: instructions, error } = await supabase
+  const { data: instructionsData, error } = await supabase
     .from('agent_instructions')
     .select('content_md, title')
     .eq('repo_full_name', repoFullName)
     .or(`always_apply.eq.true,agent_types.cs.{${agentType}},agent_types.cs.{all}`)
     .order('filename')
 
-  if (error || !instructions || instructions.length === 0) {
+  const instructions = (instructionsData ?? []) as Array<{ title: string; content_md: string | null }>
+
+  if (error || instructions.length === 0) {
     return {
       role_specific: 'No instructions available',
       output_schema: 'No output schema defined',

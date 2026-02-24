@@ -110,16 +110,15 @@ export default async function handler(req: IncomingMessage | Request, res?: Serv
       chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk)
     }
     const raw = Buffer.concat(chunks).toString('utf8').trim()
-    const body = raw
-      ? (JSON.parse(raw) as {
-          projectId: string
-          supabaseUrl?: string
-          supabaseAnonKey?: string
-          limit?: number
-          offset?: number
-          actionType?: string
-        })
-      : {}
+    type BodyShape = {
+      projectId?: string
+      supabaseUrl?: string
+      supabaseAnonKey?: string
+      limit?: number
+      offset?: number
+      actionType?: string
+    }
+    const body: BodyShape = raw ? (JSON.parse(raw) as BodyShape) : {}
 
     if (!body.projectId) {
       sendJson(res, 400, { success: false, error: 'Missing required field: projectId' })

@@ -213,8 +213,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     let createdBy: string | undefined = 'system'
     try {
       const session = await getSession(req, res)
-      if (session.github?.user?.login) {
-        createdBy = `user:${session.github.user.login}`
+      if (session.github?.login) {
+        createdBy = `user:${session.github.login}`
       }
     } catch {
       // Session not available, use default

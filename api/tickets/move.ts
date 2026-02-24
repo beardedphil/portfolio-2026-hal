@@ -387,7 +387,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         return
       }
 
-      const prUrl = agentRuns && agentRuns.length > 0 && agentRuns[0]?.pr_url
+      let prUrl: string | null = agentRuns && agentRuns.length > 0 && agentRuns[0]?.pr_url
         ? String(agentRuns[0].pr_url).trim()
         : null
 

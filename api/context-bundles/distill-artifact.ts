@@ -43,7 +43,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       artifactBodyMd?: string
       artifactId?: string
       artifactTitle?: string
-    })
+    }
 
     const artifactBodyMd = typeof body.artifactBodyMd === 'string' ? body.artifactBodyMd.trim() : undefined
     const artifactId = typeof body.artifactId === 'string' ? body.artifactId.trim() : undefined

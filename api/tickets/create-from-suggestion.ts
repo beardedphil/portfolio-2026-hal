@@ -352,7 +352,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     // Return error from createTicketWithRetry
     json(res, 200, {
       success: false,
-      error: result.error,
+      error: (result as CreateTicketError).error,
     })
   } catch (err) {
     json(res, 500, {

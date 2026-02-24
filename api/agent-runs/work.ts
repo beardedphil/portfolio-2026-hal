@@ -32,7 +32,7 @@ async function handle(runIdRaw: string, budgetMsRaw: number | null): Promise<Res
 
   const advance = await advanceRunWithProvider({ supabase, run: run as any, budgetMs })
   if (!advance.ok) {
-    const msg = advance.error.slice(0, 500)
+    const msg = (advance as { ok: false; error: string }).error.slice(0, 500)
     await supabase
       .from('hal_agent_runs')
       .update({ status: 'failed', current_stage: 'failed', error: msg, finished_at: new Date().toISOString() })

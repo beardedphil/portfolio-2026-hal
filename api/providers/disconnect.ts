@@ -57,7 +57,7 @@ async function logAuditEvent(
   actor?: string
 ): Promise<void> {
   try {
-    await supabase.from('audit_logs').insert({
+    await (supabase as any).from('audit_logs').insert({
       project_id: projectId,
       action_type: actionType,
       status,
@@ -109,7 +109,7 @@ async function handleWebRequest(request: Request): Promise<Response> {
 
   try {
     const session = await getSession(req as unknown as IncomingMessage, res as ServerResponse)
-    const body = await request.json() as { provider: string; projectId: string; supabaseUrl?: string; supabaseAnonKey?: string }
+    const body = (await request.json()) as { provider?: string; projectId?: string; supabaseUrl?: string; supabaseAnonKey?: string }
 
     if (!body.provider || !body.projectId) {
       return Response.json({ success: false, error: 'Missing required fields: provider, projectId' }, { status: 400 })
@@ -245,7 +245,8 @@ export default async function handler(req: IncomingMessage | Request, res?: Serv
       chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk)
     }
     const raw = Buffer.concat(chunks).toString('utf8').trim()
-    const body = raw ? (JSON.parse(raw) as { provider: string; projectId: string; supabaseUrl?: string; supabaseAnonKey?: string }) : {}
+    type BodyShape = { provider?: string; projectId?: string; supabaseUrl?: string; supabaseAnonKey?: string }
+    const body: BodyShape = raw ? (JSON.parse(raw) as BodyShape) : {}
 
     if (!body.provider || !body.projectId) {
       sendJson(res, 400, { success: false, error: 'Missing required fields: provider, projectId' })
