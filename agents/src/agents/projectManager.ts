@@ -489,6 +489,11 @@ export async function runPmAgent(
       ? { openai: { previousResponseId: config.previousResponseId } }
       : undefined
 
+  let streamError: unknown = null
+  const onError = (e: { error: unknown }) => {
+    if (!streamError && e?.error != null) streamError = e.error
+  }
+
   try {
     const result = await streamText({
       model,
@@ -496,6 +501,7 @@ export async function runPmAgent(
       prompt: prompt as any, // Type assertion: AI SDK supports array format for vision models
       tools,
       maxSteps: MAX_TOOL_ITERATIONS,
+      onError,
       ...(providerOptions && { providerOptions }),
       ...(config.abortSignal && { abortSignal: config.abortSignal }),
     })
@@ -519,6 +525,20 @@ export async function runPmAgent(
     }
     if (canEmit && emitBuf) {
       await config.onTextDelta!(emitBuf)
+    }
+
+    // AI SDK sends API errors via the stream (onError), not by throwing. Surface them so the run fails with the real error.
+    if (streamError != null && !reply.trim() && toolCalls.length === 0) {
+      const errMsg = streamError instanceof Error ? streamError.message : String(streamError)
+      return {
+        reply: '',
+        toolCalls: [],
+        outboundRequest: capturedRequest ? (redact(capturedRequest) as object) : {},
+        error: errMsg,
+        errorPhase: 'openai',
+        _repoUsage: repoUsage.length > 0 ? repoUsage : undefined,
+        promptText: fullPromptText,
+      }
     }
 
     // If the model returned no text but create_ticket succeeded, provide a fallback so the user sees a clear outcome (0011/0020)
