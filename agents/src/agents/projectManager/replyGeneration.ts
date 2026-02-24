@@ -63,6 +63,20 @@ export function generateFallbackReply(toolCalls: ToolCallRecord[]): string {
     return reply
   }
 
+  // create_ticket failed (no repo, API error, etc.) — surface error so user doesn't see "Completed."
+  const createTicketFailed = toolCalls.find(
+    (c) =>
+      c.name === 'create_ticket' &&
+      typeof c.output === 'object' &&
+      c.output !== null &&
+      (c.output as { success?: boolean }).success === false &&
+      !(c.output as { detectedPlaceholders?: string[] }).detectedPlaceholders
+  )
+  if (createTicketFailed) {
+    const out = createTicketFailed.output as { error?: string }
+    return `**Ticket creation failed:** ${out.error ?? 'Unknown error. Ask the user to connect a GitHub repository in HAL and try again.'}`
+  }
+
   // Check for successful tool calls
   const createTicketCall = toolCalls.find(
     (c) =>
@@ -187,6 +201,23 @@ export function generateFallbackReply(toolCalls: ToolCallRecord[]): string {
     return `I moved ticket **${out.display_id ?? out.ticketId}** from **${out.fromRepo}** (${out.fromColumn}) to **${out.toRepo}** (${out.toColumn}). The ticket is now in the To Do column of the target repository.`
   }
 
-  // No matching tool call found
+  // Any other tool call with an error — surface it so user never sees generic "Completed."
+  const firstWithError = toolCalls.find(
+    (c) =>
+      typeof c.output === 'object' &&
+      c.output !== null &&
+      (c.output as { success?: boolean }).success === false &&
+      typeof (c.output as { error?: string }).error === 'string'
+  )
+  if (firstWithError) {
+    const out = firstWithError.output as { error: string }
+    return `**${firstWithError.name}:** ${out.error}`
+  }
+
+  // Had tool calls but no recognized outcome — still show something so we don't fall back to "Completed."
+  if (toolCalls.length > 0) {
+    return `I ran ${toolCalls.length} tool call(s). If you expected a ticket or other change and don’t see it, try again or check that a GitHub repository is connected.`
+  }
+
   return ''
 }

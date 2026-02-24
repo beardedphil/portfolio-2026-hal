@@ -328,6 +328,19 @@ async function advanceProjectManagerOpenAI({ supabase, run, budgetMs }: AdvanceR
   const openaiApiKey = process.env.OPENAI_API_KEY?.trim()
   if (!openaiApiKey) return { ok: false, error: 'OPENAI_API_KEY not configured.' }
 
+  // Fail fast: PM cannot create tickets without a valid repo (owner/repo). Avoids "Completed." with no work.
+  const repoFullNameRaw = typeof run.repo_full_name === 'string' ? run.repo_full_name.trim() : ''
+  if (!repoFullNameRaw || !repoFullNameRaw.includes('/')) {
+    const msg =
+      'No GitHub repository is connected for this run. Connect a GitHub repository in HAL and send your message again.'
+    await supabase
+      .from('hal_agent_runs')
+      .update({ status: 'failed', current_stage: 'failed', error: msg, finished_at: new Date().toISOString() })
+      .eq('run_id', run.run_id)
+    await appendRunEvent(supabase, run.run_id, 'error', { message: msg })
+    return { ok: true, done: true }
+  }
+
   const modelFromEnv =
     process.env.OPENAI_PM_MODEL?.trim() ||
     process.env.OPENAI_MODEL?.trim() ||
@@ -450,7 +463,7 @@ async function advanceProjectManagerOpenAI({ supabase, run, budgetMs }: AdvanceR
       conversationContextPack,
       workingMemoryText,
       projectId: projectId || undefined,
-      repoFullName: run.repo_full_name,
+      repoFullName: repoFullNameRaw,
       images,
       onTextDelta,
       onProgress,
@@ -468,7 +481,13 @@ async function advanceProjectManagerOpenAI({ supabase, run, budgetMs }: AdvanceR
     }
 
     const finalReply = String(result?.reply ?? reply ?? '').trim()
-    const summary = capText(finalReply || 'Completed.', 20_000)
+    const toolCalls = Array.isArray(result?.toolCalls) ? result.toolCalls : []
+    // Avoid persisting "Completed." when nothing was produced — user sees no evidence of work (no ticket, no message).
+    const fallbackSummary =
+      toolCalls.length > 0
+        ? 'The agent ran but produced no summary. Check that a GitHub repository is connected and try again.'
+        : 'The agent did not produce a response. Try again or ensure a GitHub repository is connected in HAL.'
+    const summary = capText(finalReply || fallbackSummary, 20_000)
 
     // Persist assistant reply to conversation (optional; UI also persists client-side).
     if (conversationId && projectId && summary) {

@@ -60,7 +60,19 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const images = Array.isArray(body.images) ? body.images : undefined
 
     if (!repoFullName) {
-      json(res, 400, { error: 'repoFullName is required.' })
+      json(res, 400, {
+        error:
+          agentType === 'project-manager'
+            ? 'Connect a GitHub repository in HAL to use the Project Manager (repoFullName is required).'
+            : 'repoFullName is required.',
+      })
+      return
+    }
+    // Project Manager needs a valid owner/repo so create_ticket can target the right repo.
+    if (agentType === 'project-manager' && !repoFullName.includes('/')) {
+      json(res, 400, {
+        error: 'Connect a GitHub repository in HAL (owner/repo format). The Project Manager cannot create tickets without a connected repo.',
+      })
       return
     }
 
