@@ -20,6 +20,44 @@ interface AuditLogEntry {
   actor?: string | null
 }
 
+// Redaction utility to ensure secrets are never displayed in audit logs
+const REDACTED = '[REDACTED]'
+const OPENAI_KEY_PATTERN = /sk-[a-zA-Z0-9_-]{20,}/g
+const JWT_PATTERN = /eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+/g
+const SUPABASE_URL_PATTERN = /https:\/\/([a-zA-Z0-9-]+\.)?supabase\.co(\/[a-zA-Z0-9_-]*)*/gi
+const SENSITIVE_KEYS = /^(api[_-]?key|apikey|authorization|secret|password|token|access[_-]?token|refresh[_-]?token|supabase[_-]?(anon|service)[_-]?key|client[_-]?secret|oauth[_-]?token)$/i
+
+function redactString(value: string): string {
+  return value
+    .replace(OPENAI_KEY_PATTERN, REDACTED)
+    .replace(JWT_PATTERN, REDACTED)
+    .replace(SUPABASE_URL_PATTERN, REDACTED)
+}
+
+function redactValue(value: unknown, key?: string): unknown {
+  if (key && typeof value === 'string' && SENSITIVE_KEYS.test(key)) {
+    return REDACTED
+  }
+  if (typeof value === 'string') {
+    return redactString(value)
+  }
+  if (Array.isArray(value)) {
+    return value.map((v) => redactValue(v))
+  }
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = redactValue(v, k)
+    }
+    return out
+  }
+  return value
+}
+
+function redactMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
+  return redactValue(metadata) as Record<string, unknown>
+}
+
 export function AuditLogView({
   isOpen,
   onClose,
@@ -190,7 +228,7 @@ export function AuditLogView({
                     <details style={{ marginTop: '0.5rem' }}>
                       <summary style={{ cursor: 'pointer', fontSize: '0.9em', color: '#666' }}>Metadata</summary>
                       <pre style={{ marginTop: '0.5rem', padding: '0.5rem', backgroundColor: '#fff', borderRadius: '4px', fontSize: '0.85em', overflow: 'auto' }}>
-                        {JSON.stringify(log.metadata, null, 2)}
+                        {JSON.stringify(redactMetadata(log.metadata || {}), null, 2)}
                       </pre>
                     </details>
                   )}
