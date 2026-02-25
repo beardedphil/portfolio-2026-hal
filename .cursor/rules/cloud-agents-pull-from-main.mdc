@@ -190,7 +190,57 @@ If you discover that work has landed on the wrong branch (detached HEAD, `main`,
 
 Cloud agents run in an environment that may have cloned the repo earlier or from a different ref. The board and tickets reflect the current state of `main`; working from a stale clone can cause merge conflicts, duplicate work, or missed changes. Always start from an up-to-date `main`.
 
+## Integrity checks (pre-PR + post-PR)
+
+**MANDATORY:** Before opening or merging a PR, agents **MUST** perform two integrity checks and include the results in the PR description.
+
+### Pre-PR check: Branch commit count
+
+Run the following command to verify your branch is ahead of `main`:
+
+```bash
+git rev-list --count main..HEAD
+```
+
+This should return a positive number (N commits ahead). If it returns `0`, your branch is not ahead of `main` and you need to:
+- Rebase or merge `main` into your branch: `git rebase main` or `git merge main`
+- Ensure your changes are committed and pushed
+- Re-run the check until it shows a positive number
+
+### Post-PR check: Changed files verification
+
+After opening the PR, verify that the PR's "Files changed" view shows at least one changed file. If the PR shows 0 changed files:
+- **STOP** — Do not merge the PR
+- Investigate why no files are showing as changed
+- Check that your commits were pushed correctly
+- Verify the branch is correctly targeting `main`
+- Only proceed after confirming the PR shows changed files
+
+### PR description template
+
+Include the following in your PR description (copy/paste-ready):
+
+```markdown
+## Integrity Checks
+
+- [ ] Branch is ahead of `main` by N commits: `git rev-list --count main..HEAD` = [paste numeric result here]
+- [ ] PR shows changed files: [paste confirmation statement here, e.g., "PR Files changed view shows X files modified"]
+```
+
+**Example:**
+```markdown
+## Integrity Checks
+
+- [ ] Branch is ahead of `main` by N commits: `git rev-list --count main..HEAD` = 3
+- [ ] PR shows changed files: PR Files changed view shows 2 files modified (cloud-agents-pull-from-main.mdc, README.md)
+```
+
+### Failure handling
+
+- **If commit count is 0:** Rebase/merge `main` into your branch, ensure changes are committed, and re-check before opening/merging the PR.
+- **If PR shows 0 changed files:** Stop immediately, investigate the issue, and do not merge until the PR correctly shows changed files.
+
 ## Scope
 
 - Applies to: implementation-agent, qa-agent (any agent that runs as a Cursor Cloud Agent on the repo).
-- When: Before any other work on the ticket (first step after the agent starts).
+- When: Before any other work on the ticket (first step after the agent starts), and before opening/merging PRs (integrity checks).
