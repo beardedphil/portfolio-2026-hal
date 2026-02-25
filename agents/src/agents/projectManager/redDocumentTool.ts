@@ -109,13 +109,44 @@ export function createRedDocumentTool(
               const validationStatus =
                 typeof redDoc?.validation_status === 'string' ? redDoc.validation_status : 'pending'
               const version = vNum || redDoc?.version || 0
-              const artifactTitle = getRedArtifactTitle(version, createdAt)
-              const artifactBody = createRedArtifactBody(String(latest.red_id), version, createdAt, validationStatus, redJsonForArtifact)
-              await halFetchJson(
-                '/api/artifacts/insert-implementation',
-                { ticketId: ticketPk, artifactType: 'red', title: artifactTitle, body_md: artifactBody },
-                { timeoutMs: 25_000, progressMessage: `Saving RED artifact for ${input.ticket_id}…` }
+            // Perform hybrid retrieval for existing RED (to show retrieval sources summary)
+            let retrievalMetadata: {
+              repoFilter?: string
+              pinnedIncluded: boolean
+              recencyWindow?: string
+              totalConsidered: number
+              totalSelected: number
+            } | undefined
+
+            try {
+              const { json: hybridSearchResult } = await halFetchJson(
+                '/api/artifacts/hybrid-search',
+                {
+                  query: redJsonForArtifact ? JSON.stringify(redJsonForArtifact).substring(0, 500) : undefined,
+                  repoFullName,
+                  includePinned: false,
+                  recencyDays: 30,
+                  limit: 20,
+                  ticketPk,
+                  deterministic: true,
+                },
+                { timeoutMs: 20_000, progressMessage: `Performing hybrid retrieval for ${input.ticket_id}…` }
               )
+
+              if (hybridSearchResult?.success && hybridSearchResult?.retrievalMetadata) {
+                retrievalMetadata = hybridSearchResult.retrievalMetadata
+              }
+            } catch {
+              // Non-fatal - continue without retrieval metadata
+            }
+
+            const artifactTitle = getRedArtifactTitle(version, createdAt)
+            const artifactBody = createRedArtifactBody(String(latest.red_id), version, createdAt, validationStatus, redJsonForArtifact, retrievalMetadata)
+            await halFetchJson(
+              '/api/artifacts/insert-implementation',
+              { ticketId: ticketPk, artifactType: 'red', title: artifactTitle, body_md: artifactBody },
+              { timeoutMs: 25_000, progressMessage: `Saving RED artifact for ${input.ticket_id}…` }
+            )
             }
           } catch {
             // Non-fatal
@@ -143,6 +174,37 @@ export function createRedDocumentTool(
           }
           toolCalls.push({ name: 'create_red_document_v2', input, output: out })
           return out
+        }
+
+        // Perform hybrid retrieval to find relevant artifacts for RED generation
+        let retrievalMetadata: {
+          repoFilter?: string
+          pinnedIncluded: boolean
+          recencyWindow?: string
+          totalConsidered: number
+          totalSelected: number
+        } | undefined
+
+        try {
+          const { json: hybridSearchResult } = await halFetchJson(
+            '/api/artifacts/hybrid-search',
+            {
+              query: input.red_json_content ? JSON.stringify(input.red_json_content).substring(0, 500) : undefined, // Use RED content as query
+              repoFullName,
+              includePinned: false,
+              recencyDays: 30,
+              limit: 20,
+              ticketPk,
+              deterministic: true,
+            },
+            { timeoutMs: 20_000, progressMessage: `Performing hybrid retrieval for ${input.ticket_id}…` }
+          )
+
+          if (hybridSearchResult?.success && hybridSearchResult?.retrievalMetadata) {
+            retrievalMetadata = hybridSearchResult.retrievalMetadata
+          }
+        } catch {
+          // Non-fatal - continue without retrieval metadata
         }
 
         const { json: created } = await halFetchJson(
@@ -182,7 +244,7 @@ export function createRedDocumentTool(
               typeof savedRED?.validation_status === 'string' ? savedRED.validation_status : 'pending'
             const redJsonForArtifact = savedRED?.red_json ?? redJsonParsed
             const artifactTitle = getRedArtifactTitle(version, createdAt)
-            const artifactBody = createRedArtifactBody(String(savedRED?.red_id ?? ''), version, createdAt, validationStatus, redJsonForArtifact)
+            const artifactBody = createRedArtifactBody(String(savedRED?.red_id ?? ''), version, createdAt, validationStatus, redJsonForArtifact, retrievalMetadata)
             await halFetchJson(
               '/api/artifacts/insert-implementation',
               { ticketId: ticketPk, artifactType: 'red', title: artifactTitle, body_md: artifactBody },

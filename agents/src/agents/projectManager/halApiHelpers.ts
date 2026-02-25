@@ -69,15 +69,40 @@ export function createRedArtifactBody(
   version: number,
   createdAt: string,
   validationStatus: string,
-  redJson: unknown
+  redJson: unknown,
+  retrievalMetadata?: {
+    repoFilter?: string
+    pinnedIncluded: boolean
+    recencyWindow?: string
+    totalConsidered: number
+    totalSelected: number
+  }
 ): string {
+  const formatNumber = (num: number): string => {
+    return new Intl.NumberFormat().format(num)
+  }
+
+  let retrievalSection = ''
+  if (retrievalMetadata) {
+    retrievalSection = `
+## Retrieval sources
+
+${retrievalMetadata.repoFilter ? `- **Repo filter:** ${retrievalMetadata.repoFilter}` : ''}
+- **Pinned included:** ${retrievalMetadata.pinnedIncluded ? 'Yes' : 'No'}
+${retrievalMetadata.recencyWindow ? `- **Recency window:** ${retrievalMetadata.recencyWindow}` : ''}
+- **Items considered:** ${formatNumber(retrievalMetadata.totalConsidered)}
+- **Items selected:** ${formatNumber(retrievalMetadata.totalSelected)}
+${retrievalMetadata.totalConsidered === 0 ? '\n> **No matching sources found**' : ''}
+
+`
+  }
+
   return `# RED Document Version ${version}
 
 RED ID: ${redId}
 Created: ${createdAt}
 Validation Status: ${validationStatus}
-
-## Canonical RED JSON
+${retrievalSection}## Canonical RED JSON
 
 \`\`\`json
 ${JSON.stringify(redJson, null, 2)}
