@@ -186,6 +186,61 @@ If you discover that work has landed on the wrong branch (detached HEAD, `main`,
 
 **CRITICAL:** Do not continue working until the branch situation is corrected. All commits must be on the correct feature branch for the ticket.
 
+## Integrity checks (pre-PR + post-PR)
+
+**MANDATORY:** Before opening or updating a PR, agents **MUST** perform two integrity checks and include the results in the PR description.
+
+### Pre-PR Check: Branch Commit Count
+
+Before opening or updating a PR, verify that your branch is ahead of `main` by at least one commit:
+
+```bash
+git rev-list --count main..HEAD
+```
+
+This command returns the number of commits that are in your branch but not in `main`. The result must be greater than 0.
+
+**What to do if the count is 0:**
+- If the count is 0, your branch has no commits ahead of `main`. This means either:
+  - Your work hasn't been committed yet (commit your changes first)
+  - Your branch is up to date with `main` (rebase or merge `main` into your branch if needed, then commit your changes)
+- Do not open or update the PR until the count is greater than 0
+
+### Post-PR Check: PR Shows Changed Files
+
+After opening or updating a PR, verify that the PR's "Files changed" view shows at least one changed file. This confirms that the PR contains actual code changes.
+
+**What to do if the PR shows 0 changed files:**
+- If the PR shows 0 changed files, stop and investigate:
+  - Verify your commits were pushed to the correct branch
+  - Check that your commits contain file changes (not just empty commits)
+  - Ensure the PR is comparing the correct branches
+- Do not merge the PR until it shows at least one changed file
+
+### PR Description Template
+
+**MANDATORY:** Include the following integrity check results in your PR description:
+
+```markdown
+## Integrity Checks
+
+- [ ] Branch is ahead of `main` by N commits: `git rev-list --count main..HEAD` = [paste numeric result here]
+- [ ] PR shows at least one changed file: [paste confirmation statement here, e.g., "Confirmed: PR shows X changed files"]
+```
+
+**Copy/paste-ready text for PR description:**
+
+```markdown
+## Integrity Checks
+
+- [ ] Branch is ahead of `main` by N commits: `git rev-list --count main..HEAD` = 
+- [ ] PR shows at least one changed file: 
+```
+
+Replace the blank spaces with:
+1. The numeric result from `git rev-list --count main..HEAD`
+2. A confirmation statement like "Confirmed: PR shows X changed files" (where X is the actual number of changed files visible in the PR's "Files changed" view)
+
 ## Why
 
 Cloud agents run in an environment that may have cloned the repo earlier or from a different ref. The board and tickets reflect the current state of `main`; working from a stale clone can cause merge conflicts, duplicate work, or missed changes. Always start from an up-to-date `main`.
