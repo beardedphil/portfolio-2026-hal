@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'http'
 import { getSession, encryptSessionTokens } from '../_lib/github/session.js'
 import { parseSupabaseCredentialsWithServiceRole } from '../tickets/_shared.js'
 import { createClient } from '@supabase/supabase-js'
+import { redact } from '../_lib/redact.js'
 
 const AUTH_SECRET_MIN = 32
 
@@ -160,7 +161,7 @@ async function handleWebRequest(request: Request): Promise<Response> {
         revokeResult.success
           ? `Successfully revoked ${provider} OAuth token`
           : `Failed to revoke ${provider} OAuth token: ${revokeResult.error || 'Unknown error'}`,
-        { provider, revocation_supported: true, revocation_error: revokeResult.error || null },
+        redact({ provider, revocation_supported: true, revocation_error: revokeResult.error || null }) as Record<string, unknown>,
         actor
       )
     }
@@ -176,12 +177,12 @@ async function handleWebRequest(request: Request): Promise<Response> {
       'provider_disconnect',
       'succeeded',
       `Disconnected ${provider} provider${revokeResult?.success ? ' and revoked access' : revokeResult ? ' (revocation failed)' : ' (revocation not supported)'}`,
-      {
+      redact({
         provider,
         revocation_attempted: provider === 'github',
         revocation_succeeded: revokeResult?.success ?? false,
         revocation_error: revokeResult?.error || null,
-      },
+      }) as Record<string, unknown>,
       actor
     )
 
@@ -300,7 +301,7 @@ export default async function handler(req: IncomingMessage | Request, res?: Serv
         revokeResult.success
           ? `Successfully revoked ${provider} OAuth token`
           : `Failed to revoke ${provider} OAuth token: ${revokeResult.error || 'Unknown error'}`,
-        { provider, revocation_supported: true, revocation_error: revokeResult.error || null },
+        redact({ provider, revocation_supported: true, revocation_error: revokeResult.error || null }) as Record<string, unknown>,
         actor
       )
     }
@@ -314,12 +315,12 @@ export default async function handler(req: IncomingMessage | Request, res?: Serv
       'provider_disconnect',
       'succeeded',
       `Disconnected ${provider} provider${revokeResult?.success ? ' and revoked access' : revokeResult ? ' (revocation failed)' : ' (revocation not supported)'}`,
-      {
+      redact({
         provider,
         revocation_attempted: provider === 'github',
         revocation_succeeded: revokeResult?.success ?? false,
         revocation_error: revokeResult?.error || null,
-      },
+      }) as Record<string, unknown>,
       actor
     )
 
